@@ -26,7 +26,7 @@ dependencies = [
     "anthropic>=0.42.0",
     "litellm>=1.80.0",
     "tiktoken>=0.11.0",
-    "langchain-openai>=1.1.0",
+    "langchain-openai>=1.6.0",
     "langchain-community>=0.3.30",
     # ---------- 异步 / 任务 ----------
     "aiohttp>=3.12.0",
