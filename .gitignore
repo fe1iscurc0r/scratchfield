@@ -325,3 +325,7 @@ mcpserver/trust_scores.json
 /radio_brain/channel2world/data/
 # Channel2World 训练 checkpoint（二进制，不入库；冒烟日志 train_log.jsonl 保留）
 radio_brain/channel2world/logs/**/*.pt
+
+# 代码签名证书(私钥)，绝不入库
+*.pfx
+*.p12
