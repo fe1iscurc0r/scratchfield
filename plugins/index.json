@@ -1,0 +1,200 @@
+{
+  "schema": 1,
+  "updated": "2026-08-24",
+  "description": "授粉插件商城注册表 — 本仓全部授粉改造组件的来源/许可/落点。许可以各上游 LICENSE 文件为准。",
+  "plugins": [
+    {
+      "id": "omnilimb-face",
+      "name": "OmniLimb Face",
+      "upstream": "seanyang1983/omnilimb-face",
+      "license": "AGPL-3.0",
+      "type": "coupled",
+      "path": "coupled/omnilimb-face",
+      "doc": "github_haul/FUSION-LOG-2026-08-16.md",
+      "note": "P0 耦合：hooks+tools 插件契约，与陆墨脑+NEKO皮同构"
+    },
+    {
+      "id": "graphify",
+      "name": "Graphify 图谱引擎",
+      "upstream": "Graphify-Labs/graphify",
+      "license": "Apache-2.0",
+      "type": "mcp",
+      "path": "mcpserver/adapters/graphify",
+      "doc": "docs/graphify-落地评估.md",
+      "note": "对齐 graph.json 数据契约的确定性零依赖管线 + TF-IDF/RRF 查询"
+    },
+    {
+      "id": "headroom",
+      "name": "Headroom 上下文压缩",
+      "upstream": "headroomlabs-ai/headroom",
+      "license": "Apache-2.0",
+      "type": "mcp",
+      "path": "mcpserver/adapters/headroom.py",
+      "note": "上下文压缩适配"
+    },
+    {
+      "id": "memclaw",
+      "name": "MemClaw 记忆引擎",
+      "upstream": "caura-memclaw",
+      "license": "Apache-2.0",
+      "type": "mcp",
+      "path": "mcpserver/adapters/memclaw.py",
+      "note": "记忆 sidecar 适配"
+    },
+    {
+      "id": "context7",
+      "name": "Context7 文档检索",
+      "upstream": "upstash/context7",
+      "license": "MIT",
+      "type": "mcp",
+      "path": "mcpserver/adapters/context7.py"
+    },
+    {
+      "id": "llm4decompile",
+      "name": "LLM4Decompile 反编译",
+      "upstream": "albertan017/LLM4Decompile",
+      "license": "MIT+DeepSeek License",
+      "type": "mcp",
+      "path": "mcpserver/adapters/llm4decompile.py",
+      "note": "源码在 mod/sources/packages/extracted/github_sweep/LLM4Decompile/"
+    },
+    {
+      "id": "markitdown",
+      "name": "MarkItDown 文档转 Markdown",
+      "upstream": "microsoft/markitdown",
+      "license": "MIT",
+      "type": "mcp",
+      "path": "mcpserver/adapters/markitdown.py"
+    },
+    {
+      "id": "vulnclaw",
+      "name": "VulnClaw 漏洞狩猎",
+      "upstream": "VulnClaw",
+      "license": "MIT",
+      "type": "mcp",
+      "path": "mcpserver/adapters/vulnclaw.py"
+    },
+    {
+      "id": "agent_reach",
+      "name": "Agent-Reach 信息通道",
+      "upstream": "Agent-Reach",
+      "license": "MIT",
+      "type": "mcp",
+      "path": "mcpserver/adapters/agent_reach.py",
+      "note": "web/rss/reddit/github/v2ex/xueqiu 纯 Python 通道"
+    },
+    {
+      "id": "tts_api",
+      "name": "TTS-API 语音合成",
+      "upstream": "babutree/TTS-API",
+      "license": "MIT",
+      "type": "mcp",
+      "path": "mcpserver/tts_api",
+      "doc": "docs/TTS-API-MCP封装-SPEC-v1.md"
+    },
+    {
+      "id": "bofire",
+      "name": "BoFire 实验设计",
+      "upstream": "experimental-design/bofire",
+      "license": "BSD-3-Clause",
+      "type": "mcp",
+      "path": "mcpserver/bofire",
+      "note": "材料实验优化首选封装"
+    },
+    {
+      "id": "hamlog_adapter",
+      "name": "HamLog 通联日志适配",
+      "upstream": "BA8AQA/HamLog (fork: fe1iscurc0r/HamLog)",
+      "license": "待核",
+      "type": "mcp",
+      "path": "mcpserver/adapters/hamlog_adapter",
+      "note": "自研适配层，QSO 数据不上云"
+    },
+    {
+      "id": "rsba1_adapter",
+      "name": "RS-BA1 电台协议栈",
+      "upstream": "自研 (IC-705 CI-V 逆向)",
+      "license": "AGPL-3.0",
+      "type": "mcp",
+      "path": "mcpserver/adapters/rsba1_adapter",
+      "note": "CI-V 帧格式 + Mailslot/Serial/Command 信道，193 测试"
+    },
+    {
+      "id": "rf_brain",
+      "name": "射频大脑",
+      "upstream": "自研",
+      "license": "AGPL-3.0",
+      "type": "mcp",
+      "path": "mcpserver/rf_brain",
+      "note": "协议无关解调链：OOK 解码/Acurite/LaCrosse/哨兵网格"
+    },
+    {
+      "id": "cascade",
+      "name": "Cascade 物理事实卫兵",
+      "upstream": "xucailiang/cascade",
+      "license": "MIT",
+      "type": "report",
+      "path": "docs/cascade-授粉报告.md",
+      "note": "物理事实优先卫兵 → M3 反向事件状态机"
+    },
+    {
+      "id": "aspen",
+      "name": "Aspen 语音打断",
+      "upstream": "thooton/aspen",
+      "license": "CC0-1.0",
+      "type": "report",
+      "path": "docs/aspen-授粉报告.md",
+      "note": "threading.Event + 三处轮询的打断逻辑"
+    },
+    {
+      "id": "zhuomianling",
+      "name": "桌灵 Live2D 框架",
+      "upstream": "qiyueblues-design/zhuomianling",
+      "license": "MIT",
+      "type": "report",
+      "path": "docs/zhuomianling-授粉报告.md"
+    },
+    {
+      "id": "speech-core",
+      "name": "Speech-Core 编排",
+      "upstream": "soniqo/speech-core",
+      "license": "Apache-2.0",
+      "type": "report",
+      "path": "docs/speech-core-授粉报告.md",
+      "note": "编排/模型分离，与 rf_brain 协议无关层同构"
+    },
+    {
+      "id": "meuxe",
+      "name": "Meuxe ACP 脑",
+      "upstream": "meet447/Meuxe",
+      "license": "MIT",
+      "type": "report",
+      "path": "docs/Meuxe-授粉报告.md",
+      "note": "<<expression>> 表情协议 + ACP 脑分离"
+    },
+    {
+      "id": "lumo-chem",
+      "name": "Lumo 化学工具链",
+      "upstream": "自研",
+      "license": "AGPL-3.0",
+      "type": "report",
+      "path": "docs/academic/lumo-chem-授粉报告.md"
+    },
+    {
+      "id": "lumo-molec",
+      "name": "Lumo 分子工具链",
+      "upstream": "自研",
+      "license": "AGPL-3.0",
+      "type": "report",
+      "path": "docs/academic/lumo-molec-授粉报告.md"
+    },
+    {
+      "id": "lumo-seq",
+      "name": "Lumo 序列工具链",
+      "upstream": "自研",
+      "license": "AGPL-3.0",
+      "type": "report",
+      "path": "docs/academic/lumo-seq-授粉报告.md"
+    }
+  ]
+}

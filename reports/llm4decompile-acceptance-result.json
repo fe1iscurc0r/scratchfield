@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "c_code": "void mov(int3 *a,int3 *b,int3 *c,int3 *d,int3 *e,int3 *f,int3 *g,int3 *h,int3 *i,int3 *j,int3 *k,int3 *l,int3 *m,int3 *n,int3 *o,int3 *p,int3 *q,int3 *r,int3 *s,int3 *t,int3 *u,int3 *v,int3 *w,int3 *x,int3 *y,int3 *z)\nvoid mov(int3 *a,int3 *b,int3 *c,int3 *d,int3 *e,int3 *f,int3 *g,int3 *h,int3 *i,int3 *j,int3 *k,int3 *l,int3 *m,int3 *n,int3 *o,int3 *p,int3 *q,int3 *r,int3 *s,int3 *t,int3 *u,int3 *v,int3 *w,int3 *x",
+  "func_name": "escape",
+  "arch": "x86_64",
+  "opt_level": "O2",
+  "model": "LLM4Binary/llm4decompile-1.3b-v1.5",
+  "elapsed_sec": 113.95
+}

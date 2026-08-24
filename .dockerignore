@@ -1,0 +1,9 @@
+# 缩小 sdrtrunk-bridge 构建上下文：只打包 Dockerfile 需要的 mcpserver/ 子树
+.git
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+github_haul
+*.wav
+*.zip
+.env

@@ -1,0 +1,543 @@
+﻿================================================================================
+RadioSch.dll 深度反汇编
+================================================================================
+ImageBase: 0x10000000
+
+
+### Export: CloseDll  (RVA: 0x2b00)
+----------------------------------------------------------------------
+  [ 1] 0x10002b00: push     ebp
+  [ 2] 0x10002b01: mov      ebp, esp
+  [ 3] 0x10002b03: push     esi
+  [ 4] 0x10002b04: push     0x101be2d4  ; rva=0x1be2d4
+  [ 5] 0x10002b09: call     dword ptr [0x1016d3fc]
+  [ 6] 0x10002b0f: mov      esi, dword ptr [ebp + 8]
+  [ 7] 0x10002b12: mov      ecx, 0x101be2b0  ; rva=0x1be2b0
+  [ 8] 0x10002b17: push     0
+  [ 9] 0x10002b19: push     esi
+  [10] 0x10002b1a: call     0x1000ce54  ; → call rva=0xce54  ; rva=0xce54
+  [11] 0x10002b1f: test     eax, eax
+  [12] 0x10002b21: je       0x10002b3b  ; rva=0x2b3b
+  [13] 0x10002b23: push     eax
+  [14] 0x10002b24: mov      ecx, 0x101be2b0  ; rva=0x1be2b0
+  [15] 0x10002b29: call     0x1000cf61  ; → call rva=0xcf61  ; rva=0xcf61
+  [16] 0x10002b2e: test     esi, esi
+  [17] 0x10002b30: je       0x10002b3b  ; rva=0x2b3b
+  [18] 0x10002b32: mov      eax, dword ptr [esi]
+  [19] 0x10002b34: mov      ecx, esi
+  [20] 0x10002b36: push     1
+  [21] 0x10002b38: call     dword ptr [eax + 4]
+  [22] 0x10002b3b: mov      eax, dword ptr [0x101be2cc]
+  [23] 0x10002b40: mov      ecx, 0x101be2cc  ; rva=0x1be2cc
+  [24] 0x10002b45: pop      esi
+  [25] 0x10002b46: pop      ebp
+  [26] 0x10002b47: jmp      dword ptr [eax + 0x14]
+  [27] 0x10002b4a: int3     
+  [28] 0x10002b4b: int3     
+  [29] 0x10002b4c: int3     
+  [30] 0x10002b4d: int3     
+  [31] 0x10002b4e: int3     
+  [32] 0x10002b4f: int3     
+  [33] 0x10002b50: push     ebx
+  [34] 0x10002b51: mov      ebx, ecx
+  [35] 0x10002b53: push     esi
+  [36] 0x10002b54: push     edi
+  [37] 0x10002b55: cmp      dword ptr [ebx + 0xe4], 0
+  [38] 0x10002b5c: je       0x10002b81  ; rva=0x2b81
+  [39] 0x10002b5e: nop      
+  [40] 0x10002b60: lea      ecx, [ebx + 0xd8]
+  [41] 0x10002b66: call     0x1000cfa4  ; → call rva=0xcfa4  ; rva=0xcfa4
+  [42] 0x10002b6b: test     eax, eax
+  [43] 0x10002b6d: je       0x10002b78  ; rva=0x2b78
+  [44] 0x10002b6f: mov      edx, dword ptr [eax]
+  [45] 0x10002b71: mov      ecx, eax
+  [46] 0x10002b73: push     1
+  [47] 0x10002b75: call     dword ptr [edx + 4]
+  [48] 0x10002b78: cmp      dword ptr [ebx + 0xe4], 0
+  [49] 0x10002b7f: jne      0x10002b60  ; rva=0x2b60
+  [50] 0x10002b81: mov      esi, dword ptr [ebx + 0xcc]
+  [51] 0x10002b87: mov      edi, dword ptr [ebx + 0xd0]
+  [52] 0x10002b8d: cmp      esi, edi
+  [53] 0x10002b8f: je       0x10002bbd  ; rva=0x2bbd
+  [54] 0x10002b91: mov      eax, esi
+  [55] 0x10002b93: cmp      esi, edi
+  [56] 0x10002b95: je       0x10002bab  ; rva=0x2bab
+  [57] 0x10002b97: mov      ecx, esi
+  [58] 0x10002b99: call     0x10002760  ; → call rva=0x2760  ; rva=0x2760
+  [59] 0x10002b9e: add      esi, 0x18
+  [60] 0x10002ba1: cmp      esi, edi
+  [61] 0x10002ba3: jne      0x10002b97  ; rva=0x2b97
+  [62] 0x10002ba5: mov      eax, dword ptr [ebx + 0xcc]
+  [63] 0x10002bab: mov      dword ptr [ebx + 0xd0], eax
+  [64] 0x10002bb1: mov      edi, eax
+  [65] 0x10002bb3: mov      esi, dword ptr [ebx + 0xcc]
+  [66] 0x10002bb9: cmp      esi, eax
+  [67] 0x10002bbb: jne      0x10002b91  ; rva=0x2b91
+  [68] 0x10002bbd: pop      edi
+  [69] 0x10002bbe: pop      esi
+  [70] 0x10002bbf: mov      ecx, ebx
+  [71] 0x10002bc1: pop      ebx
+  [72] 0x10002bc2: jmp      0x1000e894  ; rva=0xe894
+  [73] 0x10002bc7: int3     
+  [74] 0x10002bc8: int3     
+  [75] 0x10002bc9: int3     
+  [76] 0x10002bca: int3     
+  [77] 0x10002bcb: int3     
+  [78] 0x10002bcc: int3     
+  [79] 0x10002bcd: int3     
+  [80] 0x10002bce: int3     
+
+### Export: GetUsbDev  (RVA: 0x2c00)
+----------------------------------------------------------------------
+  [ 1] 0x10002c00: push     ebp
+  [ 2] 0x10002c01: mov      ebp, esp
+  [ 3] 0x10002c03: push     ecx
+  [ 4] 0x10002c04: push     esi
+  [ 5] 0x10002c05: mov      esi, dword ptr [ebp + 8]
+  [ 6] 0x10002c08: push     edi
+  [ 7] 0x10002c09: push     0x101be2d4  ; rva=0x1be2d4
+  [ 8] 0x10002c0e: call     dword ptr [0x1016d3fc]
+  [ 9] 0x10002c14: push     0
+  [10] 0x10002c16: push     esi
+  [11] 0x10002c17: mov      ecx, 0x101be2b0  ; rva=0x1be2b0
+  [12] 0x10002c1c: call     0x1000ce54  ; → call rva=0xce54  ; rva=0xce54
+  [13] 0x10002c21: neg      eax
+  [14] 0x10002c23: mov      ecx, 0x101be2cc  ; rva=0x1be2cc
+  [15] 0x10002c28: sbb      edi, edi
+  [16] 0x10002c2a: mov      eax, dword ptr [0x101be2cc]
+  [17] 0x10002c2f: call     dword ptr [eax + 0x14]
+  [18] 0x10002c32: and      edi, esi
+  [19] 0x10002c34: je       0x10002cd7  ; rva=0x2cd7
+  [20] 0x10002c3a: push     dword ptr [ebp + 0xc]
+  [21] 0x10002c3d: mov      ecx, edi
+  [22] 0x10002c3f: call     0x1000ce7b  ; → call rva=0xce7b  ; rva=0xce7b
+  [23] 0x10002c44: test     eax, eax
+  [24] 0x10002c46: je       0x10002cd7  ; rva=0x2cd7
+  [25] 0x10002c4c: mov      edi, dword ptr [ebp + 0x10]
+  [26] 0x10002c4f: push     ebx
+  [27] 0x10002c50: mov      ebx, dword ptr [eax + 8]
+  [28] 0x10002c53: push     0x220
+  [29] 0x10002c58: push     0
+  [30] 0x10002c5a: mov      dword ptr [ebp - 4], ebx
+  [31] 0x10002c5d: mov      eax, dword ptr [ebx]
+  [32] 0x10002c5f: mov      dword ptr [edi], eax
+  [33] 0x10002c61: mov      eax, dword ptr [ebx + 4]
+  [34] 0x10002c64: mov      dword ptr [edi + 4], eax
+  [35] 0x10002c67: mov      eax, dword ptr [ebx + 0xc]
+  [36] 0x10002c6a: mov      dword ptr [edi + 8], eax
+  [37] 0x10002c6d: lea      eax, [edi + 0xc]
+  [38] 0x10002c70: push     eax
+  [39] 0x10002c71: call     0x10143a10  ; → call rva=0x143a10  ; rva=0x143a10
+  [40] 0x10002c76: add      esp, 0xc
+  [41] 0x10002c79: mov      dword ptr [ebp + 8], 0
+  [42] 0x10002c80: cmp      dword ptr [ebx + 0xc], 0
+  [43] 0x10002c84: jle      0x10002ccb  ; rva=0x2ccb
+  [44] 0x10002c86: add      edi, 0x10
+  [45] 0x10002c89: mov      ecx, 0x3f
+  [46] 0x10002c8e: add      ebx, 0x18
+  [47] 0x10002c91: mov      eax, dword ptr [ebx - 8]
+  [48] 0x10002c94: mov      dword ptr [edi - 4], eax
+  [49] 0x10002c97: mov      eax, dword ptr [ebx]
+  [50] 0x10002c99: mov      esi, dword ptr [eax - 0xc]
+  [51] 0x10002c9c: cmp      esi, 0x40
+  [52] 0x10002c9f: cmovae   esi, ecx
+  [53] 0x10002ca2: push     esi
+  [54] 0x10002ca3: push     eax
+  [55] 0x10002ca4: push     edi
+  [56] 0x10002ca5: call     0x10142f10  ; → call rva=0x142f10  ; rva=0x142f10
+  [57] 0x10002caa: mov      ecx, dword ptr [ebp + 8]
+  [58] 0x10002cad: lea      ebx, [ebx + 0xc]
+  [59] 0x10002cb0: mov      eax, dword ptr [ebp - 4]
+  [60] 0x10002cb3: inc      ecx
+  [61] 0x10002cb4: mov      byte ptr [edi + esi], 0
+  [62] 0x10002cb8: add      esp, 0xc
+  [63] 0x10002cbb: add      edi, 0x44
+  [64] 0x10002cbe: mov      dword ptr [ebp + 8], ecx
+  [65] 0x10002cc1: cmp      ecx, dword ptr [eax + 0xc]
+  [66] 0x10002cc4: mov      ecx, 0x3f
+  [67] 0x10002cc9: jl       0x10002c91  ; rva=0x2c91
+  [68] 0x10002ccb: pop      ebx
+  [69] 0x10002ccc: pop      edi
+  [70] 0x10002ccd: mov      eax, 1
+  [71] 0x10002cd2: pop      esi
+  [72] 0x10002cd3: mov      esp, ebp
+  [73] 0x10002cd5: pop      ebp
+  [74] 0x10002cd6: ret      
+
+### Export: OpenDll  (RVA: 0x3e20)
+----------------------------------------------------------------------
+  [ 1] 0x10003e20: push     ebp
+  [ 2] 0x10003e21: mov      ebp, esp
+  [ 3] 0x10003e23: push     -1
+  [ 4] 0x10003e25: push     0x1015f0ca  ; rva=0x15f0ca
+  [ 5] 0x10003e2a: mov      eax, dword ptr fs:[0]
+  [ 6] 0x10003e30: push     eax
+  [ 7] 0x10003e31: sub      esp, 0x1c
+  [ 8] 0x10003e34: push     ebx
+  [ 9] 0x10003e35: push     esi
+  [10] 0x10003e36: push     edi
+  [11] 0x10003e37: mov      eax, dword ptr [0x101b9e2c]
+  [12] 0x10003e3c: xor      eax, ebp
+  [13] 0x10003e3e: push     eax
+  [14] 0x10003e3f: lea      eax, [ebp - 0xc]
+  [15] 0x10003e42: mov      dword ptr fs:[0], eax
+  [16] 0x10003e48: push     0x50
+  [17] 0x10003e4a: call     0x1000cd09  ; → call rva=0xcd09  ; rva=0xcd09
+  [18] 0x10003e4f: add      esp, 4
+  [19] 0x10003e52: mov      dword ptr [ebp - 0x18], eax
+  [20] 0x10003e55: mov      dword ptr [ebp - 4], 0
+  [21] 0x10003e5c: test     eax, eax
+  [22] 0x10003e5e: je       0x10003f00  ; rva=0x3f00
+  [23] 0x10003e64: sub      esp, 0xc
+  [24] 0x10003e67: mov      ebx, esp
+  [25] 0x10003e69: mov      dword ptr [ebp - 0x10], ebx
+  [26] 0x10003e6c: mov      dword ptr [ebx], 0
+  [27] 0x10003e72: mov      dword ptr [ebx + 4], 0
+  [28] 0x10003e79: mov      dword ptr [ebx + 8], 0
+  [29] 0x10003e80: mov      eax, dword ptr [0x101be2a8]
+  [30] 0x10003e85: mov      esi, dword ptr [0x101be2a4]
+  [31] 0x10003e8b: mov      dword ptr [ebp - 0x14], eax
+  [32] 0x10003e8e: cmp      esi, eax
+  [33] 0x10003e90: je       0x10003ef4  ; rva=0x3ef4
+  [34] 0x10003e92: mov      ecx, eax
+  [35] 0x10003e94: mov      eax, 0x2aaaaaab
+  [36] 0x10003e99: sub      ecx, esi
+  [37] 0x10003e9b: imul     ecx
+  [38] 0x10003e9d: mov      ecx, ebx
+  [39] 0x10003e9f: sar      edx, 2
+  [40] 0x10003ea2: mov      edi, edx
+  [41] 0x10003ea4: shr      edi, 0x1f
+  [42] 0x10003ea7: add      edi, edx
+  [43] 0x10003ea9: push     edi
+  [44] 0x10003eaa: call     0x10004350  ; → call rva=0x4350  ; rva=0x4350
+  [45] 0x10003eaf: mov      ebx, eax
+  [46] 0x10003eb1: lea      ecx, [edi + edi*2]
+  [47] 0x10003eb4: mov      eax, dword ptr [ebp - 0x10]
+  [48] 0x10003eb7: mov      dword ptr [ebp - 0x1c], eax
+  [49] 0x10003eba: lea      ecx, [ebx + ecx*8]
+  [50] 0x10003ebd: mov      dword ptr [eax], ebx
+  [51] 0x10003ebf: mov      dword ptr [eax + 4], ebx
+  [52] 0x10003ec2: mov      dword ptr [eax + 8], ecx
+  [53] 0x10003ec5: mov      dword ptr [ebp - 0x28], ebx
+  [54] 0x10003ec8: mov      dword ptr [ebp - 0x24], ebx
+  [55] 0x10003ecb: mov      dword ptr [ebp - 0x20], eax
+  [56] 0x10003ece: mov      edi, dword ptr [ebp - 0x14]
+  [57] 0x10003ed1: mov      byte ptr [ebp - 4], 2
+  [58] 0x10003ed5: push     esi
+  [59] 0x10003ed6: mov      ecx, ebx
+  [60] 0x10003ed8: call     0x10002490  ; → call rva=0x2490  ; rva=0x2490
+  [61] 0x10003edd: add      ebx, 0x18
+  [62] 0x10003ee0: add      esi, 0x18
+  [63] 0x10003ee3: mov      dword ptr [ebp - 0x24], ebx
+  [64] 0x10003ee6: cmp      esi, edi
+  [65] 0x10003ee8: jne      0x10003ed5  ; rva=0x3ed5
+  [66] 0x10003eea: mov      eax, dword ptr [ebp - 0x10]
+  [67] 0x10003eed: mov      byte ptr [ebp - 4], 0
+  [68] 0x10003ef1: mov      dword ptr [eax + 4], ebx
+  [69] 0x10003ef4: mov      ecx, dword ptr [ebp - 0x18]
+  [70] 0x10003ef7: call     0x10004b60  ; → call rva=0x4b60  ; rva=0x4b60
+  [71] 0x10003efc: mov      esi, eax
+  [72] 0x10003efe: jmp      0x10003f02  ; rva=0x3f02
+  [73] 0x10003f00: xor      esi, esi
+  [74] 0x10003f02: push     0x101be2d4  ; rva=0x1be2d4
+  [75] 0x10003f07: mov      dword ptr [ebp - 4], 0xffffffff
+  [76] 0x10003f0e: call     dword ptr [0x1016d3fc]
+  [77] 0x10003f14: push     esi
+  [78] 0x10003f15: mov      ecx, 0x101be2b0  ; rva=0x1be2b0
+  [79] 0x10003f1a: call     0x1000ce28  ; → call rva=0xce28  ; rva=0xce28
+  [80] 0x10003f1f: mov      edx, dword ptr [0x101be2cc]
+
+### Export: SearchUsbDev  (RVA: 0x3f70)
+----------------------------------------------------------------------
+  [ 1] 0x10003f70: push     ebp
+  [ 2] 0x10003f71: mov      ebp, esp
+  [ 3] 0x10003f73: push     edi
+  [ 4] 0x10003f74: push     0x101be2d4  ; rva=0x1be2d4
+  [ 5] 0x10003f79: call     dword ptr [0x1016d3fc]
+  [ 6] 0x10003f7f: push     0
+  [ 7] 0x10003f81: push     dword ptr [ebp + 8]
+  [ 8] 0x10003f84: mov      ecx, 0x101be2b0  ; rva=0x1be2b0
+  [ 9] 0x10003f89: call     0x1000ce54  ; → call rva=0xce54  ; rva=0xce54
+  [10] 0x10003f8e: neg      eax
+  [11] 0x10003f90: mov      ecx, 0x101be2cc  ; rva=0x1be2cc
+  [12] 0x10003f95: sbb      edi, edi
+  [13] 0x10003f97: mov      eax, dword ptr [0x101be2cc]
+  [14] 0x10003f9c: call     dword ptr [eax + 0x14]
+  [15] 0x10003f9f: and      edi, dword ptr [ebp + 8]
+  [16] 0x10003fa2: je       0x10003fad  ; rva=0x3fad
+  [17] 0x10003fa4: mov      ecx, edi
+  [18] 0x10003fa6: pop      edi
+  [19] 0x10003fa7: pop      ebp
+  [20] 0x10003fa8: jmp      0x10007400  ; rva=0x7400
+  [21] 0x10003fad: xor      eax, eax
+  [22] 0x10003faf: pop      edi
+  [23] 0x10003fb0: pop      ebp
+  [24] 0x10003fb1: ret      
+
+### Export: SearchUsbDev2  (RVA: 0x3f70)
+----------------------------------------------------------------------
+  [ 1] 0x10003f70: push     ebp
+  [ 2] 0x10003f71: mov      ebp, esp
+  [ 3] 0x10003f73: push     edi
+  [ 4] 0x10003f74: push     0x101be2d4  ; rva=0x1be2d4
+  [ 5] 0x10003f79: call     dword ptr [0x1016d3fc]
+  [ 6] 0x10003f7f: push     0
+  [ 7] 0x10003f81: push     dword ptr [ebp + 8]
+  [ 8] 0x10003f84: mov      ecx, 0x101be2b0  ; rva=0x1be2b0
+  [ 9] 0x10003f89: call     0x1000ce54  ; → call rva=0xce54  ; rva=0xce54
+  [10] 0x10003f8e: neg      eax
+  [11] 0x10003f90: mov      ecx, 0x101be2cc  ; rva=0x1be2cc
+  [12] 0x10003f95: sbb      edi, edi
+  [13] 0x10003f97: mov      eax, dword ptr [0x101be2cc]
+  [14] 0x10003f9c: call     dword ptr [eax + 0x14]
+  [15] 0x10003f9f: and      edi, dword ptr [ebp + 8]
+  [16] 0x10003fa2: je       0x10003fad  ; rva=0x3fad
+  [17] 0x10003fa4: mov      ecx, edi
+  [18] 0x10003fa6: pop      edi
+  [19] 0x10003fa7: pop      ebp
+  [20] 0x10003fa8: jmp      0x10007400  ; rva=0x7400
+  [21] 0x10003fad: xor      eax, eax
+  [22] 0x10003faf: pop      edi
+  [23] 0x10003fb0: pop      ebp
+  [24] 0x10003fb1: ret      
+
+================================================================================
+RadioSch.dll SETUPAPI 调用点
+================================================================================
+
+SetupAPI!SetupDiEnumDeviceInfo  (4 call sites):
+  0x6305  call dword ptr [0x1016d490]
+  0x6a87  call dword ptr [0x1016d490]
+  0x75fc  call dword ptr [0x1016d490]
+  0x89ee  call dword ptr [0x1016d490]
+
+SetupAPI!SetupDiDestroyDeviceInfoList  (2 call sites):
+  0x6aa1  call dword ptr [0x1016d494]
+  0x8a02  call dword ptr [0x1016d494]
+
+SetupAPI!SetupDiGetClassDevsA  (2 call sites):
+  0x62af  call dword ptr [0x1016d498]
+  0x75a8  call dword ptr [0x1016d498]
+
+SetupAPI!SetupDiOpenDevRegKey  (1 call sites):
+  0x6617  call dword ptr [0x1016d49c]
+
+SetupAPI!CM_Get_Child  (1 call sites):
+  0x8cc8  call dword ptr [0x1016d4a0]
+
+SetupAPI!CM_Get_Device_IDA  (7 call sites):
+  0x59d0  call dword ptr [0x1016d4a4]
+  0x5c20  call dword ptr [0x1016d4a4]
+  0x686c  call dword ptr [0x1016d4a4]
+  0x815f  call dword ptr [0x1016d4a4]
+  0x8bcd  call dword ptr [0x1016d4a4]
+  0x8ce9  call dword ptr [0x1016d4a4]
+  0x9075  call dword ptr [0x1016d4a4]
+
+SetupAPI!CM_Get_Parent  (2 call sites):
+  0x684f  call dword ptr [0x1016d4a8]
+  0x7a92  call dword ptr [0x1016d4a8]
+
+SetupAPI!SetupDiGetDeviceInstanceIdA  (2 call sites):
+  0x632e  call dword ptr [0x1016d4ac]
+  0x762e  call dword ptr [0x1016d4ac]
+
+SetupAPI!CM_Get_Sibling  (2 call sites):
+  0x9053  call dword ptr [0x1016d4b0]
+  0x91d2  call dword ptr [0x1016d4b0]
+
+================================================================================
+RadioSch.dll USB/VID/PID 字符串
+================================================================================
+  0x16de84: VIDPID%d
+
+================================================================================
+RadioSch.dll SETUPAPI/设备字符串
+================================================================================
+  0x17ed9c: STATUSBAR
+  0x17eda8: IDB_OFFICE2007_STATUSBAR_BACK
+  0x17edc8: IDB_OFFICE2007_STATUSBAR_BACK_EXT
+  0x17edf8: IDB_OFFICE2007_STATUSBAR_PANEBORDER
+  0x17ee28: IDB_OFFICE2007_STATUSBAR_SIZEBOX
+  0x1b7c46: SetupDiGetDeviceInstanceIdA
+  0x1b7c64: SetupDiEnumDeviceInfo
+  0x1b7c7c: SetupDiDestroyDeviceInfoList
+  0x1b7c9c: SetupDiGetClassDevsA
+  0x1b7cb4: SetupDiOpenDevRegKey
+  0x1bc504: .?AV?$CList@UAFX_AUTOHIDE_DOCKSITE_SAVE_INFO@@AAU1@@@
+
+
+================================================================================
+RemoteUty.exe 网络层分析
+================================================================================
+ImageBase: 0x400000
+
+--- WS2_32.dll 导入 (18 个) ---
+  ntohs                 IAT_RVA=0x18f93c  callers=2
+  getsockname           IAT_RVA=0x18f940  callers=1
+  closesocket           IAT_RVA=0x18f944  callers=4
+  shutdown              IAT_RVA=0x18f948  callers=4
+  bind                  IAT_RVA=0x18f94c  callers=1
+  htons                 IAT_RVA=0x18f950  callers=2
+  socket                IAT_RVA=0x18f954  callers=1
+  WSAGetLastError       IAT_RVA=0x18f958  callers=7
+  ntohl                 IAT_RVA=0x18f95c  callers=1
+  inet_ntoa             IAT_RVA=0x18f960  callers=1
+  WSACleanup            IAT_RVA=0x18f964  callers=9
+  gethostbyname         IAT_RVA=0x18f968  callers=3
+  WSAStartup            IAT_RVA=0x18f96c  callers=4
+  htonl                 IAT_RVA=0x18f970  callers=4
+  recvfrom              IAT_RVA=0x18f974  callers=1
+  sendto                IAT_RVA=0x18f978  callers=1
+  WSAIoctl              IAT_RVA=0x18f97c  callers=1
+  setsockopt            IAT_RVA=0x18f980  callers=0
+
+--- htons 调用点（端口常量）---
+
+  caller_rva=0x537a8  port_imm=None  port_dec=None
+    0x453797: push     ecx
+    0x453798: mov      dword ptr [esp + 0x44], eax
+    0x45379c: mov      dword ptr [esp + 0x4c], eax
+    0x4537a0: mov      dword ptr [esp + 0x50], eax
+    0x4537a4: mov      dword ptr [esp + 0x48], eax
+    0x4537a8: call     dword ptr [0x58f950]
+
+  caller_rva=0x53ab6  port_imm=None  port_dec=None
+    0x453aa3: mov      eax, dword ptr [esp + 0x68]
+    0x453aa7: mov      edx, 2
+    0x453aac: push     eax
+    0x453aad: mov      dword ptr [esp + 0x44], ecx
+    0x453ab1: mov      word ptr [esp + 0x40], dx
+    0x453ab6: call     dword ptr [0x58f950]
+
+--- WS2_32 调用点位置 ---
+  ntohs                ( 2): 0x53849, 0x53bc6
+  getsockname          ( 1): 0x53811
+  closesocket          ( 4): 0x537ea, 0x53833, 0x538e2, 0x539b7
+  shutdown             ( 4): 0x537e0, 0x53829, 0x538d8, 0x5399f
+  bind                 ( 1): 0x537c8
+  htons                ( 2): 0x537a8, 0x53ab6
+  socket               ( 1): 0x5376c
+  WSAGetLastError      ( 7): 0x53759, 0x5377a, 0x537d2, 0x5381b, 0x538cb, 0x53af4, 0x53c04
+  ntohl                ( 1): 0x4183a
+  inet_ntoa            ( 1): 0x20e4c
+  WSACleanup           ( 9): 0x141a6, 0x40312, 0x4033d, 0x44738, 0x53782, 0x537f0, 0x53839, 0x538e8 ... (9 total)
+  gethostbyname        ( 3): 0x1414d, 0x40306, 0x44707
+  WSAStartup           ( 4): 0x1412b, 0x402f3, 0x446f5, 0x5374f
+  htonl                ( 4): 0x16c6, 0x1abd, 0x419c8, 0x44102
+  recvfrom             ( 1): 0x53bae
+  sendto               ( 1): 0x53ade
+  WSAIoctl             ( 1): 0x538c1
+
+--- SETUPAPI 调用点 ---
+
+  SetupAPI!SetupDiDestroyDeviceInfoList  (1 call sites):
+    0x20555  call dword ptr [0x58f4f0]
+
+  SetupAPI!SetupDiGetDeviceInterfaceDetailA  (2 call sites):
+    0x20509  call dword ptr [0x58f4f4]
+    0x20549  call dword ptr [0x58f4f4]
+
+  SetupAPI!SetupDiEnumDeviceInterfaces  (1 call sites):
+    0x204ed  call dword ptr [0x58f4f8]
+
+  SetupAPI!SetupDiGetClassDevsA  (1 call sites):
+    0x204c8  call dword ptr [0x58f4fc]
+
+--- 虚拟驱动字符串 ---
+  0x1b2cbb: - pure virtual function call
+  0x1b4b4c: `virtual displacement map'
+  0x1b729c: CClientAudioCtrl::vaudioSendBlock
+  0x1b8f38: VAudioDevice
+  0x1b9068:  (Icom Virtual Audio Driver)
+  0x1b945c: CVAUDIOCTRL_MUTEX
+  0x1b9470: SYSTEM\CurrentControlSet\Services\icom_vaudio\Parameters\%s
+  0x1b94f0: \\.\ICOM_SERIAL
+  0x1bce5c: \Device\IcomVSerial
+  0x1bcf64: CClientSerialCtrl::VSerialRecvThread
+  0x1bcfd4: vserial send  %10d recv     %10d
+  0x1bed28: ICOM_VAUDIO
+  0x1e543a: VirtualProtect
+  0x1e54dc: VirtualAlloc
+  0x1e54fc: VirtualQuery
+  0x1e563a: VirtualFree
+  0x1e6150: MapVirtualKeyA
+  0x1e65e4: MapVirtualKeyExA
+  0x1f0ac8: .?AVCVAudioCtrl@@
+  0x1f0ae4: .?AVCVSerialCtrl@@
+  0x2b726e: icom_vserial.sys
+  0x2b7290: icom_vaudio.sys
+
+--- 网络协议字符串 (前 40 条) ---
+  0x1b6e38: CAudioCtrl::sendPacket
+  0x1b84fc: MUTEX_REMOTEUTY_CCIVCOMIF_COM%d
+  0x1b8910: CClientCommandCtrl::SendKeepAlive
+  0x1b8bb4: CServerCommandCtrl::ExecKeepAlive
+  0x1bb89c: CommandPort
+  0x1bb8a8: SerialPort
+  0x1bb8b4: AudioPort
+  0x1bd2cc: MUTEX_SERVER_PORTLIST
+  0x1bd2e4: CRemoteServer::KeepAliveThread
+  0x1be460: MUTEX_REMOTEUTY_CTransList
+  0x1bf51c: MUTEX_REMOTEUTY_CTRC
+  0x1bf5e8: CUdp::CUdp
+  0x1bf5f4: CUdp::~CUdp
+  0x1bf600: CUdp::open
+  0x1bf60c: CUdp::close
+  0x1bf618: CUdp::send
+  0x1bf624: CUdp::recv
+  0x1bf630: CUdp::recvThread
+  0x1bf644: CUdp::addCallback
+  0x1bf658: CUdp::delCallback
+  0x1bf66c: MUTEX_REMOTEUTY_CUDPCtrl
+  0x1bf688: CUDPCtrl::CUDPCtrl
+  0x1bf69c: CUDPCtrl::~CUDPCtrl
+  0x1bf6b0: CUDPCtrl::sendUdp
+  0x1bf6c4: CUDPCtrl::closeUdp
+  0x1bf6d8: CUDPCtrl::ExClose
+  0x1bf6ec: CUDPCtrl::ExSessionClose
+  0x1bf708: CUDPCtrl::ExOpen
+  0x1bf71c: CUDPCtrl::ExConnect
+  0x1bf730: CUDPCtrl::ExAccept
+  0x1bf744: CUDPCtrl::ExSend
+  0x1bf758: CUDPCtrl::recvCallback
+  0x1bf770: CUDPCtrl::sendDisconnect
+  0x1bf78c: CUDPCtrl2::CUDPCtrl2
+  0x1bf7a4: CUDPCtrl2::~CUDPCtrl2
+  0x1bf7bc: CUDPCtrl2::ExOpen
+  0x1bf7d0: CUDPCtrl2::ExInit
+  0x1bf7e4: CUDPCtrl2::recvCallback
+  0x1bf814: CUDPCtrl2::recvProc
+  0x1bf854: CUDPCtrl2::ExSend
+
+--- UDP 协议字符串 (前 30 条) ---
+  0x1b6e1c: CAudioCtrl::audioRecvThread
+  0x1b6e50: CAudioCtrl::audioSendThread
+  0x1b6e6c: CAudioCtrl::CheckPostUdpRecv
+  0x1b6e8c: CheckPostUdpRecv recvsize = %d
+  0x1b6eb0: CheckPostUdpRecv m_pPlayBuffer->getSize() = %d recvsize = %d m_pPlayBuffer->getPreBufferSize() = %d cutsize = %d
+  0x1b6f24: CheckPostUdpRecv cutsize = %d
+  0x1bcf1c: CClientSerialCtrl::recvFromDevice
+  0x1bd0d4: CServerSerialCtrl::recvFromDevice
+  0x1bf5e8: CUdp::CUdp
+  0x1bf5f4: CUdp::~CUdp
+  0x1bf600: CUdp::open
+  0x1bf60c: CUdp::close
+  0x1bf618: CUdp::send
+  0x1bf624: CUdp::recv
+  0x1bf630: CUdp::recvThread
+  0x1bf644: CUdp::addCallback
+  0x1bf658: CUdp::delCallback
+  0x1bf66c: MUTEX_REMOTEUTY_CUDPCtrl
+  0x1bf688: CUDPCtrl::CUDPCtrl
+  0x1bf69c: CUDPCtrl::~CUDPCtrl
+  0x1bf6b0: CUDPCtrl::sendUdp
+  0x1bf6c4: CUDPCtrl::closeUdp
+  0x1bf6d8: CUDPCtrl::ExClose
+  0x1bf6ec: CUDPCtrl::ExSessionClose
+  0x1bf708: CUDPCtrl::ExOpen
+  0x1bf71c: CUDPCtrl::ExConnect
+  0x1bf730: CUDPCtrl::ExAccept
+  0x1bf744: CUDPCtrl::ExSend
+  0x1bf758: CUDPCtrl::recvCallback
+  0x1bf770: CUDPCtrl::sendDisconnect

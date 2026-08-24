@@ -1,0 +1,28 @@
+{
+  "name": "agent_llm_decompile",
+  "version": "1.0.0",
+  "description": "LLM4Decompile agent. Communicates with a running LLM4Decompile service to decompile binaries into readable source code.",
+  "author": "Group B MCP Agents",
+  "tools": [
+    "decompile_binary",
+    "decompile_function"
+  ],
+  "dependencies": {
+    "service": "LLM4Decompile API service (must be running)",
+    "python_optional": [
+      "requests",
+      "grpcio",
+      "grpcio-tools"
+    ]
+  },
+  "capabilities": [
+    "binary_decompilation",
+    "function_decompilation",
+    "reverse_engineering"
+  ],
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_llm_decompile.agent_llm_decompile",
+    "class": "LLMDecompileAgent"
+  }
+}

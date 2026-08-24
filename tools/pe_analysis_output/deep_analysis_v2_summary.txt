@@ -1,0 +1,1119 @@
+================================================================================
+RemoteUty.exe WS2_32.dll 调用点上下文反汇编
+================================================================================
+
+
+=== WS2_32!ntohs  (2 call sites) ===
+
+  --- caller_rva=0x53849 ---
+           0x53829: call     dword ptr [0x58f948]
+           0x5382f: mov      edx, dword ptr [esi + 0xc]
+           0x53832: push     edx
+           0x53833: call     dword ptr [0x58f944]
+           0x53839: call     dword ptr [0x58f964]
+           0x5383f: jmp      0x45391a
+           0x53844: mov      eax, dword ptr [esp + 0x42]
+           0x53848: push     eax
+    >>>    0x53849: call     dword ptr [0x58f93c]
+           0x5384f: mov      edi, dword ptr [0x58f980]
+           0x53855: push     4
+
+  --- caller_rva=0x53bc6 ---
+           0x53bae: call     dword ptr [0x58f974]
+           0x53bb4: test     eax, eax
+           0x53bb6: jle      0x453c02
+           0x53bb8: mov      edx, dword ptr [esp + 0x48]
+           0x53bbc: mov      dword ptr [edi], eax
+           0x53bbe: mov      eax, dword ptr [esp + 0x46]
+           0x53bc2: push     eax
+           0x53bc3: mov      dword ptr [ebp], edx
+    >>>    0x53bc6: call     dword ptr [0x58f93c]
+           0x53bcc: mov      edx, dword ptr [esp + 0x14]
+           0x53bd0: movzx    ecx, ax
+
+
+=== WS2_32!getsockname  (1 call sites) ===
+
+  --- caller_rva=0x53811 ---
+           0x537f6: jmp      0x45391a
+           0x537fb: mov      eax, dword ptr [esi + 0xc]
+           0x537fe: lea      ecx, [esp + 0x14]
+           0x53802: push     ecx
+           0x53803: lea      edx, [esp + 0x44]
+           0x53807: push     edx
+           0x53808: push     eax
+           0x53809: mov      dword ptr [esp + 0x20], 0x10
+    >>>    0x53811: call     dword ptr [0x58f940]
+           0x53817: test     eax, eax
+           0x53819: je       0x453844
+
+
+=== WS2_32!bind  (1 call sites) ===
+
+  --- caller_rva=0x537c8 ---
+           0x537ae: mov      ecx, dword ptr [esi + 0xc]
+           0x537b1: mov      word ptr [esp + 0x42], ax
+           0x537b6: push     0x10
+           0x537b8: lea      eax, [esp + 0x44]
+           0x537bc: push     eax
+           0x537bd: mov      edx, 2
+           0x537c2: push     ecx
+           0x537c3: mov      word ptr [esp + 0x4c], dx
+    >>>    0x537c8: call     dword ptr [0x58f94c]
+           0x537ce: test     eax, eax
+           0x537d0: je       0x4537fb
+
+
+=== WS2_32!htons  (2 call sites) ===
+
+  --- caller_rva=0x537a8 ---
+           0x5378d: movzx    ecx, word ptr [esi + 0x10]
+           0x53791: xor      eax, eax
+           0x53793: mov      dword ptr [esp + 0x44], eax
+           0x53797: push     ecx
+           0x53798: mov      dword ptr [esp + 0x44], eax
+           0x5379c: mov      dword ptr [esp + 0x4c], eax
+           0x537a0: mov      dword ptr [esp + 0x50], eax
+           0x537a4: mov      dword ptr [esp + 0x48], eax
+    >>>    0x537a8: call     dword ptr [0x58f950]
+           0x537ae: mov      ecx, dword ptr [esi + 0xc]
+           0x537b1: mov      word ptr [esp + 0x42], ax
+
+  --- caller_rva=0x53ab6 ---
+           0x53a97: mov      dword ptr [esp + 0x40], eax
+           0x53a9b: mov      dword ptr [esp + 0x44], eax
+           0x53a9f: mov      dword ptr [esp + 0x48], eax
+           0x53aa3: mov      eax, dword ptr [esp + 0x68]
+           0x53aa7: mov      edx, 2
+           0x53aac: push     eax
+           0x53aad: mov      dword ptr [esp + 0x44], ecx
+           0x53ab1: mov      word ptr [esp + 0x40], dx
+    >>>    0x53ab6: call     dword ptr [0x58f950]
+           0x53abc: lea      esi, [edi + 0x5c]
+           0x53abf: mov      ecx, esi
+
+
+=== WS2_32!socket  (1 call sites) ===
+
+  --- caller_rva=0x5376c ---
+           0x53755: test     eax, eax
+           0x53757: je       0x453766
+           0x53759: call     dword ptr [0x58f958]
+           0x5375f: mov      ebx, eax
+           0x53761: jmp      0x45391a
+           0x53766: push     0
+           0x53768: push     2
+           0x5376a: push     2
+    >>>    0x5376c: call     dword ptr [0x58f954]
+           0x53772: mov      dword ptr [esi + 0xc], eax
+           0x53775: cmp      eax, -1
+
+
+=== WS2_32!ntohl  (1 call sites) ===
+
+  --- caller_rva=0x4183a ---
+           0x41819: push     ecx
+           0x4181a: call     0x443720
+           0x4181f: lea      eax, [esp + 0x18]
+           0x41823: mov      ecx, edi
+           0x41825: mov      dword ptr [esp + 0x290], 0
+           0x41830: call     0x413620
+           0x41835: mov      edx, dword ptr [esp + 0x18]
+           0x41839: push     edx
+    >>>    0x4183a: call     dword ptr [0x58f95c]
+           0x41840: mov      dword ptr [esp + 0xa0], eax
+           0x41847: lea      esi, [esp + 0x18]
+
+
+=== WS2_32!inet_ntoa  (1 call sites) ===
+
+  --- caller_rva=0x20e4c ---
+           0x20e3c: int3     
+           0x20e3d: int3     
+           0x20e3e: int3     
+           0x20e3f: int3     
+           0x20e40: push     ecx
+           0x20e41: mov      ecx, dword ptr [eax]
+           0x20e43: push     ecx
+           0x20e44: mov      dword ptr [esp + 4], 0
+    >>>    0x20e4c: call     dword ptr [0x58f960]
+           0x20e52: push     eax
+           0x20e53: mov      ecx, esi
+
+
+=== WS2_32!gethostbyname  (3 call sites) ===
+
+  --- caller_rva=0x1414d ---
+           0x14133: je       0x41413f
+           0x14135: mov      dword ptr [esp + 0x20], 0
+           0x1413d: jmp      0x4141ac
+           0x1413f: lea      esi, [esp + 0x10]
+           0x14143: mov      eax, ebx
+           0x14145: call     0x413630
+           0x1414a: mov      eax, dword ptr [eax]
+           0x1414c: push     eax
+    >>>    0x1414d: call     dword ptr [0x58f968]
+           0x14153: mov      esi, eax
+           0x14155: mov      eax, dword ptr [esp + 0x10]
+
+  --- caller_rva=0x40306 ---
+           0x402ee: push     0x101
+           0x402f3: call     dword ptr [0x58f96c]
+           0x402f9: test     eax, eax
+           0x402fb: je       0x440301
+           0x402fd: xor      esi, esi
+           0x402ff: jmp      0x440349
+           0x40301: mov      edx, dword ptr [esp + 0x20]
+           0x40305: push     edx
+    >>>    0x40306: call     dword ptr [0x58f968]
+           0x4030c: test     eax, eax
+           0x4030e: jne      0x44031a
+
+  --- caller_rva=0x44707 ---
+           0x446f0: push     0x101
+           0x446f5: call     dword ptr [0x58f96c]
+           0x446fb: test     eax, eax
+           0x446fd: je       0x444703
+           0x446ff: xor      esi, esi
+           0x44701: jmp      0x44473e
+           0x44703: mov      ecx, dword ptr [ebp + 8]
+           0x44706: push     ecx
+    >>>    0x44707: call     dword ptr [0x58f968]
+           0x4470d: test     eax, eax
+           0x4470f: jne      0x444715
+
+
+=== WS2_32!WSAStartup  (4 call sites) ===
+
+  --- caller_rva=0x1412b ---
+           0x1410e: add      esp, 8
+           0x14111: test     eax, eax
+           0x14113: sete     al
+           0x14116: test     al, al
+           0x14118: jne      0x4141ac
+           0x1411e: lea      edx, [esp + 0xac]
+           0x14125: push     edx
+           0x14126: push     0x101
+    >>>    0x1412b: call     dword ptr [0x58f96c]
+           0x14131: test     eax, eax
+           0x14133: je       0x41413f
+
+  --- caller_rva=0x402f3 ---
+           0x402da: add      esp, 8
+           0x402dd: test     eax, eax
+           0x402df: sete     al
+           0x402e2: test     al, al
+           0x402e4: jne      0x440345
+           0x402e6: lea      ecx, [esp + 0x94]
+           0x402ed: push     ecx
+           0x402ee: push     0x101
+    >>>    0x402f3: call     dword ptr [0x58f96c]
+           0x402f9: test     eax, eax
+           0x402fb: je       0x440301
+
+  --- caller_rva=0x446f5 ---
+           0x446d6: sub      esp, 0x19c
+           0x446dc: mov      eax, dword ptr [0x5ec578]
+           0x446e1: xor      eax, esp
+           0x446e3: mov      dword ptr [esp + 0x198], eax
+           0x446ea: push     esi
+           0x446eb: lea      eax, [esp + 8]
+           0x446ef: push     eax
+           0x446f0: push     0x101
+    >>>    0x446f5: call     dword ptr [0x58f96c]
+           0x446fb: test     eax, eax
+           0x446fd: je       0x444703
+
+  --- caller_rva=0x5374f ---
+           0x5373a: lea      edx, [esp + 0x54]
+           0x5373e: push     ebx
+           0x5373f: push     edx
+           0x53740: call     0x560480
+           0x53745: add      esp, 0xc
+           0x53748: lea      eax, [esp + 0x50]
+           0x5374c: push     eax
+           0x5374d: push     2
+    >>>    0x5374f: call     dword ptr [0x58f96c]
+           0x53755: test     eax, eax
+           0x53757: je       0x453766
+
+
+=== WS2_32!htonl  (4 call sites) ===
+
+  --- caller_rva=0x16c6 ---
+            0x169e: je       0x4018ec
+            0x16a4: mov      eax, dword ptr [ebx + 0x84]
+            0x16aa: mov      ecx, 1
+            0x16af: mov      dword ptr [eax + 0x16c4], ecx
+            0x16b5: mov      dword ptr [esp + 0x1c], eax
+            0x16b9: mov      eax, dword ptr [ebx + 0x314]
+            0x16bf: push     eax
+            0x16c0: mov      dword ptr [ebx + 0x428], ecx
+    >>>     0x16c6: call     dword ptr [0x58f970]
+            0x16cc: mov      ebp, dword ptr [ebx + 0x428]
+            0x16d2: mov      edx, dword ptr [ebx + 0x424]
+
+  --- caller_rva=0x1abd ---
+            0x1ab2: pop      edi
+            0x1ab3: pop      esi
+            0x1ab4: pop      ebp
+            0x1ab5: pop      ebx
+            0x1ab6: add      esp, 0x24
+            0x1ab9: ret      
+            0x1aba: mov      eax, dword ptr [edi]
+            0x1abc: push     eax
+    >>>     0x1abd: call     dword ptr [0x58f970]
+            0x1ac3: cmp      dword ptr [esp + 0x18], 0
+            0x1ac8: je       0x401ae7
+
+  --- caller_rva=0x419c8 ---
+           0x4199c: mov      dword ptr [esp + 0x1c4], 1
+           0x419a7: mov      dword ptr [esp + 0x1b8], ecx
+           0x419ae: lea      ecx, [esp + 0x1c]
+           0x419b2: call     0x46874e
+           0x419b7: cmp      eax, 1
+           0x419ba: jne      0x441a4a
+           0x419c0: mov      eax, dword ptr [esp + 0xa0]
+           0x419c7: push     eax
+    >>>    0x419c8: call     dword ptr [0x58f970]
+           0x419ce: mov      esi, dword ptr [esp + 0xa4]
+           0x419d5: mov      ecx, edi
+
+  --- caller_rva=0x44102 ---
+           0x440f7: pop      edi
+           0x440f8: pop      esi
+           0x440f9: pop      ebp
+           0x440fa: pop      ebx
+           0x440fb: add      esp, 0x2c
+           0x440fe: ret      
+           0x440ff: mov      ecx, dword ptr [edi]
+           0x44101: push     ecx
+    >>>    0x44102: call     dword ptr [0x58f970]
+           0x44108: cmp      dword ptr [ebp + 0x1a8], 1
+           0x4410f: mov      dword ptr [esp + 0x24], eax
+
+
+=== WS2_32!recvfrom  (1 call sites) ===
+
+  --- caller_rva=0x53bae ---
+           0x53b96: mov      dword ptr [edi], eax
+           0x53b98: mov      ecx, dword ptr [esi + 0xc]
+           0x53b9b: mov      dword ptr [esp + 0x1c], eax
+           0x53b9f: mov      eax, dword ptr [esp + 0x78]
+           0x53ba3: push     eax
+           0x53ba4: push     ebx
+           0x53ba5: push     ecx
+           0x53ba6: mov      dword ptr [esp + 0x34], 0x10
+    >>>    0x53bae: call     dword ptr [0x58f974]
+           0x53bb4: test     eax, eax
+           0x53bb6: jle      0x453c02
+
+
+=== WS2_32!sendto  (1 call sites) ===
+
+  --- caller_rva=0x53ade ---
+           0x53acf: mov      eax, dword ptr [edi + 0xc]
+           0x53ad2: push     0x10
+           0x53ad4: lea      ecx, [esp + 0x40]
+           0x53ad8: push     ecx
+           0x53ad9: push     0
+           0x53adb: push     edx
+           0x53adc: push     ebx
+           0x53add: push     eax
+    >>>    0x53ade: call     dword ptr [0x58f978]
+           0x53ae4: mov      edx, dword ptr [esi]
+           0x53ae6: mov      edi, eax
+
+
+=== WS2_32!WSAIoctl  (1 call sites) ===
+
+  --- caller_rva=0x538c1 ---
+           0x538ae: push     edi
+           0x538af: push     edi
+           0x538b0: push     4
+           0x538b2: lea      edx, [esp + 0x28]
+           0x538b6: push     edx
+           0x538b7: push     0x9800000c
+           0x538bc: push     eax
+           0x538bd: mov      dword ptr [esp + 0x34], edi
+    >>>    0x538c1: call     dword ptr [0x58f97c]
+           0x538c7: test     eax, eax
+           0x538c9: je       0x4538f0
+
+
+=== WS2_32!setsockopt  (0 call sites) ===
+
+
+================================================================================
+RemoteUty.exe 关键字符串引用
+================================================================================
+
+
+=== String: "baud=%d parity=N data=8 stop=1"  (rva=0x1b85f0) ===
+
+  --- ref_rva=0x11388 ---
+           0x11379: je       0x4114bb
+           0x1137f: mov      eax, dword ptr [esp + 0x7c]
+           0x11383: push     eax
+           0x11384: lea      ecx, [esp + 0x18]
+    >>>    0x11388: push     0x5b85f0
+           0x1138d: push     ecx
+           0x1138e: call     0x402460
+           0x11393: mov      ebp, dword ptr [esp + 0x20]
+           0x11397: xor      eax, eax
+           0x11399: add      esp, 0xc
+           0x1139c: lea      edx, [esp + 0x2c]
+           0x113a0: push     edx
+           0x113a1: push     ebp
+
+
+=== String: "VAudioDevice"  (rva=0x1b8f38) ===
+
+  --- ref_rva=0x1ac65 ---
+           0x1ac55: mov      ebx, 0x5b8f34
+           0x1ac5a: lea      eax, [esp + 0x20]
+           0x1ac5e: call     0x42da10
+           0x1ac63: push     0
+    >>>    0x1ac65: push     0x5b8f38
+           0x1ac6a: mov      edx, 0x5b6228
+           0x1ac6f: lea      ebx, [esp + 0x1c]
+           0x1ac73: lea      ecx, [esp + 0x28]
+           0x1ac77: mov      dword ptr [esi + 0x54], eax
+           0x1ac7a: call     0x42d7e0
+           0x1ac7f: lea      ecx, [esi + 0x48]
+           0x1ac82: push     eax
+           0x1ac83: mov      byte ptr [esp + 0x48], 5
+
+  --- ref_rva=0x33477 ---
+           0x3346b: push     eax
+           0x3346c: lea      ecx, [esp + 0x40]
+           0x33470: call     0x42ddb0
+           0x33475: push     0
+    >>>    0x33477: push     0x5b8f38
+           0x3347c: mov      edx, 0x5b6228
+           0x33481: lea      ebx, [esp + 0x98]
+           0x33488: lea      ecx, [esp + 0x24]
+           0x3348c: call     0x42d7e0
+           0x33491: push     eax
+           0x33492: lea      ecx, [esp + 0x1c]
+           0x33496: mov      byte ptr [esp + 0xb4], 0x1b
+           0x3349e: call     0x402340
+
+  --- ref_rva=0x1b425 ---
+           0x1b422: push     0
+           0x1b424: push     eax
+    >>>    0x1b425: mov      edi, 0x5b8f38
+           0x1b42a: lea      ecx, [esp + 0x20]
+           0x1b42e: call     0x42dc80
+           0x1b433: mov      eax, dword ptr [ebp + 0x60]
+           0x1b436: mov      ecx, 3
+           0x1b43b: test     eax, eax
+           0x1b43d: je       0x41b442
+           0x1b43f: mov      ecx, dword ptr [eax + 0x18]
+           0x1b442: push     ecx
+           0x1b443: mov      ebx, 0x5b8f48
+           0x1b448: lea      ecx, [esp + 0x1c]
+
+
+=== String: "SYSTEM\CurrentControlSet\Services\icom_vaudio\Parameters\%s"  (rva=0x1b9470) ===
+
+  --- ref_rva=0x20939 ---
+
+
+=== String: "\\.\ICOM_SERIAL"  (rva=0x1b94f0) ===
+
+  --- ref_rva=0x3c871 ---
+           0x3c868: push     3
+           0x3c86a: push     ebx
+           0x3c86b: push     ebx
+           0x3c86c: push     0xc0000000
+    >>>    0x3c871: push     0x5b94f0
+           0x3c876: call     dword ptr [0x58f2b8]
+           0x3c87c: mov      dword ptr [esi + 4], eax
+           0x3c87f: cmp      eax, -1
+           0x3c882: jne      0x43c88c
+           0x3c884: call     dword ptr [0x58f2a8]
+           0x3c88a: mov      ebx, eax
+           0x3c88c: mov      dword ptr [esp + 0x4c], ebx
+           0x3c890: test     ebx, ebx
+
+
+=== String: "CommandPort"  (rva=0x1bb89c) ===
+
+  --- ref_rva=0x2b00e ---
+           0x2b004: call     0x4027e0
+           0x2b009: mov      ecx, 0xc351
+    >>>    0x2b00e: mov      ebx, 0x5bb89c
+           0x2b013: lea      eax, [esp + 0x2c]
+           0x2b017: call     0x42da10
+           0x2b01c: mov      dword ptr [edi + 8], eax
+           0x2b01f: mov      ecx, 0xc352
+           0x2b024: mov      ebx, 0x5bb8a8
+           0x2b029: lea      eax, [esp + 0x2c]
+           0x2b02d: call     0x42da10
+           0x2b032: mov      dword ptr [edi + 0xc], eax
+           0x2b035: mov      ecx, 0xc353
+           0x2b03a: mov      ebx, 0x5bb8b4
+
+  --- ref_rva=0x2b2f4 ---
+           0x2b2f0: mov      edx, dword ptr [esi + 8]
+           0x2b2f3: push     edx
+    >>>    0x2b2f4: mov      ebx, 0x5bb89c
+           0x2b2f9: lea      ecx, [esp + 0x14]
+           0x2b2fd: call     0x42ddb0
+           0x2b302: mov      eax, dword ptr [esi + 0xc]
+           0x2b305: push     eax
+           0x2b306: mov      ebx, 0x5bb8a8
+           0x2b30b: lea      ecx, [esp + 0x14]
+           0x2b30f: call     0x42ddb0
+           0x2b314: mov      ecx, dword ptr [esi + 0x10]
+           0x2b317: push     ecx
+           0x2b318: mov      ebx, 0x5bb8b4
+
+  --- ref_rva=0x31bc6 ---
+           0x31bbf: call     0x42dc80
+           0x31bc4: xor      ecx, ecx
+    >>>    0x31bc6: mov      ebx, 0x5bb89c
+           0x31bcb: lea      eax, [esp + 0x1c]
+           0x31bcf: call     0x42da10
+           0x31bd4: cmp      dword ptr [esp + 0x34], 0
+           0x31bd9: jne      0x431be5
+           0x31bdb: push     eax
+           0x31bdc: lea      ecx, [esp + 0x40]
+           0x31be0: call     0x42ddb0
+           0x31be5: xor      ecx, ecx
+           0x31be7: mov      ebx, 0x5bb8a8
+           0x31bec: lea      eax, [esp + 0x1c]
+
+
+=== String: "SerialPort"  (rva=0x1bb8a8) ===
+
+  --- ref_rva=0x2b024 ---
+
+  --- ref_rva=0x2b306 ---
+           0x2b302: mov      eax, dword ptr [esi + 0xc]
+           0x2b305: push     eax
+    >>>    0x2b306: mov      ebx, 0x5bb8a8
+           0x2b30b: lea      ecx, [esp + 0x14]
+           0x2b30f: call     0x42ddb0
+           0x2b314: mov      ecx, dword ptr [esi + 0x10]
+           0x2b317: push     ecx
+           0x2b318: mov      ebx, 0x5bb8b4
+           0x2b31d: lea      ecx, [esp + 0x14]
+           0x2b321: call     0x42ddb0
+           0x2b326: mov      edx, dword ptr [esi + 0x14]
+           0x2b329: push     0
+           0x2b32b: push     edx
+
+  --- ref_rva=0x31be7 ---
+           0x31be0: call     0x42ddb0
+           0x31be5: xor      ecx, ecx
+    >>>    0x31be7: mov      ebx, 0x5bb8a8
+           0x31bec: lea      eax, [esp + 0x1c]
+           0x31bf0: call     0x42da10
+           0x31bf5: cmp      dword ptr [esp + 0x34], 0
+           0x31bfa: jne      0x431c06
+           0x31bfc: push     eax
+           0x31bfd: lea      ecx, [esp + 0x40]
+           0x31c01: call     0x42ddb0
+           0x31c06: xor      ecx, ecx
+           0x31c08: mov      ebx, 0x5bb8b4
+           0x31c0d: lea      eax, [esp + 0x1c]
+
+
+=== String: "AudioPort"  (rva=0x1bb8b4) ===
+
+  --- ref_rva=0x2b03a ---
+           0x2b032: mov      dword ptr [edi + 0xc], eax
+           0x2b035: mov      ecx, 0xc353
+    >>>    0x2b03a: mov      ebx, 0x5bb8b4
+           0x2b03f: lea      eax, [esp + 0x2c]
+           0x2b043: call     0x42da10
+           0x2b048: push     0
+           0x2b04a: push     0x5b8ea4
+           0x2b04f: mov      edx, 0x5b6228
+           0x2b054: lea      ebx, [esp + 0x28]
+           0x2b058: lea      ecx, [esp + 0x34]
+           0x2b05c: mov      dword ptr [edi + 0x10], eax
+           0x2b05f: call     0x42d7e0
+           0x2b064: lea      esi, [edi + 4]
+
+  --- ref_rva=0x2b318 ---
+           0x2b314: mov      ecx, dword ptr [esi + 0x10]
+           0x2b317: push     ecx
+    >>>    0x2b318: mov      ebx, 0x5bb8b4
+           0x2b31d: lea      ecx, [esp + 0x14]
+           0x2b321: call     0x42ddb0
+           0x2b326: mov      edx, dword ptr [esi + 0x14]
+           0x2b329: push     0
+           0x2b32b: push     edx
+           0x2b32c: mov      edi, 0x5bb8c0
+           0x2b331: lea      ecx, [esp + 0x18]
+           0x2b335: call     0x42dc80
+           0x2b33a: mov      eax, dword ptr [esi + 0x18]
+           0x2b33d: push     0
+
+  --- ref_rva=0x31c08 ---
+           0x31c01: call     0x42ddb0
+           0x31c06: xor      ecx, ecx
+    >>>    0x31c08: mov      ebx, 0x5bb8b4
+           0x31c0d: lea      eax, [esp + 0x1c]
+           0x31c11: call     0x42da10
+           0x31c16: cmp      dword ptr [esp + 0x34], 0
+           0x31c1b: jne      0x431c27
+           0x31c1d: push     eax
+           0x31c1e: lea      ecx, [esp + 0x40]
+           0x31c22: call     0x42ddb0
+           0x31c27: push     0
+           0x31c29: push     0x5bb8c0
+           0x31c2e: mov      edx, 0x5b6228
+
+
+=== String: "SOFTWARE\Icom\Remote Utility"  (rva=0x1bbb04) ===
+
+  --- ref_rva=0x2d4e3 ---
+           0x2d4d8: mov      eax, dword ptr [edx + 0xc]
+           0x2d4db: call     eax
+           0x2d4dd: add      eax, 0x10
+           0x2d4e0: mov      dword ptr [esi + 0xc], eax
+    >>>    0x2d4e3: push     0x5bbb04
+           0x2d4e8: lea      ecx, [esi + 0x10]
+           0x2d4eb: mov      byte ptr [esp + 0x14], 2
+           0x2d4f0: call     0x4072c0
+           0x2d4f5: mov      dword ptr [esi + 0x14], 0x80000001
+           0x2d4fc: mov      eax, esi
+           0x2d4fe: mov      ecx, dword ptr [esp + 8]
+           0x2d502: mov      dword ptr fs:[0], ecx
+           0x2d509: pop      ecx
+
+  --- ref_rva=0x30915 ---
+           0x30906: lea      ecx, [esp + 0x1c]
+           0x3090a: call     0x404ec0
+           0x3090f: mov      edi, dword ptr [esp + 0x14]
+           0x30913: push     0x1c
+    >>>    0x30915: push     0x5bbb04
+           0x3091a: lea      ecx, [esp + 0x3c]
+           0x3091e: mov      dword ptr [esp + 0x40], 0x80000002
+           0x30926: call     0x4027e0
+           0x3092b: mov      ecx, dword ptr [esp + 0x54]
+           0x3092f: push     0
+           0x30931: push     ecx
+           0x30932: xor      edx, edx
+           0x30934: lea      ebx, [esp + 0x28]
+
+  --- ref_rva=0x30cbc ---
+           0x30cac: push     eax
+           0x30cad: call     0x42d430
+           0x30cb2: push     0x1c
+           0x30cb4: mov      dword ptr [esp + 0x38], 0
+    >>>    0x30cbc: push     0x5bbb04
+           0x30cc1: lea      ecx, [esp + 0x28]
+           0x30cc5: mov      dword ptr [esp + 0x2c], 0x80000002
+           0x30ccd: call     0x4027e0
+           0x30cd2: xor      ecx, ecx
+           0x30cd4: mov      ebx, 0x5bb8d8
+           0x30cd9: lea      eax, [esp + 0x10]
+           0x30cdd: call     0x42da10
+           0x30ce2: lea      esi, [esp + 0x10]
+
+
+=== String: "SOFTWARE\Icom\RS-BA1\RemoteUty"  (rva=0x1bc200) ===
+
+  --- ref_rva=0x31a3c ---
+           0x31a31: lea      ecx, [esp + 0x68]
+           0x31a35: push     ecx
+           0x31a36: push     0x20019
+           0x31a3b: push     edi
+    >>>    0x31a3c: push     0x5bc200
+           0x31a41: push     0x80000001
+           0x31a46: mov      dword ptr [esp + 0x7c], edi
+           0x31a4a: call     esi
+           0x31a4c: mov      esi, eax
+           0x31a4e: mov      eax, dword ptr [esp + 0x68]
+           0x31a52: cmp      eax, edi
+           0x31a54: je       0x431a59
+           0x31a56: push     eax
+
+  --- ref_rva=0x31b0a ---
+           0x31af7: lea      ecx, [esp + 0x54]
+           0x31afb: mov      byte ptr [esp + 0xb8], 4
+           0x31b03: call     0x4027e0
+           0x31b08: push     0x1e
+    >>>    0x31b0a: push     0x5bc200
+           0x31b0f: lea      ecx, [esp + 0x34]
+           0x31b13: call     0x4027e0
+           0x31b18: push     2
+           0x31b1a: push     0x5bb898
+           0x31b1f: lea      ecx, [esp + 0x4c]
+           0x31b23: call     0x4027e0
+           0x31b28: push     2
+           0x31b2a: push     0x5bb898
+
+
+=== String: "\Device\IcomVSerial"  (rva=0x1bce5c) ===
+
+  --- ref_rva=0x3c8e3 ---
+           0x3c8d8: cmp      eax, 1
+           0x3c8db: jne      0x43c90b
+           0x3c8dd: cmp      dword ptr [ebx - 0xc], 0
+           0x3c8e1: jl       0x43c8f9
+    >>>    0x3c8e3: push     0x5bce5c
+           0x3c8e8: push     ebx
+           0x3c8e9: call     0x55d19a
+           0x3c8ee: add      esp, 8
+           0x3c8f1: test     eax, eax
+           0x3c8f3: je       0x43c8f9
+           0x3c8f5: sub      eax, ebx
+           0x3c8f7: jns      0x43c903
+           0x3c8f9: mov      dword ptr [esp + 0x4c], 0xb7
+
+  --- ref_rva=0x4ace5 ---
+           0x4acdb: test     eax, eax
+           0x4acdd: je       0x44acfd
+           0x4acdf: cmp      dword ptr [ebx - 0xc], 0
+           0x4ace3: jl       0x44acfb
+    >>>    0x4ace5: push     0x5bce5c
+           0x4acea: push     ebx
+           0x4aceb: call     0x55d19a
+           0x4acf0: add      esp, 8
+           0x4acf3: test     eax, eax
+           0x4acf5: je       0x44acfb
+           0x4acf7: sub      eax, ebx
+           0x4acf9: jns      0x44acfd
+           0x4acfb: xor      esi, esi
+
+
+=== String: "MUTEX_SERVER_PORTLIST"  (rva=0x1bd2cc) ===
+
+  --- ref_rva=0x3dfd4 ---
+           0x3dfc2: mov      dword ptr [edi + 0xac], ebx
+           0x3dfc8: mov      dword ptr [edi + 0xb0], ebx
+           0x3dfce: call     0x4092b0
+           0x3dfd3: push     ebx
+    >>>    0x3dfd4: push     0x5bd2cc
+           0x3dfd9: push     ebx
+           0x3dfda: lea      ecx, [edi + 0x254]
+           0x3dfe0: mov      byte ptr [esp + 0x24], 6
+           0x3dfe5: call     0x46b57e
+           0x3dfea: mov      dword ptr [edi + 0x260], ebx
+           0x3dff0: mov      dword ptr [edi + 0x264], ebx
+           0x3dff6: call     0x45ff46
+           0x3dffb: cmp      eax, ebx
+
+
+=== String: "ICOM_VAUDIO"  (rva=0x1bed28) ===
+
+  --- ref_rva=0x4eb90 ---
+           0x4eb83: mov      eax, dword ptr [edi + 0x634]
+           0x4eb89: mov      ecx, dword ptr [eax - 0xc]
+           0x4eb8c: cmp      ecx, ebx
+           0x4eb8e: jl       0x44ebaa
+    >>>    0x4eb90: push     0x5bed28
+           0x4eb95: push     eax
+           0x4eb96: call     0x55d19a
+           0x4eb9b: add      esp, 8
+           0x4eb9e: cmp      eax, ebx
+           0x4eba0: je       0x44ebaa
+           0x4eba2: sub      eax, dword ptr [edi + 0x634]
+           0x4eba8: je       0x44ebcf
+           0x4ebaa: mov      eax, dword ptr [edi + 0x5f4]
+
+  --- ref_rva=0x4ebb5 ---
+           0x4eba8: je       0x44ebcf
+           0x4ebaa: mov      eax, dword ptr [edi + 0x5f4]
+           0x4ebb0: cmp      dword ptr [eax - 0xc], ebx
+           0x4ebb3: jl       0x44ebd9
+    >>>    0x4ebb5: push     0x5bed28
+           0x4ebba: push     eax
+           0x4ebbb: call     0x55d19a
+           0x4ebc0: add      esp, 8
+           0x4ebc3: cmp      eax, ebx
+           0x4ebc5: je       0x44ebd9
+           0x4ebc7: sub      eax, dword ptr [edi + 0x5f4]
+           0x4ebcd: jne      0x44ebd9
+           0x4ebcf: mov      dword ptr [esi + 0x620], 1
+
+  --- ref_rva=0x4fc87 ---
+           0x4fc77: push     0x445
+           0x4fc7c: mov      ecx, ebp
+           0x4fc7e: mov      dword ptr [esp + 0x2c], eax
+           0x4fc82: call     0x465c00
+    >>>    0x4fc87: push     0x5bed28
+           0x4fc8c: lea      ecx, [esp + 0x2c]
+           0x4fc90: call     0x4028b0
+           0x4fc95: push     3
+           0x4fc97: push     3
+           0x4fc99: lea      eax, [esp + 0x3c]
+           0x4fc9d: push     eax
+           0x4fc9e: lea      ecx, [esp + 0x28]
+           0x4fca2: call     0x401eb0
+
+
+=== String: "CUdp::open"  (rva=0x1bf600) ===
+
+  --- ref_rva=0x53724 ---
+
+
+=== String: "CUdp::recv"  (rva=0x1bf624) ===
+
+  --- ref_rva=0x53b72 ---
+           0x53b6a: movzx    ecx, byte ptr [esi + 0x7c]
+           0x53b6e: push     1
+           0x53b70: push     ecx
+           0x53b71: push     esi
+    >>>    0x53b72: push     0x5bf624
+           0x53b77: lea      edx, [esp + 0x30]
+           0x53b7b: push     edx
+           0x53b7c: mov      dword ptr [esp + 0x28], eax
+           0x53b80: call     0x452500
+           0x53b85: xor      eax, eax
+           0x53b87: lea      ecx, [esp + 0x1c]
+           0x53b8b: push     ecx
+           0x53b8c: mov      dword ptr [esp + 0x68], eax
+
+
+=== String: "CUdp::recvThread"  (rva=0x1bf630) ===
+
+  --- ref_rva=0x53c93 ---
+           0x53c8b: movzx    eax, byte ptr [esi + 0x7c]
+           0x53c8f: push     1
+           0x53c91: push     eax
+           0x53c92: push     esi
+    >>>    0x53c93: push     0x5bf630
+           0x53c98: lea      ecx, [esp + 0x38]
+           0x53c9c: push     ecx
+           0x53c9d: call     0x452500
+           0x53ca2: xor      eax, eax
+           0x53ca4: mov      dword ptr [esp + 0x58], eax
+           0x53ca8: mov      dword ptr [esp + 0x10], eax
+           0x53cac: cmp      dword ptr [esi + 0x14], eax
+           0x53caf: jne      0x453d57
+
+
+=== String: "CUDPCtrl::ExOpen"  (rva=0x1bf708) ===
+
+  --- ref_rva=0x54424 ---
+           0x54419: movzx    eax, byte ptr [edi + 0x16c]
+           0x54420: push     1
+           0x54422: push     eax
+           0x54423: push     edi
+    >>>    0x54424: push     0x5bf708
+           0x54429: lea      ecx, [esp + 0x28]
+           0x5442d: push     ecx
+           0x5442e: call     0x452500
+           0x54433: xor      ebx, ebx
+           0x54435: mov      dword ptr [esp + 0x44], ebx
+           0x54439: mov      edx, dword ptr [edi + 0x1cc]
+           0x5443f: mov      eax, dword ptr [edx + 0xc]
+           0x54442: lea      ebp, [edi + 0x1cc]
+
+
+=== String: "CUDPCtrl2::ExOpen"  (rva=0x1bf7bc) ===
+
+  --- ref_rva=0x54f94 ---
+
+
+================================================================================
+RadioSch.dll SETUPAPI 调用点上下文反汇编
+================================================================================
+
+
+=== SETUPAPI!SetupDiEnumDeviceInfo  (4 call sites) ===
+
+  --- caller_rva=0x6305 ---
+            0x62e0: xorps    xmm0, xmm0
+            0x62e3: lea      ecx, [ebp - 0x144]
+            0x62e9: movlpd   qword ptr [ebp - 0x140], xmm0
+            0x62f1: push     ecx
+            0x62f2: push     0
+            0x62f4: push     eax
+            0x62f5: movlpd   qword ptr [ebp - 0x138], xmm0
+            0x62fd: movlpd   qword ptr [ebp - 0x130], xmm0
+    >>>     0x6305: call     dword ptr [0x1016d490]
+            0x630b: test     eax, eax
+            0x630d: je       0x10006a9b
+
+  --- caller_rva=0x6a87 ---
+            0x6a67: mov      byte ptr [ebp - 4], 5
+            0x6a6b: call     0x10005260
+            0x6a70: or       ebx, 0xffffffff
+            0x6a73: mov      ecx, dword ptr [ebp - 0x170]
+            0x6a79: lea      eax, [ebp - 0x144]
+            0x6a7f: push     eax
+            0x6a80: push     ecx
+            0x6a81: push     dword ptr [ebp - 0x168]
+    >>>     0x6a87: call     dword ptr [0x1016d490]
+            0x6a8d: test     eax, eax
+            0x6a8f: jne      0x10006313
+
+  --- caller_rva=0x75fc ---
+            0x75d7: xorps    xmm0, xmm0
+            0x75da: lea      ecx, [ebp - 0x144]
+            0x75e0: movlpd   qword ptr [ebp - 0x140], xmm0
+            0x75e8: push     ecx
+            0x75e9: push     0
+            0x75eb: push     eax
+            0x75ec: movlpd   qword ptr [ebp - 0x138], xmm0
+            0x75f4: movlpd   qword ptr [ebp - 0x130], xmm0
+    >>>     0x75fc: call     dword ptr [0x1016d490]
+            0x7602: test     eax, eax
+            0x7604: je       0x100089fc
+
+  --- caller_rva=0x89ee ---
+            0x89d4: push     edx
+            0x89d5: mov      eax, dword ptr [ecx]
+            0x89d7: call     dword ptr [eax + 4]
+            0x89da: mov      ecx, dword ptr [ebp - 0x21c]
+            0x89e0: lea      eax, [ebp - 0x144]
+            0x89e6: push     eax
+            0x89e7: push     ecx
+            0x89e8: push     dword ptr [ebp - 0x1d0]
+    >>>     0x89ee: call     dword ptr [0x1016d490]
+            0x89f4: test     eax, eax
+            0x89f6: jne      0x10007610
+
+
+=== SETUPAPI!SetupDiDestroyDeviceInfoList  (2 call sites) ===
+
+  --- caller_rva=0x6aa1 ---
+
+  --- caller_rva=0x8a02 ---
+            0x89e0: lea      eax, [ebp - 0x144]
+            0x89e6: push     eax
+            0x89e7: push     ecx
+            0x89e8: push     dword ptr [ebp - 0x1d0]
+            0x89ee: call     dword ptr [0x1016d490]
+            0x89f4: test     eax, eax
+            0x89f6: jne      0x10007610
+            0x89fc: push     dword ptr [ebp - 0x1d0]
+    >>>     0x8a02: call     dword ptr [0x1016d494]
+            0x8a08: mov      eax, dword ptr [ebp - 0x1f8]
+            0x8a0e: mov      esi, dword ptr [eax]
+
+
+=== SETUPAPI!SetupDiGetClassDevsA  (2 call sites) ===
+
+  --- caller_rva=0x62af ---
+            0x6295: lea      edi, [eax + 0x10]
+            0x6298: mov      dword ptr [ebp - 0x164], edi
+            0x629e: push     0xa
+            0x62a0: push     0
+            0x62a2: push     0
+            0x62a4: lea      eax, [ebp - 0x128]
+            0x62aa: mov      byte ptr [ebp - 4], 5
+            0x62ae: push     eax
+    >>>     0x62af: call     dword ptr [0x1016d498]
+            0x62b5: or       ebx, 0xffffffff
+            0x62b8: mov      dword ptr [ebp - 0x168], eax
+
+  --- caller_rva=0x75a8 ---
+            0x7591: push     eax
+            0x7592: call     0x10006160
+            0x7597: push     0x12
+            0x7599: push     0
+            0x759b: push     0
+            0x759d: lea      eax, [ebp - 0x128]
+            0x75a3: mov      byte ptr [ebp - 4], 7
+            0x75a7: push     eax
+    >>>     0x75a8: call     dword ptr [0x1016d498]
+            0x75ae: mov      dword ptr [ebp - 0x1d0], eax
+            0x75b4: test     eax, eax
+
+
+=== SETUPAPI!SetupDiOpenDevRegKey  (1 call sites) ===
+
+  --- caller_rva=0x6617 ---
+            0x65fb: push     1
+            0x65fd: or       eax, 0xffffffff
+            0x6600: push     0
+            0x6602: mov      dword ptr [ebp - 0x14c], eax
+            0x6608: lea      eax, [ebp - 0x144]
+            0x660e: push     1
+            0x6610: push     eax
+            0x6611: push     dword ptr [ebp - 0x168]
+    >>>     0x6617: call     dword ptr [0x1016d49c]
+            0x661d: mov      edi, eax
+            0x661f: test     edi, edi
+
+
+=== SETUPAPI!CM_Get_Child  (1 call sites) ===
+
+  --- caller_rva=0x8cc8 ---
+            0x8caa: mov      ecx, esi
+            0x8cac: call     0x1000ac20
+            0x8cb1: test     eax, eax
+            0x8cb3: je       0x10008e3b
+            0x8cb9: push     0
+            0x8cbb: push     dword ptr [ebp - 0x294]
+            0x8cc1: lea      eax, [ebp - 0x234]
+            0x8cc7: push     eax
+    >>>     0x8cc8: call     dword ptr [0x1016d4a0]
+            0x8cce: test     eax, eax
+            0x8cd0: jne      0x10008e3b
+
+
+=== SETUPAPI!CM_Get_Device_IDA  (7 call sites) ===
+
+  --- caller_rva=0x59d0 ---
+            0x59b2: call     dword ptr [0x1016d8cc]
+            0x59b8: push     0
+            0x59ba: test     eax, eax
+            0x59bc: jne      0x10005a01
+            0x59be: push     0x400
+            0x59c3: lea      eax, [ebp - 0x410]
+            0x59c9: push     eax
+            0x59ca: push     dword ptr [ebp - 0x87c]
+    >>>     0x59d0: call     dword ptr [0x1016d4a4]
+            0x59d6: lea      ecx, [ebp - 0x410]
+            0x59dc: lea      edx, [ecx + 1]
+
+  --- caller_rva=0x5c20 ---
+            0x5c02: call     dword ptr [0x1016d8c0]
+            0x5c08: push     0
+            0x5c0a: test     eax, eax
+            0x5c0c: jne      0x10005c51
+            0x5c0e: push     0x400
+            0x5c13: lea      eax, [ebp - 0x810]
+            0x5c19: push     eax
+            0x5c1a: push     dword ptr [ebp - 0x87c]
+    >>>     0x5c20: call     dword ptr [0x1016d4a4]
+            0x5c26: lea      ecx, [ebp - 0x810]
+            0x5c2c: lea      edx, [ecx + 1]
+
+  --- caller_rva=0x686c ---
+            0x684f: call     dword ptr [0x1016d4a8]
+            0x6855: test     eax, eax
+            0x6857: jne      0x10006891
+            0x6859: push     eax
+            0x685a: push     0xc8
+            0x685f: lea      eax, [ebp - 0x118]
+            0x6865: push     eax
+            0x6866: push     dword ptr [ebp - 0x190]
+    >>>     0x686c: call     dword ptr [0x1016d4a4]
+            0x6872: test     eax, eax
+            0x6874: jne      0x10006891
+
+  --- caller_rva=0x815f ---
+            0x8146: mov      eax, dword ptr [ebp - 0x24c]
+            0x814c: test     eax, eax
+            0x814e: je       0x1000818a
+            0x8150: push     0
+            0x8152: push     0xc8
+            0x8157: lea      ecx, [ebp - 0xd8]
+            0x815d: push     ecx
+            0x815e: push     eax
+    >>>     0x815f: call     dword ptr [0x1016d4a4]
+            0x8165: test     eax, eax
+            0x8167: jne      0x1000818a
+
+  --- caller_rva=0x8bcd ---
+            0x8bb0: mov      eax, dword ptr [ebp - 0x294]
+            0x8bb6: test     eax, eax
+            0x8bb8: je       0x10008e3b
+            0x8bbe: push     0
+            0x8bc0: push     0xc8
+            0x8bc5: lea      ecx, [ebp - 0xd8]
+            0x8bcb: push     ecx
+            0x8bcc: push     eax
+    >>>     0x8bcd: call     dword ptr [0x1016d4a4]
+            0x8bd3: test     eax, eax
+            0x8bd5: jne      0x10008e3b
+
+  --- caller_rva=0x8ce9 ---
+
+  --- caller_rva=0x9075 ---
+            0x9053: call     dword ptr [0x1016d4b0]
+            0x9059: test     eax, eax
+            0x905b: jne      0x10008e3b
+            0x9061: push     0
+            0x9063: push     0xc8
+            0x9068: lea      eax, [ebp - 0xd8]
+            0x906e: push     eax
+            0x906f: push     dword ptr [ebp - 0x1cc]
+    >>>     0x9075: call     dword ptr [0x1016d4a4]
+            0x907b: test     eax, eax
+            0x907d: jne      0x100091bc
+
+
+=== SETUPAPI!CM_Get_Parent  (2 call sites) ===
+
+  --- caller_rva=0x684f ---
+            0x682e: push     0
+            0x6830: push     0x1016dcc2
+            0x6835: lea      ecx, [ebp - 0x164]
+            0x683b: call     0x10003fd0
+            0x6840: push     0
+            0x6842: push     dword ptr [ebp - 0x130]
+            0x6848: lea      eax, [ebp - 0x190]
+            0x684e: push     eax
+    >>>     0x684f: call     dword ptr [0x1016d4a8]
+            0x6855: test     eax, eax
+            0x6857: jne      0x10006891
+
+  --- caller_rva=0x7a92 ---
+            0x7a74: call     eax
+            0x7a76: add      eax, 0x10
+            0x7a79: mov      dword ptr [ebp - 0x1c0], eax
+            0x7a7f: push     0
+            0x7a81: push     dword ptr [ebp - 0x130]
+            0x7a87: lea      eax, [ebp - 0x24c]
+            0x7a8d: mov      byte ptr [ebp - 4], 0x12
+            0x7a91: push     eax
+    >>>     0x7a92: call     dword ptr [0x1016d4a8]
+            0x7a98: mov      ecx, dword ptr [ebp - 0x24c]
+            0x7a9e: lea      esi, [edi - 0x10]
+
+
+=== SETUPAPI!SetupDiGetDeviceInstanceIdA  (2 call sites) ===
+
+  --- caller_rva=0x632e ---
+
+  --- caller_rva=0x762e ---
+
+
+=== SETUPAPI!CM_Get_Sibling  (2 call sites) ===
+
+  --- caller_rva=0x9053 ---
+            0x9031: cmp      esi, dword ptr [ebp - 0x1bc]
+            0x9037: jne      0x10008fc1
+            0x9039: jmp      0x10009206
+            0x903e: mov      esi, dword ptr [ebp - 0x1e0]
+            0x9044: push     0
+            0x9046: push     dword ptr [ebp - 0x234]
+            0x904c: lea      eax, [ebp - 0x1cc]
+            0x9052: push     eax
+    >>>     0x9053: call     dword ptr [0x1016d4b0]
+            0x9059: test     eax, eax
+            0x905b: jne      0x10008e3b
+
+  --- caller_rva=0x91d2 ---
+
+
+================================================================================
+RadioSch.dll USB 字符串引用
+================================================================================
+
+
+=== String: "VIDPID%d"  (rva=0x16de84) ===
+
+  --- ref_rva=0x2eef ---
+            0x2ede: mov      byte ptr [ebp - 4], 5
+            0x2ee2: push     edi
+            0x2ee3: lea      eax, [ebp - 0x170]
+            0x2ee9: mov      dword ptr [ebp - 0x190], edi
+    >>>     0x2eef: push     0x1016de84
+            0x2ef4: push     eax
+            0x2ef5: call     0x10001e30
+            0x2efa: add      esp, 0xc
+            0x2efd: lea      ecx, [ebp - 0x160]
+            0x2f03: push     dword ptr [ebp - 0x170]
+            0x2f09: call     0x100020b0
+            0x2f0e: call     0x1000c96b
+            0x2f13: mov      ecx, eax
+
+
+=== String: "SYSTEM\CurrentControlSet\Enum\"  (rva=0x16df30) ===
+
+  --- ref_rva=0x8d46 ---
+
+  --- ref_rva=0x90d2 ---

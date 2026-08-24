@@ -1,0 +1,28 @@
+{
+  "_comment": "陆墨融合 provider overlay（铁律8）。由 neko_launcher_wrapper.py 在启动时注入 api_config_loader，不修改 NEKO 源码 api_providers.json。",
+  "_comment_dataflow": "NEKO 选 lumo 作为 assist provider → LLM 请求发往 http://127.0.0.1:8001/persona/v1/chat/completions → lumo_proxy 注入陆墨人格+记忆+RAG → 上游 LLM → OpenAI 格式返回",
+  "_comment_auth": "assist_api_key_fields.lumo = LUMO_PROXY_TOKEN，NEKO 从环境变量读取 token 作为 Authorization: Bearer header，与 lumo_proxy 的 require_proxy_token 对接",
+  "assist_api_providers": {
+    "lumo": {
+      "key": "lumo",
+      "name": "陆墨（本地人格代理）",
+      "description": "陆墨融合：注入材料科研人格+session记忆+RAG召回。需先启动 scratchpad apiserver",
+      "openrouter_url": "http://127.0.0.1:8000/persona/v1",
+      "conversation_model": "lumo-persona",
+      "summary_model": "lumo-persona",
+      "correction_model": "lumo-persona",
+      "emotion_model": "",
+      "vision_model": "lumo-persona",
+      "agent_model": "lumo-persona"
+    }
+  },
+  "assist_api_key_fields": {
+    "lumo": "LUMO_PROXY_TOKEN"
+  },
+  "api_key_registry": {
+    "lumo": {
+      "config_field": "assistApiKeyLumo",
+      "restricted": true
+    }
+  }
+}

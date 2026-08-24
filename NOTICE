@@ -1,0 +1,134 @@
+N.E.K.O. (scratchpad / 陆墨)
+Copyright (c) 2026 沈哲源 (fe1iscurc0r)
+
+本仓库主体基于 NagaAgent (AGPL-3.0) fork 改造，遵循 AGPL-3.0 许可证。
+
+================================================================================
+
+第三方组件：N.E.K.O. (Project N.E.K.O.)
+来源：https://github.com/Project-N-E-K-O/N.E.K.O
+许可证：Apache License 2.0
+引入位置：NEKO/
+
+  Copyright (c) Project N.E.K.O. Contributors
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+NEKO 目录下的原始 LICENSE 文件保留于 NEKO/N.E.K.O/LICENSE。
+
+================================================================================
+
+第三方组件：NagaAgent (上游)
+来源：https://github.com/NagaAgent/NagaAgent
+许可证：GNU Affero General Public License v3.0 (AGPL-3.0)
+
+  Copyright (c) NagaAgent Contributors
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as
+  published by the Free Software Foundation, either version 3 of the
+  License, or (at your option) any later version.
+
+================================================================================
+
+第三方组件：OpenClaw (vendor/openclaw/)
+来源：https://github.com/openclaw/openclaw
+许可证：见 vendor/openclaw/ 目录下的 LICENSE 文件
+
+================================================================================
+
+第三方组件：AI_Animation (Uncle 城)
+来源：https://github.com/Unclecheng-li/AI_Animation
+许可证：MIT
+引入位置：skills/ (动画/漫画/信息图 Skill 模板)，mod/mcpserver/agent_animation/
+
+  Copyright (c) Unclecheng-li
+  Licensed under the MIT License.
+
+================================================================================
+
+第三方组件：VulnClaw (Uncle 城)
+来源：https://github.com/Unclecheng-li/VulnClaw
+许可证：MIT
+引入位置：mcpserver/adapters/vulnclaw.py，mod/references/pentest-agents/
+
+  Copyright (c) 2026 UncleC
+  Licensed under the MIT License.
+
+================================================================================
+
+第三方组件：DeepSec (Uncle 城)
+来源：https://github.com/Unclecheng-li/DeepSec
+许可证：MIT
+引入位置：mcpserver/adapters/（安全扫描工具链参考）
+
+  Copyright (c) Unclecheng-li
+  Licensed under the MIT License.
+
+================================================================================
+
+第三方组件：headroom (Headroom Labs)
+来源：https://github.com/headroomlabs-ai/headroom
+许可证：Apache License 2.0
+引入位置：mcpserver/adapters/headroom.py
+
+  Copyright (c) Headroom Labs
+  Licensed under the Apache License, Version 2.0.
+
+================================================================================
+
+第三方组件：caura-memclaw (Caura AI)
+来源：https://github.com/caura-ai/caura-memclaw
+许可证：Apache License 2.0
+引入位置：mcpserver/adapters/memclaw.py
+
+  Copyright (c) Caura AI
+  Licensed under the Apache License, Version 2.0.
+
+================================================================================
+
+第三方组件：Agent-Reach
+来源：https://github.com/Panniantong/Agent-Reach
+许可证：MIT
+引入位置：mcpserver/adapters/agent_reach.py
+
+  Copyright (c) 2025 Agent Eyes
+  Licensed under the MIT License.
+
+================================================================================
+
+第三方组件：scientific-agent-skills (K-Dense AI)
+来源：https://github.com/K-Dense-AI/scientific-agent-skills
+许可证：MIT
+引入位置：skills/（161 个科学 Agent Skill）
+
+  Copyright (c) 2025 K-Dense Inc.
+  Licensed under the MIT License.
+  完整 LICENSE 见 skills/_upstream/scientific-agent-skills-LICENSE.md。
+
+================================================================================
+
+第三方组件：MCP 安全工具集（mod/mcpserver/）
+包含：nuclei, trivy, strix, frida, jadx, syft, cosign, falco, coraza, sherlock,
+      browser-use, pentagi, nanobrowser, LLM4Decompile
+来源：各上游仓库（详见各 agent-manifest.json 中的 source_url 字段）
+许可证：Apache 2.0 / MIT / BSD（详见各 agent 目录下的 agent-manifest.json）
+
+================================================================================
+
+注意：
+- AGPL-3.0 具有网络传染性，衍生作品（含网络服务）必须开源。
+- Apache 2.0 允许闭源衍生，但需保留版权声明与 LICENSE/NOTICE。
+- MIT 允许闭源衍生，但需保留版权声明。
+- 本仓库中 NEKO/ 目录下的代码保留其原始 Apache 2.0 许可证，
+  其余部分遵循 AGPL-3.0。入站组件（MIT / Apache 2.0）与 AGPL-3.0 兼容。

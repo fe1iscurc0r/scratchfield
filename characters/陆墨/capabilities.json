@@ -1,0 +1,68 @@
+{
+  "character_id": "陆墨",
+  "default_profile": "work",
+  "profiles": {
+    "work": {
+      "name": "work",
+      "llm": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "base_url": "https://api.deepseek.com/v1",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "temperature": 0.3
+      },
+      "tts": {
+        "provider": "edge-tts",
+        "model": "",
+        "base_url": "",
+        "api_key_env": "",
+        "voice_id": "zh-CN-XiaoxiaoNeural",
+        "speed": 1.0,
+        "pitch": 0.0
+      },
+      "vlm": {
+        "provider": "dashscope",
+        "model": "qwen-vl-max",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_key_env": "DASHSCOPE_API_KEY"
+      },
+      "asr": {
+        "provider": "",
+        "model": "",
+        "base_url": "",
+        "api_key_env": ""
+      }
+    },
+    "pet": {
+      "name": "pet",
+      "llm": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-lite",
+        "base_url": "https://api.deepseek.com/v1",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "temperature": 0.7
+      },
+      "tts": {
+        "provider": "edge-tts",
+        "model": "",
+        "base_url": "",
+        "api_key_env": "",
+        "voice_id": "zh-CN-XiaoyiNeural",
+        "speed": 1.1,
+        "pitch": 2.0
+      },
+      "vlm": {
+        "provider": "",
+        "model": "",
+        "base_url": "",
+        "api_key_env": ""
+      },
+      "asr": {
+        "provider": "",
+        "model": "",
+        "base_url": "",
+        "api_key_env": ""
+      }
+    }
+  }
+}

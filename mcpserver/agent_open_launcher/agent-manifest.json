@@ -1,0 +1,51 @@
+{
+  "name": "app_launcher",
+  "displayName": "应用启动服务",
+  "version": "2.4.0",
+  "description": "智能获取应用列表并启动指定应用；支持一键启动/关闭陆墨生态应用（NEKO 桌宠、HamLog 电台日志）",
+  "author": "陆墨",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_open_launcher.agent_app_launcher",
+    "class": "AppLauncherAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "获取应用列表",
+        "description": "获取系统中可用的应用列表，供用户选择要启动的应用",
+        "example": "{\"tool_name\":\"获取应用列表\"}"
+      },
+      {
+        "command": "启动应用",
+        "description": "启动指定的应用程序，需要提供应用名称",
+        "example": "{\"tool_name\":\"启动应用\",\"app\":\"Chrome\"}"
+      },
+      {
+        "command": "启动NEKO",
+        "description": "启动 NEKO 桌宠（陆墨融合模式，需后端带 LUMO_PROXY_TOKEN 运行）；已在运行时幂等返回",
+        "example": "{\"tool_name\":\"启动NEKO\"}"
+      },
+      {
+        "command": "启动HamLog",
+        "description": "启动 HamLog 电台日志 GUI（PyQt6）；已在运行时幂等返回",
+        "example": "{\"tool_name\":\"启动HamLog\"}"
+      },
+      {
+        "command": "关闭NEKO",
+        "description": "关闭 NEKO 桌宠窗口与后端（wrapper + Main Server）；未运行时幂等返回",
+        "example": "{\"tool_name\":\"关闭NEKO\"}"
+      },
+      {
+        "command": "关闭HamLog",
+        "description": "关闭 HamLog 电台日志 GUI；未运行时幂等返回",
+        "example": "{\"tool_name\":\"关闭HamLog\"}"
+      },
+      {
+        "command": "查询生态应用状态",
+        "description": "查询 NEKO / HamLog 是否在运行",
+        "example": "{\"tool_name\":\"查询生态应用状态\"}"
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "llm4decompile",
+  "version": "1.0.0",
+  "description": "LLM4Decompile 本地反编译 MCP 服务：ELF 直接反编译 + Ghidra 伪C润色",
+  "tools": [
+    {
+      "name": "decompile_binary",
+      "description": "反编译 Linux x86_64 ELF 二进制文件 → 人类可读 C",
+      "parameters": {
+        "binary_path": "string (必填) — 二进制文件绝对路径",
+        "optimization": "string (可选) — O0/O1/O2/O3，默认 auto 自动检测",
+        "max_tokens": "int (可选) — 最大输出 token，默认 4096"
+      }
+    },
+    {
+      "name": "polish_ghidra_output",
+      "description": "将 Ghidra/IDA 反编译输出润色为人类可读 C（适用于 PE/非 ELF 二进制）",
+      "parameters": {
+        "pseudo_c": "string (必填) — Ghidra 反编译输出的伪 C 代码",
+        "function_name": "string (可选) — 函数名，帮助模型理解上下文",
+        "context_hint": "string (可选) — 额外上下文（如 '这是 Icom CI-V 协议处理函数'）"
+      }
+    },
+    {
+      "name": "health",
+      "description": "检查模型加载状态、显存使用、可用 token 数",
+      "parameters": {}
+    }
+  ]
+}

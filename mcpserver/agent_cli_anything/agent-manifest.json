@@ -1,0 +1,36 @@
+{
+  "name": "cli_anything",
+  "displayName": "CLI-Anything 能力目录",
+  "version": "0.1.0",
+  "description": "CLI-Anything 能力目录查询：列出 40+ 面向 Agent 的 GUI 应用 CLI harness（GIMP/Blender/OBS 等）并支持按分类/关键词检索；跨矩阵搜索视频/音乐/图像等任务能力及其 provider。上游 HKUDS/CLI-Anything。",
+  "author": "陆墨助手",
+  "license": "Apache-2.0",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_cli_anything.agent_cli_anything",
+    "class": "CliAnythingAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "list_cli_tools",
+        "description": "列出 CLI-Anything 可用 CLI 工具（等价 cli-hub list --json）。category 按分类过滤（image/3d/video/audio/office/ai...）；source 取 harness/public/all；query 按名称/描述/分类模糊搜索；limit 限制条数。",
+        "params": {
+          "category": "分类过滤（可选）",
+          "source": "harness/public/all（可选）",
+          "query": "模糊搜索关键词（可选）",
+          "limit": "返回条数上限（可选）"
+        },
+        "example": "{\"tool_name\":\"list_cli_tools\",\"category\":\"image\",\"limit\":20}"
+      },
+      {
+        "command": "search_capabilities",
+        "description": "跨矩阵搜索任务能力（等价 cli-hub can <query>）。按 capability id/intent/skill_search_hints/provider 名称匹配，返回矩阵、能力与 provider 列表。",
+        "params": {
+          "query": "能力关键词，如 video download / transcribe audio（必填）"
+        },
+        "example": "{\"tool_name\":\"search_capabilities\",\"query\":\"video download\"}"
+      }
+    ]
+  }
+}

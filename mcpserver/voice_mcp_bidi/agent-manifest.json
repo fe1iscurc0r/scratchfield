@@ -1,0 +1,43 @@
+{
+  "name": "voice_mcp_bidi",
+  "displayName": "双向语音 (Kokoro TTS + Voxtral STT)",
+  "version": "1.0.0",
+  "description": "shreyaskarnik/voice-mcp (Apache-2.0) 的 MCP 改造接入：双向语音。上游是 Claude Code 的 FastMCP stdio 双向语音 server（listen=麦克风+VAD+Voxtral STT；speak=Kokoro TTS 82M/9语言54音色），依赖 mlx-audio（仅 Apple Silicon）+ sounddevice 真机硬件，无法直接进 Python 注册表，故改造接入：speak 后端可切换（真机 mlx Kokoro → 云服 TTS-API kokoro 同源引擎 → 降级），listen 为真机能力（云服优雅降级）。",
+  "author": "Trae (陆墨团队)",
+  "agentType": "mcp",
+  "license": "Apache-2.0",
+  "vendor": "shreyaskarnik",
+  "source": "https://github.com/shreyaskarnik/voice-mcp",
+  "entryPoint": {
+    "module": "mcpserver.voice_mcp_bidi.voice_mcp_bidi",
+    "class": "VoiceMCPBidiAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "voice_speak",
+        "description": "Kokoro 语音合成：把文本转成语音（真机 mlx Kokoro 或云服 TTS-API kokoro 迂回后端），落盘 + 返回 base64 + 元数据。\n- `tool_name`: voice_speak/speak\n- `text`: 要合成的文本（必填，用母语原生文字，如中文用汉字）\n- `voice`: Kokoro 音色 ID（默认 af_heart）\n- `speed`: 语速倍率（默认 1.0，范围 0.5–3.0）\n- `lang`: 语言码 a美英/b英英/e西/f法/h印/i意/j日/p葡/z普通话（默认 a）\n**调用示例:**\n```json\n{\"tool_name\": \"voice_speak\", \"text\": \"你好，我是陆墨\", \"lang\": \"z\"}```",
+        "params": {
+          "text": "要合成的文本（必填）",
+          "voice": "Kokoro 音色 ID",
+          "speed": "语速倍率",
+          "lang": "语言码"
+        },
+        "example": "{\"tool_name\": \"voice_speak\", \"text\": \"你好，我是陆墨\", \"lang\": \"z\"}"
+      },
+      {
+        "command": "voice_listen",
+        "description": "麦克风录音 + 转写（真机能力）。云服环境不可用会优雅降级。\n- `tool_name`: voice_listen/listen\n- `duration`: 固定录音秒数（可选，缺省自动 VAD 停止）\n**调用示例:**\n```json\n{\"tool_name\": \"voice_listen\", \"duration\": 3}```",
+        "params": {
+          "duration": "固定录音秒数（可选）"
+        },
+        "example": "{\"tool_name\": \"voice_listen\", \"duration\": 3}"
+      },
+      {
+        "command": "voice_status",
+        "description": "voice-mcp (Bidi) 后端可用性健康检查：真机 mlx/mic + TTS-API 可达性。\n- `tool_name`: voice_status/status\n**调用示例:**\n```json\n{\"tool_name\": \"voice_status\"}```",
+        "example": "{\"tool_name\": \"voice_status\"}"
+      }
+    ]
+  }
+}

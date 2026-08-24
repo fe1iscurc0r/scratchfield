@@ -1,0 +1,67 @@
+# NagaAgent 依赖（与 pyproject.toml 同步，pip/uv 均可使用）
+# Python 建议 3.11；打包使用 uv sync，见 pyproject.toml
+
+# ---------- 核心 / 配置 ----------
+charset-normalizer>=3.4.0
+json5>=0.9.0
+PyYAML>=6.0.2
+pydantic>=2.11.0
+requests>=2.32.0
+python-multipart>=0.0.32
+
+# ---------- Web 服务 ----------
+fastapi>=0.115.0
+uvicorn>=0.34.0
+sse-starlette>=2.3.0
+httpx[socks]>=0.28.1
+websockets>=17.0.1
+
+# ---------- LLM / 对话 ----------
+openai>=2.8.0
+litellm>=1.80.0
+tiktoken>=0.11.0
+langchain-openai>=1.1.0
+langchain-community>=0.3.30
+
+# ---------- 异步 / 任务 ----------
+aiohttp>=3.12.0
+aiofiles>=24.1.0
+APScheduler>=3.11.0
+
+# ---------- 系统 / 工具 ----------
+numpy>=2.4.6
+h5py>=3.16.0  # channel2world HDF5 数据存储（radio_brain/channel2world）
+pandas>=2.2.0
+pillow>=11.0.0
+psutil>=7.1.0
+emoji>=2.14.0
+cryptography>=46.0.0
+setproctitle>=1.3.5
+watchfiles>=1.0.0
+
+# ---------- 语音 / 音频 ----------
+edge-tts>=7.0.0
+sounddevice>=0.5.0
+
+# ---------- 知识图谱 GRAG / 兼容层 ----------
+py2neo>=2021.2.3
+neo4j>=5.0.0
+chromadb>=0.5.0
+mss>=10.1.0
+
+# ---------- RAG 向量检索 ----------
+torch>=2.0.0  # CPU 版即可，pip install torch 默认安装 CPU 版
+transformers>=4.30.0
+tokenizers>=0.15.0
+
+# ---------- GRAG 五元组提取（可选，api_format=anthropic 时需要） ----------
+anthropic>=0.42.0
+
+# ---------- vendor/top5 第三方能力包（源码纳入，非 pip 安装）----------
+# 以下包以源码方式纳入 vendor/top5/，不通过 pip 安装。
+# 版本信息记录在各 adapter 的 CAPABILITY["version"] 字段。
+# vendor/top5/Agent-Reach   == 1.5.0   MIT         (adapters/agent_reach.py)
+# vendor/top5/VulnClaw      == 0.3.7   MIT         (adapters/vulnclaw.py)
+# vendor/top5/caura-memclaw == 2.27.0  Apache-2.0  (adapters/memclaw.py)
+# vendor/top5/headroom      == 0.34.0  Apache-2.0  (adapters/headroom.py)
+rdflib>=7.0.0  # semantic_web MCP adapter (SPARQL/RDF)

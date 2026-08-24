@@ -1,0 +1,44 @@
+{
+  "name": "sentinel_intel",
+  "displayName": "SENTINEL 情报实体图",
+  "version": "0.1.0",
+  "description": "威胁情报记忆层（SPEC-09 K 线）：SQLite 情报实体图——同一干扰源在不同频段/时段的呼号/域名/IP 经三级别名归并（硬编码→entity_aliases.json→图 alias_of 边）合成一张画像（canonical_id），图可遍历（traverse）、有活动时间线。纯 Python + SQLite 零新增依赖。授粉自 ThreatRecall/zettelforge（MIT，只读参考独立重写）。",
+  "author": "沈遥",
+  "license": "AGPL-3.0（主仓原生实现；机制授粉 zettelforge MIT，独立重写零拷贝）",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.sentinel_intel.bridge",
+    "class": "IntelBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "intel_ingest",
+        "description": "情报幂等入库：实体 + 时序关系边（重复入库不重复建行）",
+        "params": {
+          "entities": "[{etype: actor|tool|infra|indicator, value, props?, ts?}]",
+          "edges": "[{src: id或{etype,value}, dst: 同左, rel: uses|indicates|alias_of|observed_at, props?, ts?}]"
+        },
+        "example": "{\"tool_name\":\"intel_ingest\",\"entities\":[{\"etype\":\"indicator\",\"value\":\"BG5GXO\",\"props\":{\"band\":\"20m\"}}],\"edges\":[]}"
+      },
+      {
+        "command": "intel_query",
+        "description": "查情报画像：先三级别名归并，返回 canonical 画像（成员/出边/时间线）",
+        "params": {
+          "value": "呼号/域名/IP/组织名",
+          "etype": "实体类型（可省，唯一命中时自动猜测）"
+        },
+        "example": "{\"tool_name\":\"intel_query\",\"value\":\"fancy bear\",\"etype\":\"actor\"}"
+      },
+      {
+        "command": "intel_timeline",
+        "description": "实体活动时间线：以其为端点的时序边按 ts 升序",
+        "params": {
+          "etype": "实体类型",
+          "value": "实体值"
+        },
+        "example": "{\"tool_name\":\"intel_timeline\",\"etype\":\"indicator\",\"value\":\"BG5GXO\"}"
+      }
+    ]
+  }
+}

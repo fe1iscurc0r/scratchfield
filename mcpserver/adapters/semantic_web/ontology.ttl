@@ -1,0 +1,28 @@
+@prefix lk:   <http://lumo.local/knowledge#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+# ============================================================
+# 科研域轻量本体（RDFS 足够，不引入完整 OWL DL）
+# 本体是数据不是代码：用户可继续往下面加类/属性，不碰代码。
+# 依据 SEMANTIC-WEB-SPEC-v1.md 3.2（示例）+ 少量必要扩展。
+# ============================================================
+
+# ---- 类层次（rdfs:subClassOf 推理链）----
+lk:材料        rdfs:subClassOf owl:Thing .
+lk:纳米材料    rdfs:subClassOf lk:材料 .
+lk:木质素纳米颗粒 rdfs:subClassOf lk:纳米材料 .
+lk:水凝胶      rdfs:subClassOf lk:材料 .
+lk:共熔凝胶    rdfs:subClassOf lk:水凝胶 .
+
+# ---- 属性（领域/值域约束，可扩展）----
+lk:应用于      rdfs:domain lk:材料 ; rdfs:range xsd:string .
+lk:组成部分    rdfs:domain lk:材料 ; rdfs:range lk:材料 .
+
+# ---- 扩展：GRAG 的"是"谓词 = 实例化关系 ----
+# GRAG 五元组里大量用"是"（如 木质素NPs 是 纳米材料），
+# 声明为 rdf:type 的子属性后，RDFS 规则（rdfs7 子属性应用）就能
+# 把"X 是 Y"推到 rdf:type，再经 subClassOf 链推到祖先类。
+lk:是         rdfs:subPropertyOf rdf:type .

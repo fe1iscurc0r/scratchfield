@@ -1,0 +1,56 @@
+{
+  "name": "agent_trivy",
+  "version": "1.0.0",
+  "description": "MCP Agent wrapper for Trivy container/filesystem/repo vulnerability scanner CLI",
+  "author": "MCP Agent Generator",
+  "license": "MIT",
+  "agent_class": "AgentTrivy",
+  "module": "agent_trivy",
+  "dependencies": {
+    "runtime": "trivy"
+  },
+  "tools": [
+    {
+      "name": "scan_image",
+      "description": "Scan a container image for vulnerabilities and misconfigurations",
+      "parameters": {
+        "image": {
+          "type": "string",
+          "required": true,
+          "description": "Container image reference (e.g. nginx:latest)"
+        }
+      }
+    },
+    {
+      "name": "scan_filesystem",
+      "description": "Scan a local filesystem path for vulnerabilities and misconfigurations",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "required": true,
+          "description": "Local directory path to scan"
+        }
+      }
+    },
+    {
+      "name": "scan_repo",
+      "description": "Scan a remote Git repository for vulnerabilities and misconfigurations",
+      "parameters": {
+        "repo_url": {
+          "type": "string",
+          "required": true,
+          "description": "Remote Git repository URL"
+        }
+      }
+    }
+  ],
+  "protocol": {
+    "type": "subprocess",
+    "description": "Calls trivy CLI via subprocess with JSON output, 10-minute timeout"
+  },
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_trivy.agent_trivy",
+    "class": "AgentTrivy"
+  }
+}

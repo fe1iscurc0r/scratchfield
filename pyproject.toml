@@ -1,0 +1,157 @@
+[project]
+name = "lumo"
+version = "5.1.5"
+description = "陆墨 - 材料科研桌面助手，支持多MCP服务、流式语音交互、GRAG知识图谱记忆系统、RESTful API接口、控制台托盘功能"
+authors = [
+    {name = "柏斯阔落", email = "1781393885@qq.com"},
+]
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    # ---------- 核心 / 配置 ----------
+    "charset-normalizer>=3.4.0",
+    "json5>=0.9.0",
+    "PyYAML>=6.0.2",
+    "pydantic>=2.11.0",
+    "requests>=2.32.0",
+    "python-multipart>=0.0.32",
+    # ---------- Web 服务 ----------
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "sse-starlette>=2.3.0",
+    "httpx[socks]>=0.28.1",
+    "websockets>=17.0.1",
+    # ---------- LLM / 对话 ----------
+    "openai>=2.8.0",
+    "anthropic>=0.42.0",
+    "litellm>=1.80.0",
+    "tiktoken>=0.11.0",
+    "langchain-openai>=1.1.0",
+    "langchain-community>=0.3.30",
+    # ---------- 异步 / 任务 ----------
+    "aiohttp>=3.12.0",
+    "aiofiles>=24.1.0",
+    "APScheduler>=3.11.0",
+    # ---------- 系统 / 工具 ----------
+    "numpy>=2.4.6",
+    "pandas>=2.2.0",
+    "pillow>=11.0.0",
+    "psutil>=7.1.0",
+    "emoji>=2.14.0",
+    "cryptography>=46.0.0",
+    "setproctitle>=1.3.5",
+    "watchfiles>=1.0.0",
+    # ---------- 语音 / 音频 ----------
+    "edge-tts>=7.0.0",
+    "sounddevice>=0.5.0",
+    # ---------- 知识图谱 GRAG / 兼容层 ----------
+    "py2neo>=2021.2.3",
+    "neo4j>=5.0.0",
+    "chromadb>=0.5.0",
+    "mss>=10.1.0",
+]
+
+[project.optional-dependencies]
+# 本地 kokoro-onnx 离线 TTS 引擎（Edge TTS 断网时兜底）
+local-tts = [
+    "onnxruntime>=1.20.1",
+    "espeakng-loader>=0.2.4",
+    "phonemizer-fork>=3.3.2",
+    "misaki-fork[zh]>=0.9.0",
+]
+# 论文 PDF → Markdown 管线（mcpserver/adapters/pdf2md_adapter，台账⑤）
+# Docling 主力（中文 OCR/表格结构/图像提取）+ MarkItDown 降级
+pdf2md = [
+    "docling>=2.120.0",
+    "markitdown[pdf]>=0.1.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+include = ["apiserver", "agentserver", "summer_memory", "thinking", "ui", "voice"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+    "NEKO",
+    "skills",
+    "vendor",
+    ".venv",
+    "node_modules",
+    "build",
+    "dist",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort (import 排序)
+    "UP",   # pyupgrade
+    "N",    # pep8-naming
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    # --- 行长度 / 格式 ---
+    "E501",  # line-too-long (由 formatter 处理)
+    # --- 导入 ---
+    "E402",  # module-import-not-at-top (延迟导入在项目中常见)
+    "F401",  # unused-import (__init__.py re-export 等)
+    "F402",  # import-shadowed-by-loop-var
+    "F811",  # redefined-while-unused
+    "F841",  # unused-variable (待逐步修复)
+    # --- 异常 / 控制流 ---
+    "E701",  # multiple-statements-on-one-line-colon
+    "E722",  # bare-except (待逐步修复)
+    "E731",  # lambda-assignment
+    "E741",  # ambiguous-variable-name
+    "SIM102", # collapsible-if
+    "SIM103", # needless-bool
+    "SIM105", # suppressible-exception
+    "SIM108", # if-else-block-instead-of-if-exp (三元表达式偏好)
+    "SIM110", # reimplemented-builtin
+    "SIM113", # enumerate-for-loop
+    "SIM115", # open-file-with-context-handler
+    "SIM118", # in-dict-keys
+    # --- pyupgrade (待逐步迁移) ---
+    "UP007",  # non-pep604-annotation-union
+    "UP022",  # replace-stdout-stderr
+    "UP031",  # printf-string-formatting
+    "UP035",  # deprecated-import (typing 旧别名)
+    "UP042",  # replace-str-enum
+    # --- pep8-naming (项目现有命名模式) ---
+    "N801",  # invalid-class-name
+    "N802",  # invalid-function-name
+    "N805",  # invalid-first-argument-name-for-method
+    "N806",  # non-lowercase-variable-in-function
+    "N812",  # lowercase-imported-as-non-lowercase
+    "N816",  # mixed-case-variable-in-global-scope
+    "N818",  # error-suffix-on-exception-name
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "N",     # 测试中命名约定灵活
+    "E402",  # 测试可能需要延迟导入
+    "F401",  # 导入用于验证模块可用性
+    "F841",  # 测试中可能有占位变量
+    "SIM",   # 测试中简化规则不适用
+]
+"scripts/**/*.py" = [
+    "E402",  # 脚本常需 sys.path 调整后导入
+    "F401",  # 脚本可能导入供副作用使用
+    "N",     # 脚本命名约定灵活
+]
+
+[dependency-groups]
+build = [
+    "pyinstaller>=6.18.0",
+]
+test = [
+    "google-genai>=1.63.0",
+]

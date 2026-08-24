@@ -1,0 +1,58 @@
+{
+  "name": "scikit_fingerprints",
+  "displayName": "scikit-fingerprints 分子指纹",
+  "version": "1.0.0",
+  "description": "分子指纹库：ECFP/Morgan/MACCS/拓扑指纹计算、Tanimoto 相似度矩阵、sklearn 特征变换、Murcko 骨架分析",
+  "author": "陆墨助手",
+  "license": "MIT",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.scikit_fingerprints.agent",
+    "class": "ScikitFingerprintsAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "skfp_fingerprint",
+        "description": "指纹计算：SMILES 列表 → 每分子指纹位向量（非零位索引）",
+        "params": {
+          "smiles_list": "SMILES 数组，如 [\"CC(=O)Oc1ccccc1C(=O)O\"]；也接受逗号分隔字符串",
+          "fingerprint_type": "指纹类型 ECFP/Morgan/MACCS/Topological（默认 ECFP）",
+          "radius": "ECFP/Morgan 半径（默认 2）",
+          "fp_size": "指纹位宽（默认 2048，上限 65536）"
+        },
+        "example": "{\"tool_name\":\"skfp_fingerprint\",\"smiles_list\":[\"CC(=O)Oc1ccccc1C(=O)O\"],\"fingerprint_type\":\"ECFP\",\"radius\":2,\"fp_size\":2048}"
+      },
+      {
+        "command": "skfp_similarity_matrix",
+        "description": "相似度矩阵：SMILES 列表 → 两两 Tanimoto 相似度矩阵",
+        "params": {
+          "smiles_list": "SMILES 数组（至少 2 个分子）",
+          "fingerprint_type": "指纹类型（默认 ECFP）",
+          "radius": "ECFP/Morgan 半径（默认 2）",
+          "fp_size": "指纹位宽（默认 2048）"
+        },
+        "example": "{\"tool_name\":\"skfp_similarity_matrix\",\"smiles_list\":[\"CC(=O)Oc1ccccc1C(=O)O\",\"CCO\"],\"fingerprint_type\":\"ECFP\"}"
+      },
+      {
+        "command": "skfp_transform",
+        "description": "特征变换：SMILES 列表 → sklearn 兼容特征矩阵（rows × cols 稀疏描述 + 密度）",
+        "params": {
+          "smiles_list": "SMILES 数组",
+          "fingerprint_type": "指纹类型（默认 ECFP）",
+          "radius": "ECFP/Morgan 半径（默认 2）",
+          "fp_size": "指纹位宽（默认 2048）"
+        },
+        "example": "{\"tool_name\":\"skfp_transform\",\"smiles_list\":[\"CC(=O)Oc1ccccc1C(=O)O\",\"CCO\"],\"fingerprint_type\":\"MACCS\"}"
+      },
+      {
+        "command": "skfp_scaffold",
+        "description": "骨架分析：单个 SMILES → Murcko 骨架 SMILES + 通用骨架",
+        "params": {
+          "smiles": "单个分子 SMILES（必填）"
+        },
+        "example": "{\"tool_name\":\"skfp_scaffold\",\"smiles\":\"CC(=O)Oc1ccccc1C(=O)O\"}"
+      }
+    ]
+  }
+}

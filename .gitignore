@@ -1,0 +1,327 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+!frontend/build/
+frontend/backend-dist/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.manifest
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+nagaagent-core/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/*.log
+logs/**/*.log
+*.log
+logs/knowledge_graph/quintuples.json
+logs/knowledge_graph/graph.html
+logs/.auth_session
+
+# Audio temporary files
+logs/audio_temp/*.mp3
+logs/audio_temp/*.wav
+logs/audio_temp/*.m4a
+logs/audio_temp/*.opus
+logs/audio_temp/*.ogg
+logs/audio_temp/*.flac
+!logs/audio_temp/README.md
+
+# Session and history
+sessions/
+uploaded_documents/
+*.session
+*.history
+*.cache
+*.tmp
+*.temp
+
+# Configuration
+config.json
+config.json.local
+config.local.json
+*.env
+.env.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Neo4j
+*.graphdb/
+
+# Socket patch (Windows specific)
+socket_patch.py
+system/socket_patch.py
+
+# Test and diagnostic files (2026-08-23: test_v*.py 过宽，误伤 mcpserver/voice_mcp_bidi 测试，已移除；测试文件正常入库)
+diagnose_v*.py
+V*_*.md
+V*_*.txt
+
+# System
+Thumbs.db
+desktop.ini
+.Spotlight-V100
+.Trashes
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+~$*
+.tmp-home/
+
+# API Keys and Secrets (never commit these!)
+*api_key*
+*secret*
+*token*
+*credential*
+!**/prompts/**
+!vendor/openclaw/src/**
+
+# Generated documentation
+docs/_build/
+site/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+# Windows 保留设备名（nul 无法被文件系统访问，git 误列为 untracked）
+nul
+
+# Linux
+.directory
+.Trash-*
+
+# JetBrains
+.idea/
+*.iml
+out/
+.idea_modules/
+
+# Visual Studio Code
+.vscode/
+.history/
+*.code-workspace
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Distribution / packaging
+.Python
+develop-eggs/
+downloads/
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Models (large files)
+/models/
+
+# Frontend premium assets (paid backgrounds / music etc.)
+frontend/premium-assets/*
+!frontend/premium-assets/backgrounds/
+frontend/premium-assets/backgrounds/*
+!frontend/premium-assets/backgrounds/.gitkeep
+
+# Pyre type checker
+.pyre/
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# Django stuff:
+local_settings.py
+db.sqlite3
+/media/
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+target/
+
+# PyBuilder
+target/
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Claude Code
+.claude/
+/CLAUDE.md
+tmp/
+
+# Cursor
+.cursorrules
+
+# MAA 游戏脚本代理 MCP（用户私有配置，不提交）
+mcpserver/agent_auto_game/openclaw-runtime/
+
+# 内嵌运行时（Node.js + OpenClaw + uv，首次运行自动安装）
+/runtime/
+
+# vendor/openclaw 编译产物和依赖（源码跟踪，产物不跟踪）
+vendor/openclaw/dist/
+vendor/openclaw/node_modules/
+
+# Vendored OpenClaw source must always be tracked, even if generic rules above
+# would otherwise ignore names like media/secret/token/credential.
+!vendor/openclaw/src/**
+*.lnk
+
+# ─── NEKO 引入的第三方源码（Apache 2.0，见根目录 NOTICE） ───
+# 排除大二进制资源以减小仓库体积，仅保留源码与文档
+NEKO/NEKO-windows-src.zip
+NEKO/N.E.K.O/**/*.vrm
+NEKO/N.E.K.O/**/*.pmx
+NEKO/N.E.K.O/**/*.onnx
+NEKO/N.E.K.O/**/*.tar.gz
+!NEKO/N.E.K.O/assets/yui-origin.tar.gz
+NEKO/N.E.K.O/assets/demo.mp4
+NEKO/N.E.K.O/frontend/**/*.ttf
+NEKO/N.E.K.O/static/**/*.gif
+NEKO/N.E.K.O/static/**/*.mp3
+NEKO/N.E.K.O/static/**/*.webp
+NEKO/N.E.K.O/deps/**/*.whl
+
+# ─── NEKO × Lumo 融合移植（M1+）新增忽略规则 ───
+# 原则：依赖产物、打包输出、运行时数据、含敏感凭证的调试脚本一律不入库
+
+# NEKO Electron Shell 依赖（约 360MB，首次启动 npm install 自动生成）
+neko-electron-shell/node_modules/
+
+# Electron 打包产物（app.asar 等单文件可达 400MB+）
+*.asar
+frontend/release/
+frontend/release-*/
+frontend/release2/
+frontend/dist-electron-release/
+
+# mod 源码包归档（tar.gz + extracted，单文件可达 156MB+）
+mod/sources/packages/
+
+# 运行时 telemetry 事件流（用户使用统计，属隐私数据）
+carpet/N.E.K.O/config/telemetry_events/events-*.jsonl
+
+# 运行时用户偏好与教程状态（每次启动会被覆写，不跟踪差异）
+carpet/N.E.K.O/config/user_preferences.json
+carpet/N.E.K.O/config/user_preferences.json.lock
+carpet/N.E.K.O/config/autostart_prompt_state.json
+carpet/N.E.K.O/config/seven_day_tutorial_state.json
+carpet/N.E.K.O/config/tutorial_choices.json
+carpet/N.E.K.O/config/agent_runtime_intent.json
+carpet/N.E.K.O/plugins.lock.json
+
+# NEKO 核心配置（含 API Key 等真实凭证，禁止入库；本地保留运行所需）
+carpet/N.E.K.O/config/core_config.json
+
+# NEKO 人格运行时数据（carpet 镜像目录，由 NEKO 启动时生成）
+carpet/N.E.K.O/memory/
+
+# 调试与验证脚本目录（含本地凭证，如 Neo4j 密码；保留本地文件但不入库）
+scripts/debug/
+
+# 临时启动脚本（本地调试用，不入库）
+_neko_start.bat
+neko-start*.bat
+
+# 根目录临时调试脚本（含本地测试弱凭证，不入库）
+debug_auth*.py
+debug_*.py
+
+
+
+# 嵌套独立仓库：HamLog（业余无线电日志，fe1iscurc0r/HamLog 克隆）
+/HamLog/
+
+# 记忆 MaaS sidecar 数据目录（W-06，lineage/cards/hs 三库）
+/memory_maas_data/
+
+# github_haul：跨仓库调研拉取的第三方源码快照（仅供查阅，不入库）
+/github_haul/
+
+# knowledge-base：跨项目调研资料快照（siyuan changelog、apify、mcp-gateway 等，仅供查阅，不入库）
+/knowledge-base/
+
+# 认知免疫：信任评分表运行时数据（不入库）
+mcpserver/trust_scores.json
+
+# 调研源码快照（buzz/herdr 等，仅供查阅不入库）
+/repos/
+
+# Channel2World 生成数据（可复现，由 data_gen CLI 产出，不入库）
+/radio_brain/channel2world/data/
+# Channel2World 训练 checkpoint（二进制，不入库；冒烟日志 train_log.jsonl 保留）
+radio_brain/channel2world/logs/**/*.pt

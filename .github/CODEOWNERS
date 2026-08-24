@@ -1,0 +1,21 @@
+# 代码所有者
+# 最后匹配规则优先
+
+* @fe1iscurc0r
+
+# MCP 适配器
+/mcpserver/adapters/ @fe1iscurc0r
+/mod/mcpserver/ @fe1iscurc0r
+
+# 科学 Skills
+/skills/ @fe1iscurc0r
+
+# 前端
+/frontend/ @fe1iscurc0r
+
+# 文档
+/docs/ @fe1iscurc0r
+
+# 安全相关
+/SECURITY.md @fe1iscurc0r
+/vendor/top5/VulnClaw/ @fe1iscurc0r

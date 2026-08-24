@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="陆墨任务追踪面板 — GitHub 任务与日常计划一体化追踪">
+  <title>陆墨任务追踪面板</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fafafa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='7' rx='1'/%3E%3Crect x='14' y='3' width='7' height='7' rx='1'/%3E%3Crect x='14' y='14' width='7' height='7' rx='1'/%3E%3Crect x='3' y='14' width='7' height='7' rx='1'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="min-h-screen font-sans antialiased">
+
+  <div class="dashboard-shell">
+
+    <!-- ═══ 顶部栏 ═══ -->
+    <header class="dash-header">
+      <div class="dash-header-left">
+        <div class="dash-logo">
+          <svg class="lucide w-5 h-5" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+        </div>
+        <div>
+          <h1 class="dash-title">陆墨任务追踪面板</h1>
+          <p class="dash-subtitle">fe1iscurc0r/scratchpad</p>
+        </div>
+      </div>
+      <div class="dash-header-right">
+        <span id="last-updated" class="last-updated">未刷新</span>
+        <button id="theme-toggle" class="btn ghost sm icon-btn" type="button" aria-label="切换深浅主题" title="切换深浅主题">
+          <svg class="lucide w-4 h-4" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+        <button id="refresh-btn" class="btn secondary sm" type="button">
+          <svg class="lucide w-4 h-4" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <span>刷新</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="dash-body">
+
+      <!-- ═══ 侧边栏 ═══ -->
+      <aside class="dash-sidebar">
+        <div class="dash-section">
+          <h2 class="dash-section-title">日常计划</h2>
+          <div class="stats-grid">
+            <article class="stat-card">
+              <div class="stat-label">计划总数</div>
+              <div id="plan-total" class="stat-value">0</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-label">已完成</div>
+              <div id="plan-done" class="stat-value">0</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-label">进行中</div>
+              <div id="plan-doing" class="stat-value">0</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-label">今日截止</div>
+              <div id="plan-today" class="stat-value">0</div>
+            </article>
+          </div>
+          <div class="plan-overall-progress">
+            <div class="plan-progress-label">
+              <span>整体进度</span>
+              <span id="plan-progress-pct">0%</span>
+            </div>
+            <div class="plan-progress-bar">
+              <div id="plan-progress-fill" class="plan-progress-fill" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dash-section">
+          <h2 class="dash-section-title">概览</h2>
+          <div class="stats-grid">
+            <article class="stat-card">
+              <div class="stat-label">Open 总数</div>
+              <div id="stat-open" class="stat-value">0</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-label">Issues</div>
+              <div id="stat-issues" class="stat-value">0</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-label">PRs</div>
+              <div id="stat-prs" class="stat-value">0</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-label">今日新增</div>
+              <div id="stat-today" class="stat-value">0</div>
+            </article>
+          </div>
+        </div>
+
+        <div class="dash-section">
+          <h2 class="dash-section-title">优先级</h2>
+          <div class="stat-list">
+            <div class="stat-row">
+              <span class="stat-row-label"><span class="stat-dot" style="background:var(--priority-p0)"></span>P0</span>
+              <span id="stat-p0" class="stat-row-value">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label"><span class="stat-dot" style="background:var(--priority-p1)"></span>P1</span>
+              <span id="stat-p1" class="stat-row-value">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label"><span class="stat-dot" style="background:var(--priority-p2)"></span>P2</span>
+              <span id="stat-p2" class="stat-row-value">0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dash-section">
+          <h2 class="dash-section-title">标签</h2>
+          <div class="stat-list">
+            <div class="stat-row">
+              <span class="stat-row-label text-improvement">改进</span>
+              <span id="stat-improvement" class="stat-row-value">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-row-label text-compliance">合规</span>
+              <span id="stat-compliance" class="stat-row-value">0</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ═══ 主内容区 ═══ -->
+      <section class="dash-main">
+        <div class="tabs-bar">
+          <button class="tab-btn tab-active" data-tab="github" type="button">
+            <svg class="lucide w-4 h-4" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+            <span>GitHub 任务</span>
+          </button>
+          <button class="tab-btn" data-tab="plans" type="button">
+            <svg class="lucide w-4 h-4" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="m9 16 2 2 4-4"/></svg>
+            <span>日常计划</span>
+          </button>
+        </div>
+
+        <!-- GitHub 任务面板 -->
+        <div id="tab-github" class="tab-panel">
+          <div class="dash-main-header">
+            <h2 class="dash-section-title m-0">任务卡片</h2>
+            <div class="filter-bar">
+              <div class="search-box">
+                <span class="search-icon">
+                  <svg class="lucide w-4 h-4" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </span>
+                <input id="task-search" type="text" placeholder="搜索任务…" autocomplete="off" aria-label="搜索任务">
+              </div>
+              <button class="btn ghost sm filter-active" type="button" data-filter="all">全部</button>
+              <button class="btn ghost sm" type="button" data-filter="issue">Issues</button>
+              <button class="btn ghost sm" type="button" data-filter="pr">PRs</button>
+            </div>
+          </div>
+          <div id="card-list" class="card-list">
+            <div id="loading" class="loading-state">
+              <svg class="lucide w-6 h-6 animate-spin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+              <span>正在加载任务数据…</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 日常计划面板 -->
+        <div id="tab-plans" class="tab-panel" style="display:none">
+          <div class="dash-main-header">
+            <h2 class="dash-section-title m-0">我的计划</h2>
+            <div class="filter-bar">
+              <button class="btn ghost sm filter-active" type="button" data-plan-filter="all">全部</button>
+              <button class="btn ghost sm" type="button" data-plan-filter="doing">进行中</button>
+              <button class="btn ghost sm" type="button" data-plan-filter="done">已完成</button>
+              <button id="add-plan-btn" class="btn primary sm" type="button">
+                <svg class="lucide w-4 h-4" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>新建</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="plan-form" class="plan-form" style="display:none">
+            <div class="plan-form-inner">
+              <h3 class="plan-form-title">新建计划</h3>
+              <div class="form-row">
+                <label class="form-label" for="plan-title-input">标题</label>
+                <input id="plan-title-input" class="form-input" type="text" placeholder="输入计划标题…">
+              </div>
+              <div class="form-row-grid">
+                <div class="form-row">
+                  <label class="form-label" for="plan-type-input">类型</label>
+                  <select id="plan-type-input" class="form-input">
+                    <option value="待办">待办</option>
+                    <option value="学习">学习</option>
+                    <option value="工作">工作</option>
+                    <option value="生活">生活</option>
+                    <option value="健康">健康</option>
+                    <option value="其他">其他</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label class="form-label" for="plan-priority-input">优先级</label>
+                  <select id="plan-priority-input" class="form-input">
+                    <option value="P0">P0 - 紧急</option>
+                    <option value="P1" selected>P1 - 重要</option>
+                    <option value="P2">P2 - 普通</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="plan-deadline-input">截止时间</label>
+                <input id="plan-deadline-input" class="form-input" type="datetime-local">
+              </div>
+              <div class="plan-form-actions">
+                <button id="plan-cancel-btn" class="btn ghost sm" type="button">取消</button>
+                <button id="plan-save-btn" class="btn primary sm" type="button">保存</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="plan-list" class="card-list">
+            <div class="empty-state">
+              <svg class="lucide w-8 h-8" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>
+              <span>还没有计划，点击「新建」添加第一条</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Toast 轻提示 -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/mock.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

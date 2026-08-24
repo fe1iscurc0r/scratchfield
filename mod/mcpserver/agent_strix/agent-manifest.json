@@ -1,0 +1,42 @@
+{
+  "name": "agent_strix",
+  "version": "1.0.0",
+  "description": "Pentest toolkit agent exposing atomic operations from the Strix pentest orchestrator: port scanning (nmap), service detection, vulnerability scanning (searchsploit), exploit verification, brute-force (hydra), and scan reporting. Each tool wraps its own CLI binary independently.",
+  "author": "MCP Agent Team",
+  "license": "MIT",
+  "capabilities": [
+    "port_scanning",
+    "service_detection",
+    "vulnerability_scanning",
+    "exploit_verification",
+    "brute_force",
+    "report_generation"
+  ],
+  "dependencies": {
+    "python": ">=3.8",
+    "system_tools": [
+      "nmap",
+      "hydra",
+      "searchsploit"
+    ]
+  },
+  "class": "StrixAgent",
+  "tags": [
+    "pentest",
+    "nmap",
+    "hydra",
+    "searchsploit",
+    "vuln-scan",
+    "exploit"
+  ],
+  "platforms": [
+    "linux",
+    "macos"
+  ],
+  "category": "security",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_strix.agent_strix",
+    "class": "StrixAgent"
+  }
+}

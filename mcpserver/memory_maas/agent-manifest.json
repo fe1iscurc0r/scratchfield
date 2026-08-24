@@ -1,0 +1,48 @@
+{
+  "name": "memory_maas",
+  "displayName": "记忆 MaaS（会话血统+混合检索）",
+  "version": "0.1.0",
+  "description": "NEKO 记忆五件套（SPEC-03：RRF混合检索/索引卡/会话血统/后台写入/衰减过期）MaaS 化 sidecar 的 MCP 桥：memory_search 混合检索命中附会话血统链；优先 HTTP sidecar（127.0.0.1:48919，python -m mcpserver.memory_maas 启动），不通时进程内直连降级。调研与端点设计见 docs/Memory-MaaS-Research-v1.md。",
+  "author": "沈遥",
+  "license": "AGPL-3.0",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.memory_maas.bridge",
+    "class": "MemoryMaasBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "memory_search",
+        "description": "混合检索记忆索引卡（FTS5 关键词+RRF），命中附带会话血统链",
+        "params": {
+          "query": "检索词",
+          "limit": "最多返回条数，默认 10",
+          "with_lineage": "是否附带会话血统，默认 true"
+        },
+        "example": "{\"tool_name\":\"memory_search\",\"query\":\"热物性 计算方案\",\"limit\":5}"
+      },
+      {
+        "command": "memory_lineage",
+        "description": "查会话血统链（[根..自身]）及根下分支树",
+        "params": {
+          "session_id": "会话 ID"
+        },
+        "example": "{\"tool_name\":\"memory_lineage\",\"session_id\":\"b1_1\"}"
+      },
+      {
+        "command": "memory_write",
+        "description": "写会话索引卡（后台启发式摘要建卡+检索索引同步）",
+        "params": {
+          "session_id": "会话 ID",
+          "turns": "对话轮次数组 [{role, content}]"
+        },
+        "example": "{\"tool_name\":\"memory_write\",\"session_id\":\"s1\",\"turns\":[{\"role\":\"user\",\"content\":\"用 CoolProp 算水在300K的密度\"}]}"
+      },
+      {
+        "command": "memory_status",
+        "description": "记忆 MaaS 状态：数据目录/血统与卡片计数/后台写统计/来源(sidecar|in-process)"
+      }
+    ]
+  }
+}

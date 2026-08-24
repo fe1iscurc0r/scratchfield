@@ -1,0 +1,55 @@
+{
+  "enabled": false,
+  "check_interval_seconds": 30,
+  "max_fps": 0.5,
+  "analysis_mode": "smart",
+  "trigger_rules": [
+    {
+      "rule_id": "game_stage_reminder",
+      "name": "游戏关卡提醒",
+      "enabled": false,
+      "keywords": [
+        "明日方舟",
+        "开始行动"
+      ],
+      "absence_keywords": [],
+      "scene_description": "明日方舟游戏中进入关卡选择或战斗准备界面",
+      "message_template": "检测到你准备开始新关卡了，需要我提供攻略建议吗？",
+      "cooldown_seconds": 600
+    },
+    {
+      "rule_id": "error_detection",
+      "name": "错误检测助手",
+      "enabled": false,
+      "keywords": [
+        "错误",
+        "Error",
+        "失败",
+        "Warning"
+      ],
+      "absence_keywords": [],
+      "scene_description": "屏幕上出现错误提示或警告弹窗",
+      "message_template": "看起来遇到了问题，需要我帮忙看看吗？",
+      "cooldown_seconds": 300
+    },
+    {
+      "rule_id": "long_stay_helper",
+      "name": "长时间停留助手",
+      "enabled": false,
+      "keywords": [],
+      "absence_keywords": [],
+      "scene_description": "用户在同一个界面停留超过5分钟",
+      "message_template": "你在这个界面待了一会儿，需要帮助吗？",
+      "cooldown_seconds": 600
+    }
+  ],
+  "quiet_hours_start": "23:00",
+  "quiet_hours_end": "07:00",
+  "pause_on_user_inactive": true,
+  "inactive_threshold_minutes": 10,
+  "notification_sound": true,
+  "notification_duration": 5,
+  "diff_detection_enabled": true,
+  "diff_detection_algorithm": "phash",
+  "diff_threshold": 8
+}

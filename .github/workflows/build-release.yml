@@ -1,0 +1,165 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (如 5.1.0，不带v前缀)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Install backend dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run backend tests
+        run: pytest tests/ -v
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            dist_cmd: dist:win
+          - os: macos-14
+            platform: mac
+            dist_cmd: dist:mac
+          - os: ubuntu-latest
+            platform: linux
+            dist_cmd: dist:linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: 'latest'
+
+      - name: Build backend and packaged runtime
+        shell: bash
+        run: python build.py --backend-only --force-openclaw
+
+      # ---------- Frontend: electron-builder (build only, no publish) ----------
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build & package
+        working-directory: frontend
+        run: npm run ${{ matrix.dist_cmd }} -- --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify mac DMG payload
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_path=$(ls frontend/release/*.dmg)
+          mount_dir=$(mktemp -d /tmp/naga-dmg-check.XXXXXX)
+          app_path="$mount_dir/陆墨.app"
+          framework_bin="$app_path/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
+          cleanup() {
+            hdiutil detach "$mount_dir" -quiet || true
+            rm -rf "$mount_dir"
+          }
+          trap cleanup EXIT
+
+          hdiutil attach "$dmg_path" -mountpoint "$mount_dir" -nobrowse -quiet
+          test -d "$app_path"
+          test -f "$framework_bin"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NagaAgent-${{ matrix.platform }}
+          path: |
+            frontend/release/*.exe
+            frontend/release/*.dmg
+            frontend/release/*.AppImage
+            frontend/release/*.blockmap
+            frontend/release/latest*.yml
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: NagaAgent ${{ steps.ver.outputs.version }}
+          draft: false
+          prerelease: false
+          files: artifacts/*
+          generate_release_notes: true

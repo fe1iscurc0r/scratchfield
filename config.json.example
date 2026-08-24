@@ -1,0 +1,299 @@
+{
+  "system": {
+    "version": "5.1.5",
+    "voice_enabled": true,
+    "stream_mode": true,
+    "debug": false,
+    "log_level": "INFO",
+    "save_prompts": true
+  },
+  "api": {
+    "api_key": "your-api-key-here",
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-v3.2",
+    "provider": "deepseek",
+    "use_gateway": true,
+    "api_format": "openai",
+    "max_tokens": 10000,
+    "context_load_days": 3,
+    "applied_proxy": true
+  },
+  "api_server": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8000,
+    "auto_start": true,
+    "docs_enabled": true
+  },
+  "agent_server": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8001
+  },
+  "mcp_server": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8003,
+    "agent_discovery": true
+  },
+  "grag": {
+    "enabled": true,
+    "auto_extract": true,
+    "context_length": 5,
+    "neo4j_uri": "neo4j://127.0.0.1:7687",
+    "neo4j_user": "neo4j",
+    "neo4j_password": "your_password",
+    "neo4j_database": "neo4j",
+    "extraction_timeout": 12,
+    "extraction_retries": 2,
+    "base_timeout": 15
+  },
+  "handoff": {
+    "max_loop_stream": 5,
+    "max_loop_non_stream": 5,
+    "show_output": false
+  },
+  "browser": {
+    "playwright_headless": false
+  },
+  "tts": {
+    "api_key": "",
+    "port": 5048,
+    "default_voice": "zh-CN-XiaoxiaoNeural",
+    "default_format": "mp3",
+    "default_speed": 1.0,
+    "default_language": "zh-CN",
+    "remove_filter": false,
+    "expand_api": true,
+    "require_api_key": false,
+    "local_engine": false,
+    "local_model": "",
+    "local_voices": "",
+    "local_lang": "zh",
+    "local_default_voice": "zf_002"
+  },
+  "asr": {
+    "port": 5060,
+    "sample_rate_in": 48000,
+    "frame_ms": 30,
+    "resample_to": 16000,
+    "vad_threshold": 0.7,
+    "silence_ms": 420,
+    "noise_reduce": true,
+    "engine": "local_funasr",
+    "local_model_path": "./utilss/models/SenseVoiceSmall",
+    "vad_model_path": "silero_vad.onnx",
+    "api_key_required": false,
+    "callback_url": null,
+    "ws_broadcast": false
+  },
+  "filter": {
+    "filter_think_tags": true,
+    "clean_output": true
+  },
+  "difficulty": {
+    "enabled": false,
+    "use_small_model": false,
+    "pre_assessment": false,
+    "assessment_timeout": 1.0,
+    "threshold_simple": 2,
+    "threshold_medium": 4,
+    "threshold_hard": 6
+  },
+  "scoring": {
+    "enabled": false,
+    "score_range": [1, 5],
+    "score_threshold": 2,
+    "similarity_threshold": 0.85,
+    "max_user_preferences": 3,
+    "default_preferences": ["逻辑清晰准确", "实用性强", "创新思维"],
+    "penalty_for_similar": 1,
+    "min_results_required": 2,
+    "strict_filtering": true
+  },
+  "mqtt": {
+    "enabled": false,
+    "broker": "localhost",
+    "port": 1883,
+    "topic": "/test/topic",
+    "client_id": "naga_mqtt_client",
+    "username": "",
+    "password": "",
+    "keepalive": 60,
+    "qos": 1
+  },
+  "ui": {
+    "user_name": "用户",
+    "bg_alpha": 0.5,
+    "window_bg_alpha": 110,
+    "mac_btn_size": 36,
+    "mac_btn_margin": 16,
+    "mac_btn_gap": 12,
+    "animation_duration": 600
+  },
+  "live2d": {
+    "enabled": true,
+    "model_path": "ui/live2d_local/live2d_models/kasane_teto/kasane_teto.model3.json",
+    "fallback_image": "ui/img/standby.png",
+    "auto_switch": true,
+    "animation_enabled": true,
+    "touch_interaction": true,
+    "scale_factor": 1.0,
+    "lip_sync_enabled": true,
+    "lip_sync_smooth_factor": 0.3,
+    "lip_sync_volume_scale": 1.5,
+    "lip_sync_volume_threshold": 0.01
+  },
+  "web_live2d": {
+    "ssaa": 2,
+    "model": {
+      "source": "./models/NagaTest2/NagaTest2.model3.json",
+      "x": 0.5,
+      "y": 1.3,
+      "size": 6800
+    },
+    "custom_model_id": null,
+    "face_y_ratio": 0.13,
+    "tracking_hold_delay_ms": 100
+  },
+  "floating": {
+    "enabled": false
+  },
+  "voice_realtime": {
+    "enabled": false,
+    "provider": "qwen",
+    "api_key": "",
+    "model": "qwen3-omni-flash-realtime",
+    "tts_model": "qwen-tts-realtime",
+    "asr_model": "qwen3-asr-realtime",
+    "voice": "Cherry",
+    "input_sample_rate": 16000,
+    "output_sample_rate": 24000,
+    "chunk_size_ms": 200,
+    "vad_threshold": 0.02,
+    "echo_suppression": true,
+    "min_user_interval": 2.0,
+    "cooldown_duration": 1.0,
+    "max_user_speech": 30.0,
+    "debug": false,
+    "integrate_with_memory": true,
+    "show_in_chat": true,
+    "use_api_server": false,
+    "voice_mode": "auto",
+    "asr_host": "localhost",
+    "asr_port": 5000,
+    "record_duration": 10,
+    "tts_voice": "zh-CN-XiaoyiNeural",
+    "tts_host": "localhost",
+    "tts_port": 5061,
+    "auto_play": true,
+    "interrupt_playback": true
+  },
+  "online_search": {
+    "searxng_url": "http://localhost:8080",
+    "engines": ["google"],
+    "num_results": 5,
+    "search_api_key": "",
+    "search_api_base": "https://api.search.brave.com/res/v1/web/search"
+  },
+  "openclaw": {
+    "gateway_port": 20789,
+    "gateway_url": "http://127.0.0.1:20789",
+    "token": null,
+    "timeout": 120,
+    "default_model": null,
+    "default_channel": "last",
+    "enabled": false,
+    "feishu": {
+      "enabled": false,
+      "app_id": "",
+      "app_secret": "",
+      "dm_policy": "open",
+      "group_policy": "allowlist",
+      "allow_from": ["*"],
+      "doc_owner_open_id": null
+    }
+  },
+  "auth": {
+    "enabled": true,
+    "username": "admin",
+    "password_hash": "",
+    "password_salt": "",
+    "require_auth": false
+  },
+  "notifications": {
+    "feishu": {
+      "enabled": false,
+      "recipient_type": "open_id",
+      "recipient_open_id": "",
+      "recipient_chat_id": "",
+      "deliver_full_report": true
+    },
+    "qq": {
+      "enabled": false,
+      "binding_target": "",
+      "user_qq": "",
+      "qq_email": "",
+      "email_verification_code": "",
+      "binding_verified": false,
+      "binding_verified_email": ""
+    }
+  },
+  "telemetry": {
+    "enabled": true,
+    "upload_enabled": true,
+    "upload_url": "",
+    "flush_interval_seconds": 60,
+    "upload_timeout_seconds": 10,
+    "batch_size": 50,
+    "max_queue_events": 5000,
+    "max_queue_bytes": 8388608
+  },
+  "computer_control": {
+    "enabled": true,
+    "model": "gemini-2.5-flash",
+    "model_url": "https://open.bigmodel.cn/api/paas/v4",
+    "api_key": "",
+    "grounding_model": "gemini-2.5-flash",
+    "grounding_url": "https://open.bigmodel.cn/api/paas/v4",
+    "grounding_api_key": "",
+    "screen_width": 1920,
+    "screen_height": 1080,
+    "max_dim_size": 1920,
+    "dpi_awareness": true,
+    "safe_mode": true
+  },
+  "guide_engine": {
+    "enabled": false,
+    "gamedata_dir": "./data",
+    "embedding_api_base_url": null,
+    "embedding_api_key": null,
+    "embedding_api_model": null,
+    "game_guide_llm_api_base_url": null,
+    "game_guide_llm_api_key": null,
+    "game_guide_llm_api_model": null,
+    "game_guide_llm_api_type": "openai",
+    "prompt_dir": "./guide_engine/game_prompts",
+    "neo4j_uri": "neo4j://127.0.0.1:7687",
+    "neo4j_user": "neo4j",
+    "neo4j_password": "your_password",
+    "screenshot_monitor_index": 1,
+    "auto_screenshot_on_guide": false
+  },
+  "memory_server": {
+    "url": "http://localhost:8004",
+    "token": null,
+    "space_id": null
+  },
+  "embedding": {
+    "model": "tongyi-embedding",
+    "api_base": "",
+    "api_key": ""
+  },
+  "system_check": {
+    "passed": false,
+    "timestamp": "",
+    "python_version": "",
+    "project_path": ""
+  }
+}

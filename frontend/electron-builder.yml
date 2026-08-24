@@ -1,0 +1,100 @@
+appId: com.lumo.scratchpad
+productName: 陆墨
+copyright: Copyright © 2026 陆墨
+
+directories:
+  buildResources: build
+  output: release
+
+afterPack: scripts/after-pack.mjs
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - node_modules/lodash.isequal/**/*
+  - '!dist/models/重音テト/**'
+
+# 音频/视频等二进制媒体文件从 asar 中解包到真实文件系统，
+# 避免 HTMLAudioElement 通过自定义协议读取 asar 内文件失败
+asarUnpack:
+  - 'dist/voices/**/*'
+
+extraResources:
+  - from: build/icon.png
+    to: build/icon.png
+  - from: build/icon.ico
+    to: build/icon.ico
+  - from: premium-assets/backgrounds
+    to: premium-assets/backgrounds
+    filter:
+      - '**/*'
+      - '!.DS_Store'
+  - from: ../characters
+    to: characters
+    filter:
+      - '**/*'
+      - '!.DS_Store'
+  - from: backend-dist/naga-backend
+    to: backend
+    filter:
+      - '**/*'
+  - from: backend-dist/runtime
+    to: runtime
+    filter:
+      - '**/*'
+  - from: ../openclaw.LICENSE
+    to: runtime/LICENSE
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  # 自签名代码签名证书（开发者：陆墨）
+  # 已禁用：自签名证书不适用，且明文密码存在安全风险
+  # cscLink: build/codesign.pfx
+  # cscKeyPassword: <从环境变量读取，禁止明文写入仓库>
+  signtoolOptions:
+    sign: scripts/win-sign.cjs
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  unicode: true
+  shortcutName: 陆墨
+  include: build/uninstaller.nsh
+
+compression: normal
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  icon: build/icon.png
+  identity: null
+
+dmg:
+  size: 4g
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: build/icon.png
+  category: Utility
+
+# publish 段落已禁用：fork 不应检查上游仓库的更新
+# publish:
+#   provider: github
+#   owner: RTGS2017
+#   repo: NagaAgent

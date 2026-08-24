@@ -1,0 +1,18 @@
+Live2D 模型源包授权声明（issue #20）
+====================================
+
+覆盖源包：yui-origin.tar.gz、yui-lolita.tar.gz
+（构建时由 build_frontend 解压至 static/yui-origin/、static/yui-lolita/，
+解压产物目录本身不入 git，本声明为持久授权记录。）
+
+出处：随 Project N.E.K.O. 上游仓库附带
+      Copyright (c) 2025 Hongzhi Wen / Project N.E.K.O. Team
+
+1. 本模型源包来自上游仓库，除非上游另有单独授权声明，
+   遵循上游仓库的 Apache License, Version 2.0
+   （全文见 NEKO/N.E.K.O/LICENSE）。
+2. 若上游仓库对该模型资产有单独授权条款，以上游条款为准。
+3. Live2D 模型文件（.moc3 / .model3.json 等）运行时由 Live2D
+   Cubism SDK 加载渲染，SDK 的使用另受 Live2D Inc. 专有许可
+   约束，见 https://www.live2d.com/en/download/cubism-sdk/release-license/
+4. 再分发本源包时必须保留本声明文件。

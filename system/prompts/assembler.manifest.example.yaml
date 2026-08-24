@@ -1,0 +1,143 @@
+# Example prompt assembly manifest
+#
+# This file documents the current runtime prompt assembly contract.
+# It describes how platform source layers map into engine-specific outputs.
+
+engine: openclaw
+profile: default
+version: 1
+
+source_layers:
+  - name: base_system
+    layer: 1
+    path: system/prompts/tier1/1_平台根提示词.md
+    required: true
+
+  - name: persona_default
+    layer: 1
+    path: system/prompts/tier1/2_角色人格引用槽.md
+    required: true
+
+  - name: character_builtin_abilities
+    layer: 1
+    path: system/prompts/tier1/3_角色内置能力引用槽.md
+    required: true
+
+  - name: tool_policy_common
+    layer: 2
+    path: system/prompts/tier2/1_工具调度总则.md
+    required: true
+
+  - name: soul_source
+    layer: 3
+    path: system/prompts/tier3/1_实例灵魂引用槽.md
+    required: true
+
+  - name: notebook_source
+    layer: 3
+    path: system/prompts/tier3/2_实例记事本引用槽.md
+    required: false
+
+  - name: memory_source
+    layer: 3
+    path: system/prompts/tier3/3_实例长期记忆引用槽.md
+    required: false
+
+  - name: environment_snapshot
+    layer: 4
+    path: system/prompts/tier4/1_时间与环境.md
+    required: false
+
+  - name: mcp_catalog
+    layer: 4
+    path: system/prompts/tier4/3_MCP目录.md
+    required: false
+
+  - name: skill_catalog
+    layer: 4
+    path: system/prompts/tier4/2_技能目录.md
+    required: false
+
+  - name: current_agent_context
+    layer: 4
+    path: system/prompts/tier4/4_当前身份与干员通讯录.md
+    required: false
+
+  - name: search_context
+    layer: 4
+    path: system/prompts/tier4/5_前置搜索结果.md
+    required: false
+
+  - name: rag_context
+    layer: 4
+    path: system/prompts/tier4/6_RAG记忆注入.md
+    required: false
+
+  - name: active_skill_context
+    layer: 4
+    path: system/prompts/tier4/7_激活技能指令.md
+    required: false
+
+engine_outputs:
+  - name: system_prompt
+    target: engine-system
+    components:
+      - base_system
+      - persona_default
+      - character_builtin_abilities
+
+  - name: runtime_context
+    target: engine-system-message
+    output_path: system/prompts/tool_dispatch_prompt.txt
+    components:
+      - tool_policy_common
+      - soul_source
+      - notebook_source
+      - memory_source
+      - environment_snapshot
+      - mcp_catalog
+      - skill_catalog
+      - current_agent_context
+      - search_context
+      - rag_context
+      - active_skill_context
+
+  - name: soul_bootstrap
+    target: bootstrap-file
+    output_path: .engine/openclaw/SOUL.md
+    components:
+      - soul_source
+
+  - name: notebook_bootstrap
+    target: bootstrap-file
+    output_path: .engine/openclaw/AGENTS.md
+    components:
+      - notebook_source
+
+  - name: tools_prompt
+    target: engine-private
+    output_path: .engine/openclaw/TOOLS.md
+    components:
+      - tool_policy_common
+      - mcp_catalog
+      - skill_catalog
+
+rules:
+  preserve_prefix_layers:
+    - 1
+    - 2
+    - 3
+    - 4
+
+  append_only_layers:
+    - 5
+
+  engine_switch:
+    keep_source_layers: true
+    rebuild_engine_outputs: true
+    reuse_compiled_outputs: false
+
+notes:
+  - Source layers are platform assets and should remain engine-agnostic.
+  - Engine outputs are rebuildable artifacts and must not be treated as the source of truth.
+  - For non-compatible engines, including Rust rewrites, define a new assembler instead of patching another engine's compiled prompt outputs.

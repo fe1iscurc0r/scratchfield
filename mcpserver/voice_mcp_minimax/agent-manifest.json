@@ -1,0 +1,33 @@
+{
+  "name": "voice_mcp_minimax",
+  "displayName": "MiniMax语音克隆合成",
+  "version": "1.0.0",
+  "description": "garan0613/voice-mcp (MIT) 的 MCP 改造接入：AI 语音克隆合成（MiniMax t2a_v2）。上游是 TS/Cloudflare Workers 的 SSE MCP server，无法直接注册进 Python 注册表，故复刻其核心合成逻辑（同一 API 契约）。",
+  "author": "Trae (陆墨团队)",
+  "agentType": "mcp",
+  "license": "MIT",
+  "vendor": "garan0613",
+  "source": "https://github.com/garan0613/voice-mcp",
+  "entryPoint": {
+    "module": "mcpserver.voice_mcp_minimax.voice_mcp_minimax",
+    "class": "VoiceMCPMinimaxAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "voice_speak",
+        "description": "MiniMax 语音克隆合成：把文本转成语音文件（mp3），返回文件路径 + base64 音频 + 元数据。\n- `tool_name`: voice_speak/speak\n- `text`: 要合成的文本（必填）\n- `voice_id`: 克隆音色 ID（可选，缺省用环境变量 MINIMAX_VOICE_ID）\n**调用示例:**\n```json\n{\"tool_name\": \"voice_speak\", \"text\": \"你好，我是陆墨\", \"voice_id\": \"your_cloned_voice_id\"}```",
+        "params": {
+          "text": "要合成的文本（必填）",
+          "voice_id": "克隆音色 ID（可选）"
+        },
+        "example": "{\"tool_name\": \"voice_speak\", \"text\": \"你好，我是陆墨\", \"voice_id\": \"your_cloned_voice_id\"}"
+      },
+      {
+        "command": "voice_status",
+        "description": "voice-mcp (MiniMax) 配置健康检查：API Key / GroupId / Voice ID 是否就绪。\n- `tool_name`: voice_status/status\n**调用示例:**\n```json\n{\"tool_name\": \"voice_status\"}```",
+        "example": "{\"tool_name\": \"voice_status\"}"
+      }
+    ]
+  }
+}

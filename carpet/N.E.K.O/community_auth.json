@@ -1,0 +1,19 @@
+{
+  "schema_version": 2,
+  "access_token": "ory_at_BYt5rMCt_7DZgj5WyLn7NF1PDAiRPCn4pTyg87_NC6s.FNlgS7HP6gFlWogxG8uChI3jWsNc-h7-FUKccFmDEUA",
+  "refresh_token": "ory_rt_8yF_2A5ppbcpiIwoOHaXqxWF26LE7sEhMHfO2zoIdvA.H6_BIO1CtYeCW1PG1GxwDOdrkKdWNF2ab5ayGYqYjOs",
+  "local_user_id": "30752634-8e3d-4802-bc75-075ffc29bf85",
+  "auth_source": "oauth",
+  "auth_public_url": "https://auth.project-neko.cn",
+  "client_id": "neko-servers-desktop-prod",
+  "user": {
+    "id": "30752634-8e3d-4802-bc75-075ffc29bf85",
+    "display_name": "Felis_Cursor_星野遥",
+    "email": null
+  },
+  "bind": {
+    "bound": true,
+    "error": null
+  },
+  "session_generation": 1
+}

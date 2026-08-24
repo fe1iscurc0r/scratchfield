@@ -1,0 +1,44 @@
+{
+  "name": "陆墨 Lumo Dev",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+
+  "forwardPorts": [5173, 8000, 7474, 7687],
+  "portsAttributes": {
+    "5173": { "label": "Vite Dev Server" },
+    "8000": { "label": "FastAPI Backend" },
+    "7474": { "label": "Neo4j Browser" },
+    "7687": { "label": "Neo4j Bolt" }
+  },
+
+  "postCreateCommand": "pip install -r requirements.txt && pip install pytest ruff && cd frontend && npm ci",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "Vue.volar",
+        "ms-vscode.vscode-typescript-next",
+        "bradlc.vscode-tailwindcss"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        }
+      }
+    }
+  },
+
+  "containerEnv": {
+    "PYTHONUNBUFFERED": "1"
+  }
+}

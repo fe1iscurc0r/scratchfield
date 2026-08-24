@@ -1,0 +1,70 @@
+{
+  "name": "hamlog_adapter",
+  "displayName": "HamLog QSO/QSL 工具桥",
+  "version": "1.1.0",
+  "description": "桥接本地 HamLog（业余无线电电台日志，R1.0.0）：默认 SQLite 直连 %APPDATA%/HamLog/Log.db（HAMLOG_DB_PATH 可覆盖），设 HAMLOG_API_URL 可切回 HTTP legacy 后端。QSO 搜索/录入、QSL 卡债（我欠/欠我）、QSL 状态更新、QSL 卡填写内容生成。数据库不存在/本台信息缺失时工具直接报错（fail-fast），不静默空返回。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.hamlog_adapter.adapter",
+    "class": "HamlogBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "hamlog_qso_search",
+        "description": "搜索 HamLog 里的 QSO 通联记录（呼号/日期区间/波段/模式均可选）",
+        "params": {
+          "callsign": "对方呼号",
+          "since": "起始日期 YYYY-MM-DD",
+          "until": "结束日期 YYYY-MM-DD",
+          "band": "波段，如 20m",
+          "mode": "模式，如 FT8"
+        },
+        "example": "{\"tool_name\":\"hamlog_qso_search\",\"callsign\":\"BG5ABC\",\"since\":\"2026-01-01\"}"
+      },
+      {
+        "command": "hamlog_qsl_debts",
+        "description": "QSL 卡债清单：owed=我欠的 / owing=欠我的 / all=全部",
+        "params": {
+          "direction": "owed | owing | all"
+        },
+        "example": "{\"tool_name\":\"hamlog_qsl_debts\",\"direction\":\"owed\"}"
+      },
+      {
+        "command": "hamlog_qso_add",
+        "description": "新增一条 QSO 记录（callsign/mode 必需，qso_date 不填默认当天 UTC，其余选填；支持 call/date 等别名与中文日期）",
+        "params": {
+          "callsign": "对方呼号",
+          "freq": "频率 MHz",
+          "mode": "模式",
+          "rst_sent": "发出信号报告",
+          "rst_rcvd": "收到信号报告",
+          "qso_date": "通联日期 YYYY-MM-DD",
+          "band": "波段",
+          "power": "功率"
+        },
+        "example": "{\"tool_name\":\"hamlog_qso_add\",\"callsign\":\"BG5ABC\",\"freq\":\"14.074\",\"mode\":\"FT8\",\"rst_sent\":\"-05\",\"rst_rcvd\":\"-12\",\"qso_date\":\"2026-08-18\",\"band\":\"20m\",\"power\":\"10W\"}"
+      },
+      {
+        "command": "hamlog_qsl_update",
+        "description": "更新某条 QSO 的 QSL 收发状态",
+        "params": {
+          "qso_id": "QSO 记录 ID",
+          "status": "sent | received | pending",
+          "sent_date": "寄卡日期（可选）",
+          "received_date": "收卡日期（可选）"
+        },
+        "example": "{\"tool_name\":\"hamlog_qsl_update\",\"qso_id\":42,\"status\":\"sent\",\"sent_date\":\"2026-08-18\"}"
+      },
+      {
+        "command": "hamlog_card_content",
+        "description": "取一条 QSO 生成 QSL 卡填写内容，content_lines 可直接逐行抄卡",
+        "params": {
+          "qso_id": "QSO 记录 ID"
+        },
+        "example": "{\"tool_name\":\"hamlog_card_content\",\"qso_id\":42}"
+      }
+    ]
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "name": "rf_brain",
+  "displayName": "射频大脑",
+  "version": "1.0.0",
+  "description": "物理层 AI 决策大脑：频谱感知→特征提取→LLM决策(调制方式/解调参数)→解调→反馈迭代闭环。协议无关抽象层，M1 仿真数据源，M2 接真 SDR",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.rf_brain.loop",
+    "class": "run_loop"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "analyze_signal",
+        "description": "分析一路 IQ 信号：感知→决策→解调闭环，返回调制方式与收敛结果",
+        "params": {
+          "iq": "复数 IQ 样本数组",
+          "sample_rate": "采样率 Hz",
+          "center_freq": "中心频率 Hz"
+        },
+        "example": "{\"tool_name\":\"analyze_signal\",\"sample_rate\":2000000,\"center_freq\":433920000}"
+      },
+      {
+        "command": "generate_and_analyze",
+        "description": "合成一路调制信号并跑闭环（M1 自测用）",
+        "params": {
+          "modulation": "GFSK/FSK/OOK",
+          "sample_rate": "采样率 Hz",
+          "snr_db": "信噪比 dB"
+        },
+        "example": "{\"tool_name\":\"generate_and_analyze\",\"modulation\":\"GFSK\",\"snr_db\":20}"
+      },
+      {
+        "command": "sentinel_ingest",
+        "description": "收一条哨兵节点上报的 NDJSON 行并入库（协议/温湿度/RSSI）",
+        "params": {
+          "line": "NDJSON 单行，含 src=sentinel/protocol/id/temperature_c/humidity_pct 等字段"
+        },
+        "example": "{\"tool_name\":\"sentinel_ingest\",\"line\":\"{\\\"src\\\":\\\"sentinel\\\",\\\"protocol\\\":\\\"acurite-tower\\\",\\\"id\\\":4660,\\\"temperature_c\\\":25.0}\"}"
+      },
+      {
+        "command": "sentinel_status",
+        "description": "查最近 N 条哨兵事件（含 failed 降级记录）",
+        "params": {
+          "n": "返回条数，默认 10"
+        },
+        "example": "{\"tool_name\":\"sentinel_status\",\"n\":10}"
+      },
+      {
+        "command": "sentinel_query",
+        "description": "按协议 / 设备 ID 查哨兵事件",
+        "params": {
+          "protocol": "协议名（可选）",
+          "device_id": "设备 ID（可选）"
+        },
+        "example": "{\"tool_name\":\"sentinel_query\",\"protocol\":\"acurite-tower\",\"device_id\":4660}"
+      }
+    ]
+  }
+}

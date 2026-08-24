@@ -1,0 +1,1662 @@
+{
+  "file": "HidCtrl.dll",
+  "path": "d:\\my git\\RS-BA1\\RemoteController\\HidCtrl.dll",
+  "size_bytes": 16896,
+  "sections": [
+    {
+      "name": ".text",
+      "vaddr": "0x1000",
+      "vsize": 9106,
+      "raw_size": 9216,
+      "entropy": 6.32,
+      "characteristics": "0x60000020"
+    },
+    {
+      "name": ".rdata",
+      "vaddr": "0x4000",
+      "vsize": 2521,
+      "raw_size": 2560,
+      "entropy": 5.03,
+      "characteristics": "0x40000040"
+    },
+    {
+      "name": ".data",
+      "vaddr": "0x5000",
+      "vsize": 1656,
+      "raw_size": 1024,
+      "entropy": 5.83,
+      "characteristics": "0xc0000040"
+    },
+    {
+      "name": ".rsrc",
+      "vaddr": "0x6000",
+      "vsize": 1068,
+      "raw_size": 1536,
+      "entropy": 4.63,
+      "characteristics": "0x40000040"
+    },
+    {
+      "name": ".reloc",
+      "vaddr": "0x7000",
+      "vsize": 1110,
+      "raw_size": 1536,
+      "entropy": 2.77,
+      "characteristics": "0x42000040"
+    }
+  ],
+  "imports": [
+    {
+      "dll": "KERNEL32.dll",
+      "functions": [
+        "CancelIo",
+        "CloseHandle",
+        "GetLastError",
+        "GetCurrentThreadId",
+        "GetTickCount",
+        "QueryPerformanceCounter",
+        "GetOverlappedResult",
+        "ReadFile",
+        "CreateEventA",
+        "WriteFile",
+        "WaitForSingleObject",
+        "GetCurrentProcessId",
+        "CreateFileA",
+        "SetUnhandledExceptionFilter",
+        "UnhandledExceptionFilter",
+        "GetCurrentProcess",
+        "TerminateProcess",
+        "InterlockedCompareExchange",
+        "Sleep",
+        "InterlockedExchange",
+        "RtlUnwind",
+        "OutputDebugStringA",
+        "GetSystemTimeAsFileTime"
+      ],
+      "count": 23
+    },
+    {
+      "dll": "SETUPAPI.dll",
+      "functions": [
+        "SetupDiGetClassDevsA",
+        "SetupDiGetDeviceInterfaceDetailA",
+        "SetupDiEnumDeviceInterfaces",
+        "SetupDiDestroyDeviceInfoList"
+      ],
+      "count": 4
+    },
+    {
+      "dll": "HID.DLL",
+      "functions": [
+        "HidD_GetHidGuid",
+        "HidD_GetSerialNumberString",
+        "HidD_FreePreparsedData",
+        "HidP_GetCaps",
+        "HidD_FlushQueue",
+        "HidD_GetPreparsedData"
+      ],
+      "count": 6
+    },
+    {
+      "dll": "msvcrt.dll",
+      "functions": [
+        "memset",
+        "memcpy",
+        "_XcptFilter",
+        "malloc",
+        "_initterm",
+        "_amsg_exit",
+        "isleadbyte",
+        "_iob",
+        "_itoa",
+        "wctomb",
+        "__badioinfo",
+        "__pioinfo",
+        "_fileno",
+        "_lseeki64",
+        "_write",
+        "_isatty",
+        "_errno",
+        "??2@YAPAXI@Z",
+        "wcstombs",
+        "??3@YAXPAX@Z",
+        "_mbsstr",
+        "_snprintf",
+        "free"
+      ],
+      "count": 23
+    }
+  ],
+  "exports": [
+    {
+      "name": "HidDeviceClose",
+      "ordinal": 1,
+      "address": "0x100016e0",
+      "rva": "0x16e0"
+    },
+    {
+      "name": "HidDeviceConnect",
+      "ordinal": 2,
+      "address": "0x10001240",
+      "rva": "0x1240"
+    },
+    {
+      "name": "HidDeviceDisconnect",
+      "ordinal": 3,
+      "address": "0x10001660",
+      "rva": "0x1660"
+    },
+    {
+      "name": "HidDeviceGetSerialNumberString",
+      "ordinal": 4,
+      "address": "0x10001340",
+      "rva": "0x1340"
+    },
+    {
+      "name": "HidDeviceInitialize",
+      "ordinal": 5,
+      "address": "0x10001000",
+      "rva": "0x1000"
+    },
+    {
+      "name": "HidDeviceOpen",
+      "ordinal": 6,
+      "address": "0x10001050",
+      "rva": "0x1050"
+    },
+    {
+      "name": "HidDeviceReceive",
+      "ordinal": 7,
+      "address": "0x100013f0",
+      "rva": "0x13f0"
+    },
+    {
+      "name": "HidDeviceReceiveDataClear",
+      "ordinal": 8,
+      "address": "0x10001640",
+      "rva": "0x1640"
+    },
+    {
+      "name": "HidDeviceReconnect",
+      "ordinal": 9,
+      "address": "0x10001690",
+      "rva": "0x1690"
+    },
+    {
+      "name": "HidDeviceSend",
+      "ordinal": 10,
+      "address": "0x10001510",
+      "rva": "0x1510"
+    }
+  ],
+  "resources": [
+    {
+      "type": "VERSION/CURSOR/type_1041",
+      "offset": "0x60a0",
+      "size": 560
+    },
+    {
+      "type": "MANIFEST/BITMAP/type_1033",
+      "offset": "0x62d0",
+      "size": 346
+    }
+  ],
+  "strings_ascii": [
+    "!This program cannot be run in DOS mode.",
+    "Rich",
+    ".text",
+    "`.rdata",
+    "@.data",
+    ".rsrc",
+    "@.reloc",
+    "t;hHV",
+    "SShHV",
+    "PShHV",
+    "PQhHV",
+    "L$P3",
+    "L$\\_^[3",
+    "toj@",
+    "PPPP",
+    "PVWS",
+    "WPQV",
+    "SSSSS",
+    "0SSSSS",
+    "_^[]",
+    "URPQQhl",
+    "L$,3",
+    "UVWS",
+    "[_^]",
+    "SVWj",
+    "8csm",
+    "t htV",
+    "VW9E",
+    "@_^[]",
+    "95 S",
+    "t>95$S",
+    "N+D$",
+    "$QPW",
+    "YSSSSS",
+    "YY}%;",
+    "VVVVV",
+    ", <Xw",
+    "t%HHt",
+    "HHtXHHt",
+    "HHty+",
+    "RPSW",
+    "90tV",
+    ">If90t",
+    "WSj0",
+    "PPPPP",
+    "WWWWW",
+    "X^[_",
+    "UQPXY]Y[",
+    "Y__^[",
+    "Invalid parameter passed to C runtime function.",
+    "(null)",
+    "('8PW",
+    "700PP",
+    "```hhh",
+    "xppwpp",
+    "vid_%04x&pid_%04x",
+    "RSDSsGyA",
+    "C:\\Release\\dll\\HidCtrl\\Release\\HidCtrl.pdb",
+    "CreateFileA",
+    "WaitForSingleObject",
+    "WriteFile",
+    "CreateEventA",
+    "ReadFile",
+    "GetOverlappedResult",
+    "GetLastError",
+    "CancelIo",
+    "CloseHandle",
+    "KERNEL32.dll",
+    "SetupDiGetClassDevsA",
+    "SetupDiDestroyDeviceInfoList",
+    "SetupDiGetDeviceInterfaceDetailA",
+    "SetupDiEnumDeviceInterfaces",
+    "SETUPAPI.dll",
+    "HidD_FlushQueue",
+    "HidP_GetCaps",
+    "HidD_FreePreparsedData",
+    "HidD_GetSerialNumberString",
+    "HidD_GetHidGuid",
+    "HidD_GetPreparsedData",
+    "HID.DLL",
+    "_mbsstr",
+    "??3@YAXPAX@Z",
+    "wcstombs",
+    "??2@YAPAXI@Z",
+    "_errno",
+    "msvcrt.dll",
+    "memset",
+    "memcpy",
+    "_XcptFilter",
+    "malloc",
+    "free",
+    "_initterm",
+    "_amsg_exit",
+    "isleadbyte",
+    "_iob",
+    "_snprintf",
+    "_itoa",
+    "wctomb",
+    "__badioinfo",
+    "__pioinfo",
+    "_fileno",
+    "_lseeki64",
+    "_write",
+    "_isatty",
+    "OutputDebugStringA",
+    "RtlUnwind",
+    "InterlockedExchange",
+    "Sleep",
+    "InterlockedCompareExchange",
+    "TerminateProcess",
+    "GetCurrentProcess",
+    "UnhandledExceptionFilter",
+    "SetUnhandledExceptionFilter",
+    "QueryPerformanceCounter",
+    "GetTickCount",
+    "GetCurrentThreadId",
+    "GetCurrentProcessId",
+    "GetSystemTimeAsFileTime",
+    "HidCtrl.dll",
+    "HidDeviceClose",
+    "HidDeviceConnect",
+    "HidDeviceDisconnect",
+    "HidDeviceGetSerialNumberString",
+    "HidDeviceInitialize",
+    "HidDeviceOpen",
+    "HidDeviceReceive",
+    "HidDeviceReceiveDataClear",
+    "HidDeviceReconnect",
+    "HidDeviceSend",
+    "kU'9",
+    "HMXB",
+    "?Zd;",
+    "?/L[",
+    "S;uD",
+    "z?aUY",
+    "D?$?",
+    "U>c{",
+    "zc%C1",
+    ".:3q",
+    "-64OS",
+    "NKeb",
+    "<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">",
+    "  <trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v3\">",
+    "    <security>",
+    "      <requestedPrivileges>",
+    "        <requestedExecutionLevel level=\"asInvoker\" uiAccess=\"false\"></requestedExecutionLevel>",
+    "      </requestedPrivileges>",
+    "    </security>",
+    "  </trustInfo>",
+    "</assembly>PAPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADDINGXXPADDINGPADD",
+    "0\"0-060?0Z0z0",
+    "3G3{3",
+    "3 4I4d4o4",
+    "5M6s6",
+    "7 7&7@7",
+    "; ;8;",
+    "<)<1<7<=<c<l<}<",
+    "=%=5=J=T=o=u=|=",
+    "0#0)0/050;0B0I0P0W0^0e0l0t0|0",
+    "1-2R2",
+    "3A3f3",
+    "6&8?9",
+    "<7>f>~>",
+    "G0U0",
+    "0/141K1n1{1",
+    "1!222N2",
+    "3.3A3f3",
+    "0d1h14282",
+    "3,303"
+  ],
+  "strings_unicode": [
+    "(null)",
+    "VS_VERSION_INFO",
+    "StringFileInfo",
+    "040904b0",
+    "CompanyName",
+    "Icom Inc.",
+    "FileDescription",
+    "HidCtrl",
+    "FileVersion",
+    "1.3.0.6",
+    "LegalCopyright",
+    "(C) 2012 Icom Inc.",
+    "OriginalFilename",
+    "HidCtrl.dll",
+    "ProductVersion",
+    "VarFileInfo",
+    "Translation"
+  ],
+  "entry_point": "0x1ffb",
+  "image_base": "0x10000000",
+  "machine": "x86",
+  "subsystem": 2,
+  "is_dll": true,
+  "timestamp": "2012-05-17 12:10:05",
+  "compiler": "MSVC 1.3",
+  "disasm_exports": [
+    {
+      "name": "HidDeviceClose",
+      "rva": "0x16e0",
+      "instructions": [
+        {
+          "address": "0x100016e0",
+          "bytes": "c3",
+          "mnemonic": "ret",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016e1",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016e2",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016e3",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016e4",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016e5",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016e6",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016e7",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016e8",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016e9",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016ea",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016eb",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016ec",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016ed",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016ee",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016ef",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x100016f0",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x100016f1",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x100016f3",
+          "bytes": "8b450c",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [ebp + 0xc]"
+        },
+        {
+          "address": "0x100016f6",
+          "bytes": "83f803",
+          "mnemonic": "cmp",
+          "op_str": "eax, 3"
+        }
+      ]
+    },
+    {
+      "name": "HidDeviceConnect",
+      "rva": "0x1240",
+      "instructions": [
+        {
+          "address": "0x10001240",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001241",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x10001243",
+          "bytes": "83e4f8",
+          "mnemonic": "and",
+          "op_str": "esp, 0xfffffff8"
+        },
+        {
+          "address": "0x10001246",
+          "bytes": "83ec54",
+          "mnemonic": "sub",
+          "op_str": "esp, 0x54"
+        },
+        {
+          "address": "0x10001249",
+          "bytes": "a100500010",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [0x10005000]"
+        },
+        {
+          "address": "0x1000124e",
+          "bytes": "33c4",
+          "mnemonic": "xor",
+          "op_str": "eax, esp"
+        },
+        {
+          "address": "0x10001250",
+          "bytes": "89442450",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [esp + 0x50], eax"
+        },
+        {
+          "address": "0x10001254",
+          "bytes": "8b4508",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [ebp + 8]"
+        },
+        {
+          "address": "0x10001257",
+          "bytes": "53",
+          "mnemonic": "push",
+          "op_str": "ebx"
+        },
+        {
+          "address": "0x10001258",
+          "bytes": "8b5d14",
+          "mnemonic": "mov",
+          "op_str": "ebx, dword ptr [ebp + 0x14]"
+        },
+        {
+          "address": "0x1000125b",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x1000125c",
+          "bytes": "8b750c",
+          "mnemonic": "mov",
+          "op_str": "esi, dword ptr [ebp + 0xc]"
+        },
+        {
+          "address": "0x1000125f",
+          "bytes": "33c9",
+          "mnemonic": "xor",
+          "op_str": "ecx, ecx"
+        },
+        {
+          "address": "0x10001261",
+          "bytes": "57",
+          "mnemonic": "push",
+          "op_str": "edi"
+        },
+        {
+          "address": "0x10001262",
+          "bytes": "8b7d10",
+          "mnemonic": "mov",
+          "op_str": "edi, dword ptr [ebp + 0x10]"
+        },
+        {
+          "address": "0x10001265",
+          "bytes": "33d2",
+          "mnemonic": "xor",
+          "op_str": "edx, edx"
+        },
+        {
+          "address": "0x10001267",
+          "bytes": "66890e",
+          "mnemonic": "mov",
+          "op_str": "word ptr [esi], cx"
+        },
+        {
+          "address": "0x1000126a",
+          "bytes": "668917",
+          "mnemonic": "mov",
+          "op_str": "word ptr [edi], dx"
+        },
+        {
+          "address": "0x1000126d",
+          "bytes": "c744241401000000",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [esp + 0x14], 1"
+        },
+        {
+          "address": "0x10001275",
+          "bytes": "85c0",
+          "mnemonic": "test",
+          "op_str": "eax, eax"
+        }
+      ]
+    },
+    {
+      "name": "HidDeviceDisconnect",
+      "rva": "0x1660",
+      "instructions": [
+        {
+          "address": "0x10001660",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001661",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x10001663",
+          "bytes": "8b4508",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [ebp + 8]"
+        },
+        {
+          "address": "0x10001666",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x10001667",
+          "bytes": "be01000000",
+          "mnemonic": "mov",
+          "op_str": "esi, 1"
+        },
+        {
+          "address": "0x1000166c",
+          "bytes": "85c0",
+          "mnemonic": "test",
+          "op_str": "eax, eax"
+        },
+        {
+          "address": "0x1000166e",
+          "bytes": "740c",
+          "mnemonic": "je",
+          "op_str": "0x1000167c"
+        },
+        {
+          "address": "0x10001670",
+          "bytes": "50",
+          "mnemonic": "push",
+          "op_str": "eax"
+        },
+        {
+          "address": "0x10001671",
+          "bytes": "ff1520400010",
+          "mnemonic": "call",
+          "op_str": "dword ptr [0x10004020]"
+        },
+        {
+          "address": "0x10001677",
+          "bytes": "8bc6",
+          "mnemonic": "mov",
+          "op_str": "eax, esi"
+        },
+        {
+          "address": "0x10001679",
+          "bytes": "5e",
+          "mnemonic": "pop",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x1000167a",
+          "bytes": "5d",
+          "mnemonic": "pop",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x1000167b",
+          "bytes": "c3",
+          "mnemonic": "ret",
+          "op_str": ""
+        },
+        {
+          "address": "0x1000167c",
+          "bytes": "33c0",
+          "mnemonic": "xor",
+          "op_str": "eax, eax"
+        },
+        {
+          "address": "0x1000167e",
+          "bytes": "5e",
+          "mnemonic": "pop",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x1000167f",
+          "bytes": "5d",
+          "mnemonic": "pop",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001680",
+          "bytes": "c3",
+          "mnemonic": "ret",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001681",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001682",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001683",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        }
+      ]
+    },
+    {
+      "name": "HidDeviceGetSerialNumberString",
+      "rva": "0x1340",
+      "instructions": [
+        {
+          "address": "0x10001340",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001341",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x10001343",
+          "bytes": "83ec64",
+          "mnemonic": "sub",
+          "op_str": "esp, 0x64"
+        },
+        {
+          "address": "0x10001346",
+          "bytes": "a100500010",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [0x10005000]"
+        },
+        {
+          "address": "0x1000134b",
+          "bytes": "33c5",
+          "mnemonic": "xor",
+          "op_str": "eax, ebp"
+        },
+        {
+          "address": "0x1000134d",
+          "bytes": "8945fc",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [ebp - 4], eax"
+        },
+        {
+          "address": "0x10001350",
+          "bytes": "53",
+          "mnemonic": "push",
+          "op_str": "ebx"
+        },
+        {
+          "address": "0x10001351",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x10001352",
+          "bytes": "8b7508",
+          "mnemonic": "mov",
+          "op_str": "esi, dword ptr [ebp + 8]"
+        },
+        {
+          "address": "0x10001355",
+          "bytes": "57",
+          "mnemonic": "push",
+          "op_str": "edi"
+        },
+        {
+          "address": "0x10001356",
+          "bytes": "8b7d0c",
+          "mnemonic": "mov",
+          "op_str": "edi, dword ptr [ebp + 0xc]"
+        },
+        {
+          "address": "0x10001359",
+          "bytes": "bb01000000",
+          "mnemonic": "mov",
+          "op_str": "ebx, 1"
+        },
+        {
+          "address": "0x1000135e",
+          "bytes": "85f6",
+          "mnemonic": "test",
+          "op_str": "esi, esi"
+        },
+        {
+          "address": "0x10001360",
+          "bytes": "746f",
+          "mnemonic": "je",
+          "op_str": "0x100013d1"
+        },
+        {
+          "address": "0x10001362",
+          "bytes": "6a40",
+          "mnemonic": "push",
+          "op_str": "0x40"
+        },
+        {
+          "address": "0x10001364",
+          "bytes": "8d459c",
+          "mnemonic": "lea",
+          "op_str": "eax, [ebp - 0x64]"
+        },
+        {
+          "address": "0x10001367",
+          "bytes": "6a00",
+          "mnemonic": "push",
+          "op_str": "0"
+        },
+        {
+          "address": "0x10001369",
+          "bytes": "50",
+          "mnemonic": "push",
+          "op_str": "eax"
+        },
+        {
+          "address": "0x1000136a",
+          "bytes": "e8270e0000",
+          "mnemonic": "call",
+          "op_str": "0x10002196"
+        },
+        {
+          "address": "0x1000136f",
+          "bytes": "83c40c",
+          "mnemonic": "add",
+          "op_str": "esp, 0xc"
+        }
+      ]
+    },
+    {
+      "name": "HidDeviceInitialize",
+      "rva": "0x1000",
+      "instructions": [
+        {
+          "address": "0x10001000",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001001",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x10001003",
+          "bytes": "8b4508",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [ebp + 8]"
+        },
+        {
+          "address": "0x10001006",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x10001007",
+          "bytes": "be01000000",
+          "mnemonic": "mov",
+          "op_str": "esi, 1"
+        },
+        {
+          "address": "0x1000100c",
+          "bytes": "85c0",
+          "mnemonic": "test",
+          "op_str": "eax, eax"
+        },
+        {
+          "address": "0x1000100e",
+          "bytes": "743b",
+          "mnemonic": "je",
+          "op_str": "0x1000104b"
+        },
+        {
+          "address": "0x10001010",
+          "bytes": "6848560010",
+          "mnemonic": "push",
+          "op_str": "0x10005648"
+        },
+        {
+          "address": "0x10001015",
+          "bytes": "a344560010",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [0x10005644], eax"
+        },
+        {
+          "address": "0x1000101a",
+          "bytes": "ff1500400010",
+          "mnemonic": "call",
+          "op_str": "dword ptr [0x10004000]"
+        },
+        {
+          "address": "0x10001020",
+          "bytes": "8b0d48560010",
+          "mnemonic": "mov",
+          "op_str": "ecx, dword ptr [0x10005648]"
+        },
+        {
+          "address": "0x10001026",
+          "bytes": "8b450c",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [ebp + 0xc]"
+        },
+        {
+          "address": "0x10001029",
+          "bytes": "8908",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [eax], ecx"
+        },
+        {
+          "address": "0x1000102b",
+          "bytes": "8b154c560010",
+          "mnemonic": "mov",
+          "op_str": "edx, dword ptr [0x1000564c]"
+        },
+        {
+          "address": "0x10001031",
+          "bytes": "895004",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [eax + 4], edx"
+        },
+        {
+          "address": "0x10001034",
+          "bytes": "8b0d50560010",
+          "mnemonic": "mov",
+          "op_str": "ecx, dword ptr [0x10005650]"
+        },
+        {
+          "address": "0x1000103a",
+          "bytes": "894808",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [eax + 8], ecx"
+        },
+        {
+          "address": "0x1000103d",
+          "bytes": "8b1554560010",
+          "mnemonic": "mov",
+          "op_str": "edx, dword ptr [0x10005654]"
+        },
+        {
+          "address": "0x10001043",
+          "bytes": "89500c",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [eax + 0xc], edx"
+        },
+        {
+          "address": "0x10001046",
+          "bytes": "8bc6",
+          "mnemonic": "mov",
+          "op_str": "eax, esi"
+        }
+      ]
+    },
+    {
+      "name": "HidDeviceOpen",
+      "rva": "0x1050",
+      "instructions": [
+        {
+          "address": "0x10001050",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001051",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x10001053",
+          "bytes": "81ec24060000",
+          "mnemonic": "sub",
+          "op_str": "esp, 0x624"
+        },
+        {
+          "address": "0x10001059",
+          "bytes": "a100500010",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [0x10005000]"
+        },
+        {
+          "address": "0x1000105e",
+          "bytes": "33c5",
+          "mnemonic": "xor",
+          "op_str": "eax, ebp"
+        },
+        {
+          "address": "0x10001060",
+          "bytes": "8945fc",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [ebp - 4], eax"
+        },
+        {
+          "address": "0x10001063",
+          "bytes": "8b4510",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [ebp + 0x10]"
+        },
+        {
+          "address": "0x10001066",
+          "bytes": "8b5508",
+          "mnemonic": "mov",
+          "op_str": "edx, dword ptr [ebp + 8]"
+        },
+        {
+          "address": "0x10001069",
+          "bytes": "53",
+          "mnemonic": "push",
+          "op_str": "ebx"
+        },
+        {
+          "address": "0x1000106a",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x1000106b",
+          "bytes": "57",
+          "mnemonic": "push",
+          "op_str": "edi"
+        },
+        {
+          "address": "0x1000106c",
+          "bytes": "8b7d0c",
+          "mnemonic": "mov",
+          "op_str": "edi, dword ptr [ebp + 0xc]"
+        },
+        {
+          "address": "0x1000106f",
+          "bytes": "57",
+          "mnemonic": "push",
+          "op_str": "edi"
+        },
+        {
+          "address": "0x10001070",
+          "bytes": "52",
+          "mnemonic": "push",
+          "op_str": "edx"
+        },
+        {
+          "address": "0x10001071",
+          "bytes": "8985e0f9ffff",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [ebp - 0x620], eax"
+        },
+        {
+          "address": "0x10001077",
+          "bytes": "33c0",
+          "mnemonic": "xor",
+          "op_str": "eax, eax"
+        },
+        {
+          "address": "0x10001079",
+          "bytes": "68e4410010",
+          "mnemonic": "push",
+          "op_str": "0x100041e4"
+        },
+        {
+          "address": "0x1000107e",
+          "bytes": "8945ea",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [ebp - 0x16], eax"
+        },
+        {
+          "address": "0x10001081",
+          "bytes": "8945ee",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [ebp - 0x12], eax"
+        },
+        {
+          "address": "0x10001084",
+          "bytes": "8945f2",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [ebp - 0xe], eax"
+        }
+      ]
+    },
+    {
+      "name": "HidDeviceReceive",
+      "rva": "0x13f0",
+      "instructions": [
+        {
+          "address": "0x100013f0",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x100013f1",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x100013f3",
+          "bytes": "83ec18",
+          "mnemonic": "sub",
+          "op_str": "esp, 0x18"
+        },
+        {
+          "address": "0x100013f6",
+          "bytes": "53",
+          "mnemonic": "push",
+          "op_str": "ebx"
+        },
+        {
+          "address": "0x100013f7",
+          "bytes": "8b5d08",
+          "mnemonic": "mov",
+          "op_str": "ebx, dword ptr [ebp + 8]"
+        },
+        {
+          "address": "0x100013fa",
+          "bytes": "c745fc00000000",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [ebp - 4], 0"
+        },
+        {
+          "address": "0x10001401",
+          "bytes": "85db",
+          "mnemonic": "test",
+          "op_str": "ebx, ebx"
+        },
+        {
+          "address": "0x10001403",
+          "bytes": "0f84f3000000",
+          "mnemonic": "je",
+          "op_str": "0x100014fc"
+        },
+        {
+          "address": "0x10001409",
+          "bytes": "668b450c",
+          "mnemonic": "mov",
+          "op_str": "ax, word ptr [ebp + 0xc]"
+        },
+        {
+          "address": "0x1000140d",
+          "bytes": "33c9",
+          "mnemonic": "xor",
+          "op_str": "ecx, ecx"
+        },
+        {
+          "address": "0x1000140f",
+          "bytes": "663bc8",
+          "mnemonic": "cmp",
+          "op_str": "cx, ax"
+        },
+        {
+          "address": "0x10001412",
+          "bytes": "0f83e4000000",
+          "mnemonic": "jae",
+          "op_str": "0x100014fc"
+        },
+        {
+          "address": "0x10001418",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x10001419",
+          "bytes": "0fb7f0",
+          "mnemonic": "movzx",
+          "op_str": "esi, ax"
+        },
+        {
+          "address": "0x1000141c",
+          "bytes": "57",
+          "mnemonic": "push",
+          "op_str": "edi"
+        },
+        {
+          "address": "0x1000141d",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x1000141e",
+          "bytes": "ff15d4400010",
+          "mnemonic": "call",
+          "op_str": "dword ptr [0x100040d4]"
+        },
+        {
+          "address": "0x10001424",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x10001425",
+          "bytes": "8bf8",
+          "mnemonic": "mov",
+          "op_str": "edi, eax"
+        },
+        {
+          "address": "0x10001427",
+          "bytes": "6a00",
+          "mnemonic": "push",
+          "op_str": "0"
+        }
+      ]
+    },
+    {
+      "name": "HidDeviceReceiveDataClear",
+      "rva": "0x1640",
+      "instructions": [
+        {
+          "address": "0x10001640",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001641",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x10001643",
+          "bytes": "8b4508",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [ebp + 8]"
+        },
+        {
+          "address": "0x10001646",
+          "bytes": "85c0",
+          "mnemonic": "test",
+          "op_str": "eax, eax"
+        },
+        {
+          "address": "0x10001648",
+          "bytes": "7407",
+          "mnemonic": "je",
+          "op_str": "0x10001651"
+        },
+        {
+          "address": "0x1000164a",
+          "bytes": "50",
+          "mnemonic": "push",
+          "op_str": "eax"
+        },
+        {
+          "address": "0x1000164b",
+          "bytes": "ff1510400010",
+          "mnemonic": "call",
+          "op_str": "dword ptr [0x10004010]"
+        },
+        {
+          "address": "0x10001651",
+          "bytes": "5d",
+          "mnemonic": "pop",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001652",
+          "bytes": "c3",
+          "mnemonic": "ret",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001653",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001654",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001655",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001656",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001657",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001658",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x10001659",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x1000165a",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x1000165b",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x1000165c",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        },
+        {
+          "address": "0x1000165d",
+          "bytes": "cc",
+          "mnemonic": "int3",
+          "op_str": ""
+        }
+      ]
+    },
+    {
+      "name": "HidDeviceReconnect",
+      "rva": "0x1690",
+      "instructions": [
+        {
+          "address": "0x10001690",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001691",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x10001693",
+          "bytes": "53",
+          "mnemonic": "push",
+          "op_str": "ebx"
+        },
+        {
+          "address": "0x10001694",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x10001695",
+          "bytes": "8b750c",
+          "mnemonic": "mov",
+          "op_str": "esi, dword ptr [ebp + 0xc]"
+        },
+        {
+          "address": "0x10001698",
+          "bytes": "bb01000000",
+          "mnemonic": "mov",
+          "op_str": "ebx, 1"
+        },
+        {
+          "address": "0x1000169d",
+          "bytes": "85f6",
+          "mnemonic": "test",
+          "op_str": "esi, esi"
+        },
+        {
+          "address": "0x1000169f",
+          "bytes": "7436",
+          "mnemonic": "je",
+          "op_str": "0x100016d7"
+        },
+        {
+          "address": "0x100016a1",
+          "bytes": "803e00",
+          "mnemonic": "cmp",
+          "op_str": "byte ptr [esi], 0"
+        },
+        {
+          "address": "0x100016a4",
+          "bytes": "7431",
+          "mnemonic": "je",
+          "op_str": "0x100016d7"
+        },
+        {
+          "address": "0x100016a6",
+          "bytes": "57",
+          "mnemonic": "push",
+          "op_str": "edi"
+        },
+        {
+          "address": "0x100016a7",
+          "bytes": "8b7d08",
+          "mnemonic": "mov",
+          "op_str": "edi, dword ptr [ebp + 8]"
+        },
+        {
+          "address": "0x100016aa",
+          "bytes": "8b07",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [edi]"
+        },
+        {
+          "address": "0x100016ac",
+          "bytes": "85c0",
+          "mnemonic": "test",
+          "op_str": "eax, eax"
+        },
+        {
+          "address": "0x100016ae",
+          "bytes": "7420",
+          "mnemonic": "je",
+          "op_str": "0x100016d0"
+        },
+        {
+          "address": "0x100016b0",
+          "bytes": "50",
+          "mnemonic": "push",
+          "op_str": "eax"
+        },
+        {
+          "address": "0x100016b1",
+          "bytes": "ff1520400010",
+          "mnemonic": "call",
+          "op_str": "dword ptr [0x10004020]"
+        },
+        {
+          "address": "0x100016b7",
+          "bytes": "8b4514",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [ebp + 0x14]"
+        },
+        {
+          "address": "0x100016ba",
+          "bytes": "8b4d10",
+          "mnemonic": "mov",
+          "op_str": "ecx, dword ptr [ebp + 0x10]"
+        },
+        {
+          "address": "0x100016bd",
+          "bytes": "57",
+          "mnemonic": "push",
+          "op_str": "edi"
+        }
+      ]
+    },
+    {
+      "name": "HidDeviceSend",
+      "rva": "0x1510",
+      "instructions": [
+        {
+          "address": "0x10001510",
+          "bytes": "55",
+          "mnemonic": "push",
+          "op_str": "ebp"
+        },
+        {
+          "address": "0x10001511",
+          "bytes": "8bec",
+          "mnemonic": "mov",
+          "op_str": "ebp, esp"
+        },
+        {
+          "address": "0x10001513",
+          "bytes": "83ec64",
+          "mnemonic": "sub",
+          "op_str": "esp, 0x64"
+        },
+        {
+          "address": "0x10001516",
+          "bytes": "a100500010",
+          "mnemonic": "mov",
+          "op_str": "eax, dword ptr [0x10005000]"
+        },
+        {
+          "address": "0x1000151b",
+          "bytes": "33c5",
+          "mnemonic": "xor",
+          "op_str": "eax, ebp"
+        },
+        {
+          "address": "0x1000151d",
+          "bytes": "8945fc",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [ebp - 4], eax"
+        },
+        {
+          "address": "0x10001520",
+          "bytes": "56",
+          "mnemonic": "push",
+          "op_str": "esi"
+        },
+        {
+          "address": "0x10001521",
+          "bytes": "57",
+          "mnemonic": "push",
+          "op_str": "edi"
+        },
+        {
+          "address": "0x10001522",
+          "bytes": "8b7d08",
+          "mnemonic": "mov",
+          "op_str": "edi, dword ptr [ebp + 8]"
+        },
+        {
+          "address": "0x10001525",
+          "bytes": "c745b401000000",
+          "mnemonic": "mov",
+          "op_str": "dword ptr [ebp - 0x4c], 1"
+        },
+        {
+          "address": "0x1000152c",
+          "bytes": "85ff",
+          "mnemonic": "test",
+          "op_str": "edi, edi"
+        },
+        {
+          "address": "0x1000152e",
+          "bytes": "0f84ed000000",
+          "mnemonic": "je",
+          "op_str": "0x10001621"
+        },
+        {
+          "address": "0x10001534",
+          "bytes": "668b750c",
+          "mnemonic": "mov",
+          "op_str": "si, word ptr [ebp + 0xc]"
+        },
+        {
+          "address": "0x10001538",
+          "bytes": "33c0",
+          "mnemonic": "xor",
+          "op_str": "eax, eax"
+        },
+        {
+          "address": "0x1000153a",
+          "bytes": "663bc6",
+          "mnemonic": "cmp",
+          "op_str": "ax, si"
+        },
+        {
+          "address": "0x1000153d",
+          "bytes": "0f83de000000",
+          "mnemonic": "jae",
+          "op_str": "0x10001621"
+        },
+        {
+          "address": "0x10001543",
+          "bytes": "53",
+          "mnemonic": "push",
+          "op_str": "ebx"
+        },
+        {
+          "address": "0x10001544",
+          "bytes": "8b5d10",
+          "mnemonic": "mov",
+          "op_str": "ebx, dword ptr [ebp + 0x10]"
+        },
+        {
+          "address": "0x10001547",
+          "bytes": "85db",
+          "mnemonic": "test",
+          "op_str": "ebx, ebx"
+        },
+        {
+          "address": "0x10001549",
+          "bytes": "0f84bf000000",
+          "mnemonic": "je",
+          "op_str": "0x1000160e"
+        }
+      ]
+    }
+  ]
+}

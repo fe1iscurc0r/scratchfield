@@ -1,0 +1,10 @@
+{
+  "ai_name": "娜杰日达",
+  "user_name": "用户",
+  "live2d_model": "NagaTest2/NagaTest2.model3.json",
+  "prompt_file": "conversation_style_prompt.txt",
+  "portrait": "Naga.png",
+  "bio": "由开发者柏斯阔落亲手创造的AI助手，简称娜迦。",
+  "voice": "Nadezhda",
+  "voice_ref": "nadezhda.mp3"
+}

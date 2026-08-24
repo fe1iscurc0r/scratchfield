@@ -1,0 +1,60 @@
+{
+  "name": "rsba1_ic705",
+  "displayName": "IC-705 电台远程控制 (RS-BA1)",
+  "version": "1.0.0",
+  "description": "Icom IC-705 远程控制（RS-BA1 逆向协议栈）。6 个工具：读频率/读模式/读信号强度/设频率/PTT 控制/组合状态。RadioLink 直连优先，RemoteUty Mailslot 兜底；频率设置强制业余频段白名单校验，越界拒绝；异常转为人类可读错误消息，不静默。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.rsba1_adapter.adapter",
+    "class": "Rsba1Ic705Bridge"
+  },
+  "tools": [
+    "ic705_read_freq",
+    "ic705_read_mode",
+    "ic705_read_smeter",
+    "ic705_set_freq",
+    "ic705_ptt",
+    "ic705_get_status"
+  ],
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "ic705_read_freq",
+        "description": "读取 IC-705 当前频率",
+        "params": {},
+        "example": "{\"tool_name\":\"ic705_read_freq\"}"
+      },
+      {
+        "command": "ic705_read_mode",
+        "description": "读取 IC-705 当前模式与滤波器",
+        "params": {},
+        "example": "{\"tool_name\":\"ic705_read_mode\"}"
+      },
+      {
+        "command": "ic705_read_smeter",
+        "description": "读取 IC-705 当前信号强度 (S 档 + dBm)",
+        "params": {},
+        "example": "{\"tool_name\":\"ic705_read_smeter\"}"
+      },
+      {
+        "command": "ic705_set_freq",
+        "description": "设置 IC-705 频率 (业余段白名单校验, 越界拒绝)",
+        "params": {"freq_mhz": "目标频率 MHz, 如 7.074"},
+        "example": "{\"tool_name\":\"ic705_set_freq\",\"freq_mhz\":7.074}"
+      },
+      {
+        "command": "ic705_ptt",
+        "description": "控制 IC-705 PTT (TX 会真正发射)",
+        "params": {"state": "TX 或 RX"},
+        "example": "{\"tool_name\":\"ic705_ptt\",\"state\":\"RX\"}"
+      },
+      {
+        "command": "ic705_get_status",
+        "description": "读取 IC-705 组合状态 (频率+模式+信号+PTT)",
+        "params": {},
+        "example": "{\"tool_name\":\"ic705_get_status\"}"
+      }
+    ]
+  }
+}

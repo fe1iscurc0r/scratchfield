@@ -1,0 +1,102 @@
+{
+  "states": {
+    "idle": {
+      "loop": false,
+      "duration": 3000,
+      "keyframes": [
+        { "t": 0, "params": { "ParamBodyAngleX": 0 } },
+        { "t": 0.5, "params": { "ParamBodyAngleX": 3 } },
+        { "t": 1, "params": { "ParamBodyAngleX": 0 } }
+      ]
+    },
+    "thinking": {
+      "loop": true,
+      "duration": 4000,
+      "keyframes": [
+        { "t": 0, "params": { "ParamBodyAngleX": 0, "ParamAngleZ": 0 } },
+        { "t": 0.3, "params": { "ParamBodyAngleX": 1, "ParamAngleZ": 5 } },
+        { "t": 0.7, "params": { "ParamBodyAngleX": -0.5, "ParamAngleZ": 5 } },
+        { "t": 1, "params": { "ParamBodyAngleX": 0, "ParamAngleZ": 0 } }
+      ]
+    },
+    "talking": {
+      "loop": false,
+      "duration": 2000,
+      "keyframes": [
+        { "t": 0, "params": { "ParamBodyAngleX": 0 } },
+        { "t": 0.25, "params": { "ParamBodyAngleX": 6 } },
+        { "t": 0.75, "params": { "ParamBodyAngleX": -6 } },
+        { "t": 1, "params": { "ParamBodyAngleX": 0 } }
+      ],
+      "mouth": { "param": "ParamMouthOpenY", "speed": 200, "min": 0, "max": 0.8 }
+    }
+  },
+  "actions": {
+    "nod": {
+      "duration": 800,
+      "repeat": 2,
+      "keyframes": [
+        { "t": 0, "params": { "ParamAngleY": 0, "ParamEyeBallY": 0 } },
+        { "t": 0.3, "params": { "ParamAngleY": 10, "ParamEyeBallY": -0.5 } },
+        { "t": 0.7, "params": { "ParamAngleY": -5, "ParamEyeBallY": 0.3 } },
+        { "t": 1, "params": { "ParamAngleY": 0, "ParamEyeBallY": 0 } }
+      ]
+    },
+    "shake": {
+      "duration": 600,
+      "repeat": 3,
+      "keyframes": [
+        { "t": 0, "params": { "ParamAngleX": 0, "ParamEyeBallX": 0 } },
+        { "t": 0.25, "params": { "ParamAngleX": 15, "ParamEyeBallX": 1 } },
+        { "t": 0.75, "params": { "ParamAngleX": -15, "ParamEyeBallX": -1 } },
+        { "t": 1, "params": { "ParamAngleX": 0, "ParamEyeBallX": 0 } }
+      ]
+    },
+    "normal": {
+      "duration": 1500,
+      "repeat": 1,
+      "keyframes": [
+        { "t": 0, "params": { "ParamBodyAngleX": 0, "ParamAngleZ": 0 } },
+        { "t": 0.5, "params": { "ParamBodyAngleX": 2, "ParamAngleZ": 3 } },
+        { "t": 1, "params": { "ParamBodyAngleX": 0, "ParamAngleZ": 0 } }
+      ]
+    },
+    "happy": {
+      "duration": 1500,
+      "repeat": 1,
+      "keyframes": [
+        { "t": 0, "params": { "ParamBodyAngleX": 0, "ParamAngleZ": 0 } },
+        { "t": 0.3, "params": { "ParamBodyAngleX": 3, "ParamAngleZ": -8 } },
+        { "t": 1, "params": { "ParamBodyAngleX": 0, "ParamAngleZ": -5 } }
+      ]
+    },
+    "enjoy": {
+      "duration": 1500,
+      "repeat": 1,
+      "keyframes": [
+        { "t": 0, "params": { "ParamBodyAngleX": 0, "ParamAngleX": 0 } },
+        { "t": 0.3, "params": { "ParamBodyAngleX": 4, "ParamAngleX": 6 } },
+        { "t": 1, "params": { "ParamBodyAngleX": 0, "ParamAngleX": 3 } }
+      ]
+    },
+    "sad": {
+      "duration": 2000,
+      "repeat": 1,
+      "keyframes": [
+        { "t": 0, "params": { "ParamBodyAngleX": 0, "ParamAngleY": 0 } },
+        { "t": 0.4, "params": { "ParamBodyAngleX": -2, "ParamAngleY": -8 } },
+        { "t": 1, "params": { "ParamBodyAngleX": -1, "ParamAngleY": -5 } }
+      ]
+    },
+    "surprise": {
+      "duration": 1000,
+      "repeat": 1,
+      "keyframes": [
+        { "t": 0, "params": { "ParamBodyAngleX": 0, "ParamAngleY": 0 } },
+        { "t": 0.2, "params": { "ParamBodyAngleX": -3, "ParamAngleY": 5 } },
+        { "t": 0.5, "params": { "ParamBodyAngleX": 0, "ParamAngleY": 3 } },
+        { "t": 1, "params": { "ParamBodyAngleX": 0, "ParamAngleY": 0 } }
+      ]
+    }
+  }
+}

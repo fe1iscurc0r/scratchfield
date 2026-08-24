@@ -1,0 +1,41 @@
+{
+  "name": "tts_api",
+  "displayName": "TTS 语音合成",
+  "version": "1.0.0",
+  "description": "文本转语音：调用自托管 TTS-API 网关（kokoro/edge 双引擎），合成语音并落盘为音频文件",
+  "author": "陆墨助手",
+  "license": "MIT",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.tts_api.agent",
+    "class": "TTSApiAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "tts_speak",
+        "description": "文本转语音：调用 TTS-API 网关合成语音并落盘，返回音频文件路径",
+        "params": {
+          "text": "要合成的文本（必填）",
+          "engine": "引擎：edge（默认，微软云）/ kokoro（本地）",
+          "voice": "音色 ID（可选，缺省按语言自动选择）",
+          "speed": "语速 0.5-3.0（默认 1.0）",
+          "response_format": "输出格式 mp3/opus/aac/flac/wav/pcm（默认 mp3）"
+        },
+        "example": "{\"tool_name\":\"tts_speak\",\"text\":\"你好，我是陆墨\",\"engine\":\"edge\",\"voice\":\"zh-CN-XiaoxiaoNeural\"}"
+      },
+      {
+        "command": "tts_list_voices",
+        "description": "列出 TTS-API 网关可用的全部音色（kokoro + edge 缓存目录）",
+        "params": {},
+        "example": "{\"tool_name\":\"tts_list_voices\"}"
+      },
+      {
+        "command": "tts_health",
+        "description": "TTS-API 网关健康检查：返回引擎就绪状态与 max_text_length",
+        "params": {},
+        "example": "{\"tool_name\":\"tts_health\"}"
+      }
+    ]
+  }
+}

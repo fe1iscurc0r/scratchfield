@@ -1,0 +1,93 @@
+{
+  "name": "academic",
+  "displayName": "academic 科研数据底座",
+  "version": "0.1.0",
+  "description": "scratchpad-knowledge academic 16 包融合出口：16 包融合层级总表 + CoolProp/ChemFormula/tespy/SLICES 四个 MODEL_INTERFACE（热物性真算/化学式离线解析/热力网络仿真/晶体↔字符串）。重运行依赖只标注不否决，缺失时报 AcademicDependencyError 含 pip install 提示。文档见 docs/academic/。",
+  "author": "沈遥",
+  "license": "MIT（接口层）；上游各异：CoolProp MIT / ChemFormula MIT / tespy MIT / SLICES LGPL-2.1",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.academic.bridge",
+    "class": "AcademicBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "academic_levels",
+        "description": "16 个 scientific 包融合层级总表（MCP/Skill/融合参考/耦合/基础设施）",
+        "example": "{\"tool_name\":\"academic_levels\"}"
+      },
+      {
+        "command": "academic_interfaces",
+        "description": "已封装 MODEL_INTERFACE 元数据（CoolProp/ChemFormula/tespy/SLICES）",
+        "example": "{\"tool_name\":\"academic_interfaces\"}"
+      },
+      {
+        "command": "coolprop_props",
+        "description": "热物性计算：两点定态求物性（SI 单位制）",
+        "params": {
+          "output": "物性名（D/H/S/T/P/U/Cpmass/V/Q）",
+          "name1": "第一态量名", "prop1": "第一态量值",
+          "name2": "第二态量名", "prop2": "第二态量值",
+          "fluid": "流体名"
+        },
+        "example": "{\"tool_name\":\"coolprop_props\",\"output\":\"D\",\"name1\":\"T\",\"prop1\":300,\"name2\":\"P\",\"prop2\":101325,\"fluid\":\"Water\"}"
+      },
+      {
+        "command": "coolprop_constant",
+        "description": "流体常量（Tcrit/Pcrit/M 等）",
+        "params": {"output": "常量名", "fluid": "流体名"},
+        "example": "{\"tool_name\":\"coolprop_constant\",\"output\":\"Tcrit\",\"fluid\":\"Water\"}"
+      },
+      {
+        "command": "chem_parse",
+        "description": "化学式解析：分子量/质量分数/元素计数（离线）",
+        "params": {"formula": "化学式，如 H2O", "charge": "电荷（默认0）"},
+        "example": "{\"tool_name\":\"chem_parse\",\"formula\":\"H2O\"}"
+      },
+      {
+        "command": "tespy_check",
+        "description": "tespy 依赖探测（available + 版本）"
+      },
+      {
+        "command": "tespy_solve_network",
+        "description": "热力网络求解（拓扑 spec 见 docs/academic/MODEL_INTERFACE.md；缺依赖时返回 pip install 提示）",
+        "params": {"spec": "拓扑 JSON"}
+      },
+      {
+        "command": "slices_check",
+        "description": "SLICES 依赖探测（slices + pymatgen 逐项点名）"
+      },
+      {
+        "command": "slices_encode",
+        "description": "晶体 CIF → SLICES 字符串（缺依赖时报 pip install 提示）",
+        "params": {"cif_path": "CIF 文件路径"}
+      },
+      {
+        "command": "slices_decode",
+        "description": "SLICES 字符串 → 重构晶体（化学式+预测能量）",
+        "params": {"slices_str": "SLICES 字符串"}
+      },
+      {
+        "command": "indigo_molinfo",
+        "description": "SMILES → 分子量/分子式/规范 SMILES/原子键计数（Indigo 离线真算）",
+        "params": {"smiles": "SMILES 字符串"}
+      },
+      {
+        "command": "indigo_substructure",
+        "description": "子结构匹配：query 是否出现在 target（返回匹配数）",
+        "params": {"query": "子结构 SMILES", "target": "目标分子 SMILES"}
+      },
+      {
+        "command": "chembl_molecule",
+        "description": "CHEMBL_ID → 名称/SMILES/分子式（在线 REST，自动缓存）",
+        "params": {"chembl_id": "如 CHEMBL25"}
+      },
+      {
+        "command": "chembl_search_smiles",
+        "description": "SMILES 相似性检索（在线 REST）",
+        "params": {"smiles": "查询 SMILES", "similarity": "阈值 0-100（默认 90）", "limit": "条数（默认 5）"}
+      }
+    ]
+  }
+}

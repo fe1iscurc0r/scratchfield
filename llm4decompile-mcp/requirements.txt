@@ -1,0 +1,8 @@
+# LLM4Decompile MCP 依赖
+# 模型: LLM4Binary/llm4decompile-1.3b-v2-GGUF (Q4_K_M, ~1.5GB)
+# Python 3.11+，Windows x64 / Linux x86_64
+
+llama-cpp-python>=0.2.90
+mcp>=1.0.0
+capstone>=5.0.0
+PyYAML>=6.0

@@ -1,0 +1,63 @@
+{
+  "name": "graphify",
+  "displayName": "graphify 知识图谱检索",
+  "version": "0.1.0",
+  "description": "代码/文献目录 → 可查询知识图谱（GraphRAG）：内置确定性 AST 管线生成 graph.json（schema 对齐上游），TF-IDF 向量检索 + 关键词 RRF 融合查询，回答携带 citation（source_file:source_location）引用来源；支持导入上游 graphifyy CLI 产出的图谱。上游 https://github.com/Graphify-Labs/graphify。",
+  "author": "沈遥",
+  "license": "Apache-2.0",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.graphify.adapter",
+    "class": "GraphifyBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "graphify_build",
+        "description": "把代码/文献目录建成知识图谱，产出 <path>/graphify-out/graph.json 并挂载为活跃图谱",
+        "params": {
+          "path": "待建图谱的目录（.py/.md/.txt 会被解析）"
+        },
+        "example": "{\"tool_name\":\"graphify_build\",\"path\":\"D:/docs/papers\"}"
+      },
+      {
+        "command": "graphify_import",
+        "description": "导入上游 graphifyy CLI（或他机）产出的 graph.json 作为活跃图谱",
+        "params": {
+          "graph_json": "graph.json 文件路径"
+        },
+        "example": "{\"tool_name\":\"graphify_import\",\"graph_json\":\"./graphify-out/graph.json\"}"
+      },
+      {
+        "command": "graphify_query",
+        "description": "对图谱提问：向量检索+关键词 RRF 融合，返回 matches/relations/citations（每条带 citation 引用来源）",
+        "params": {
+          "question": "自然语言问题",
+          "top_k": "最多返回命中节点数，默认 8"
+        },
+        "example": "{\"tool_name\":\"graphify_query\",\"question\":\"谱提取在哪个文件\",\"top_k\":5}"
+      },
+      {
+        "command": "graphify_path",
+        "description": "查两节点间最短通路，每跳带 relation/confidence/citation",
+        "params": {
+          "a": "起点节点 id",
+          "b": "终点节点 id"
+        },
+        "example": "{\"tool_name\":\"graphify_path\",\"a\":\"rf_brain\",\"b\":\"feature_extractor\"}"
+      },
+      {
+        "command": "graphify_explain",
+        "description": "看一个节点：详情 + 全部邻边（EXTRACTED/INFERRED 置信标签）+ citation",
+        "params": {
+          "node": "节点 id 或 label"
+        },
+        "example": "{\"tool_name\":\"graphify_explain\",\"node\":\"feature_extractor\"}"
+      },
+      {
+        "command": "graphify_status",
+        "description": "图谱状态：活跃路径/规模/引擎/上游 CLI 可用性/license"
+      }
+    ]
+  }
+}

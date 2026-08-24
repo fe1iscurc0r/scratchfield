@@ -1,0 +1,40 @@
+{
+  "name": "pdf2md_adapter",
+  "displayName": "论文 PDF → Markdown 管线",
+  "version": "1.0.0",
+  "description": "四靶子 D：论文 PDF 转 Markdown。Docling（IBM）主力——中文 OCR（ch_sim+en）、表格结构保留、脚注随正文导出、图像提取到独立文件；MarkItDown 降级兜底。引擎均缺失时工具直接报错（fail-fast），不静默空返回。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.pdf2md_adapter.adapter",
+    "class": "Pdf2MdBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "pdf2md_convert",
+        "description": "把单个论文 PDF 转为 Markdown，图像提取到 <output_dir>/<文件名>_assets/，markdown 写入 <output_dir>/<文件名>.md",
+        "params": {
+          "file_path": "PDF 文件路径",
+          "output_dir": "输出目录（可选，默认 papers/output）"
+        },
+        "example": "{\"tool_name\":\"pdf2md_convert\",\"file_path\":\"papers/input/xxx.pdf\"}"
+      },
+      {
+        "command": "pdf2md_batch",
+        "description": "批量转换目录下所有 PDF（递归查找），逐个返回 markdown 或错误",
+        "params": {
+          "dir_path": "待扫描目录",
+          "output_dir": "输出目录（可选，默认 papers/output）"
+        },
+        "example": "{\"tool_name\":\"pdf2md_batch\",\"dir_path\":\"papers/input\"}"
+      },
+      {
+        "command": "pdf2md_status",
+        "description": "查看 Docling / MarkItDown 引擎可用性与版本",
+        "params": {},
+        "example": "{\"tool_name\":\"pdf2md_status\"}"
+      }
+    ]
+  }
+}

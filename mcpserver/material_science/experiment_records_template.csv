@@ -1,0 +1,3 @@
+paper,source_path,precursor,crosslinker,koh_ratio,heating_rate,carbonization_temp,holding_time,conductivity,surface_area,porosity,yield_rate
+own-record,实验记录2026-08-10,秸秆,戊二醛,4,5,750,120,10.8,1350,87,33
+own-record,实验记录2026-08-10,玉米芯,戊二醛,3,5,800,120,11.2,1400,88,30

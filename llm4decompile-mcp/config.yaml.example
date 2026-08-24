@@ -1,0 +1,12 @@
+# LLM4Decompile MCP 配置模板
+# 复制为 config.yaml 并填写 model.path
+
+model:
+  # GGUF 模型绝对路径（Q4_K_M 量化，~1.5GB）
+  path: "D:/models/llm4decompile/llm4decompile-1.3b-v2-q4_k_m.gguf"
+  # GPU 卸载层数：-1 全部上 GPU，0 纯 CPU
+  n_gpu_layers: -1
+  # 上下文窗口
+  n_ctx: 16384
+  # 是否输出 llama.cpp 调试日志
+  verbose: false

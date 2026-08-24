@@ -1,0 +1,15 @@
+CC0 1.0 Universal — 自制测试资产声明（issue #20）
+==================================================
+
+模型目录：naga-test
+出处：scratchpad 项目自制测试资产（commit c28431e4d
+      "feat(assets): Live2D 模型资产 + RAG Vault 集成测试"），
+      仅用于前端 Live2D 加载管线与集成测试验证。
+
+在法律允许的范围内，创建者通过 CC0 1.0 Universal 将本资产
+（模型文件、贴图及相关配置）献入公有领域：
+https://creativecommons.org/publicdomain/zero/1.0/
+
+注意：Live2D 模型文件的运行时加载依赖 Live2D Cubism SDK，
+SDK 的使用另受 Live2D Inc. 专有许可约束，见
+https://www.live2d.com/en/download/cubism-sdk/release-license/

@@ -1,0 +1,117 @@
+{
+  "_comment": "外部 MCP 服务接入模板。mcporter_bridge.py 从 ~/.mcporter/config.json 读取 'mcpServers'，register_external_mcp_agents() 会将每个条目封装为 ExternalMCPAgent 注册进 MCP_REGISTRY。把本文件内容合并到 ~/.mcporter/config.json 即可启用（按需删掉 _comment 键）。",
+  "mcpServers": {
+    "toolbox-postgres": {
+      "_disabled": true,
+      "_displayName": "MCP Toolbox (PostgreSQL)",
+      "_description": "Google MCP Toolbox for Databases —— 通过 MCP 协议查询 PostgreSQL 数据库（schema 探索 / execute_sql）。上游：googleapis/mcp-toolbox (Apache-2.0)。启用前需配置数据库连接环境变量（见下方 env 说明）。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@toolbox-sdk/server",
+        "--prebuilt=postgres",
+        "--stdio"
+      ],
+      "env": {
+        "PGHOST": "127.0.0.1",
+        "PGPORT": "5432",
+        "PGDATABASE": "postgres",
+        "PGUSER": "postgres",
+        "PGPASSWORD": ""
+      }
+    },
+    "swarmvault": {
+      "_disabled": true,
+      "_displayName": "SwarmVault (LLM Wiki / 知识图谱 / RAG)",
+      "_description": "本地优先的 LLM Wiki + 知识图谱构建器 + RAG 知识库，通过 'swarmvault mcp' 暴露 vault 给 agent。上游：swarmclawai/swarmvault (MIT)。启用前需全局安装 @swarmvaultai/cli（Node>=24）并在某目录 init 一个 vault。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "stdio",
+      "command": "swarmvault",
+      "args": [
+        "mcp"
+      ]
+    },
+    "mentedb": {
+      "_disabled": true,
+      "_displayName": "MenteDB (AI Agent 记忆引擎)",
+      "_description": "面向 AI 记忆的 Rust 存储引擎（写入期智能：质量过滤/去重/矛盾检测/实体图谱），通过 mentedb-mcp 提供 32 个工具。上游：nambok/mentedb (Apache-2.0)。启用前需自建/云托管 server 并配置 MENTEDB_URL 或 MENTEDB_DATA_DIR。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mentedb-mcp"
+      ],
+      "env": {
+        "MENTEDB_URL": "",
+        "MENTEDB_DATA_DIR": ""
+      }
+    },
+    "arcrift": {
+      "_disabled": true,
+      "_displayName": "ArcRift (AI 编程工具跨会话记忆)",
+      "_description": "本地优先的 AI 编程记忆层：捕获对话、构建知识图谱、按需注入上下文（SQLite + Ollama）。上游：Eshaan-Nair/ArcRift (MIT)。启用前需先构建 backend/dist/mcp/server.js 并配置 ARCRIFT_STORAGE_MODE=sqlite + 运行中的 Ollama。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/path/to/ARCRIFT/backend/dist/mcp/server.js"
+      ],
+      "env": {
+        "ARCRIFT_STORAGE_MODE": "sqlite",
+        "OLLAMA_URL": "http://localhost:11434"
+      }
+    },
+    "hamlog": {
+      "_disabled": true,
+      "_displayName": "HamLog QSO/QSL 工具桥",
+      "_description": "陆墨的业余无线电日志桥：默认 SQLite 直连 HamLog R1.0.0 数据库（%APPDATA%/HamLog/Log.db，需先在本机运行过一次 HamLog 桌面程序），提供 QSO 搜索/录入、QSL 卡债、QSL 状态更新、QSL 卡内容生成 5 个工具。数据库路径可用 HAMLOG_DB_PATH 覆盖；设 HAMLOG_API_URL 则切回历史 Flask 契约后端。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "mcpserver/adapters/hamlog_adapter/adapter.py",
+        "--stdio"
+      ],
+      "env": {
+        "_HAMLOG_DB_PATH": "可选：指向非默认位置的 HamLog Log.db（默认 %APPDATA%/HamLog/Log.db）"
+      }
+    },
+    "llm4decompile": {
+      "_disabled": true,
+      "_displayName": "LLM4Decompile 反编译（二进制/Ghidra 伪 C → 可读 C）",
+      "_description": "靶子 C：LLM4Decompile 1.3B 本地反编译 MCP（SPEC docs/LLM4Decompile-MCP-SPEC-v1.md）。三工具：decompile_binary（ELF 直反编译）/ polish_ghidra_output（Ghidra 伪 C 润色，PE/RS-BA1 主用路径）/ health。启用前需装 llama-cpp-python 并在 config.yaml 或 LLM4DECOMPILE_MODEL_PATH 配 GGUF 模型路径（LLM4Binary/llm4decompile-1.3b-v2-GGUF Q4_K_M）。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "llm4decompile-mcp/mcp_server.py",
+        "--config",
+        "llm4decompile-mcp/config.yaml"
+      ],
+      "env": {
+        "LLM4DECOMPILE_MODEL_PATH": ""
+      }
+    },
+    "apify": {
+      "_disabled": true,
+      "_displayName": "Apify MCP Server (网页抓取 / 搜索 / 数据提取)",
+      "_description": "通过 8000+ 现成 Apify Actor 为 agent 提供社交/搜索/地图/电商等网页抓取与数据提取能力，含 RAG Web Browser。上游：apify/apify-mcp-server (MIT)。托管端点 https://mcp.apify.com 支持远程 streamable HTTP；本地 stdio 用 npx @apify/actors-mcp-server。启用前需配置 APIFY_TOKEN。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "http",
+      "url": "https://mcp.apify.com",
+      "headers": {
+        "Authorization": "Bearer ${APIFY_TOKEN}"
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+# sdrtrunk sidecar（W-01）容器验收 —— 一键 build + run
+#
+# 用法（任意目录）：
+#   docker compose -f mcpserver/rf_brain/sdrtrunk_bridge/docker-compose.yml up --build
+#
+# 说明：
+#   - context 为 scratchpad/ 根（Dockerfile 内 COPY mcpserver/... 相对此解析）
+#   - 验收 JSON 输出落盘到 sdrtrunk_bridge/out/accept_out.json
+#   - 需要 live 探测时，在 build.args 填入 sdrtrunk release zip 直链与 jmbe zip 直链
+services:
+  sdrtrunk-bridge-accept:
+    build:
+      context: ../..
+      dockerfile: mcpserver/rf_brain/sdrtrunk_bridge/Dockerfile
+      args:
+        SDRTRUNK_ZIP_URL: ""   # e.g. https://github.com/DSheirer/sdrtrunk/releases/download/<ver>/<zip>
+        JMBE_ZIP_URL: ""       # e.g. https://github.com/DSheirer/jmbe/releases/download/<ver>/<zip>
+    image: sdrtrunk-bridge:accept
+    volumes:
+      - ./out:/out             # 相对本文件所在目录：sdrtrunk_bridge/out
+    environment:
+      PYTHONUNBUFFERED: "1"

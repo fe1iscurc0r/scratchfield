@@ -1,0 +1,1614 @@
+# config.py - 简化配置系统
+"""
+NagaAgent 配置系统 - 基于Pydantic实现类型安全和验证
+支持配置热更新和变更通知
+"""
+
+import hashlib
+import hmac
+import json
+import logging
+import os
+import re
+import secrets
+import sys
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # Python < 3.11 fallback
+from collections.abc import Callable
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import json5  # 支持带注释的JSON解析
+from charset_normalizer import from_path
+from pydantic import BaseModel, Field, field_validator
+
+IS_PACKAGED: bool = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+
+
+def get_version() -> str:
+    """从 pyproject.toml 读取版本号（唯一版本源）。
+    开发环境从项目根目录读取，PyInstaller 打包后从 _MEIPASS 读取。
+    """
+    if IS_PACKAGED:
+        pyproject = Path(sys._MEIPASS) / "pyproject.toml"
+    else:
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    try:
+        with open(pyproject, "rb") as f:
+            return tomllib.load(f)["project"]["version"]
+    except Exception:
+        return "0.0.0"
+
+
+VERSION: str = get_version()
+
+# 配置Schema版本号 - 用于配置迁移
+CONFIG_SCHEMA_VERSION: int = 2
+
+_OLD_DATA_DIRS: list[Path] = []
+
+
+def _get_user_data_dir() -> Path:
+    """返回与 Electron app.getPath('userData') 一致的用户数据目录。
+
+    前端 main.ts 通过 app.setPath('userData', ...) 统一为 'lumo'
+    Windows: %APPDATA%/lumo/
+    macOS:   ~/Library/Application Support/lumo/
+    Linux:   ~/.config/lumo/
+    """
+    global _OLD_DATA_DIRS
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", Path.home()))
+        new = base / "lumo"
+        # 检测旧目录，标记需要迁移
+        for old_name in ("NagaAgent", "naga-agent", "Naga Agent", "陆墨"):
+            old = base / old_name
+            if old.exists() and old != new:
+                _OLD_DATA_DIRS.append(old)
+        return new
+    elif sys.platform == "darwin":
+        new = Path.home() / "Library" / "Application Support" / "lumo"
+        for old_name in (".naga", "naga-agent", "Naga Agent", "陆墨"):
+            old = Path.home() / "Library" / "Application Support" / old_name if old_name != ".naga" else Path.home() / ".naga"
+            if old.exists() and old != new:
+                _OLD_DATA_DIRS.append(old)
+        return new
+    else:
+        xdg = os.environ.get("XDG_CONFIG_HOME", "")
+        new = Path(xdg) / "lumo" if xdg else Path.home() / ".config" / "lumo"
+        for old_name in (".naga", "naga-agent"):
+            old = Path.home() / old_name
+            if old.exists() and old != new:
+                _OLD_DATA_DIRS.append(old)
+        return new
+
+
+def get_old_data_dirs() -> list[Path]:
+    """返回需要迁移的旧数据目录列表"""
+    return _OLD_DATA_DIRS.copy()
+
+
+def get_data_dir() -> Path:
+    """返回用户数据根目录（公共接口，供所有模块使用）
+
+    用于日志、会话、缓存等用户数据。运行时 config.json 会优先读取应用目录；
+    应用目录不存在 config.json 时才回退到这里。
+    """
+    d = _get_user_data_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _get_app_dir() -> Path:
+    """返回应用配置所在目录：源码根目录或可执行文件目录。"""
+    if IS_PACKAGED:
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def _get_local_config_path() -> Path:
+    """返回应用目录下的 config.json 路径。"""
+    return _get_app_dir() / "config.json"
+
+
+def get_config_path() -> str:
+    """返回当前生效 config.json 路径。
+
+    优先使用应用目录下的 config.json，便于开发者直接修改项目配置；
+    若不存在，则回退到用户数据目录中的 config.json。
+    """
+    local_config = _get_local_config_path()
+    if local_config.is_file():
+        return str(local_config)
+
+    return str(get_data_dir() / "config.json")
+
+
+def _get_project_config_template_paths(config_path: str) -> list[Path]:
+    """返回可用于初始化运行时配置的模板候选路径。"""
+    runtime_dir = Path(config_path).parent
+    app_dir = _get_app_dir()
+    if IS_PACKAGED:
+        bundle_root = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+        return [
+            app_dir / "config.json.example",
+            bundle_root / "config.json.example",
+            bundle_root / "config.json",
+        ]
+    return [
+        runtime_dir / "config.json.example",
+        app_dir / "config.json.example",
+        app_dir / "config.json",
+    ]
+
+
+_RUNTIME_PROTECTED_CONFIG_PATHS = {
+    "system_check",
+}
+
+_MODEL_SYNC_CONFIG_PATHS: set[str] = set()
+
+
+def _merge_source_config_into_runtime(source_value, target_value, path: str = ""):
+    if path in _RUNTIME_PROTECTED_CONFIG_PATHS:
+        return target_value, False
+
+    if path in _MODEL_SYNC_CONFIG_PATHS:
+        if target_value != source_value:
+            return source_value, True
+        return target_value, False
+
+    if isinstance(source_value, dict):
+        target_dict = target_value if isinstance(target_value, dict) else {}
+        merged = dict(target_dict)
+        changed = not isinstance(target_value, dict)
+
+        for key, source_child in source_value.items():
+            child_path = f"{path}.{key}" if path else key
+            if key in target_dict:
+                merged_child, child_changed = _merge_source_config_into_runtime(
+                    source_child,
+                    target_dict[key],
+                    child_path,
+                )
+                if child_changed:
+                    merged[key] = merged_child
+                    changed = True
+            else:
+                merged[key] = source_child
+                changed = True
+
+        return merged, changed
+
+    if target_value is None:
+        return source_value, True
+
+    return target_value, False
+
+
+def sync_source_config_to_runtime() -> bool:
+    """兼容旧启动流程；本地 config.json 已是生效配置时不再同步到用户目录。"""
+    if IS_PACKAGED:
+        return False
+
+    source = _get_local_config_path()
+    if not source.exists():
+        return False
+
+    target = Path(get_config_path())
+    if target == source:
+        return False
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with open(source, encoding=detect_file_encoding(str(source))) as source_file:
+            source_config = json5.load(source_file)
+
+        if target.exists():
+            with open(target, encoding=detect_file_encoding(str(target))) as target_file:
+                target_config = json5.load(target_file)
+        else:
+            target_config = {}
+
+        merged_config, changed = _merge_source_config_into_runtime(source_config, target_config)
+        if not changed:
+            return False
+
+        with open(target, "w", encoding="utf-8") as target_file:
+            json.dump(merged_config, target_file, ensure_ascii=False, indent=2)
+
+        print(f"已同步源码配置结构: {source} → {target}")
+        return True
+    except Exception as e:
+        print(f"警告：同步源码配置失败: {e}")
+        return False
+
+# ========== 服务器端口配置 - 统一管理 ==========
+class ServerPortsConfig(BaseModel):
+    """服务器端口配置 - 统一管理所有服务器端口"""
+
+    # 主API服务器
+    api_server: int = Field(default=8000, ge=1, le=65535, description="API服务器端口")
+
+    # 智能体服务器
+    agent_server: int = Field(default=8001, ge=1, le=65535, description="智能体服务器端口")
+
+    # MCP工具服务器
+    mcp_server: int = Field(default=8003, ge=1, le=65535, description="MCP工具服务器端口")
+
+    # TTS语音合成服务器
+    tts_server: int = Field(default=5048, ge=1, le=65535, description="TTS语音合成服务器端口")
+
+    # ASR语音识别服务器
+    asr_server: int = Field(default=5060, ge=1, le=65535, description="ASR语音识别服务器端口")
+
+
+# 全局服务器端口配置实例
+server_ports = ServerPortsConfig()
+
+
+def _get_runtime_server_ports() -> ServerPortsConfig | None:
+    """优先返回当前已加载配置里的端口，回退到静态默认端口。"""
+    loaded_config = globals().get("config")
+    if loaded_config is None:
+        return None
+
+    try:
+        raw_agent_port = getattr(getattr(loaded_config, "agent_server", None), "port", server_ports.agent_server)
+        raw_mcp_port = getattr(getattr(loaded_config, "mcp_server", None), "port", server_ports.mcp_server)
+        try:
+            config_path = get_config_path()
+            if os.path.exists(config_path):
+                with open(config_path, encoding=detect_file_encoding(config_path)) as f:
+                    raw_config = json5.load(f)
+
+                raw_agent_port = int(
+                    raw_config.get("agent_server", {}).get(
+                        "port",
+                        raw_config.get("agentserver", {}).get("port", raw_agent_port),
+                    )
+                )
+                raw_mcp_port = int(
+                    raw_config.get("mcp_server", {}).get(
+                        "port",
+                        raw_config.get("mcpserver", {}).get("port", raw_mcp_port),
+                    )
+                )
+        except Exception:
+            pass
+
+        return ServerPortsConfig(
+            api_server=loaded_config.api_server.port,
+            agent_server=raw_agent_port,
+            mcp_server=raw_mcp_port,
+            tts_server=loaded_config.tts.port,
+            asr_server=loaded_config.asr.port,
+        )
+    except Exception:
+        return None
+
+
+def get_server_port(server_name: str) -> int:
+    """获取指定服务器的端口号"""
+    runtime_ports = _get_runtime_server_ports()
+    if runtime_ports is not None:
+        return getattr(runtime_ports, server_name, None)
+    return getattr(server_ports, server_name, None)
+
+
+def get_all_server_ports() -> dict[str, int]:
+    """获取所有服务器端口配置"""
+    runtime_ports = _get_runtime_server_ports() or server_ports
+    return {
+        "api_server": runtime_ports.api_server,
+        "agent_server": runtime_ports.agent_server,
+        "mcp_server": runtime_ports.mcp_server,
+        "tts_server": runtime_ports.tts_server,
+        "asr_server": runtime_ports.asr_server,
+    }
+
+
+# 配置变更监听器
+_config_listeners: list[Callable] = []
+
+
+# 为了向后兼容，提供AI_NAME常量
+def get_ai_name() -> str:
+    """获取AI名称"""
+    return config.system.ai_name
+
+
+def add_config_listener(callback: Callable):
+    """添加配置变更监听器"""
+    _config_listeners.append(callback)
+
+
+def remove_config_listener(callback: Callable):
+    """移除配置变更监听器"""
+    if callback in _config_listeners:
+        _config_listeners.remove(callback)
+
+
+def notify_config_changed():
+    """通知所有监听器配置已变更"""
+    for listener in _config_listeners:
+        try:
+            listener()
+        except Exception as e:
+            print(f"配置监听器执行失败: {e}")
+
+
+def setup_environment():
+    """设置环境变量解决兼容性问题"""
+    env_vars = {
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "TOKENIZERS_PARALLELISM": "false",
+        "PYTORCH_MPS_HIGH_WATERMARK_RATIO": "0.0",
+        "PYTORCH_ENABLE_MPS_FALLBACK": "1",
+    }
+    for key, value in env_vars.items():
+        os.environ.setdefault(key, value)
+
+
+def detect_file_encoding(file_path: str) -> str:
+    """检测文本文件编码，失败时回退到utf-8"""
+    try:
+        charset_results = from_path(file_path)
+        if charset_results:
+            best_match = charset_results.best()
+            if best_match and best_match.encoding:
+                return best_match.encoding
+    except Exception as e:
+        print(f"警告：检测文件编码失败 {file_path}: {e}")
+    return "utf-8"
+
+
+def bootstrap_config_from_example(config_path: str) -> None:
+    """当config.json缺失时，从config.json.example读取并写入utf-8版本"""
+    if os.path.exists(config_path):
+        return
+
+    example_path = next(
+        (candidate for candidate in _get_project_config_template_paths(config_path) if candidate.exists()),
+        None,
+    )
+    if example_path is None:
+        return
+
+    try:
+        detected_encoding = detect_file_encoding(str(example_path))
+        print(f"检测到配置模板编码: {detected_encoding}")
+        with open(example_path, encoding=detected_encoding) as example_file:
+            example_content = example_file.read()
+
+        Path(config_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w", encoding="utf-8") as config_file:
+            config_file.write(example_content)
+
+        print(f"已自动从 {example_path.name} 生成 config.json（utf-8）")
+    except Exception as e:
+        print(f"警告：自动生成 config.json 失败: {e}")
+
+
+class SystemConfig(BaseModel):
+    """系统基础配置"""
+
+    version: str = Field(default_factory=lambda: VERSION, description="系统版本号")
+    ai_name: str = Field(default="陆墨", description="AI助手名称")
+    active_character: str = Field(default="陆墨", description="当前活跃角色名称")
+    base_dir: Path = Field(default_factory=lambda: Path(__file__).parent.parent, description="项目根目录")
+    log_dir: Path = Field(default_factory=lambda: get_data_dir() / "logs", description="日志目录")
+    voice_enabled: bool = Field(default=True, description="是否启用语音功能")
+    stream_mode: bool = Field(default=True, description="是否启用流式响应")
+    debug: bool = Field(default=False, description="是否启用调试模式")
+    log_level: str = Field(default="INFO", description="日志级别")
+    save_prompts: bool = Field(default=True, description="是否保存提示词")
+
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, v):
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        if v.upper() not in valid_levels:
+            raise ValueError(f"日志级别必须是以下之一: {valid_levels}")
+        return v.upper()
+
+
+class APIConfig(BaseModel):
+    """API服务配置"""
+
+    api_key: str = Field(default="sk-placeholder-key-not-set", description="API密钥")
+    base_url: str = Field(default="https://api.deepseek.com/v1", description="API基础URL")
+    model: str = Field(default="deepseek-v3.2", description="使用的模型名称")
+    provider: str = Field(default="deepseek", description="模型供应商：auto/openai/deepseek/openrouter/anthropic/gemini/custom")
+    use_gateway: bool = Field(default=True, description="登录后是否通过 NagaModel 网关调用模型")
+    api_format: str = Field(default="openai", description="API调用格式：openai 或 anthropic")
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="温度参数")
+    max_tokens: int = Field(default=10000, ge=1, le=32768, description="最大token数")
+    max_history_rounds: int = Field(default=100, ge=1, le=200, description="最大历史轮数")
+    persistent_context: bool = Field(default=True, description="是否启用持久化上下文")
+    context_load_days: int = Field(default=3, ge=1, le=30, description="加载历史上下文的天数")
+    context_parse_logs: bool = Field(default=True, description="是否从日志文件解析上下文")
+    applied_proxy: bool = Field(default=True, description="是否应用代理")
+
+    @field_validator("api_format")
+    @classmethod
+    def validate_api_format(cls, v):
+        valid_formats = ["openai", "anthropic"]
+        if v.lower() not in valid_formats:
+            raise ValueError(f"api_format 必须是以下之一: {valid_formats}")
+        return v.lower()
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v):
+        valid_providers = ["auto", "openai", "deepseek", "openrouter", "anthropic", "gemini", "custom"]
+        normalized = (v or "auto").lower()
+        if normalized not in valid_providers:
+            raise ValueError(f"provider 必须是以下之一: {valid_providers}")
+        return normalized
+
+
+class AuthConfig(BaseModel):
+    """本地鉴权配置 — 陆墨定制版"""
+
+    enabled: bool = Field(default=True, description="是否启用鉴权")
+    username: str = Field(default="admin", description="本地用户名")
+    password_hash: str = Field(default="", description="密码哈希（SHA-256 with salt）")
+    password_salt: str = Field(default="", description="密码盐值")
+    require_auth: bool = Field(default=False, description="是否强制要求鉴权（False=首次免密码）")
+
+
+def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    """SHA-256 + salt 哈希密码"""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 600000)
+    return h.hex(), salt
+
+
+def _verify_password(password: str, password_hash: str, salt: str) -> bool:
+    """验证密码"""
+    check_hash, _ = _hash_password(password, salt)
+    return hmac.compare_digest(check_hash, password_hash)
+
+
+class APIServerConfig(BaseModel):
+    """API服务器配置"""
+
+    enabled: bool = Field(default=True, description="是否启用API服务器")
+    host: str = Field(default="127.0.0.1", description="API服务器主机")
+    port: int = Field(default_factory=lambda: server_ports.api_server, description="API服务器端口")
+    auto_start: bool = Field(default=True, description="启动时自动启动API服务器")
+    docs_enabled: bool = Field(default=True, description="是否启用API文档")
+
+
+class AgentServerConfig(BaseModel):
+    """Agent 服务器配置"""
+
+    enabled: bool = Field(default=True, description="是否启用 Agent 服务器")
+    host: str = Field(default="127.0.0.1", description="Agent 服务器主机")
+    port: int = Field(default_factory=lambda: server_ports.agent_server, description="Agent 服务器端口")
+
+
+class MCPServerConfig(BaseModel):
+    """MCP 服务器配置"""
+
+    enabled: bool = Field(default=True, description="是否启用 MCP 服务器")
+    host: str = Field(default="127.0.0.1", description="MCP 服务器主机")
+    port: int = Field(default_factory=lambda: server_ports.mcp_server, description="MCP 服务器端口")
+    agent_discovery: bool = Field(default=True, description="是否启用 Agent 自动发现")
+
+
+class GRAGConfig(BaseModel):
+    """GRAG知识图谱记忆系统配置"""
+
+    enabled: bool = Field(default=True, description="是否启用GRAG记忆系统")
+    auto_extract: bool = Field(default=True, description="是否自动提取对话中的五元组")
+    context_length: int = Field(default=5, ge=1, le=20, description="记忆上下文长度")
+    similarity_threshold: float = Field(default=0.6, ge=0.0, le=1.0, description="记忆检索相似度阈值")
+    neo4j_uri: str = Field(default="neo4j://127.0.0.1:7687", description="Neo4j连接URI")
+    neo4j_user: str = Field(default="neo4j", description="Neo4j用户名")
+    neo4j_password: str = Field(default="your_password", description="Neo4j密码")
+    neo4j_database: str = Field(default="neo4j", description="Neo4j数据库名")
+    extraction_timeout: int = Field(default=12, ge=1, le=60, description="知识提取超时时间（秒）")
+    extraction_retries: int = Field(default=2, ge=0, le=5, description="知识提取重试次数")
+    base_timeout: int = Field(default=15, ge=5, le=120, description="基础操作超时时间（秒）")
+
+
+class HandoffConfig(BaseModel):
+    """工具调用循环配置"""
+
+    max_loop_stream: int = Field(default=5, ge=1, le=20, description="流式模式最大工具调用循环次数")
+    max_loop_non_stream: int = Field(default=5, ge=1, le=20, description="非流式模式最大工具调用循环次数")
+    show_output: bool = Field(default=False, description="是否显示工具调用输出")
+
+
+class BrowserConfig(BaseModel):
+    """浏览器配置"""
+
+    playwright_headless: bool = Field(default=False, description="Playwright浏览器是否无头模式")
+
+    @staticmethod
+    def _default_edge_paths() -> list[str]:
+        """动态解析当前系统的 Edge 候选路径，跨平台"""
+        paths: list[str] = []
+        home = Path.home()
+        localappdata = os.environ.get("LOCALAPPDATA", str(home / "AppData" / "Local"))
+        userprofile = os.environ.get("USERPROFILE", str(home))
+
+        if sys.platform == "win32":
+            paths.extend([
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                str(Path(localappdata) / "Microsoft" / "Edge" / "Application" / "msedge.exe"),
+                str(Path(userprofile) / "AppData" / "Local" / "Microsoft" / "Edge" / "Application" / "msedge.exe"),
+            ])
+        elif sys.platform == "darwin":
+            paths.append("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge")
+            paths.append(str(home / "Applications" / "Microsoft Edge.app" / "Contents" / "MacOS" / "Microsoft Edge"))
+        else:
+            paths.extend([
+                "/usr/bin/microsoft-edge",
+                "/opt/microsoft/msedge/msedge",
+                str(home / ".local" / "share" / "microsoft-edge" / "msedge"),
+            ])
+        return paths
+
+    edge_lnk_path: str = Field(
+        default="", description="Edge浏览器快捷方式路径（留空则自动探测）"
+    )
+    edge_common_paths: list[str] = Field(
+        default_factory=lambda: BrowserConfig._default_edge_paths(),
+        description="Edge浏览器候选安装路径（自动生成）",
+    )
+
+    def resolve_edge_path(self) -> str:
+        """按优先级解析可用的 Edge 可执行文件"""
+        candidates = []
+        if self.edge_lnk_path:
+            candidates.append(self.edge_lnk_path)
+        candidates.extend(self.edge_common_paths)
+        for p in candidates:
+            if p.endswith(".lnk"):
+                continue
+            if os.path.isfile(p):
+                return p
+        return ""
+
+
+class TTSConfig(BaseModel):
+    """TTS服务配置"""
+
+    api_key: str = Field(default="", description="TTS服务API密钥")
+    port: int = Field(default_factory=lambda: server_ports.tts_server, description="TTS服务端口")
+    default_voice: str = Field(default="zh-CN-XiaoxiaoNeural", description="默认语音")
+    default_format: str = Field(default="mp3", description="默认音频格式")
+    default_speed: float = Field(default=1.0, ge=0.1, le=3.0, description="默认语速")
+    default_language: str = Field(default="zh-CN", description="默认语言")
+    remove_filter: bool = Field(default=False, description="是否移除过滤")
+    expand_api: bool = Field(default=True, description="是否扩展API")
+    require_api_key: bool = Field(default=False, description="是否需要API密钥")
+    # ---- 本地 kokoro-onnx 引擎（离线回退，Edge TTS 断网时兜底）----
+    local_engine: bool = Field(default=False, description="启用本地 kokoro-onnx 引擎，Edge TTS 失败时自动回退")
+    local_model: str = Field(default="", description="本地 kokoro onnx 模型路径（留空走默认 models 目录）")
+    local_voices: str = Field(default="", description="本地 kokoro voices 文件路径")
+    local_lang: str = Field(default="zh", description="本地引擎默认语言（zh/ja/ko/en-us 等）")
+    local_default_voice: str = Field(default="zf_002", description="本地引擎默认声音")
+
+
+class ASRConfig(BaseModel):
+    """ASR输入服务配置"""
+
+    port: int = Field(default_factory=lambda: server_ports.asr_server, description="ASR服务端口")
+    device_index: int | None = Field(default=None, description="麦克风设备序号")
+    sample_rate_in: int = Field(default=48000, description="输入采样率")
+    frame_ms: int = Field(default=30, description="分帧时长ms")
+    resample_to: int = Field(default=16000, description="重采样目标采样率")
+    vad_threshold: float = Field(default=0.7, ge=0.0, le=1.0, description="VAD阈值")
+    silence_ms: int = Field(default=420, description="静音结束阈值ms")
+    noise_reduce: bool = Field(default=True, description="是否降噪")
+    engine: str = Field(default="local_funasr", description="ASR引擎，仅支持local_funasr")
+    local_model_path: str = Field(default="./utilss/models/SenseVoiceSmall", description="本地FunASR模型路径")
+    vad_model_path: str = Field(default="silero_vad.onnx", description="VAD模型路径")
+    api_key_required: bool = Field(default=False, description="是否需要API密钥")
+    callback_url: str | None = Field(default=None, description="识别结果回调地址")
+    ws_broadcast: bool = Field(default=False, description="是否WS广播结果")
+
+
+class FilterConfig(BaseModel):
+    """输出过滤配置"""
+
+    filter_think_tags: bool = Field(default=True, description="过滤思考标签内容")
+    filter_patterns: list[str] = Field(
+        default=[
+            r"<think>.*?</think>",
+            r"<reflection>.*?</reflection>",
+            r"<internal>.*?</internal>",
+        ],
+        description="过滤正则表达式模式",
+    )
+    clean_output: bool = Field(default=True, description="清理多余空白字符")
+
+
+class DifficultyConfig(BaseModel):
+    """问题难度判断配置"""
+
+    enabled: bool = Field(default=False, description="是否启用难度判断")
+    use_small_model: bool = Field(default=False, description="使用小模型进行难度判断")
+    pre_assessment: bool = Field(default=False, description="是否启用前置难度判断")
+    assessment_timeout: float = Field(default=1.0, ge=0.1, le=5.0, description="难度判断超时时间（秒）")
+    difficulty_levels: list[str] = Field(default=["简单", "中等", "困难", "极难"], description="难度级别")
+    factors: list[str] = Field(
+        default=["概念复杂度", "推理深度", "知识广度", "计算复杂度", "创新要求"], description="难度评估因素"
+    )
+    threshold_simple: int = Field(default=2, ge=1, le=10, description="简单问题阈值")
+    threshold_medium: int = Field(default=4, ge=1, le=10, description="中等问题阈值")
+    threshold_hard: int = Field(default=6, ge=1, le=10, description="困难问题阈值")
+
+
+class ScoringConfig(BaseModel):
+    """黑白名单打分系统配置"""
+
+    enabled: bool = Field(default=False, description="是否启用打分系统")
+    score_range: list[int] = Field(default=[1, 5], description="评分范围")
+    score_threshold: int = Field(default=2, ge=1, le=5, description="结果保留阈值")
+    similarity_threshold: float = Field(default=0.85, ge=0.0, le=1.0, description="相似结果识别阈值")
+    max_user_preferences: int = Field(default=3, ge=1, le=10, description="用户最多选择偏好数")
+    default_preferences: list[str] = Field(default=["逻辑清晰准确", "实用性强", "创新思维"], description="默认偏好设置")
+    penalty_for_similar: int = Field(default=1, ge=0, le=3, description="相似结果的惩罚分数")
+    min_results_required: int = Field(default=2, ge=1, le=10, description="最少保留结果数量")
+    strict_filtering: bool = Field(default=True, description="严格过滤模式")
+
+
+# ========== 新增：电脑控制配置 ==========
+class ComputerControlConfig(BaseModel):
+    """电脑控制配置"""
+
+    enabled: bool = Field(default=True, description="是否启用电脑控制功能")
+    model: str = Field(default="gemini-2.5-flash", description="视觉/坐标识别模型")
+    model_url: str = Field(default="https://open.bigmodel.cn/api/paas/v4", description="模型API地址")
+    api_key: str = Field(default="", description="模型API密钥")
+    grounding_model: str = Field(default="gemini-2.5-flash", description="元素定位/grounding模型")
+    grounding_url: str = Field(default="https://open.bigmodel.cn/api/paas/v4", description="grounding模型API地址")
+    grounding_api_key: str = Field(default="", description="grounding模型API密钥")
+    screen_width: int = Field(default=1920, description="逻辑屏幕宽度（用于缩放体系）")
+    screen_height: int = Field(default=1080, description="逻辑屏幕高度（用于缩放体系）")
+    max_dim_size: int = Field(default=1920, description="逻辑空间最大边尺寸")
+    dpi_awareness: bool = Field(default=True, description="是否启用DPI感知（Windows）")
+    safe_mode: bool = Field(default=True, description="是否启用安全模式（限制高风险操作）")
+
+
+class MemoryServerConfig(BaseModel):
+    """记忆微服务配置（NagaMemory）"""
+
+    url: str = Field(default="http://localhost:8004", description="NagaMemory 服务地址")
+    token: str | None = Field(default=None, description="认证 Token（Bearer），留空则不携带认证头")
+    space_id: str | None = Field(default=None, description="可选的记忆空间 ID")
+
+
+class EmbeddingConfig(BaseModel):
+    """嵌入模型配置"""
+
+    model: str = Field(default="tongyi-embedding", description="嵌入模型名称")
+    api_base: str = Field(default="", description="嵌入模型API地址（留空回退到api.base_url）")
+    api_key: str = Field(default="", description="嵌入模型API密钥（留空回退到api.api_key）")
+
+
+class GuideEngineConfig(BaseModel):
+    """游戏攻略引擎配置"""
+
+    enabled: bool = Field(default=False, description="是否启用游戏攻略引擎")
+    gamedata_dir: str = Field(default="./data", description="游戏数据目录（存放各游戏的JSON数据文件）")
+    embedding_api_base_url: str | None = Field(
+        default=None, description="OpenAI兼容Embedding API地址（如 https://xx/v1）"
+    )
+    embedding_api_key: str | None = Field(default=None, description="OpenAI兼容Embedding API密钥")
+    embedding_api_model: str | None = Field(default=None, description="OpenAI兼容Embedding模型名")
+    game_guide_llm_api_base_url: str | None = Field(default=None, description="攻略专用LLM API地址（需支持图片输入，留空回退到api.base_url）")
+    game_guide_llm_api_key: str | None = Field(default=None, description="攻略专用LLM API密钥（留空回退到api.api_key）")
+    game_guide_llm_api_model: str | None = Field(default=None, description="攻略专用LLM模型名（需支持图片输入，留空回退到api.model）")
+    game_guide_llm_api_type: str = Field(default="openai", description="攻略专用LLM API类型（openai/gemini）")
+    prompt_dir: str = Field(default="./guide_engine/game_prompts", description="游戏Prompt目录")
+    neo4j_uri: str = Field(default="neo4j://127.0.0.1:7687", description="攻略图谱Neo4j URI")
+    neo4j_user: str = Field(default="neo4j", description="攻略图谱Neo4j用户名")
+    neo4j_password: str = Field(default="your_password", description="攻略图谱Neo4j密码")
+    screenshot_monitor_index: int = Field(default=1, ge=1, description="自动截图显示器索引（mss）")
+    auto_screenshot_on_guide: bool = Field(default=False, description="攻略工具调用时是否默认自动截图（建议关闭，由LLM按需传入auto_screenshot参数）")
+
+
+# 天气服务使用免费API，无需配置
+
+
+class MQTTConfig(BaseModel):
+    """MQTT配置"""
+
+    enabled: bool = Field(default=False, description="是否启用MQTT功能")
+    broker: str = Field(default="localhost", description="MQTT代理服务器地址")
+    port: int = Field(default=1883, ge=1, le=65535, description="MQTT代理服务器端口")
+    topic: str = Field(default="/test/topic", description="MQTT主题")
+    client_id: str = Field(default="naga_mqtt_client", description="MQTT客户端ID")
+    username: str = Field(default="", description="MQTT用户名")
+    password: str = Field(default="", description="MQTT密码")
+    keepalive: int = Field(default=60, ge=1, le=3600, description="保持连接时间（秒）")
+    qos: int = Field(default=1, ge=0, le=2, description="服务质量等级")
+
+
+class UIConfig(BaseModel):
+    """用户界面配置"""
+
+    user_name: str = Field(default="用户", description="默认用户名")
+    bg_alpha: float = Field(default=0.5, ge=0.0, le=1.0, description="聊天背景透明度")
+    window_bg_alpha: int = Field(default=110, ge=0, le=255, description="主窗口背景透明度")
+    mac_btn_size: int = Field(default=36, ge=10, le=100, description="Mac按钮大小")
+    mac_btn_margin: int = Field(default=16, ge=0, le=50, description="Mac按钮边距")
+    mac_btn_gap: int = Field(default=12, ge=0, le=30, description="Mac按钮间距")
+    animation_duration: int = Field(default=600, ge=100, le=2000, description="动画时长（毫秒）")
+
+
+class Live2DConfig(BaseModel):
+    """Live2D配置"""
+
+    enabled: bool = Field(default=True, description="是否启用Live2D功能")
+    model_path: str = Field(
+        default="ui/live2d_local/live2d_models/kasane_teto/kasane_teto.model3.json", description="Live2D模型文件路径"
+    )
+    fallback_image: str = Field(default="ui/img/standby.png", description="回退图片路径")
+    auto_switch: bool = Field(default=True, description="是否自动切换模式")
+    animation_enabled: bool = Field(default=True, description="是否启用动画")
+    touch_interaction: bool = Field(default=True, description="是否启用触摸交互")
+    scale_factor: float = Field(default=1.0, ge=0.5, le=3.0, description="Live2D缩放比例")
+
+    # 嘴部同步配置
+    lip_sync_enabled: bool = Field(default=True, description="是否启用嘴部同步动画")
+    lip_sync_smooth_factor: float = Field(default=0.3, ge=0.1, le=1.0, description="嘴部动画平滑系数（越小越平滑）")
+    lip_sync_volume_scale: float = Field(default=1.5, ge=0.5, le=5.0, description="音量放大系数（调整嘴部张开幅度）")
+    lip_sync_volume_threshold: float = Field(
+        default=0.01, ge=0.0, le=0.1, description="音量检测阈值（低于此值视为静音）"
+    )
+
+
+class FloatingConfig(BaseModel):
+    """悬浮球模式配置"""
+    enabled: bool = Field(default=False, description="是否启用悬浮球模式")
+
+class VoiceRealtimeConfig(BaseModel):
+    """实时语音配置"""
+
+    enabled: bool = Field(default=False, description="是否启用实时语音功能")
+    provider: str = Field(default="qwen", description="语音服务提供商 (qwen/openai/local)")
+    api_key: str = Field(default="", description="语音服务API密钥")
+    model: str = Field(default="qwen3-omni-flash-realtime", description="语音模型名称")
+    tts_model: str = Field(default="qwen-tts-realtime", description="TTS模型名称")
+    asr_model: str = Field(default="qwen3-asr-realtime", description="ASR模型名称")
+    voice: str = Field(default="Cherry", description="语音角色")
+    input_sample_rate: int = Field(default=16000, description="输入采样率")
+    output_sample_rate: int = Field(default=24000, description="输出采样率")
+    chunk_size_ms: int = Field(default=200, description="音频块大小（毫秒）")
+    vad_threshold: float = Field(default=0.02, ge=0.0, le=1.0, description="静音检测阈值")
+    echo_suppression: bool = Field(default=True, description="回声抑制")
+    min_user_interval: float = Field(default=2.0, ge=0.5, le=10.0, description="用户输入最小间隔（秒）")
+    cooldown_duration: float = Field(default=1.0, ge=0.5, le=5.0, description="冷却期时长（秒）")
+    max_user_speech: float = Field(default=30.0, ge=5.0, le=120.0, description="最大说话时长（秒）")
+    debug: bool = Field(default=False, description="是否启用调试模式")
+    integrate_with_memory: bool = Field(default=True, description="是否集成到记忆系统")
+    show_in_chat: bool = Field(default=True, description="是否在聊天界面显示对话内容")
+    use_api_server: bool = Field(default=False, description="是否通过API Server处理（支持MCP调用）")
+    voice_mode: str = Field(
+        default="auto", description="语音模式：auto/local/end2end/hybrid（auto会根据provider自动选择）"
+    )
+    asr_host: str = Field(default="localhost", description="本地ASR服务地址")
+    asr_port: int = Field(default=5000, description="本地ASR服务端口")
+    record_duration: int = Field(default=10, ge=5, le=60, description="本地模式最大录音时长（秒）")
+    tts_voice: str = Field(default="zh-CN-XiaoyiNeural", description="TTS语音选择（本地/混合模式）")
+    tts_host: str = Field(default="localhost", description="TTS服务地址")
+    tts_port: int = Field(default=5061, ge=1, le=65535, description="TTS服务端口")
+    auto_play: bool = Field(default=True, description="AI回复后自动播放语音")
+    interrupt_playback: bool = Field(default=True, description="用户说话时自动打断AI语音播放")
+
+
+class OnlineSearchConfig(BaseModel):
+    """在线搜索配置"""
+
+    searxng_url: str = Field(default="http://localhost:8080", description="SearXNG实例URL")
+    engines: list[str] = Field(default=["google"], description="默认搜索引擎列表")
+    num_results: int = Field(default=5, ge=1, le=20, description="搜索结果数量")
+    search_api_key: str = Field(default="", description="Brave Search API Key（未登录Naga时使用）")
+    search_api_base: str = Field(default="https://api.search.brave.com/res/v1/web/search", description="搜索API地址")
+
+
+class OpenClawFeishuConfig(BaseModel):
+    """OpenClaw 飞书通道配置。
+
+    这里只保存 Naga 侧需要动态注入到 OpenClaw 的最小字段。
+    """
+
+    enabled: bool = Field(default=False, description="是否启用 OpenClaw 飞书通道")
+    app_id: str = Field(default="", description="飞书应用 App ID")
+    app_secret: str = Field(default="", description="飞书应用 App Secret")
+    dm_policy: str = Field(default="open", description="飞书私聊策略：open/allowlist/pairing")
+    group_policy: str = Field(default="allowlist", description="飞书群聊策略：open/allowlist/disabled")
+    allow_from: list[str] = Field(default_factory=lambda: ["*"], description="飞书 allowFrom 白名单")
+    doc_owner_open_id: str | None = Field(default=None, description="飞书文档 owner open_id（可选）")
+
+
+class OpenClawConfig(BaseModel):
+    """OpenClaw 集成配置
+
+    官方文档: https://docs.openclaw.ai/
+    gateway_port 是整个项目的单一端口来源，所有模块从这里读取。
+    """
+
+    gateway_port: int = Field(default=20789, description="OpenClaw Gateway 端口（20789 避免与标准 OpenClaw 18789 冲突）")
+    gateway_url: str = Field(default="http://127.0.0.1:20789", description="OpenClaw Gateway 地址（留空则根据 gateway_port 自动生成）")
+    token: str | None = Field(default=None, description="认证 token")
+    timeout: int = Field(default=120, ge=5, le=600, description="请求超时时间（秒）")
+    default_model: str | None = Field(default=None, description="默认模型")
+    default_channel: str = Field(default="last", description="默认消息通道")
+    enabled: bool = Field(default=False, description="是否启用 OpenClaw 集成")
+    feishu: OpenClawFeishuConfig = Field(default_factory=OpenClawFeishuConfig, description="飞书通道配置")
+
+    def model_post_init(self, __context) -> None:
+        """确保 gateway_url 与 gateway_port 一致"""
+        # 如果用户只改了 port 没改 url，或 url 还是旧的 18789 默认值，自动同步
+        if self.gateway_url in ("", "http://localhost:18789", "http://127.0.0.1:18789"):
+            self.gateway_url = f"http://127.0.0.1:{self.gateway_port}"
+        elif f":{self.gateway_port}" not in self.gateway_url:
+            # url 里的端口和 gateway_port 不一致，以 gateway_port 为准
+            import re
+            self.gateway_url = re.sub(r":\d+$", f":{self.gateway_port}", self.gateway_url)
+
+
+class TelemetryConfig(BaseModel):
+    """隐私统计埋点配置。"""
+
+    enabled: bool = Field(default=True, description="是否启用本地埋点采集")
+    upload_enabled: bool = Field(default=True, description="是否启用批量上报")
+    upload_url: str = Field(default="", description="埋点批量上报地址；留空时使用本地默认")
+    flush_interval_seconds: int = Field(default=60, ge=5, le=3600, description="后台批量上报间隔（秒）")
+    upload_timeout_seconds: int = Field(default=10, ge=3, le=120, description="单次上报超时（秒）")
+    batch_size: int = Field(default=50, ge=1, le=500, description="每次最多上传的事件数")
+    max_queue_events: int = Field(default=5000, ge=100, le=50000, description="本地队列最多保留的事件数")
+    max_queue_bytes: int = Field(default=8 * 1024 * 1024, ge=1024 * 1024, le=128 * 1024 * 1024, description="本地队列最大字节数")
+
+
+class FeishuNotificationConfig(BaseModel):
+    """飞书通知默认配置。"""
+
+    enabled: bool = Field(default=False, description="是否启用飞书通知")
+    recipient_type: str = Field(default="open_id", description="接收对象类型：open_id 或 chat_id")
+    recipient_open_id: str = Field(default="", description="默认接收人的飞书 open_id")
+    recipient_chat_id: str = Field(default="", description="默认接收群聊或会话 chat_id")
+    deliver_full_report: bool = Field(default=True, description="是否发送完整探索报告")
+
+
+class QQNotificationConfig(BaseModel):
+    """QQ群机器人通知默认配置。"""
+
+    enabled: bool = Field(default=False, description="是否启用 QQ 通知")
+    binding_target: str = Field(default="", description="用户填写的 QQ 号或 QQ 邮箱")
+    user_qq: str = Field(default="", description="归一化后的纯数字 QQ 号")
+    qq_email: str = Field(default="", description="归一化后的纯数字 QQ 邮箱")
+    email_verification_code: str = Field(default="", description="QQ 邮箱验证码")
+    binding_verified: bool = Field(default=False, description="QQ 邮箱是否已完成绑定验证")
+    binding_verified_email: str = Field(default="", description="已完成绑定验证的 QQ 邮箱")
+
+
+class NotificationsConfig(BaseModel):
+    """外部通知配置。"""
+
+    feishu: FeishuNotificationConfig = Field(default_factory=FeishuNotificationConfig)
+    qq: QQNotificationConfig = Field(default_factory=QQNotificationConfig)
+
+
+class SystemCheckConfig(BaseModel):
+    """系统检测状态配置"""
+
+    passed: bool = Field(default=False, description="系统检测是否通过")
+    timestamp: str = Field(default="", description="检测时间戳")
+    python_version: str = Field(default="", description="Python版本")
+    project_path: str = Field(default="", description="项目路径")
+
+
+# 提示词管理功能已集成到config.py中
+
+
+class PromptManager:
+    """提示词管理器 - 统一管理所有提示词模板"""
+
+    def __init__(self, prompts_dir: str = None):
+        """初始化提示词管理器"""
+        if prompts_dir is None:
+            # 默认使用system目录下的prompts文件夹
+            prompts_dir = Path(__file__).parent / "prompts"
+
+        self.prompts_dir = Path(prompts_dir)
+        self.prompts_dir.mkdir(exist_ok=True)
+
+        # 内存缓存
+        self._cache = {}
+        self._last_modified = {}
+
+        # 初始化默认提示词
+        self._init_default_prompts()
+
+    def _init_default_prompts(self):
+        """初始化默认提示词 - 现在从文件加载，不再硬编码"""
+        # 检查是否存在默认提示词文件，如果不存在则创建
+        default_prompts = ["conversation_style_prompt"]
+
+        for prompt_name in default_prompts:
+            prompt_file = self.prompts_dir / f"{prompt_name}.txt"
+            if not prompt_file.exists():
+                print(f"警告：提示词文件 {prompt_name}.txt 不存在，请手动创建")
+
+    def get_prompt(self, name: str, **kwargs) -> str:
+        """获取提示词模板"""
+        try:
+            # 从缓存或文件加载
+            content = self._load_prompt(name)
+            if content is None:
+                print(f"警告：提示词 '{name}' 不存在，使用默认值")
+                return f"[提示词 {name} 未找到]"
+
+            # 格式化模板
+            if kwargs:
+                try:
+                    return content.format(**kwargs)
+                except KeyError as e:
+                    print(f"错误：提示词 '{name}' 格式化失败，缺少参数: {e}")
+                    return content
+            else:
+                return content
+
+        except Exception as e:
+            print(f"错误：获取提示词 '{name}' 失败: {e}")
+            return f"[提示词 {name} 加载失败: {e}]"
+
+    def save_prompt(self, name: str, content: str):
+        """保存提示词到文件"""
+        try:
+            prompt_file = self.prompts_dir / f"{name}.txt"
+            with open(prompt_file, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            # 更新缓存
+            self._cache[name] = content
+            self._last_modified[name] = datetime.now()
+
+            print(f"提示词 '{name}' 已保存")
+
+        except Exception as e:
+            print(f"错误：保存提示词 '{name}' 失败: {e}")
+
+    def _load_prompt(self, name: str) -> str | None:
+        """从文件加载提示词"""
+        try:
+            prompt_file = self.prompts_dir / f"{name}.txt"
+
+            if not prompt_file.exists():
+                return None
+
+            # 检查文件是否被修改
+            current_mtime = prompt_file.stat().st_mtime
+            if name in self._last_modified and self._last_modified[name].timestamp() >= current_mtime:
+                return self._cache.get(name)
+
+            # 读取文件
+            with open(prompt_file, encoding="utf-8") as f:
+                content = strip_prompt_comment_lines(f.read())
+
+            # 更新缓存
+            self._cache[name] = content
+            self._last_modified[name] = datetime.now()
+
+            return content
+
+        except Exception as e:
+            print(f"错误：加载提示词 '{name}' 失败: {e}")
+            return None
+
+
+# 角色资源根目录
+CHARACTERS_DIR: Path = Path(__file__).parent.parent / "characters"
+
+
+# 全局提示词管理器实例
+_prompt_manager = None
+
+
+def get_prompt_manager() -> PromptManager:
+    """获取全局提示词管理器实例"""
+    global _prompt_manager
+    if _prompt_manager is None:
+        _prompt_manager = PromptManager()
+    return _prompt_manager
+
+
+def load_character(name: str) -> dict:
+    """从 characters/{name}/ 加载角色配置。
+
+    按优先级尝试：{name}.json -> character.json -> {name}.json (UTF-8 BOM)。
+    """
+    candidates = [
+        CHARACTERS_DIR / name / f"{name}.json",
+        CHARACTERS_DIR / name / "character.json",
+    ]
+    for char_json in candidates:
+        if char_json.is_file():
+            with open(char_json, encoding="utf-8") as f:
+                return json.load(f)
+    raise FileNotFoundError(
+        f"角色配置未找到：已尝试 {[str(c) for c in candidates]}"
+    )
+
+
+def get_character_voice() -> str | None:
+    """获取当前角色的 TTS voice 名称，未配置时返回 None"""
+    try:
+        char_name = get_config().system.active_character
+        char_data = load_character(char_name)
+        return char_data.get("voice") or None
+    except Exception:
+        return None
+
+
+def set_active_character(name: str) -> None:
+    """切换活跃角色 - 将提示词管理器重定向到角色目录"""
+    global _prompt_manager
+    char_dir = CHARACTERS_DIR / name
+    _prompt_manager = PromptManager(prompts_dir=str(char_dir))
+    print(f"[角色系统] 已加载角色: {name}，提示词目录: {char_dir}")
+
+
+def get_prompt(name: str, **kwargs) -> str:
+    """便捷函数：获取提示词"""
+    return get_prompt_manager().get_prompt(name, **kwargs)
+
+
+def save_prompt(name: str, content: str):
+    """便捷函数：保存提示词"""
+    get_prompt_manager().save_prompt(name, content)
+
+
+PROMPT_COMMENT_PREFIX = "//"
+PROMPT_COMMENT_RULE_LOCATION = "system/config.py::strip_prompt_comment_lines"
+_PROMPT_SLOT_PATTERN = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def strip_prompt_comment_lines(text: str) -> str:
+    """过滤提示词注释行。
+
+    规则定义位置：
+    - ``system/config.py::strip_prompt_comment_lines``
+
+    规则：
+    - 行首忽略空白后，以 `//` 开头的整行视为提示词注释
+    - 仅在 fenced code block 外生效
+    """
+    if not text:
+        return text
+
+    lines = text.splitlines()
+    filtered_lines: list[str] = []
+    in_fenced_block = False
+
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            in_fenced_block = not in_fenced_block
+            filtered_lines.append(line)
+            continue
+        if not in_fenced_block and stripped.startswith(PROMPT_COMMENT_PREFIX):
+            continue
+        filtered_lines.append(line)
+
+    return "\n".join(filtered_lines)
+
+
+def _read_prompt_text_file(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return ""
+    try:
+        return strip_prompt_comment_lines(path.read_text(encoding="utf-8")).strip()
+    except Exception:
+        return ""
+
+
+def _render_prompt_template(template: str, variables: dict[str, str]) -> str:
+    if not template:
+        return ""
+
+    rendered = _PROMPT_SLOT_PATTERN.sub(
+        lambda match: str(variables.get(match.group(1), "") or ""),
+        template,
+    )
+    rendered = "\n".join(line.rstrip() for line in rendered.splitlines())
+    rendered = re.sub(r"\n{3,}", "\n\n", rendered)
+    return rendered.strip()
+
+
+def _assemble_prompt_tier(tier_name: str, variables: dict[str, str]) -> str:
+    tier_dir = Path(__file__).parent / "prompts" / tier_name
+    if not tier_dir.exists():
+        return ""
+
+    sections: list[str] = []
+    for template_path in sorted(path for path in tier_dir.iterdir() if path.is_file()):
+        rendered = _render_prompt_template(_read_prompt_text_file(template_path), variables)
+        if rendered:
+            sections.append(rendered)
+    return "\n\n".join(sections).strip()
+
+
+def _load_platform_root_prompt(ai_name: str) -> str:
+    prompt_path = Path(__file__).parent / "prompts" / "platform_root_prompt.txt"
+    raw_prompt = _read_prompt_text_file(prompt_path)
+    if not raw_prompt:
+        return ""
+    try:
+        return raw_prompt.format(ai_name=ai_name)
+    except KeyError:
+        return raw_prompt
+
+
+def _format_character_skill_bundle(skill_sections: list[dict[str, str]]) -> str:
+    if not skill_sections:
+        return ""
+
+    blocks = [
+        "## 角色自带技能\n\n"
+        "以下技能属于该角色模板的一部分，会随角色一同注入，不作为可选公共技能。"
+    ]
+    for section in skill_sections:
+        parts = [f"### {section['title']}"]
+        if section.get("description"):
+            parts.append(section["description"])
+        if section.get("content"):
+            parts.append(section["content"])
+        blocks.append("\n\n".join(parts))
+    return "\n\n".join(blocks).strip()
+
+
+def _build_tier1_variables(
+    character_template: str | None,
+    *,
+    identity_override: str = "",
+) -> dict[str, str]:
+    ai_name = config.system.ai_name
+    variables = {
+        "platform_root_prompt": _load_platform_root_prompt(ai_name),
+        "character_identity_prompt": "",
+        "character_conversation_style_prompt": "",
+        "character_builtin_skills_prompt": "",
+        "character_builtin_capabilities_prompt": "",
+    }
+
+    if identity_override.strip():
+        variables["character_identity_prompt"] = identity_override.strip()
+        return variables
+
+    prompt_text = ""
+    skill_sections: list[dict[str, str]] = []
+
+    if character_template:
+        try:
+            from system.character_bundle import load_character_prompt_text, load_character_skill_sections
+
+            prompt_text = load_character_prompt_text(character_template, max_chars=12000)
+            skill_sections = load_character_skill_sections(
+                character_template,
+                max_chars_per_skill=8000,
+            )
+        except Exception as e:
+            print(f"警告：加载角色模板 [{character_template}] 失败: {e}")
+
+    if not prompt_text and character_template:
+        # 回退：绕过 character_bundle，直接从角色目录按优先级尝试 prompt 文件
+        _char_dir = CHARACTERS_DIR / character_template
+        _prompt_candidates = [
+            _char_dir / "prompt.txt",
+            _char_dir / "conversation_style_prompt.txt",
+        ]
+        # 也尝试从角色 JSON 中读取 prompt_file 字段
+        try:
+            _meta = load_character(character_template)
+            _pf = _meta.get("prompt_file")
+            if _pf:
+                _prompt_candidates.insert(0, _char_dir / _pf)
+        except Exception:
+            pass
+        for _cand in _prompt_candidates:
+            _text = _read_prompt_text_file(_cand)
+            if _text:
+                prompt_text = _text
+                break
+
+    if not prompt_text:
+        # 最终兜底：使用系统默认提示词
+        try:
+            prompt_text = get_prompt("conversation_style_prompt", ai_name=ai_name)
+        except Exception:
+            prompt_text = ""
+
+    if character_template:
+        variables["character_identity_prompt"] = (
+            f"# 人格模板：{character_template}\n\n"
+            "以下内容从 characters 模板初始化，用作该干员的人格基底。\n"
+            "后续个性化发展请写入 SOUL.md、记忆和记事本等实例文件，不要改回模板源。"
+        )
+    variables["character_conversation_style_prompt"] = prompt_text
+    variables["character_builtin_skills_prompt"] = _format_character_skill_bundle(skill_sections)
+    return variables
+
+
+def build_system_prompt(
+    character_template: str | None = None,
+    *,
+    identity_override: str = "",
+) -> str:
+    """
+    构建角色第一层系统提示词（人格模板 + 角色自带技能）
+
+    附加知识（时间、技能、工具指令、RAG、压缩摘要等）
+    由 build_context_supplement() 生成，在 api_server.py 中
+    作为独立的 role: "system" 消息追加到 messages 末尾，
+    确保处于 LLM 注意力窗口的最高优先位置。
+
+    Returns:
+        纯人格提示词
+    """
+    effective_character = character_template if character_template is not None else config.system.active_character
+    tier1_variables = _build_tier1_variables(
+        effective_character,
+        identity_override=identity_override,
+    )
+    assembled = _assemble_prompt_tier("tier1", tier1_variables)
+    if assembled:
+        return assembled
+
+    if identity_override.strip():
+        return identity_override.strip()
+    return get_prompt("conversation_style_prompt", ai_name=config.system.ai_name)
+
+
+def build_instance_prompt_section(
+    *,
+    agent_soul_prompt: str = "",
+    agent_notebook_prompt: str = "",
+    agent_long_term_memory_prompt: str = "",
+) -> str:
+    return _assemble_prompt_tier(
+        "tier3",
+        {
+            "agent_soul_prompt": agent_soul_prompt.strip(),
+            "agent_notebook_prompt": agent_notebook_prompt.strip(),
+            "agent_long_term_memory_prompt": agent_long_term_memory_prompt.strip(),
+        },
+    )
+
+
+def build_context_supplement(
+    include_skills: bool = True,
+    include_tool_instructions: bool = False,
+    skill_name: str | None = None,
+    rag_section: str = "",
+    route_result=None,
+    search_section: str = "",
+    multi_agent_context_section: str = "",
+    skills_prompt_override: str | None = None,
+    skill_instructions_override: str | None = None,
+    available_mcp_tools_override: str | None = None,
+    agent_soul_prompt: str = "",
+    agent_notebook_prompt: str = "",
+    agent_long_term_memory_prompt: str = "",
+    environment_snapshot: str = "",
+    extra_sections: list[str] | None = None,
+) -> str:
+    """
+    构建附加知识内容（追加在 messages 末尾的独立 system 消息）
+
+    当前运行时会按 tier2 / tier3 / tier4 真实装配上下文，再由
+    tool_dispatch_prompt.txt 作为最外层包裹模板注入。
+
+    Args:
+        include_skills: 是否包含技能列表
+        include_tool_instructions: 是否注入工具调用指令（原生 function calling 模式下为 False）
+        skill_name: 用户主动选择的技能名称
+        rag_section: RAG 记忆召回内容（由 api_server 传入）
+        route_result: IntentRouter 路由结果（已废弃，保留参数签名向后兼容）
+        search_section: 前置搜索结果内容（由 api_server 传入）
+        multi_agent_context_section: 当前干员身份与通讯录上下文
+        skills_prompt_override: 覆盖默认技能列表（用于按干员隔离的技能视图）
+        skill_instructions_override: 覆盖默认技能全文（用于按干员隔离的技能加载）
+        available_mcp_tools_override: 覆盖默认 MCP 列表（用于按干员隔离的工具视图）
+        agent_soul_prompt: 当前干员实例 SOUL.md 的内容
+        agent_notebook_prompt: 当前干员实例 notes/CLAUDE.md 的内容
+        agent_long_term_memory_prompt: 当前干员实例 memory/ 摘录
+        environment_snapshot: 附加环境快照
+        extra_sections: 附加到 supplement 末尾的额外上下文块
+
+    Returns:
+        渲染后的附加知识内容
+    """
+    # 时间信息
+    current_time = datetime.now()
+    time_info = (
+        f"\n【当前时间信息】\n"
+        f"当前日期：{current_time.year}年{current_time.month:02d}月{current_time.day:02d}日\n"
+        f"当前时间：{current_time.strftime('%H:%M:%S')}\n"
+        f"当前星期：{current_time.strftime('%A')}"
+    )
+
+    # 技能元数据列表（仅在未主动选择技能时注入）
+    skills_section = ""
+    if not skill_name and include_skills:
+        skills_prompt = skills_prompt_override
+        if skills_prompt is None:
+            try:
+                from system.skill_manager import get_skills_prompt
+
+                skills_prompt = get_skills_prompt()
+            except ImportError:
+                skills_prompt = ""
+        if skills_prompt:
+            skills_section = "\n\n" + skills_prompt
+
+    # 工具调用指令（include_tool_instructions=False 时跳过，原生 function calling 不需要）
+    agentic_tool_contract_prompt = ""
+    available_mcp_tools = available_mcp_tools_override or ""
+    if include_tool_instructions:
+        _sys_prompts = Path(__file__).parent / "prompts"
+        tool_prompt_file = _sys_prompts / "agentic_tool_prompt.txt"
+        raw_template = tool_prompt_file.read_text(encoding="utf-8") if tool_prompt_file.exists() else ""
+
+        if not available_mcp_tools:
+            try:
+                from mcpserver.mcp_registry import auto_register_mcp
+                auto_register_mcp()
+                from mcpserver.mcp_manager import get_mcp_manager
+                available_mcp_tools = get_mcp_manager().format_available_services() or "（暂无MCP服务注册）"
+            except Exception:
+                available_mcp_tools = "（MCP服务未启动）"
+        agentic_tool_contract_prompt = raw_template.strip()
+    elif not available_mcp_tools:
+        try:
+            from mcpserver.mcp_registry import auto_register_mcp
+            auto_register_mcp()
+            from mcpserver.mcp_manager import get_mcp_manager
+            available_mcp_tools = get_mcp_manager().format_available_services() or "（暂无MCP服务注册）"
+        except Exception:
+            available_mcp_tools = "（MCP服务未启动）"
+
+    # 激活技能指令
+    skill_active_section = ""
+    if skill_name:
+        skill_instructions = skill_instructions_override
+        if skill_instructions is None:
+            try:
+                from system.skill_manager import load_skill
+
+                skill_instructions = load_skill(skill_name)
+            except ImportError:
+                skill_instructions = None
+        if skill_instructions:
+            skill_active_section = (
+                f"\n\n## 当前激活技能: {skill_name}\n\n"
+                f"[最高优先级指令] 以下技能指令优先于所有其他行为规则。"
+                f"你必须严格按照技能要求处理用户输入，直接输出结果：\n"
+                f"{skill_instructions}"
+            )
+
+    runtime_context_sections = [
+        _assemble_prompt_tier(
+            "tier2",
+            {
+                "agentic_tool_contract_prompt": agentic_tool_contract_prompt,
+            },
+        ),
+        build_instance_prompt_section(
+            agent_soul_prompt=agent_soul_prompt,
+            agent_notebook_prompt=agent_notebook_prompt,
+            agent_long_term_memory_prompt=agent_long_term_memory_prompt,
+        ),
+        _assemble_prompt_tier(
+            "tier4",
+            {
+                "time_info": time_info.strip(),
+                "environment_snapshot": environment_snapshot.strip(),
+                "skills_section": skills_section.strip(),
+                "available_mcp_tools": available_mcp_tools.strip(),
+                "multi_agent_context_section": multi_agent_context_section.strip(),
+                "search_section": search_section.strip(),
+                "rag_section": rag_section.strip(),
+                "skill_active_section": skill_active_section.strip(),
+            },
+        ),
+    ]
+    if extra_sections:
+        runtime_context_sections.extend(
+            section.strip() for section in extra_sections if section and section.strip()
+        )
+    runtime_context_text = "\n\n".join(section for section in runtime_context_sections if section).strip()
+
+    # 加载 tool_dispatch_prompt.txt 模板并替换占位符（始终从 system/prompts/ 加载）
+    _sys_prompts = Path(__file__).parent / "prompts"
+    _dispatch_file = _sys_prompts / "tool_dispatch_prompt.txt"
+    raw_template = _dispatch_file.read_text(encoding="utf-8") if _dispatch_file.exists() else ""
+    result = _render_prompt_template(
+        raw_template,
+        {
+            "runtime_context_sections": runtime_context_text,
+        },
+    )
+    return result or runtime_context_text
+
+
+class NagaConfig(BaseModel):
+    """NagaAgent主配置类"""
+
+    system: SystemConfig = Field(default_factory=SystemConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
+    api: APIConfig = Field(default_factory=APIConfig)
+    api_server: APIServerConfig = Field(default_factory=APIServerConfig)
+    agent_server: AgentServerConfig = Field(default_factory=AgentServerConfig)
+    mcp_server: MCPServerConfig = Field(default_factory=MCPServerConfig)
+    grag: GRAGConfig = Field(default_factory=GRAGConfig)
+    handoff: HandoffConfig = Field(default_factory=HandoffConfig)
+    browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    tts: TTSConfig = Field(default_factory=TTSConfig)
+    asr: ASRConfig = Field(default_factory=ASRConfig)  # ASR输入服务配置 #
+    filter: FilterConfig = Field(default_factory=FilterConfig)
+    difficulty: DifficultyConfig = Field(default_factory=DifficultyConfig)
+    scoring: ScoringConfig = Field(default_factory=ScoringConfig)
+    # prompts: 提示词配置已迁移到 system/prompt_repository.py
+    # weather: 天气服务使用免费API，无需配置
+    mqtt: MQTTConfig = Field(default_factory=MQTTConfig)
+    ui: UIConfig = Field(default_factory=UIConfig)
+    live2d: Live2DConfig = Field(default_factory=Live2DConfig)
+    floating: FloatingConfig = Field(default_factory=FloatingConfig)
+    voice_realtime: VoiceRealtimeConfig = Field(default_factory=VoiceRealtimeConfig)
+    online_search: OnlineSearchConfig = Field(default_factory=OnlineSearchConfig)
+    openclaw: OpenClawConfig = Field(default_factory=OpenClawConfig)
+    notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
+    telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
+    system_check: SystemCheckConfig = Field(default_factory=SystemCheckConfig)
+    computer_control: ComputerControlConfig = Field(default_factory=ComputerControlConfig)
+    guide_engine: GuideEngineConfig = Field(default_factory=GuideEngineConfig)
+    memory_server: MemoryServerConfig = Field(default_factory=MemoryServerConfig)
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    window: Any = Field(default=None)
+
+    model_config = {
+        "extra": "ignore",  # 保留原配置：忽略未定义的字段
+        "json_schema_extra": {
+            "exclude": ["window"]  # 序列化到 config.json 时排除 window 字段（避免报错）
+        },
+    }
+
+    def __init__(self, **kwargs):
+        setup_environment()
+        super().__init__(**kwargs)
+        self.system.log_dir.mkdir(parents=True, exist_ok=True)  # 确保递归创建日志目录
+
+
+# 全局配置实例
+
+
+def load_config():
+    """加载配置"""
+    config_path = get_config_path()
+
+    bootstrap_config_from_example(config_path)
+
+    if os.path.exists(config_path):
+        try:
+            # 使用Charset Normalizer自动检测编码
+            charset_results = from_path(config_path)
+            if charset_results:
+                best_match = charset_results.best()
+                if best_match:
+                    detected_encoding = best_match.encoding
+                    print(f"检测到配置文件编码: {detected_encoding}")
+
+                    # 使用检测到的编码直接打开文件，然后使用json5读取
+                    with open(config_path, encoding=detected_encoding) as f:
+                        # 使用json5解析支持注释的JSON
+                        try:
+                            config_data = json5.load(f)
+                        except Exception as json5_error:
+                            print(f"json5解析失败: {json5_error}")
+                            print("尝试使用标准JSON库解析（将忽略注释）...")
+                            # 回退到标准JSON库，但需要先去除注释
+                            f.seek(0)  # 重置文件指针
+                            content = f.read()
+                            # 去除注释行
+                            lines = content.split("\n")
+                            cleaned_lines = []
+                            for line in lines:
+                                # 移除行内注释（#后面的内容）
+                                if "#" in line:
+                                    line = line.split("#")[0].rstrip()
+                                if line.strip():  # 只保留非空行
+                                    cleaned_lines.append(line)
+                            cleaned_content = "\n".join(cleaned_lines)
+                            config_data = json.loads(cleaned_content)
+                    return NagaConfig(**config_data)
+                else:
+                    print(f"警告：无法检测 {config_path} 的编码")
+            else:
+                print(f"警告：无法检测 {config_path} 的编码")
+
+            # 如果自动检测失败，回退到原来的方法
+            print("使用回退方法加载配置")
+            with open(config_path, encoding="utf-8") as f:
+                # 使用json5解析支持注释的JSON
+                config_data = json5.load(f)
+            return NagaConfig(**config_data)
+
+        except Exception as e:
+            print(f"警告：加载 {config_path} 失败: {e}")
+            print("使用默认配置")
+            return NagaConfig()
+    else:
+        print(f"警告：配置文件 {config_path} 不存在，使用默认配置")
+
+    return NagaConfig()
+
+
+config = load_config()
+
+
+def reload_config() -> NagaConfig:
+    """重新加载配置"""
+    global config
+    config = load_config()
+    notify_config_changed()
+    return config
+
+
+def hot_reload_config() -> NagaConfig:
+    """热更新配置 - 重新加载配置并通知所有模块"""
+    global config
+    old_config = config
+    config = load_config()
+    notify_config_changed()
+    print(f"配置已热更新: {old_config.system.version} -> {config.system.version}")
+    return config
+
+
+def get_config() -> NagaConfig:
+    """获取当前配置"""
+    return config
+
+
+# 初始化时打印配置信息
+if config.system.debug:
+    print(f"NagaAgent {config.system.version} 配置已加载")
+    print(
+        f"API服务器: {'启用' if config.api_server.enabled else '禁用'} ({config.api_server.host}:{config.api_server.port})"
+    )
+    print(f"GRAG记忆系统: {'启用' if config.grag.enabled else '禁用'}")
+
+# 启动时设置用户显示名：优先config.json，其次系统用户名 #
+try:
+    # 检查 config.json 中的 user_name 是否为空白或未填写
+    if not config.ui.user_name or not config.ui.user_name.strip():
+        # 如果是，则尝试获取系统登录用户名并覆盖
+        config.ui.user_name = os.getlogin()
+except Exception:
+    # 获取系统用户名失败时，将保留默认值 "用户" 或 config.json 中的空值
+    pass
+
+# 向后兼容的AI_NAME常量
+AI_NAME = config.system.ai_name
+
+logger = logging.getLogger(__name__)

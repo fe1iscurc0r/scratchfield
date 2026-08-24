@@ -1,0 +1,50 @@
+{
+  "name": "agent_sbom",
+  "version": "1.0.0",
+  "description": "MCP Agent wrapper for Syft SBOM (Software Bill of Materials) generator CLI",
+  "author": "MCP Agent Generator",
+  "license": "MIT",
+  "agent_class": "AgentSbom",
+  "module": "agent_sbom",
+  "dependencies": {
+    "runtime": "syft"
+  },
+  "tools": [
+    {
+      "name": "generate_sbom",
+      "description": "Generate an SBOM for a container image, directory, or file",
+      "parameters": {
+        "target": {
+          "type": "string",
+          "required": true,
+          "description": "Container image, directory path, or file to analyze"
+        },
+        "format": {
+          "type": "string",
+          "required": false,
+          "description": "Output format: syft-json (default) or cyclonedx-json"
+        }
+      }
+    },
+    {
+      "name": "list_packages",
+      "description": "List all packages found in a target",
+      "parameters": {
+        "target": {
+          "type": "string",
+          "required": true,
+          "description": "Container image, directory path, or file to analyze"
+        }
+      }
+    }
+  ],
+  "protocol": {
+    "type": "subprocess",
+    "description": "Calls syft CLI via subprocess with JSON output, 5-minute timeout"
+  },
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_sbom.agent_sbom",
+    "class": "AgentSbom"
+  }
+}

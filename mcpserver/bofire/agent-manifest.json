@@ -1,0 +1,45 @@
+{
+  "name": "bofire",
+  "displayName": "bofire 实验设计",
+  "version": "1.0.0",
+  "description": "多目标贝叶斯优化 + 实验设计：声明实验域（连续/离散/分类变量 + 目标 + 约束）→ 推荐下一轮实验点 → 回喂结果更新优化器",
+  "author": "陆墨助手",
+  "license": "BSD-3-Clause",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.bofire.agent",
+    "class": "BofireAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "bofire_define_domain",
+        "description": "声明实验域：混合变量（连续/离散/分类）+ 目标（maximize/minimize）+ 可选约束",
+        "params": {
+          "variables": "变量列表，每个含 name/type（continuous|discrete|categorical）/bounds 或 values",
+          "objectives": "目标列表，每个含 name/type（maximize|minimize）",
+          "constraints": "可选约束列表"
+        },
+        "example": "{\"tool_name\":\"bofire_define_domain\",\"variables\":[{\"name\":\"温度\",\"type\":\"continuous\",\"bounds\":[20,80]},{\"name\":\"催化剂\",\"type\":\"categorical\",\"values\":[\"A\",\"B\",\"C\"]}],\"objectives\":[{\"name\":\"产率\",\"type\":\"maximize\"}]}"
+      },
+      {
+        "command": "bofire_ask_candidates",
+        "description": "推荐下一轮实验点：给定 domain（bofire_define_domain 产出），返回 n 个候选",
+        "params": {
+          "domain": "bofire_define_domain 返回的 domain dict",
+          "n_candidates": "候选数（默认 5，范围 1-100）"
+        },
+        "example": "{\"tool_name\":\"bofire_ask_candidates\",\"domain\":{\"variables\":[{\"name\":\"温度\",\"type\":\"continuous\",\"bounds\":[20,80]}],\"objectives\":[{\"name\":\"产率\",\"type\":\"maximize\"}]},\"n_candidates\":3}"
+      },
+      {
+        "command": "bofire_tell_results",
+        "description": "回喂真实实验结果：experiments 列表（每条含 inputs/outputs），更新优化器",
+        "params": {
+          "experiments": "实验列表，每条含 inputs（变量→值）与 outputs（目标→值）两个 dict",
+          "domain": "可选 domain dict（提供时校验字段名是否匹配）"
+        },
+        "example": "{\"tool_name\":\"bofire_tell_results\",\"experiments\":[{\"inputs\":{\"温度\":60},\"outputs\":{\"产率\":0.82}}]}"
+      }
+    ]
+  }
+}

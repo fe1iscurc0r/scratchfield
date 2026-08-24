@@ -1,0 +1,22 @@
+# lumo-gateway systemd 单元
+# 安装：sudo cp lumo-gateway.service /etc/systemd/system/
+# 密钥放 /etc/lumo-gateway.env（EnvironmentFile），权限 chmod 600，不落盘明文于仓库
+[Unit]
+Description=Lumo Gateway (QQ C2C 私聊直连 -> 陆墨 /persona/v1/chat/completions)
+After=network-online.target
+
+[Service]
+Type=simple
+User=lumo
+Group=lumo
+WorkingDirectory=/opt/scratchpad
+ExecStart=/opt/scratchpad/.venv/bin/python -m agentserver.lumo_gateway
+Restart=always
+RestartSec=5
+# 密钥只走环境变量（LUMO_PROXY_TOKEN / QQ_APP_ID / QQ_CLIENT_SECRET / LUMO_API_BASE / GATEWAY_PORT）
+EnvironmentFile=/etc/lumo-gateway.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

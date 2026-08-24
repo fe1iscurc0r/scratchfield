@@ -1,0 +1,26 @@
+{
+  "name": "agent_waf",
+  "version": "1.0.0",
+  "description": "Coraza WAF rule engine agent. Tests rules against payloads, validates rulesets, and explains rule logic.",
+  "author": "Group B MCP Agents",
+  "tools": [
+    "test_rule",
+    "validate_ruleset",
+    "explain_rule"
+  ],
+  "dependencies": {
+    "cli_optional": [
+      "coraza-wasmer"
+    ]
+  },
+  "capabilities": [
+    "waf_testing",
+    "rule_validation",
+    "rule_explanation"
+  ],
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_waf.agent_waf",
+    "class": "WafAgent"
+  }
+}

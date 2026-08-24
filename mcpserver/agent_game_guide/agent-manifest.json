@@ -1,0 +1,36 @@
+{
+  "name": "game_guide",
+  "displayName": "游戏攻略服务",
+  "version": "0.1.0",
+  "description": "游戏攻略知识库问答：查角色技能/属性/面板、伤害计算、配队推荐、关卡攻略等。支持明日方舟、原神、崩铁、绝区零、鸣潮等游戏。",
+  "author": "陆墨",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_game_guide.agent_game_guide",
+    "class": "GameGuideAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "ask_guide",
+        "description": "文字攻略问答。auto_screenshot 参数控制是否截图（默认 false）；需要看游戏画面时传 true，纯文字问题不传。game_id 可选，缺省时若有截图会自动识别。",
+        "example": "{\"tool_name\":\"ask_guide\",\"game_id\":\"arknights\",\"query\":\"这关怎么打\"}"
+      },
+      {
+        "command": "ask_guide_with_screenshot",
+        "description": "显式截图攻略问答。若未提供 images，会自动截图。",
+        "example": "{\"tool_name\":\"ask_guide_with_screenshot\",\"game_id\":\"arknights\",\"query\":\"这关怎么打\"}"
+      },
+      {
+        "command": "calculate_damage",
+        "description": "伤害计算入口。",
+        "example": "{\"tool_name\":\"calculate_damage\",\"game_id\":\"arknights\",\"query\":\"缪尔赛思S3M3打800防DPS\"}"
+      },
+      {
+        "command": "get_team_recommendation",
+        "description": "配队推荐入口。",
+        "example": "{\"tool_name\":\"get_team_recommendation\",\"game_id\":\"arknights\",\"query\":\"7-18低配怎么组队\"}"
+      }
+    ]
+  }
+}
