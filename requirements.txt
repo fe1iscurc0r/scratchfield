@@ -2,7 +2,7 @@
 # Python 建议 3.11；打包使用 uv sync，见 pyproject.toml
 
 # ---------- 核心 / 配置 ----------
-charset-normalizer>=3.4.0
+charset-normalizer>=3.5.1
 json5>=0.9.0
 PyYAML>=6.0.2
 pydantic>=2.11.0
