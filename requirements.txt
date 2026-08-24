@@ -12,7 +12,7 @@ python-multipart>=0.0.32
 # ---------- Web 服务 ----------
 fastapi>=0.115.0
 uvicorn>=0.34.0
-sse-starlette>=2.3.0
+sse-starlette>=3.4.8
 httpx[socks]>=0.28.1
 websockets>=17.0.1
 
