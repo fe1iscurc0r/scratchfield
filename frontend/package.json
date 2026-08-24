@@ -18,7 +18,7 @@
     "dist:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
-    "@antfu/eslint-config": "^7.2.0",
+    "@antfu/eslint-config": "^9.3.0",
     "@primeuix/themes": "^2.0.3",
     "@types/d3": "^7.4.3",
     "@types/markdown-it": "^14.1.2",
