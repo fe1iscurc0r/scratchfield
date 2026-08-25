@@ -1,15 +1,53 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&family=Noto+Serif+SC:wght@400;700&display=swap');
 
+/* Lumo 设计系统 v1（docs/lumo-design-system-v1.md）——材料学科研风，质谱蓝 */
 :root {
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #110901;
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* 基底：深夜实验台 */
+  --lumo-bg: #0e1116;
+  --lumo-bg-elev: #161b22;
+  --lumo-bg-inset: #0a0d12;
 
+  /* 主色：质谱蓝（身份色） */
+  --lumo-primary: #4f8cff;
+  --lumo-primary-dim: #2d5bb5;
+  --lumo-primary-tint: rgba(79, 140, 255, 0.12);
+
+  /* 辅色 */
+  --lumo-success: #3fb950;
+  --lumo-warning: #d29922;
+  --lumo-danger: #f85149;
+
+  /* 文本：质谱刻度灰阶 */
+  --lumo-text: #e6edf3;
+  --lumo-text-dim: #9da7b3;
+  --lumo-text-faint: #6e7681;
+
+  /* 线条 */
+  --lumo-border: #2b3138;
+  --lumo-border-strong: #3d444d;
+
+  /* 字体 */
+  --lumo-font-ui: 'Noto Sans SC', system-ui, sans-serif;
+  --lumo-font-display: 'Noto Serif SC', 'Noto Sans SC', serif;
+  --lumo-font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+
+  /* 间距/圆角/阴影（8pt 网格） */
+  --lumo-space-1: 4px;
+  --lumo-space-2: 8px;
+  --lumo-space-3: 12px;
+  --lumo-space-4: 16px;
+  --lumo-space-5: 24px;
+  --lumo-space-6: 32px;
+  --lumo-radius-sm: 4px;
+  --lumo-radius-md: 8px;
+  --lumo-radius-lg: 12px;
+  --lumo-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --lumo-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+  /* 兼容：旧变量保留，指向新 token */
   --nav-back-width: 24px;
   --p-panel-content-padding: 0em !important;
 }
@@ -20,6 +58,8 @@ body,
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  background-color: var(--lumo-bg);
+  font-family: var(--lumo-font-ui);
 }
 
 * {
@@ -42,15 +82,19 @@ img {
 blockquote {
   margin: 1em 0;
   padding: 0.25em 1em;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-left: 0.25em solid rgba(255, 255, 255, 0.5);
+  background-color: var(--lumo-primary-tint);
+  border-left: 0.25em solid var(--lumo-primary);
 }
 
 pre:has(code) {
   padding: 1em;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--lumo-bg-inset);
+  border: 1px solid var(--lumo-border);
   border-radius: 0.5em;
   overflow-x: auto;
+  font-family: var(--lumo-font-mono);
+  font-size: 0.9em;
+  color: var(--lumo-text-dim);
 }
 
 input.p-inputnumber-input {

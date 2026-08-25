@@ -26,6 +26,7 @@ rsync -a \
   --exclude 'TRAE_WORKORDER*.md' \
   --exclude 'wt-overwatch-v6/' \
   --exclude 'docs/archive/' \
+  --exclude 'docs/SPEC-14*' \
   --exclude 'docs/2026-08-23-合并与Docker部署-操作日志.md' \
   --exclude 'docs/GOAL-TRANSITION.md' \
   --exclude 'docs/merge-report-*.md' \

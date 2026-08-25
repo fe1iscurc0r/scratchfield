@@ -232,13 +232,13 @@ onMounted(() => {
 
 // 球态下让 Electron 透明窗口无方形背景，展开态恢复不透明
 watch(floatingState, (state) => {
-  const bg = state === 'ball' ? 'transparent' : '#110901'
+  const bg = state === 'ball' ? 'transparent' : '#0e1116'
   document.documentElement.style.backgroundColor = bg
 }, { immediate: true })
 
 onUnmounted(() => {
   // 恢复经典模式背景
-  document.documentElement.style.backgroundColor = '#110901'
+  document.documentElement.style.backgroundColor = '#0e1116'
   unsubStateChange?.()
   unsubBlur?.()
   stopFrameAnimation()
@@ -973,7 +973,7 @@ useEventListener('token', () => {
   border-radius: 50%;
   overflow: hidden;
   z-index: 1;
-  background: radial-gradient(circle at 40% 35%, #2a1810, #110901);
+  background: radial-gradient(circle at 40% 35%, #161b22, #0e1116);
 }
 
 .ball-frame {
@@ -1026,7 +1026,7 @@ useEventListener('token', () => {
   height: 100%;
   display: flex;
   align-items: stretch;
-  background: #110901;
+  background: #0e1116;
   border: 1px solid rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
@@ -1037,7 +1037,7 @@ useEventListener('token', () => {
   flex-shrink: 0;
   cursor: pointer;
   position: relative;
-  background: radial-gradient(circle at 40% 35%, #2a1810, #110901);
+  background: radial-gradient(circle at 40% 35%, #161b22, #0e1116);
   transition: filter 0.2s ease;
 }
 
@@ -1114,7 +1114,7 @@ useEventListener('token', () => {
   max-width: 420px;
   display: flex;
   flex-direction: column;
-  background: #110901;
+  background: #0e1116;
   border: 1px solid rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }

@@ -35,7 +35,24 @@ initTelemetry(router)
 createApp(App)
   .use(PrimeVue, {
     theme: {
-      preset: definePreset(Lara),
+      preset: definePreset(Lara, {
+        semantic: {
+          // Lumo 设计系统 v1 主色：质谱蓝（docs/lumo-design-system-v1.md）
+          primary: {
+            50: '#eef4ff',
+            100: '#dbe7ff',
+            200: '#b6cdff',
+            300: '#8ab0ff',
+            400: '#6696ff',
+            500: '#4f8cff',
+            600: '#3a6fe0',
+            700: '#2d5bb5',
+            800: '#24488f',
+            900: '#1c386e',
+            950: '#12264d',
+          },
+        },
+      }),
       options: {
         darkModeSelector: '.p-dark',
       },
