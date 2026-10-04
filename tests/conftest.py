@@ -33,8 +33,16 @@ _OPTIONAL_MODULE_TESTS: list[tuple[str, str]] = [
     ("test_spec03_phase1.py", "utils.token_tracker"),
 ]
 
+def _spec_missing(module_name: str) -> bool:
+    """模块缺失返回 True；父包不存在等异常同样视为缺失。"""
+    try:
+        return importlib.util.find_spec(module_name) is None
+    except (ImportError, AttributeError, ValueError):
+        return True
+
+
 collect_ignore = [
     test_file
     for test_file, module_name in _OPTIONAL_MODULE_TESTS
-    if importlib.util.find_spec(module_name) is None
+    if _spec_missing(module_name)
 ]
