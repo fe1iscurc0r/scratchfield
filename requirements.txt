@@ -72,3 +72,4 @@ rdflib>=7.0.0  # semantic_web MCP adapter (SPARQL/RDF)
 
 # ---------- memclaw 跨 Agent 记忆总线（mcpserver/adapters/memclaw_adapter）----------
 aiosqlite>=0.22.0  # SqliteBackend standalone 后端必需（缺则外壳工具直接跳过）
+matplotlib>=3.8.0  # pyproject声明的绘图依赖(research/plot链), requirements此前遗漏 — 2026-10-04 CI排障补
