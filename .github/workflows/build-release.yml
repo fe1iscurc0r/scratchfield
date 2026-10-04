@@ -94,7 +94,16 @@ jobs:
 
       - name: Build backend and packaged runtime
         shell: bash
-        run: python build.py --backend-only --force-openclaw
+        # 展示仓不含 vendor/openclaw（私有工作仓 vendor 目录），无 vendor 时
+        # 跳过 OpenClaw 运行时嵌入（2026-10-04 公开快照口径；完整嵌入构建
+        # 在私有工作仓环境执行）。
+        run: |
+          if [ -d vendor/openclaw ]; then
+            python build.py --backend-only --force-openclaw
+          else
+            echo "::notice::vendor/openclaw 不存在，走 --skip-openclaw 精简构建"
+            python build.py --backend-only --skip-openclaw
+          fi
 
       # ---------- Frontend: electron-builder (build only, no publish) ----------
       - name: Install frontend dependencies
