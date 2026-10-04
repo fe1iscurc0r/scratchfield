@@ -14,6 +14,7 @@ pytestmark = [pytest.mark.core]
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,10 @@ def test_test_run_reports_failure_counts(bridge):
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows 专用路径拒绝断言（C:\\ 路径），非 Windows 平台由前三个相对路径用例覆盖（2026-10-04 展示仓 CI 口径）",
+)
 def test_path_traversal_and_absolute_and_symlink_denied(bridge, tmp_path):
     for bad in ("../secret.txt", "a/../../secret.txt", "/etc/passwd", "C:\\Windows\\win.ini", "~/x"):
         result = bridge.file_read(bad)

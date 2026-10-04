@@ -73,3 +73,9 @@ rdflib>=7.0.0  # semantic_web MCP adapter (SPARQL/RDF)
 # ---------- memclaw 跨 Agent 记忆总线（mcpserver/adapters/memclaw_adapter）----------
 aiosqlite>=0.22.0  # SqliteBackend standalone 后端必需（缺则外壳工具直接跳过）
 matplotlib>=3.8.0  # pyproject声明的绘图依赖(research/plot链), requirements此前遗漏 — 2026-10-04 CI排障补
+
+# ---------- 可选数据处理/文档依赖（2026-10-04 CI 排障补：测试与工具链实际引用）----------
+duckdb>=1.1.0  # 材料数据工作台(duckdb_workbench/writing_pipeline)
+python-docx>=1.1.0  # 文档导入(law case import / academic bridge)
+openpyxl>=3.1.0  # xlsx 导入
+sse-starlette>=3.5.0  # sitaware API SSE 流
