@@ -64,6 +64,8 @@ Pollination = upstream inspiration → dissect → adapt → integrate. Not fork
 
 ## Quick start
 
+**Shortest path: [QUICKSTART.md](QUICKSTART.md)** (installer for users / source route for devs, under 10 steps). Environment details and known pitfalls are in the Windows setup guide under `docs/` — Python strictly 3.12.x, npm only, uv not bare pip.
+
 For launching the integrated body, see `NEKO/N.E.K.O/README.MD`. For the plugin marketplace, see `plugins/README.md`.
 
 ```bash

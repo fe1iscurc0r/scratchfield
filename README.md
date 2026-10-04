@@ -64,6 +64,9 @@
 
 ## 快速开始
 
+**最短路径见 [QUICKSTART.md](QUICKSTART.md)**（普通用户下 exe / 开发者源码路线 ≤10 步）。
+环境细节与已知坑见 **[环境依赖清单（Windows 装机指南）](docs/环境依赖清单-Windows装机-2026-09-27.md)**——Python 严格 3.12.x、只用 npm、uv 不裸 pip，写死的版本要求都在里面。
+
 集成体启动步骤见 `NEKO/N.E.K.O/README.MD`。插件商城使用见 `plugins/README.md`。
 
 ```bash
