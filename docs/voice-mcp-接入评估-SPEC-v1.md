@@ -1,6 +1,6 @@
 # voice-mcp 双项目接入评估 SPEC · v1
 
-> 施工方：Trae／审查：沈遥（Hermes）｜日期：2026-08-16
+> 施工方：Trae／审查：实验田维护者（Hermes）｜日期：2026-08-16
 > 范围：两个同名「voice-mcp」低星项目的接入评估——能否直接用 or 需改造。
 > 前置：已 clone 到 `github_haul/mcp/voice-mcp/`（garan）与 `github_haul/mcp/voice-mcp-shreyas/`（shreyas）。
 

@@ -1,6 +1,6 @@
 # agent-skills 授粉对照落地 · 2026-09-02
 
-> 沈遥 · addyosmani/agent-skills（91.7k★ MIT）对照 scratchpad 自有 skills 的差距分析
+> 实验田维护者 · addyosmani/agent-skills（91.7k★ MIT）对照 scratchpad 自有 skills 的差距分析
 > 来源：fusion/agent-skills-src.tar.gz（25 个生产级 skill 目录）
 > 方法：只读对照，不照抄；挑最值钱的 3 处授粉，其余列观察
 

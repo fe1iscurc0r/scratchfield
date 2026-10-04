@@ -28,7 +28,7 @@
 |---|------|-----------|--------------|------------------|
 | 1 | 定位/许可 | 多 Agent 协作运行时（Apache-2.0） | Claude 多模型编排引擎（MIT） | 单机科研伴侣（AGPL 主体 + NEKO Apache-2.0 vendor） |
 | 2 | 架构模式 | Manager-Workers 三层（Manager→Team Leader→Worker）+ Human CRD | 单主控（Claude）+ 外部模型桥（Go wrapper）+ 子代理 | 决策（Hermes）/执行（scratchpad 陆墨）/交互（NEKO）三层 |
-| 3 | 人在回路协议 | **Matrix 房间全程同屏**：真人看得到每步、随时插入；敏感操作（发布/删除/支付/生产变更）**必须显式人工审批门**；Human 分 Level 1-3 权限接入 | **HARD STOP 审批门**：规划完成后必须用户批准才进实施；另有 verify-security/quality/change/module 四道质量门 | 无显式审批门；靠单一灵魂原则 + token 鉴权；人工介入依赖沈遥/林楠人工值班 |
+| 3 | 人在回路协议 | **Matrix 房间全程同屏**：真人看得到每步、随时插入；敏感操作（发布/删除/支付/生产变更）**必须显式人工审批门**；Human 分 Level 1-3 权限接入 | **HARD STOP 审批门**：规划完成后必须用户批准才进实施；另有 verify-security/quality/change/module 四道质量门 | 无显式审批门；靠单一灵魂原则 + token 鉴权；人工介入依赖实验田维护者/执行侧人工值班 |
 | 4 | 多模型/多运行时策略 | 异构 Worker 容器（OpenClaw 确定性 + QwenPaw + Hermes 自治编码），各干最擅长的 | **分阶段角色路由**：analyzer/architect/builder/debugger/reviewer/tester 角色 × frontend/backend 双模型并行；纯 CC 模式降级为 Agent Teams 子代理 | Hermes 决策层内多 provider 切换（DeepSeek/MiniMax 等）；无"异构 agent 并行执行同一任务"的编排 |
 | 5 | 任务生命周期 | Task/Team CRD + TeamHarness，声明式 YAML（`agt apply`）；controller reconcile | `.ccg/tasks/{name}/task.json` 持久化状态机：research→ideation→planning→implementation→optimization→final，每阶段带 Gate | BATCH-WORKORDERS 扁平工单列表（2026-08-23 版本已分 3-agent）；无 phase/gate 状态机 |
 | 6 | 上下文保持 | Worker **无状态**，状态全在 MinIO 对象存储；session 重置后用 task-history.json + spec/plan/progress 恢复 | 4 个 JS hook 每轮注入 `<ccg-state>` 面包屑；compaction 后 session-start 重注全量上下文；context.jsonl 策展给子代理 | 陆墨 session/记忆管线（RAG + persona）唯一副本；跨分身协作上下文靠会话传递 |
@@ -36,7 +36,7 @@
 | 8 | 凭据/安全隔离 | Higress AI 网关：Worker 只持 consumer token，真凭据留在网关；YOLO 模式不破安全规则 | wrapper 构造"影子 HOME"（只藏 .claude 配置，其余符号链接透传）；headless 审查恒定跳过权限门 | LUMO_PROXY_TOKEN / NEKO_EXEC_TOKEN 双 token + hmac.compare_digest + fail-safe 503；CUA 沙箱 allowlist + AST 预检 + 30s 超时 |
 | 9 | 可观测性 | K8s controller + Project Workflow API（LangGraph 对齐视图，`interrupts: ["waiting for human decision"]` 可见）+ Dashboard + AgentLoop 集成 | hook 面包屑 + `ccg status`/`ccg doctor` 健康检查 + live SSE Web UI | NEKO→陆墨 6 类事件（user_input/asr/tts/user_action/error）+ 审计报告；无任务级工作流视图 |
 | 10 | 知识/技能注入 | Nacos 技能注册表 + skills.sh（8 万+ 社区技能按需拉取）+ Worker.spec.skills 下发 | **skill-router 关键词路由**：用户消息命中关键词 → 自动注入 10 域 61+ 领域知识文件 | Hermes skills/（已有 200+ 技能）+ 陆墨 RAG 科研库；无"消息关键词→技能自动注入" |
-| 11 | 团队/多人工协作 | Team Leader 自组织 + 多真人分级接入；Manager 只管顶层任务下发（解决单点瓶颈） | Agent Teams 子代理并行（同消息 spawn 才是真并行）；纯 CC 模式双 Agent 独立上下文交叉验证 | 沈遥+林楠双人组 = 神经系统（协议/接口/部署/安全兜底）；无双真人权限分级 |
+| 11 | 团队/多人工协作 | Team Leader 自组织 + 多真人分级接入；Manager 只管顶层任务下发（解决单点瓶颈） | Agent Teams 子代理并行（同消息 spawn 才是真并行）；纯 CC 模式双 Agent 独立上下文交叉验证 | 实验田维护者+执行侧双人组 = 神经系统（协议/接口/部署/安全兜底）；无双真人权限分级 |
 | 12 | 部署形态 | 一条命令 `curl|bash`（嵌入式 controller：Higress+Tuwunel+MinIO+Element）/ Helm K8s | `npx ccg-workflow` 60 秒安装（Node 20+ + Claude Code CLI） | 单机多进程（apiserver :8000 + NEKO 三服务器 48911/48912/48915），Windows 本机 |
 
 ---
@@ -73,22 +73,22 @@
 ## 四、改进建议（针对三元融合，按性价比排序）
 
 **建议 1【高】给工单系统加 phase/gate 状态机 + 面包屑（移植 ccg 核心）**
-BATCH-WORKORDERS 改为 `.ccg/tasks/` 同款目录约定：`task.json{status, strategy, currentPhase, gate, nextAction}` + `spec.md` + `plan.md` + `progress/`。每轮协作回复开头带 `<state>` 面包屑；每阶段设 Gate（如"双分身已返回""沈遥已审批"）。落地成本：一个目录规范 + 工单模板改动，不写新引擎。
+BATCH-WORKORDERS 改为 `.ccg/tasks/` 同款目录约定：`task.json{status, strategy, currentPhase, gate, nextAction}` + `spec.md` + `plan.md` + `progress/`。每轮协作回复开头带 `<state>` 面包屑；每阶段设 Gate（如"双分身已返回""实验田维护者已审批"）。落地成本：一个目录规范 + 工单模板改动，不写新引擎。
 
 **建议 2【高】敏感操作审批门进任务定义（移植 AgentTeams）**
-M4 已给 NEKO CUA 执行端点，但"发布/删除/生产变更需人工确认"未成协议。落地：scratchpad 工单模板加 `approval_gates: []` 字段；`neko_cua` 工具对不可逆 action（删除/写外部系统）先返回 `PENDING_APPROVAL`，等沈遥/林楠显式批准令牌再执行——复用现有 Bearer token 体系，不加新基建。
+M4 已给 NEKO CUA 执行端点，但"发布/删除/生产变更需人工确认"未成协议。落地：scratchpad 工单模板加 `approval_gates: []` 字段；`neko_cua` 工具对不可逆 action（删除/写外部系统）先返回 `PENDING_APPROVAL`，等实验田维护者/执行侧显式批准令牌再执行——复用现有 Bearer token 体系，不加新基建。
 
 **建议 3【中】循环检测 + BREAK-LOOP 协议（移植 ccg workflow-state.js）**
 在陆墨 agent 决策循环（agentic_tool_loop）加计数器：同一 tool+意图 3 轮无进展 → 注入破环指令（停止→根因→三选项→升级用户）。NEKO 侧已有 LRU 去重防事件风暴，缺的正是决策层自反性。落地：lumo_event 或 agentic_tool_loop 加约 50 行检查逻辑。
 
 **建议 4【中】协作资产落盘"共享任务树"（移植 AgentTeams MinIO 模式）**
-分身（沈遥/林楠）之间约定 `shared/tasks/{id}/` 目录：spec/plan/progress/result 全落盘，会话只留指针。效果 = AgentTeams 的"Worker 可替换"——任何分身掉线，换一个从任务树恢复即可，不丢上下文。
+分身（实验田维护者/执行侧）之间约定 `shared/tasks/{id}/` 目录：spec/plan/progress/result 全落盘，会话只留指针。效果 = AgentTeams 的"Worker 可替换"——任何分身掉线，换一个从任务树恢复即可，不丢上下文。
 
 **建议 5【低】skill-router 关键词注入（移植 ccg 路由表）**
 Hermes 已有 200+ skills，但按用户消息关键词自动注入领域知识未做。落地：Hermes hook（UserPromptSubmit 同款）或 NagaAgent 前端加一张 keyword→skill 路由表（RAG/安全/材料 等 10 域）。可减少 RAG 检索幻觉、降 token 消耗。
 
 **建议 6【低】可观测性升级：任务级工作流视图**
-参考 AgentTeams Project Workflow API 的 LangGraph 对齐视图（nodes/edges/interrupts 可见），给 BATCH-WORKORDERS 加"当前 phase + 阻塞点（waiting for human decision）"清单，供沈遥/林楠巡检。
+参考 AgentTeams Project Workflow API 的 LangGraph 对齐视图（nodes/edges/interrupts 可见），给 BATCH-WORKORDERS 加"当前 phase + 阻塞点（waiting for human decision）"清单，供实验田维护者/执行侧巡检。
 
 ---
 
@@ -96,7 +96,7 @@ Hermes 已有 200+ skills，但按用户消息关键词自动注入领域知识�
 
 AgentTeams 教"人怎么进来"（审批门 + 权限分级 + 全程可见），ccg-workflow 教"机怎么不迷路"（状态机 + 面包屑 + 循环检测），三元融合已有"单一灵魂"的正确骨架——缺的是一层薄薄的协作协议：**状态落地、门禁显式、循环可断**。
 
-*—— 沈遥 · 决策要单一，协作要协议，循环要能断 🐾*
+*—— 实验田维护者 · 决策要单一，协作要协议，循环要能断 🐾*
 
 ---
 
@@ -168,7 +168,7 @@ agent 能发、正则能解析，零中间件成本。
 agentserver 给干员注入系统提示时附带当前工单的 spec 路径与状态。
 
 **建议 3：把审批协议化——gate 状态机 + YOLO 开关 + 打断确认门。**
-现状审查是惯例（沈遥 review + PR merge-back）。建议落成协议：工单状态机加
+现状审查是惯例（实验田维护者 review + PR merge-back）。建议落成协议：工单状态机加
 `in_review → (gate.resolved | revision_requested)`，gate **永不自动 resolve**
 （A 的 confirm 门与 D-01 orca decision_gate 同构）；加 `AGENTTEAMS_YOLO` 式
 开关（如 `LUMO_YOLO=1` 时陆墨自动确认并事后通报）；打断/重规划必须"先说明

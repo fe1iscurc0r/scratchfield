@@ -1,6 +1,6 @@
 # voice-mcp (shreyaskarnik) MCP 封装 SPEC · v1
 
-> 施工方：Trae（陆墨团队）｜审查：沈遥（Hermes）
+> 施工方：Trae｜审查：实验田维护者（Hermes）
 > 理论锚点：SPEC-Writing-Standard-v3.md（四问 + 十条 + 六条审查）
 > 本文档自包含：引用到文件 + 行号，验收可 grep/assert。
 
@@ -36,7 +36,7 @@ scratchpad 的语音层已有多项能力：TTS-API（kokoro/edge 通用 TTS）�
 | speak 后端可切换：真机 mlx Kokoro → 云服 TTS-API kokoro（迂回）→ 降级 | 不复刻 FastMCP stdio 传输层（scratchpad 用 Format A 统一调度） |
 | listen 真机路径（VAD + STT，待联调）+ 云服降级 | 不做 macOS 通知 hooks（.claude/hooks，Claude Code 专属） |
 | 语言码校验（a/b/e/f/h/i/j/p/z 九种） | 不做音色浏览（上游 `/voice` 是 Claude Code 斜杠命令） |
-| 不触碰 NEKO 主链路与陆墨核心 | 不把上游 worker/stdio 进程托管进本仓 |
+| 不触碰 NEKO 主链路与主系统核心 | 不把上游 worker/stdio 进程托管进本仓 |
 
 ---
 
@@ -210,4 +210,4 @@ git commit -m "feat(mcp): voice_mcp_bidi MCP 封装
 
 ---
 
-*制定：Trae（陆墨团队）｜理论锚点：SPEC-Writing-Standard-v3.md · 系统工程四原则 · 不变量伴生验收*
+*制定：Trae｜理论锚点：SPEC-Writing-Standard-v3.md · 系统工程四原则 · 不变量伴生验收*

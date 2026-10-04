@@ -3,7 +3,7 @@
   "displayName": "MarkItDown 文档转换",
   "version": "0.1.6",
   "description": "把本地 PDF / Office / HTML / CSV 转成 Markdown，保留表格、公式与图注结构。上游 microsoft/markitdown（MIT）。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.flat_bridges",

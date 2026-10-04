@@ -3,7 +3,7 @@
   "displayName": "跨 Agent 共享记忆总线",
   "version": "2.27.0",
   "description": "多 Agent 共享记忆总线（上游 caura-memclaw，Apache-2.0）。本地实现，不需要任何云端 key：write 写入时用本地 bge-small-zh 计算向量，recall 走余弦相似度做语义召回（无向量条目退化为关键词），list/stats 查列表与统计。SQLite standalone 后端（~/.memclaw/memclaw.db）。上游 12 个工具（keystones/insights/evolve 等）依赖 core-storage-api 云端服务，vendored standalone 下不可用（诊断见 memclaw_status）。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.flat_bridges",

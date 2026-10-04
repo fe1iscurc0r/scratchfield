@@ -1,8 +1,8 @@
 # LLM4Decompile → MCP 本地化封装 SPEC v1
 
 > 来源：Old-Target-New-Model-Plan 靶子 C  
-> 施工者：Trae IDE（林楠）  
-> 审核者：沈遥（Hermes）  
+> 施工者：Trae IDE（执行侧）  
+> 审核者：实验田维护者（Hermes）  
 > 目标平台：Windows x64（天选7 Pro，RTX 5060 8GB，Python 3.11+）  
 > 周期：1-2 天
 

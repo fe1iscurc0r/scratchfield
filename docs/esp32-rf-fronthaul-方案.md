@@ -1,6 +1,6 @@
 # ESP32-S3 计算型射频前传（R51）方案
 
-> 2026-08-31 · 沈遥线 · 来源：digest-g8-3b 授粉点 ①（OTA XL-MIMO 极限学习机，超表面「波域权重映射」）
+> 2026-08-31 · 实验田维护者线 · 来源：digest-g8-3b 授粉点 ①（OTA XL-MIMO 极限学习机，超表面「波域权重映射」）
 > 现状基线：ESP32 + LoRa 全基带 FFT 处理
 > 状态：方案 + numpy 原型（`mcpserver/rf_brain/prototypes/rf_fronthaul.py`，验收已过）
 

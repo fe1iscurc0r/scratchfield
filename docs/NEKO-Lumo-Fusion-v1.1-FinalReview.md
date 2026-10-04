@@ -4,7 +4,7 @@
 **指导书**: docs/NEKO-Lumo-Fusion-Blueprint-v1.1.md
 **参与智能体**:
 - 铁锚 (kimi2.7code) — 代码改动点准确性验证
-- 沈遥 (deepseekv4pro) — 安全前置与降级链完整性验证
+- 实验田维护者 (deepseekv4pro) — 安全前置与降级链完整性验证
 - 杜赞 (GLM5.2) — 路线图可执行性 + GO/NO-GO 决策
 - Hermes (千问3.7plus) — 协调与汇总
 
@@ -26,7 +26,7 @@
 
 **三方共识**：
 - 铁锚：现有 `require_local_auth` 不认共享密钥，需新建独立依赖
-- 沈遥：全仓库 grep 零实现，现有 openai_proxy 端点零鉴权
+- 实验田维护者：全仓库 grep 零实现，现有 openai_proxy 端点零鉴权
 - 杜赞：现有鉴权是用户登录 token 体系，与进程间共享密钥是两套机制
 
 **修复方案**（杜赞建议）：
@@ -40,7 +40,7 @@
 ### 阻塞 2：铁律3豁免范围不够（monitor + memory_server 都需改源码）
 
 **三方发现**：
-- 沈遥：monitor.py:513 改 127.0.0.1 需改源码，但不在豁免内 → 逻辑死结
+- 实验田维护者：monitor.py:513 改 127.0.0.1 需改源码，但不在豁免内 → 逻辑死结
 - 杜赞：关 memory_server 需改 `launcher_core/runtime.py` 的 SERVERS 列表 + _CRITICAL_MODULES，也违反铁律3
 - 铁锚：未直接发现，但确认 monitor.py 硬编码 0.0.0.0
 
@@ -71,14 +71,14 @@
 ### 分歧 1：M3 注入端点
 
 - **杜赞**：proactive_router 只是配置读写，不是说话注入端点。M3 需找/建注入端点。
-- **沈遥**：建议用 NEKO main_server 已有 REST 路由。
+- **实验田维护者**：建议用 NEKO main_server 已有 REST 路由。
 - **铁锚**：未深入。
 
 **Hermes 建议**：M3 启动时先排查 NEKO 现有 REST 路由（vmc_router/system_router/emotion），若无合适端点则新建 `lumo_inject_router.py`（走 wrapper 或列入豁免）。
 
 ### 分歧 2：emotion "本地小模型"描述
 
-- **沈遥**：v1.1 说"emotion_model 本地小模型"，实际代码调用配置的 LLM API（可能云端）。
+- **实验田维护者**：v1.1 说"emotion_model 本地小模型"，实际代码调用配置的 LLM API（可能云端）。
 - **杜赞/铁锚**：未深入。
 
 **Hermes 建议**：v1.2 勘误为"配置的 emotion 模型"。若要严格本地，需把 emotion_config 指向本地 Ollama。
@@ -90,11 +90,11 @@
 | # | 问题 | 来源 | 严重度 |
 |---|------|------|--------|
 | 1 | E7 表述错：48915 是 TOOL_SERVER_PORT，不是"未硬编码" | 铁锚+杜赞 | MEDIUM |
-| 2 | telemetry_server(8099) + survey_server(8100) 0.0.0.0 漏标 | 沈遥 | MEDIUM |
-| 3 | D1 降级链：scratchpad 挂了 NEKO 失能，无 fallback brain | 沈遥 | MEDIUM |
-| 4 | .upstream-sha 文件未创建 | 沈遥 | LOW |
+| 2 | telemetry_server(8099) + survey_server(8100) 0.0.0.0 漏标 | 实验田维护者 | MEDIUM |
+| 3 | D1 降级链：scratchpad 挂了 NEKO 失能，无 fallback brain | 实验田维护者 | MEDIUM |
+| 4 | .upstream-sha 文件未创建 | 实验田维护者 | LOW |
 | 5 | 双 persona 源（NEKO 本地 persona 路由未处置） | 杜赞 | LOW |
-| 6 | openai_proxy 现有端点零鉴权（v1.0 既有问题） | 沈遥 | LOW（本地缓解） |
+| 6 | openai_proxy 现有端点零鉴权（v1.0 既有问题） | 实验田维护者 | LOW（本地缓解） |
 | 7 | overlay 机制复杂度被低估（merge 语义未定义） | 杜赞 | MEDIUM |
 | 8 | 单机资源瓶颈未量化（天选7pro 内存/显存未记录） | 杜赞 | MEDIUM |
 
@@ -133,7 +133,7 @@
 | 2 | 新建 `require_proxy_token` + persona-aware `/persona/v1/chat/completions` | curl 带 token 返回陆墨人格回复，不带返回 401 |
 | 3 | NEKO api_providers.json overlay 注入 lumo provider | NEKO 输入 → 显示陆墨回复（M1 验证标准） |
 | 4 | 处置 NEKO 本地 persona 路由 | NEKO 角色卡只剩外观/语气，人格来自陆墨 |
-| 5 | 补 v1.2 指导书：4 项灰区落定 + E7/emotion 勘误 | 沈遥审签 |
+| 5 | 补 v1.2 指导书：4 项灰区落定 + E7/emotion 勘误 | 实验田维护者审签 |
 
 **第一个可上线里程碑**：M1（文本打通）。补完 4 项后即可开工。
 
@@ -152,4 +152,4 @@
 
 ---
 
-*纪要由 Hermes (千问3.7plus) 协调生成，铁锚 (kimi2.7code) / 沈遥 (deepseekv4pro) / 杜赞 (GLM5.2) 并行审查。*
+*纪要由 Hermes (千问3.7plus) 协调生成，铁锚 (kimi2.7code) / 实验田维护者 (deepseekv4pro) / 杜赞 (GLM5.2) 并行审查。*

@@ -3,7 +3,7 @@
   "displayName": "HamLog QSO/QSL 工具桥",
   "version": "1.1.0",
   "description": "桥接本地 HamLog（业余无线电电台日志，R1.0.0）：默认 SQLite 直连 %APPDATA%/HamLog/Log.db（HAMLOG_DB_PATH 可覆盖），设 HAMLOG_API_URL 可切回 HTTP legacy 后端。QSO 搜索/录入、QSL 卡债（我欠/欠我）、QSL 状态更新、QSL 卡填写内容生成。数据库不存在/本台信息缺失时工具直接报错（fail-fast），不静默空返回。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.hamlog_adapter.adapter",

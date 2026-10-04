@@ -2,7 +2,7 @@
 
 **任务**：汇总已授粉/已勘察 LoRa mesh 全栈做选型矩阵 + 天线云台 LoRa433 遥控推荐链路
 **工单**：第三十四期扩轮卷95 · W95-05【评估】
-**数据来源**：本轮克隆实测（D:\wo34-recon）+ 仓内既有授粉报告（Batch3-lora-radio、reticulum-mesh、超限战轮扩轮 2026-09-07）
+**数据来源**：本轮克隆实测（D:\wo34-recon）+ 仓内既有授粉报告（Batch3-lora-radio、reticulum-mesh、授粉轮扩轮 2026-09-07）
 
 ---
 

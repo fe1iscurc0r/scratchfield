@@ -7,13 +7,13 @@
 
 | 项目 | 优先级 | 报告来源 |
 |---|---|---|
-| hspark1212/MOFTransformer | P1 | 超限战轮25-多孔材料MOF吸附筛分弹药-授粉报告-2026-09-26.md |
-| ArashRabbani/DeePore | P1 | 超限战轮25-多孔材料MOF吸附筛分弹药-授粉报告-2026-09-26.md |
-| jtcrum/zse | P1 | 超限战轮25-多孔材料MOF吸附筛分弹药-授粉报告-2026-09-26.md |
-| kul-group/MAZE-sim | P1 | 超限战轮25-多孔材料MOF吸附筛分弹药-授粉报告-2026-09-26.md |
-| lmfit/lmfit-py | — | 超限战轮20-光谱弹药-授粉报告-2026-09-19.md |
-| pvlib/pvlib-python | — | 超限战轮20-水凝胶太阳能蒸发弹药-授粉报告-2026-09-19.md |
-| NobuhiroMoteki/block-DDA_Py | — | 超限战轮20-水凝胶太阳能蒸发弹药-授粉报告-2026-09-19.md |
-| MahdiTBT/DMA-analysis-suite | — | 超限战轮20-流变弹药-授粉报告-2026-09-19.md |
+| hspark1212/MOFTransformer | P1 | 授粉轮25-多孔材料MOF吸附筛分候选-授粉报告-2026-09-26.md |
+| ArashRabbani/DeePore | P1 | 授粉轮25-多孔材料MOF吸附筛分候选-授粉报告-2026-09-26.md |
+| jtcrum/zse | P1 | 授粉轮25-多孔材料MOF吸附筛分候选-授粉报告-2026-09-26.md |
+| kul-group/MAZE-sim | P1 | 授粉轮25-多孔材料MOF吸附筛分候选-授粉报告-2026-09-26.md |
+| lmfit/lmfit-py | — | 授粉轮20-光谱候选-授粉报告-2026-09-19.md |
+| pvlib/pvlib-python | — | 授粉轮20-水凝胶太阳能蒸发候选-授粉报告-2026-09-19.md |
+| NobuhiroMoteki/block-DDA_Py | — | 授粉轮20-水凝胶太阳能蒸发候选-授粉报告-2026-09-19.md |
+| MahdiTBT/DMA-analysis-suite | — | 授粉轮20-流变候选-授粉报告-2026-09-19.md |
 
-> 待沈遥人工补处置意见。
+> 待实验田维护者人工补处置意见。

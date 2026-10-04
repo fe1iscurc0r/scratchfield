@@ -1,7 +1,7 @@
 # MTL-ChiParameter 调研报告 — 木质素 / DES 相容性（2026-09-25）
 
 > 卷159（木质素NPs线 P0）· 落盘：砚 · 状态：**任务A/C 已跑通最小验证；任务B 仅调研（本机无执行层）**
-> 来源：超限战轮23 化学信息学弹药 Tier1 三件（`docs/超限战轮23-化学信息学弹药-授粉报告-2026-09-23.md`）
+> 来源：授粉轮23 化学信息学候选 Tier1 三件（`docs/授粉轮23-化学信息学候选-授粉报告-2026-09-23.md`）
 > 许可（2026-09-25 GitHub API 实测，非转述）：`yoshida-lab/MTL_ChiParameter` **MIT**（18★）、
 > `SimonBoothroyd/absolv` **MIT**（34★）、`reymond-group/smilesDrawer` **MIT**（609★）——三件均可商用，无一 copyleft。
 

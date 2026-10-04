@@ -2,7 +2,7 @@
 
 > **工单**: E-01  
 > **日期**: 2026-08-23  
-> **背景**: 沈遥 Lumo 科研库（W-09 封装 4 库：coolprop/chemformula/tespy/slices），本工单为 academic MODEL_INTERFACE 体系扩展化学/药物库。  
+> **背景**: 实验田维护者 Lumo 科研库（W-09 封装 4 库：coolprop/chemformula/tespy/slices），本工单为 academic MODEL_INTERFACE 体系扩展化学/药物库。  
 > **调研库**: chembl_webresource_client、oddt、Indigo、scikit-fingerprints  
 > **契约规范**: 统一返回 `{ok, ...data, source}`；参数非法抛 `ValueError`；依赖缺失抛 `AcademicDependencyError`（含 pip install 提示）
 

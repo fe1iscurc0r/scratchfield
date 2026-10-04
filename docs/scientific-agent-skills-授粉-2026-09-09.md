@@ -1,4 +1,4 @@
-# scientific-agent-skills 材料科研 Skill 弹药吸收（W102-01）
+# scientific-agent-skills 材料科研 Skill 候选吸收（W102-01）
 
 > 2026-09-09 · 落地 + 评估 · 上游：K-Dense-AI/scientific-agent-skills（43,936★，MIT，Python，163 个 Agent Skills，2026-09-07 活跃，arXiv 2609.00065）
 > 许可：MIT（授粉报告已复核）

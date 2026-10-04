@@ -10,7 +10,7 @@
   2) 单例 + 单 sender task 串行发送，避免并发写 HTTP。
   3) scratchpad 不可达时静默降级（best-effort），绝不影响 NEKO 主链路。
 
-设计依据（沈遥 M3 反向通道方案）：
+设计依据（实验田维护者 M3 反向通道方案）：
   - push 模式，与正向 /api/lumo/speak 对称
   - 事件契约对齐 apiserver/routes/lumo_event.py（event_id + ISO8601 带
     时区时间戳 + discriminated union 六类事件）
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # ============ 配置 ============
 
 _DEFAULT_EVENT_URL = "http://127.0.0.1:8000/api/lumo/event"  # scratchpad apiserver
-_QUEUE_MAXSIZE = 1000          # 沈遥 R3 防 OOM（按计数，M3.1 后续可改按字节）
+_QUEUE_MAXSIZE = 1000          # 实验田维护者 R3 防 OOM（按计数，M3.1 后续可改按字节）
 _BACKOFF_INITIAL = 1.0
 _BACKOFF_MAX = 60.0
 _SILENT_AFTER_FAILURES = 5     # 连续失败 N 次后进入静默期，避免刷连接

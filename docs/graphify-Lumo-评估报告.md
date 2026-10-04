@@ -1,6 +1,6 @@
 # graphify · Lumo 知识图谱接入评估
 
-> 2026-08-29 · 沈遥线完成（原待办"graphify clone 评估"）· 来源：Graphify-Labs/graphify（Apache-2.0，23.5K★，YC S26，v0.9.51）
+> 2026-08-29 · 实验田维护者线完成（原待办"graphify clone 评估"）· 来源：Graphify-Labs/graphify（Apache-2.0，23.5K★，YC S26，v0.9.51）
 > clone 在 github_haul/graphify；本地 Hermes skill 已装 v0.9.48（/graphify 命令）
 > 关联：SPEC-05 2.4（与记忆图谱互补不重叠）、Batch-1B 授粉（Lumo 知识图谱管线最高价值）
 

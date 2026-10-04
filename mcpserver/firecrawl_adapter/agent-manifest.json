@@ -3,7 +3,7 @@
   "displayName": "Firecrawl 网页抓取（RSS 全文补全）",
   "version": "0.1.0",
   "description": "单页网页 → 结构化 markdown。补 RSS 采集只有摘要的缺口：抓回的全文落 knowledge-base/inbox/ 带 YAML front-matter，供知识库检索与实体抽取（卷142）消费。对接可配置 Firecrawl 实例：自托管优先（FIRECRAWL_BASE_URL，默认 http://localhost:3002），云 API 作 fallback（FIRECRAWL_API_URL + FIRECRAWL_API_KEY，key 仅在内存使用）。抓取失败或正文为空一律 fail-fast 报错，绝不静默返回空正文。上游 firecrawl/firecrawl-mcp-server（MIT，7491★）。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "license": "MIT",
   "agentType": "mcp",
   "entryPoint": {

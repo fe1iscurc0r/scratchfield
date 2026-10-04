@@ -3,7 +3,7 @@
   "displayName": "多平台渠道状态",
   "version": "1.5.0",
   "description": "Agent-Reach 渠道安装与诊断（doctor）：列出哪些 channel 已装、可用。实际搜索动作需调用上游 channel 工具。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.flat_bridges",

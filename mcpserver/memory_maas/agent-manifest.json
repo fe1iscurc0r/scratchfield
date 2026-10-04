@@ -3,7 +3,7 @@
   "displayName": "记忆 MaaS（会话血统+混合检索）",
   "version": "0.1.0",
   "description": "NEKO 记忆五件套（SPEC-03：RRF混合检索/索引卡/会话血统/后台写入/衰减过期）MaaS 化 sidecar 的 MCP 桥：memory_search 混合检索命中附会话血统链；优先 HTTP sidecar（127.0.0.1:48919，python -m mcpserver.memory_maas 启动），不通时进程内直连降级。调研与端点设计见 docs/Memory-MaaS-Research-v1.md。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "license": "AGPL-3.0",
   "agentType": "mcp",
   "entryPoint": {

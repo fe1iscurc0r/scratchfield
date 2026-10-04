@@ -1,6 +1,6 @@
 # LoRaCanary Mesh 弹性路由 · APC-RLNC 分层网络编码（R50）方案
 
-> 2026-08-31 · 沈遥线 · 来源：digest-g8-3a APC-RLNC 授粉点 + SPEC-20 v1.6（EWMA 分组 + XOR 冗余）
+> 2026-08-31 · 实验田维护者线 · 来源：digest-g8-3a APC-RLNC 授粉点 + SPEC-20 v1.6（EWMA 分组 + XOR 冗余）
 > 现状基线：`tools/link_reliability.py`（v1.6 EWMA+XOR 已验）+ `mcpserver/rf_brain/rlnc/`（GF(2^8) 分层 RLNC）
 > 状态：方案 + 原型（`mcpserver/rf_brain/rlnc/apc_mesh_routing.py`，验收已过）
 

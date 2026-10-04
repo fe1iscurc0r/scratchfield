@@ -3,7 +3,7 @@
   "displayName": "code_review_graph 代码审查图谱",
   "version": "0.1.0",
   "description": "审查专用代码知识图谱：git diff → 变更函数 → 风险分 + 测试缺口 + 受影响执行流，反向 BFS 影响半径，按函数/类名查定义与调用关系，架构枢纽/大函数总览。零新依赖薄引擎（stdlib ast，全确定性）；与 graphify（通用知识图谱）互补不重叠。上游 https://github.com/tirth8205/code-review-graph（MIT，见 UPSTREAM-LICENSE）。默认关（ENABLE_ADAPTER_CODE_REVIEW=1 开启）。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "license": "MIT",
   "agentType": "mcp",
   "entryPoint": {

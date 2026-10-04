@@ -9,13 +9,13 @@
 
 ### v1.0（旧）：串行流水线
 ```
-任务 → 沈遥(架构) → 铁锚(审查) → 杜赞(决策) → 主代理(编码) → 推送
+任务 → 实验田维护者(架构) → 铁锚(审查) → 杜赞(决策) → 主代理(编码) → 推送
        ↑ 每步等待上一步完成，算力闲置率 ~60%
 ```
 
 ### v2.0（新）：并行流水线
 ```
-                    ┌─ 沈遥(A组: 后端/Bridge/API) ─┐
+                    ┌─ 实验田维护者(A组: 后端/Bridge/API) ─┐
 任务 → 主代理分发 →  ├─ 铁锚(B组: 前端/审查/安全) ─┤ → 主代理汇检 → 推送
                     └─ 杜赞(C组: 验证/测试/架构) ──┘
                     ↑ 三组同时进行，各管独立文件，零冲突
@@ -25,7 +25,7 @@
 
 ## 二、角色-文件隔离矩阵
 
-### A 组：沈遥（deepseek-v4-pro）→ 后端/Bridge/API
+### A 组：实验田维护者（deepseek-v4-pro）→ 后端/Bridge/API
 
 | 文件领域 | 具体文件 | 权限 |
 |---|---|---|
@@ -105,7 +105,7 @@ A/B/C  → [产出结果] → 主代理汇总
 
 ```
 scratchpad/
-├── mcpserver/material_science/    ──→ 沈遥 (A组)
+├── mcpserver/material_science/    ──→ 实验田维护者 (A组)
 │   ├── matchat_bridge.py              桥接层/自动化
 │   ├── matchat_tools.py               工具注册
 │   ├── materialscience_agent.py       MCP Agent
@@ -118,10 +118,10 @@ scratchpad/
 │   ├── electron/modules/matchat.ts   Matchat Electron 模块
 │   ├── electron/main.ts               Electron 主进程
 │   └── electron/preload.ts            预加载脚本
-├── rag/                            ──→ 沈遥 (A组, 只读) + 杜赞 (C组, 验证)
+├── rag/                            ──→ 实验田维护者 (A组, 只读) + 杜赞 (C组, 验证)
 │   ├── rag_service.py                 RAG 服务
 │   └── vecdb_client.py                向量数据库客户端
-├── apiserver/routes/               ──→ 沈遥 (A组)
+├── apiserver/routes/               ──→ 实验田维护者 (A组)
 │   └── rag.py                         RAG 路由
 ├── system/                         ──→ 杜赞 (C组)
 │   └── config.py                      系统配置
@@ -160,11 +160,11 @@ scratchpad/
 用户需求：修复前端 TS 错误 + 调试 Matchat Bridge + 验证 RAG
 
 主代理分派：
-├── A组(沈遥):  调试 matchat_bridge.py DOM 选择器 (独立文件)
+├── A组(实验田维护者):  调试 matchat_bridge.py DOM 选择器 (独立文件)
 ├── B组(铁锚):  修复 KnowledgeView.vue / forum/api.ts / matchat.ts 的 TS 错误 (独立文件)  
 └── C组(杜赞):  运行 test_rag_backend.py 验证 RAG 接口 (独立文件)
 
 三组并行 → 主代理汇检 → 推送到 Gitee
 ```
 
-**vs v1.0 串行**：沈遥修 bridge → 铁锚审查 → 杜赞验证 → 主代理编码，总耗时减少 50-70%
+**vs v1.0 串行**：实验田维护者修 bridge → 铁锚审查 → 杜赞验证 → 主代理编码，总耗时减少 50-70%

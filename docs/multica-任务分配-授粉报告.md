@@ -2,7 +2,7 @@
 
 > 授粉对象：multica-ai/multica —— 多 agent 任务分配/调度工作台
 > 对照基准：BATCH-WORKORDERS-2026-08-23-ALLIN.md（四方向批次）+ BATCH-WORKORDERS-3AGENT.md（三分发批次）
-> 日期：2026-08-23 · 授粉人：沈遥（D 组分身）
+> 日期：2026-08-23 · 授粉人：实验田维护者（D 组分身）
 
 ---
 
@@ -58,7 +58,7 @@
 ### S7. 审查门（Review Gate）+ 全量执行日志
 - agent 完成后 issue 移入 `in_review`，**不进 main** —— "nothing ships without a human saying so"。人审通过才落库/合入。
 - 每次 run 有 timestamped 执行日志（工具调用/命令/错误可回放）+ token 用量（per agent per issue）+ **归因**（attribution：fail-closed 下解析不到负责人直接拒跑）。
-- 对应我们：「沈遥出 SPEC + review」已是人工审查门；缺的是**执行轨迹记录**（谁跑了什么命令、花了多少 token）与**归因字段**。
+- 对应我们：「实验田维护者出 SPEC + review」已是人工审查门；缺的是**执行轨迹记录**（谁跑了什么命令、花了多少 token）与**归因字段**。
 
 ### S8. Autopilot 定时触发（cron 化例行工作）+ 配额
 - cron 触发 standups / audits / reports；执行源四类：`schedule / manual / webhook / api`；60s 去重窗口 + 幂等键；workspace 级周期配额（used / reserved / limit / resetAt）。
@@ -76,7 +76,7 @@
 | 阻塞 | 自由文本「写清原因返回」 | 稳定 ReasonCode 分类 |
 | 超时/重试 | 无 | RunTimeout/MaxAttempts/RetryBackoff |
 | 并发 | 无上限 | max_concurrent_tasks |
-| 审查 | 沈遥人工 review（有，但无状态位） | in_review 状态 + 归因字段 |
+| 审查 | 实验田维护者人工 review（有，但无状态位） | in_review 状态 + 归因字段 |
 | 例行重跑 | 无 | Autopilot cron + 配额 |
 | 认领 | 固定分组（组长缺位） | Squad leader 路由 |
 | 幂等 | 无 | 幂等键 + 去重抑制 |
@@ -132,7 +132,7 @@
 
 ### R7. 审查门（Review Gate）
 - agent 完成后工单进入 **in_review** 状态，不直接 commit 推分支。
-- 沈遥 review 通过 → `done` + 推分支；不通过 → 退回 `active` 附原因（对应 multica "nothing ships without a human saying so"）。
+- 实验田维护者 review 通过 → `done` + 推分支；不通过 → 退回 `active` 附原因（对应 multica "nothing ships without a human saying so"）。
 
 ### R8. 归因与执行日志
 - 每张工单带 `assignee + reviewer + originator` 字段；无法归因的工单拒绝派发。
@@ -160,4 +160,4 @@
 
 multica 最大的可授粉点不是「多 agent」，而是**把调度时序（超时/重试/认领/去重/审查）从人脑里搬进显式参数**——我们缺的从来不是拆单模板，是工单的「运行语义」。
 
-*—— 沈遥 · 拆单的下一步不是拆得更细，是给每张工单装上时钟、闸门和退避。🐾*
+*—— 实验田维护者 · 拆单的下一步不是拆得更细，是给每张工单装上时钟、闸门和退避。🐾*

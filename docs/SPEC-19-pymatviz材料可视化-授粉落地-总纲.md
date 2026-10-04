@@ -2,7 +2,7 @@
 
 > 状态：待施工（2026-08-26 授粉流水线 round7 候选，扫货日报 8-26 推荐，用户拍板开线）
 > 用途：把 janosh/pymatviz（MIT，⭐329，材料信息学可视化）授粉成科研可视化独立组件——周期表热图/结构图/凸包能量图，输出 PNG/HTML 供 ELN 与实验报告用
-> 读者：Trae（施工）/ 沈遥（评审）/ 陆墨（使用）
+> 读者：Trae（施工）/ 实验田维护者（评审）/ 陆墨（使用）
 > 依据：SPEC-17/18 架构裁决（独立组件+总线，陆墨是陆墨）；SPEC-Writing-Standard-v2；github_haul/POLLINATION-2026-08-26-round7.md
 > 依赖事实：pymatviz v0.8+（plotly 系，ptable 热图支持多值 split 2/3/4 色块；结构/轨迹 widgets 基于 anywidget+MatterViz）；凸包/能量图在 pymatviz 的 convex_hull.py / energy.py；重依赖 pymatgen 仅结构/相图数据需要
 

@@ -25,7 +25,7 @@
 | 工单指认路径 | 实际状态 | 替代/真实来源 |
 |---|---|---|
 | `security/tesla-touchscreen-em-sidechannel`（TESLA 侧信道 skill） | **本仓不存在**（`find` 全仓无此目录/文件） | 该 skill 属勘察点 2（NICWhisper 同方向），见 09-02 文档；本单不依赖 |
-| `research/papers/` 论文池索引 + `arxiv_corpus` | **本仓不存在**；根目录 `papers/` 仅 1 篇木质素生物质论文（与本单无关）；`skills/paper-lookup/scripts/arxiv_atom.py` 只是工具 | 真实来源为已落库的 **`docs/Channel2World-实现草稿-2026-08-24.md`**（沈遥，已精读 arXiv:2608.17544）+ 本次 web 调研 |
+| `research/papers/` 论文池索引 + `arxiv_corpus` | **本仓不存在**；根目录 `papers/` 仅 1 篇木质素生物质论文（与本单无关）；`skills/paper-lookup/scripts/arxiv_atom.py` 只是工具 | 真实来源为已落库的 **`docs/Channel2World-实现草稿-2026-08-24.md`**（实验田维护者，已精读 arXiv:2608.17544）+ 本次 web 调研 |
 | "电磁孪生"论文 | 即 **Channel2World**（arXiv:2608.17544，Hyung-Joo Moon 等，eess.SP，2026-08） | 本仓已有实现草稿 + `radio_brain/channel2world/`（Sionna 数据生成 + model 骨架） |
 
 **Channel2World 核心（三句话）**：MIMO 信道是"对同一传播环境的局部 RF 观测"；用 Set-Transformer/Perceiver 把变长多径参数聚合成固定大小的"无线世界嵌入"（Kz=16 latent × Dm=128）；context-query 自监督预训练，冻结编码器后下游零微调。**红线**：原文是 7GHz MIMO 基站侧（4×8 阵列 + ray-tracing），用户没有 MIMO 基站硬件，**直接照抄无意义**，价值在"环境级表征 + 物理先验 + 自监督"这个范式。

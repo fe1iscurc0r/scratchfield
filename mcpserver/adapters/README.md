@@ -1,6 +1,6 @@
 # mcpserver/adapters — 第三方能力包 MCP 适配层
 
-[沈遥架构建议] 不直接把 vendor/top5 各项目的 MCP 文件塞进 mcpserver/ 扁平目录，而是在此做薄封装，形成显式集成边界：
+[实验田维护者架构建议] 不直接把 vendor/top5 各项目的 MCP 文件塞进 mcpserver/ 扁平目录，而是在此做薄封装，形成显式集成边界：
 核心层保留扁平（manager/registry/server/security/mcporter_bridge），adapters/ 是独立的 vendor 适配子目录。
 
 ## 目录结构

@@ -1,7 +1,7 @@
 # 陆墨·材料科研桌面助手 · 第三阶段开发报告
 
 **日期**：2026-07-30  
-**模型分配**：自己=GLM5.2 / 沈遥=deepseekv4pro / 铁锚=千文3.7plus / 杜赞=kimi2.7code  
+**模型分配**：自己=GLM5.2 / 实验田维护者=deepseekv4pro / 铁锚=千文3.7plus / 杜赞=kimi2.7code  
 **仓库**：gitee.com/fe1iscurc0r/scratchpad
 
 ---

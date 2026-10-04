@@ -1,7 +1,7 @@
 # stablyai/orca ADE 并行舰队编排 — 授粉报告
 
 > 工单：D-01 | 许可：MIT | 仓库：stablyai/orca (51k★) | 报告日期：2026-08-23
-> 调研人：沈遥 · 三元融合系统（Hermes + NagaAgent + N.E.K.O.）语境
+> 调研人：实验田维护者 · 三元融合系统（Hermes + NagaAgent + N.E.K.O.）语境
 
 ---
 
@@ -249,7 +249,7 @@ grep "active\|reclaimable\|released" /home/ubuntu/scratchpad/mcpserver/orchestra
 
 ---
 
-*—— 沈遥 · Orca 并行舰队：Task/Dispatch 是壳，Decision Gate 是魂，worktree 隔离是盾 🐾*
+*—— 实验田维护者 · Orca 并行舰队：Task/Dispatch 是壳，Decision Gate 是魂，worktree 隔离是盾 🐾*
 
 ---
 
@@ -369,7 +369,7 @@ trae/agent-* 分支即 worker，worktree/分支模式现成）；NEKO 交互 = t
 `task.dispatch / task.done / task.blocked / question / escalation /
 decision_gate / heartbeat`（先取 7 种）。落法：工单模板加一节"回报契约"
 （对应 orca preamble）——智能体完成一单报 `task.done`（含 commit、验收结果、
-阻塞说明），沈遥验收通过回 `gate.resolved`。这些消息同时喂 EventBus v2
+阻塞说明），实验田维护者验收通过回 `gate.resolved`。这些消息同时喂 EventBus v2
 （`apiserver/event_bus/`，已落地）与记忆五件套 index_cards（写卡即索），一箭三雕。
 
 **建议 3：给现有 trae/agent-* 分支模式补三件确定性保险丝。**

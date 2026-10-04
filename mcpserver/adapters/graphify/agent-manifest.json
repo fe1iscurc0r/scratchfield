@@ -3,7 +3,7 @@
   "displayName": "graphify 知识图谱检索",
   "version": "0.1.0",
   "description": "代码/文献目录 → 可查询知识图谱（GraphRAG）：内置确定性 AST 管线生成 graph.json（schema 对齐上游），TF-IDF 向量检索 + 关键词 RRF 融合查询，回答携带 citation（source_file:source_location）引用来源；支持导入上游 graphifyy CLI 产出的图谱。上游 https://github.com/Graphify-Labs/graphify。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "license": "Apache-2.0",
   "agentType": "mcp",
   "entryPoint": {

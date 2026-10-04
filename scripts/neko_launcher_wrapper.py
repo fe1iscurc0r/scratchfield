@@ -175,7 +175,7 @@ def _patch_memory_server_calls():
     no-op 化后 release_storage_startup_barrier 直接走 _ensure_main_server_runtime_initialized，
     不再触发 memory_server 通信。
 
-    接缝代价（沈遥风险1）：wrapper 提前 import app.main_server 破坏 PR #1496 延迟优化，
+    接缝代价（实验田维护者风险1）：wrapper 提前 import app.main_server 破坏 PR #1496 延迟优化，
     启动回归 ~1.5s 量级，silent。已知情接受。
 
     覆盖范围：
@@ -243,7 +243,7 @@ def _patch_memory_server_calls():
             "(some attribute not replaced)"
         )
 
-    # LifecycleMixin patch 已移除（沈遥 R5）：Windows spawn 子进程不继承父进程
+    # LifecycleMixin patch 已移除（实验田维护者 R5）：Windows spawn 子进程不继承父进程
     # monkey-patch。降级链现在单点依赖 lifecycle.py 源码 patch，覆盖范围：
     #   - httpx.ConnectError 降级（lifecycle.py:1293, 1808）
     #   - httpx.TimeoutException 降级（lifecycle.py:1296, 1811）
@@ -257,7 +257,7 @@ def _patch_memory_server_calls():
 
 
 def _verify_lifecycle_patch():
-    """fail-fast 校验 lifecycle.py 源码 patch 仍在（沈遥 R1 守护）。
+    """fail-fast 校验 lifecycle.py 源码 patch 仍在（实验田维护者 R1 守护）。
 
     上游升级若覆盖 lifecycle.py 丢失 [local-patch] 降级，wrapper 启动时直接退出，
     避免 silent 失效导致 session 启动报 ConnectionError。

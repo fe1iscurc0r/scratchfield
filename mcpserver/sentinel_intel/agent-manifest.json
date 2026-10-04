@@ -3,7 +3,7 @@
   "displayName": "SENTINEL 情报实体图",
   "version": "0.1.0",
   "description": "威胁情报记忆层（SPEC-09 K 线）：SQLite 情报实体图——同一干扰源在不同频段/时段的呼号/域名/IP 经三级别名归并（硬编码→entity_aliases.json→图 alias_of 边）合成一张画像（canonical_id），图可遍历（traverse）、有活动时间线。纯 Python + SQLite 零新增依赖。授粉自 ThreatRecall/zettelforge（MIT，只读参考独立重写）。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "license": "AGPL-3.0（主仓原生实现；机制授粉 zettelforge MIT，独立重写零拷贝）",
   "agentType": "mcp",
   "entryPoint": {

@@ -3,7 +3,7 @@
   "displayName": "ChemMCP SMILES 纯转换工具",
   "version": "0.1.0",
   "description": "SMILES 规范化 / 分子式 / CAS 号 / 合法性检查四件纯转换工具（材料知识库分子检索层的结构规范化底座）。上游 OSU-NLP-Group/ChemMCP（Apache-2.0）。除 smiles2cas 需联网查 PubChem 外均为本地计算。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.flat_bridges",

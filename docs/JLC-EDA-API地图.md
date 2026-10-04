@@ -1,6 +1,6 @@
 # JLC-EDA 专业版客户端 API 地图（3.2.175, pro-api 0.3.12）
 
-> 来源：lceda-pro-linux-x64-3.2.175.zip 解包勘察（2026-08-22 沈遥）
+> 来源：lceda-pro-linux-x64-3.2.175.zip 解包勘察（2026-08-22 实验田维护者）
 > 位置：resources/app/assets/pro-api/0.3.12.50234059/api.js（1.9MB）
 > 验证：Trae 实测确认 `eda.sys_FileManager.getDocumentSource()` 是文档读取入口
 

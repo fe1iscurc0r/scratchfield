@@ -93,6 +93,6 @@ SPEC 的验收标准同理：
 
 ---
 
-*制定：沈遥（Hermes）*
+*制定：实验田维护者（Hermes）*
 *理论锚点：系统工程四原则（边界/层次/关系/目的）+ DeepSeek Harness「不变量伴生」*
 *配套：SPEC-Standard-Manifesto-v1.md（说明书）· Lumo-Bus-Spec-v1.md（运行时规范）*

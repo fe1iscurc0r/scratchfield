@@ -1,6 +1,6 @@
 # 授粉 · vibe-pet 行为投影 SPEC — 落地报告（2026-09-20）
 
-> 卷141 交付 | 沈遥签
+> 卷141 交付 | 实验田维护者签
 > 上游：Seeed-Solution/vibe-pet（47★ · MIT ✅ gh api 核验 · 2026-07-15 后停更）
 > SPEC 全文：`docs/SPEC-neko-行为投影-事件映射-2026-09-20.md`
 

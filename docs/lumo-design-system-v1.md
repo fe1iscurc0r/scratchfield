@@ -87,4 +87,4 @@
 
 ---
 
-*制定：沈遥（Hermes）· 2026-08-25 · 依据：lumo 身份层改造（scratchfield README v2）*
+*制定：实验田维护者（Hermes）· 2026-08-25 · 依据：lumo 身份层改造（scratchfield README v2）*

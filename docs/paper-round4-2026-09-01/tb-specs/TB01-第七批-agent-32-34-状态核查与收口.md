@@ -1,7 +1,7 @@
 # TB01 第七批 agent-32-34 状态核查与收口
 
 > 批次：第十三期 · 专项工单
-> 组装：沈遥（Hermes）2026-09-01
+> 组装：实验田维护者（Hermes）2026-09-01
 
 【SPEC】核查 GitHub 远端 trae/agent-32、trae/agent-34 分支：git log 差异 vs main，确认是否阻塞；若已开发完则合并 main 并归档批次；若阻塞则输出阻塞原因报告。
 

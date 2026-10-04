@@ -57,7 +57,7 @@ detect() → extract() → build() → cluster() → analyze helpers → report.
 ### 核心机制（值得抄）
 
 1. **notification routing 出窗口**：告警/通知不占用 agent 上下文（对照我们的 cron 分流——思路一致！微信限流那次就是"推送路由"问题）
-2. **方向/执行分离**：人类给方向、agent 执行劳动（我们已经在做：用户定方向+Trae 写码+沈遥 SPEC）
+2. **方向/执行分离**：人类给方向、agent 执行劳动（我们已经在做：用户定方向+Trae 写码+实验田维护者 SPEC）
 3. **并行 claws + 失败恢复循环**：多 agent 并行 + 相互 review + 自动重试
 
 ### 授粉建议

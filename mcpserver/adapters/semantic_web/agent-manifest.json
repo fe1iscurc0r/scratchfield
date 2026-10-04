@@ -3,7 +3,7 @@
   "displayName": "语义网推理层",
   "version": "1.0.0",
   "description": "在 GRAG（summer_memory）之上补确定性语义推理：GRAG 五元组 → RDF 化 → rdflib 图 → RDFS 规则推理 → 新推三元组 → 回补查询。答案靠规则推，不靠 LLM 猜。旁路接入，语义层挂了 GRAG 原样照跑",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.semantic_web.bridge",

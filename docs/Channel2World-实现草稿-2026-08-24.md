@@ -1,7 +1,7 @@
 # Channel2World 实现草稿
 
 > arXiv:2608.17544v1 [eess.SP] 18 Aug 2026 — Hyung-Joo Moon, Joonkyu Jang, Kwang Soon Kim, Seong-Lyun Kim, Robert W. Heath Jr., Chan-Byoung Chae
-> 2026-08-24 · 沈遥 · 状态：实现草稿（待审阅，可拆 SPEC 派 Trae）
+> 2026-08-24 · 实验田维护者 · 状态：实现草稿（待审阅，可拆 SPEC 派 Trae）
 
 ---
 

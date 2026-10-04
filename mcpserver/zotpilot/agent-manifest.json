@@ -3,7 +3,7 @@
   "displayName": "zotpilot 文献管理",
   "version": "0.1.0",
   "description": "ZotPilot（Zotero）文献管理 MCP 封装：文献搜索 / 批量导入 / 方向标注 / 状态。上游 xunhe730/ZotPilot（MIT）。凭证走 ZOTERO_API_KEY + ZOTERO_USER_ID（或 ZOTERO_GROUP_ID）。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "license": "MIT（封装层）；上游 ZotPilot (xunhe730/ZotPilot) MIT",
   "agentType": "mcp",
   "entryPoint": {

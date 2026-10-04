@@ -58,4 +58,4 @@ DSP-Cpp-filters 的价值不在代码（biquad 是通用技术），在**参数�
 
 **落地路径**：`rf_brain/filters.py`（numpy 实现 biquad 基类 + butterworth_lpf/bpf/hpf + 扫频热更新 API）→ pytest 滤波特性断言（通带增益≈1、阻带衰减、相位无跳变）。
 
-*—— 沈遥 · 信号进来先洗澡，再判断它是什么——滤波是耳朵的耳膜 🐾*
+*—— 实验田维护者 · 信号进来先洗澡，再判断它是什么——滤波是耳朵的耳膜 🐾*

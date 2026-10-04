@@ -3,7 +3,7 @@
   "displayName": "代码工作区（执行/文件/测试）",
   "version": "0.1.0",
   "description": "让陆墨能真正动手写代码：在隔离工作目录内执行 Python/JS 片段、读写编辑文件（带 diff 预览）、跑白名单命令与 pytest。安全模型：路径隔离（越界即拒）+ 命令白名单（sudo/rm/curl 等硬拒）+ 超时与内存上限 + 全量审计；不提供任意 shell 与任意路径写。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.code_workspace.tools",

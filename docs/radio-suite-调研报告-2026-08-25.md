@@ -1,6 +1,6 @@
 # radio_suite 软件调研报告 · 优缺点与社区反馈 · 2026-08-25
 
-> 调研人：沈遥（Hermes）· 依据：Reddit / eHam / RadioReference / 哈罗CQ / HamCQ / SourceForge 评论 / rtl-sdr.com
+> 调研人：实验田维护者（Hermes）· 依据：Reddit / eHam / RadioReference / 哈罗CQ / HamCQ / SourceForge 评论 / rtl-sdr.com
 > 用途：SPEC-17 radio_suite 选型与避坑依据。不只看优点，重点挖社区吐槽。
 
 ---
@@ -231,4 +231,4 @@
 
 ---
 
-*调研：沈遥（Hermes）· 2026-08-25 · 供 SPEC-17 选型与工单避坑*
+*调研：实验田维护者（Hermes）· 2026-08-25 · 供 SPEC-17 选型与工单避坑*

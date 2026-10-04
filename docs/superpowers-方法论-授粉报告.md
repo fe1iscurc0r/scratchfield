@@ -1,6 +1,6 @@
 # WO-02: superpowers 方法论授粉报告
 
-> 日期：2026-08-22 晚 | 委托：沈遥自做 | 状态：✅ 完成
+> 日期：2026-08-22 晚 | 委托：实验田维护者自做 | 状态：✅ 完成
 > 输入：obra/superpowers（MIT，275k★）| 模式：只读分析，不 clone 进主仓
 
 ## 一、superpowers 体系解剖（源码实读）
@@ -26,7 +26,7 @@ what you intend and they have approved it.
 This applies to EVERY task on EVERY path — the ceremony scales with the task;
 the approval gate never does.
 ```
-- 批准门永不关闭，只是仪式随任务规模伸缩 —— **与用户"说设想立即收手"偏好同构**（沈遥/用户工作流可套）
+- 批准门永不关闭，只是仪式随任务规模伸缩 —— **与用户"说设想立即收手"偏好同构**（实验田维护者/用户工作流可套）
 
 **③ 强制触发（"1% 规则"）** — using-superpowers/SKILL.md
 ```
@@ -67,7 +67,7 @@ you ABSOLUTELY MUST invoke the skill.
 ## 三、授粉建议（给 scratchpad skills/ 重构）
 
 1. **补流程层 3 件套**（最高优先级）：
-   - `brainstorming`（改造成"需求收敛"：用户说设想→先问意图→出设计→等批准，对应沈遥职责）
+   - `brainstorming`（改造成"需求收敛"：用户说设想→先问意图→出设计→等批准，对应实验田维护者职责）
    - `writing-plans`（改造：SPEC → 分块任务，喂 Trae 的工单格式可直接套用）
    - `verification-before-completion`（验收门：工单验收 grep/assert 已有基础，补"完成前验证"仪式）
 

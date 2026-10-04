@@ -1,7 +1,7 @@
 # TB02 备份分支清理（11 个历史 backup）
 
 > 批次：第十三期 · 专项工单
-> 组装：沈遥（Hermes）2026-09-01
+> 组装：实验田维护者（Hermes）2026-09-01
 
 【SPEC】清理 scratchpad 本地 11 个历史 backup 分支（backup-*、scratch-backup-231728）：确认无未合并独有提交后删除，保留主历史。
 

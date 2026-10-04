@@ -3,7 +3,7 @@
   "displayName": "渗透测试编排",
   "version": "0.3.7",
   "description": "AI 渗透测试编排（信息收集 → 扫描 → 利用 → 报告），上游 VulnClaw（MIT，vendor/top5/VulnClaw）。⚠️ 仅限自有资产或书面授权目标，未授权使用可能违法。vulnclaw_status 报告脱敏后的 LLM 配置；vulnclaw_invoke 按需调用 VulnClaw CLI——**默认关闭**，需在 .env.local 设 VULNCLAW_ENABLE_INVOKE=1 才开放侦察/扫描类命令，exploit/persistent 还需 VULNCLAW_ALLOW_EXPLOIT=1。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.flat_bridges",

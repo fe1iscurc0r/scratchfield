@@ -1,7 +1,7 @@
 # Lumo 分子设计/实验设计库授粉报告（工单 E-02）
 
 > 来源：experimental-design/bofire（402★，BSD-3）、isayev/ReLeaSE（372★，MIT）、DSPsleeporg/smiles-transformer（358★，MIT）
-> 审查：沈遥（Hermes）｜日期：2026-08-23
+> 审查：实验田维护者（Hermes）｜日期：2026-08-23
 > 定位：面向生物质能源与材料方向，评估 3 个实验设计/分子生成库 → 是否进 Lumo MCP 封装
 > 仓库核实说明：任务给的 pemami4911/ReLeaSE 与 PSZlen/smiles-transformer 均已 404，经 GitHub API 核实正主为 isayev/ReLeaSE 与 DSPsleeporg/smiles-transformer（描述与论文一一对应）。
 
@@ -13,7 +13,7 @@
 |---|---|---|---|---|
 | **bofire**（experimental-design/bofire） | 实验设计 + （多目标）贝叶斯优化框架，化工/制药工业界在用 | BSD-3-Clause | **进MCP封装** | 活跃维护（v0.5.0，2026-08 仍在发版）；自带问题/策略/代理模型序列化 → 天然契合 MCP JSON 契约；连续/离散/类别变量 + 约束 + 单/多目标 BO 完整覆盖生物质实验变量（温度/配比/时间）；PyTorch/BoTorch 依赖按"依赖缺失降级"模式处理即可 |
 | **ReLeaSE**（isayev/ReLeaSE） | 深度强化学习 de novo 分子生成（stackRNN 生成器 + 属性预测器做 reward） | MIT | **只参考** | 代码价值≈0：Jupyter demo 形态、无 pip 包、依赖锁死 2018 年（PyTorch 0.4.1/TF 1.8/CUDA 9/Python 3.6）、2021 年停更；只授粉其「生成器-预测器-RL 两阶段」架构思想（详见 §三迁移成本专项） |
-| **smiles-transformer**（DSPsleeporg/smiles-transformer） | 预训练 SMILES autoencoder → 分子指纹嵌入，面向低数据药物发现（表示学习，**非生成**） | MIT | **只参考** | 没有分子生成管线（`sample.py` 只是 SMILES 枚举 demo）；价值在预训练嵌入 → 小样本性质预测，可平移给生物质平台分子，但需领域微调 + 权重外部下载；若沈遥后续要"小样本分子性质预测"能力再评估封装 |
+| **smiles-transformer**（DSPsleeporg/smiles-transformer） | 预训练 SMILES autoencoder → 分子指纹嵌入，面向低数据药物发现（表示学习，**非生成**） | MIT | **只参考** | 没有分子生成管线（`sample.py` 只是 SMILES 枚举 demo）；价值在预训练嵌入 → 小样本性质预测，可平移给生物质平台分子，但需领域微调 + 权重外部下载；若实验田维护者后续要"小样本分子性质预测"能力再评估封装 |
 
 ---
 
@@ -33,15 +33,15 @@ bofire（**B**ayesian **O**ptimization **F**ramework **I**ntended for **R**eal *
 - **闭环原语**：`domain.inputs.sample(n)` 随机采样候选 → `strategy.ask(candidate_count=k)` 提候选 → `strategy.tell(experiments)` 吃实验结果更新代理 → 循环。
 - **序列化**：data models 与 functional 分离，Domain/Strategy/代理模型可序列化 → 官方定位就是"无缝接入 RESTful API"，MCP 封装零摩擦。
 
-### 1.3 与沈遥实验设计流程的结合（生物质材料实验）
+### 1.3 与实验田维护者实验设计流程的结合（生物质材料实验）
 
-沈遥的实验是典型的"多变量-少轮次-贵表征"场景（热解/水热碳化/催化转化，一次实验成本高、可做轮次少），正是贝叶斯优化的目标场景。映射方式：
+实验田维护者的实验是典型的"多变量-少轮次-贵表征"场景（热解/水热碳化/催化转化，一次实验成本高、可做轮次少），正是贝叶斯优化的目标场景。映射方式：
 
 1. **变量声明**：温度（℃）、时间（min）→ `ContinuousInput(bounds=[下限, 上限])`；原料:溶剂或催化剂配比 → `ContinuousInput` 或 `DiscreteInput`（枚举常用配比），配比类变量加线性约束（如组分和=100%）；原料种类/催化剂类型 → `CategoricalInput(categories=[...])`；多批实验 → `TaskInput` 吸收批次漂移。
 2. **目标定义**：单目标（产物得率最大化）用 `SoboStrategy`；多目标（得率 vs 高位热值 HHV vs 单位能耗，或得率 vs 灰分）用 `MoboStrategy`/`QparegoStrategy` + 多个 `ContinuousOutput`；硬指标（如灰分 < 阈值）用输出约束。
-3. **闭环流程**：第 0 轮用 `domain.inputs.sample()` 或 `DoEStrategy` 生成满足约束的初始实验矩阵（比人工正交表灵活，天然不产生越界组合）→ 沈遥做实验 → 结果回填 `experiments` → `tell` 更新 GP → `ask` 给出下一轮候选参数表 → 循环至收敛。
+3. **闭环流程**：第 0 轮用 `domain.inputs.sample()` 或 `DoEStrategy` 生成满足约束的初始实验矩阵（比人工正交表灵活，天然不产生越界组合）→ 实验田维护者做实验 → 结果回填 `experiments` → `tell` 更新 GP → `ask` 给出下一轮候选参数表 → 循环至收敛。
 4. **与 Lumo 的接法**：MCP 工具面建议两个 command——`bofire_suggest`（输入：变量声明 JSON + 已做实验表 → 输出：下一批候选参数表 + 预测区间）与 `bofire_update`（吃一轮实验结果，返回代理更新状态）；Domain/Strategy 以 JSON 持久化到实验记录库（呼应 ChemGraph 授粉的 SQLite 记录层），实验历史即训练数据，天然形成"设计→实验→记录→再设计"闭环。
-5. **冷启动增强**：`LLMStrategy` 可让 LLM 依据文献背景（如某温度区间/催化剂先验）提首轮候选，适合沈遥有文献先验但缺实验数据的起步阶段。
+5. **冷启动增强**：`LLMStrategy` 可让 LLM 依据文献背景（如某温度区间/催化剂先验）提首轮候选，适合实验田维护者有文献先验但缺实验数据的起步阶段。
 6. **依赖降级**：bofire 依赖 PyTorch/BoTorch（较重），按 MODEL_INTERFACE 既有模式处理——封装 `bofire_check` 工具 + 缺依赖抛 `AcademicDependencyError`（含 `pip install bofire[optimization]` 提示），只标注不否决。
 
 ---
@@ -75,7 +75,7 @@ SMILES Transformer（arXiv:1911.04738，Honda/Shi/Ueda）是**预训练分子指
 - **它没有分子生成管线**：`pretrain_trfm.py` 训练的是 autoencoder，产出的是编码器嵌入；`sample.py` 经核实只是 SMILES 枚举（随机化）演示脚本，**不是模型采样生成**。所以"生成全新生物质衍生分子"这一步它不提供，与任务描述中的"生成管线"有出入——这是本库"只参考"而非"进封装"的核心原因。
 - **但表示学习路线可平移**：把生物质平台分子（HMF、糠醛、愈创木酚、香草醛、木质素二聚体等，RDKit 均可处理其 SMILES）编码为预训练指纹，喂给浅层模型做**小样本性质预测**（如高位热值、热重参数、溶解性、催化转化得率）——这正是"低数据药物发现"思路对能源/材料分子的平移，且与 bofire 的分子核代理（Tanimoto GP）互补。
 - **迁移注意**：预训练语料是类药物分子分布，生物质分子（糖/呋喃/酚类）分布不同，直接使用有分布偏移，需领域微调；预训练权重托管在 Google Drive 外部链接，无版本管理；下游示例全是 notebook 形态，封装成服务需重写为脚本。
-- **结论**：只参考。若沈遥后续明确要"小样本分子性质预测"能力，再按 bofire 同级评估封装（PyTorch 依赖 + 权重下载 + 脚本化重写，成本中等）。
+- **结论**：只参考。若实验田维护者后续明确要"小样本分子性质预测"能力，再按 bofire 同级评估封装（PyTorch 依赖 + 权重下载 + 脚本化重写，成本中等）。
 
 ---
 
@@ -105,7 +105,7 @@ grep -c "smiles-transformer.*只参考" docs/academic/lumo-molec-授粉报告.md
 grep -c "Jupyter notebook 形态对封装的影响" docs/academic/lumo-molec-授粉报告.md  # ≥1
 
 # 4. bofire×实验设计结合段落存在
-grep -c "与沈遥实验设计流程的结合" docs/academic/lumo-molec-授粉报告.md  # ≥1
+grep -c "与实验田维护者实验设计流程的结合" docs/academic/lumo-molec-授粉报告.md  # ≥1
 ```
 
 ---

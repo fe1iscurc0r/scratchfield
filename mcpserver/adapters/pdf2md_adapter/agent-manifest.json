@@ -3,7 +3,7 @@
   "displayName": "论文 PDF → Markdown 管线",
   "version": "1.0.0",
   "description": "四靶子 D：论文 PDF 转 Markdown。Docling（IBM）主力——中文 OCR（ch_sim+en）、表格结构保留、脚注随正文导出、图像提取到独立文件；MarkItDown 降级兜底。引擎均缺失时工具直接报错（fail-fast），不静默空返回。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.pdf2md_adapter.adapter",

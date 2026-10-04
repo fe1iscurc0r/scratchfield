@@ -1,7 +1,7 @@
 # OpenArc 冥王峡谷部署方案 spec · 智能体 06 / 06-02
 
 > 状态：**spec 先行，不实际部署**（工单硬约束：不烧资源）
-> 读者：沈遥（spec+review）/ 部署执行者（林楠侧 Kali）
+> 读者：实验田维护者（spec+review）/ 部署执行者（执行侧侧 Kali）
 > 依据：06-01 评估报告 + SPEC-15（知识底座）+ SPEC-16（MCP 清单）+ speech-core 授粉报告
 > 前提结论：冥王峡谷 NUC8i7HVK **仅 CPU 可用 OpenVINO**（无 NPU、Vega M GH AMD 不支持），见 06-01 §5
 

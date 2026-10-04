@@ -3,7 +3,7 @@
   "displayName": "IC-705 电台远程控制 (RS-BA1)",
   "version": "1.0.0",
   "description": "Icom IC-705 远程控制（RS-BA1 逆向协议栈）。6 个工具：读频率/读模式/读信号强度/设频率/PTT 控制/组合状态。RadioLink 直连优先，RemoteUty Mailslot 兜底；频率设置强制业余频段白名单校验，越界拒绝；异常转为人类可读错误消息，不静默。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.rsba1_adapter.adapter",

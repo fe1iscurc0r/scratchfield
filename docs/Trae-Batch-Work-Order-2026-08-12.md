@@ -1,7 +1,7 @@
 # Trae 批量工单 — 2026-08-12 紧急清仓
 
-> 来源：沈遥（Hermes）  
-> 施工者：林楠（Trae IDE）  
+> 来源：实验田维护者（Hermes）  
+> 施工者：执行侧（Trae IDE）  
 > 状态：用户出远门，能做的全做，不等任何人  
 > 原则：零阻塞 → 纯代码/文档/分析，不需要用户输入
 
@@ -40,7 +40,7 @@
 
 **SPEC**：`docs/*-security-audit-2026-08-11.md`（9 个文件）
 
-每个审计报告末尾有具体的修复清单。**只做 LOW 项**（MEDIUM/HIGH 留给沈遥审查后决定）。
+每个审计报告末尾有具体的修复清单。**只做 LOW 项**（MEDIUM/HIGH 留给实验田维护者审查后决定）。
 
 **优先级排序**（按影响面）：
 
@@ -58,7 +58,7 @@
 
 **注意**：
 - 每修一个模块，单独 commit（`fix(apiserver): 安全审计LOW项修复`）
-- 不要批量 commit——方便沈遥逐模块 review
+- 不要批量 commit——方便实验田维护者逐模块 review
 - 如果某个 LOW 项修复需要动架构，跳过并标注 `[SKIP: 需要架构变更]`
 
 **周期**：总计 3-4 小时，可以分批推
@@ -92,7 +92,7 @@
 ```
 
 **周期**：2-3 小时（分析 + 写报告）  
-**如果 GitHub 被墙 clone 不下来**：发 `git clone` 报错信息给沈遥，他用云服中转
+**如果 GitHub 被墙 clone 不下来**：发 `git clone` 报错信息给实验田维护者，他用云服中转
 
 ---
 
@@ -105,7 +105,7 @@
 grep -rn "TODO\|FIXME\|HACK\|XXX\|待办\|待做" --include="*.py" --include="*.md" --include="*.js" --include="*.ts" .
 ```
 
-能做的直接做，不能做的汇总成「留给沈遥的待办清单」→ `docs/Trae-Blocked-TODO-2026-08-12.md`
+能做的直接做，不能做的汇总成「留给实验田维护者的待办清单」→ `docs/Trae-Blocked-TODO-2026-08-12.md`
 
 **周期**：0.5h 扫描 + 不确定时间的执行
 
@@ -116,7 +116,7 @@ grep -rn "TODO\|FIXME\|HACK\|XXX\|待办\|待做" --include="*.py" --include="*.
 - **不要改架构** — 安全审计 MEDIUM/HIGH 项、N.E.K.O. 拓扑变更
 - **不要动 SCI 综述** — 等导师确认方向
 - **不要动 Nostr/prime-agent** — 观望阶段
-- **不要删文件** — 任何清理操作留给沈遥
+- **不要删文件** — 任何清理操作留给实验田维护者
 
 ---
 
@@ -148,4 +148,4 @@ grep -rn "TODO\|FIXME\|HACK\|XXX\|待办\|待做" --include="*.py" --include="*.
 
 ## 紧急联系
 
-如果遇到阻塞（网络不通、依赖装不上、模型下载失败、看不懂 SPEC）→ 在 Gitee 上提 issue 或直接 push 阻塞报告到 `docs/Trae-Blocked-*.md`，沈遥回来处理。
+如果遇到阻塞（网络不通、依赖装不上、模型下载失败、看不懂 SPEC）→ 在 Gitee 上提 issue 或直接 push 阻塞报告到 `docs/Trae-Blocked-*.md`，实验田维护者回来处理。

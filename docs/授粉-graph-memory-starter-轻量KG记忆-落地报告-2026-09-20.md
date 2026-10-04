@@ -1,6 +1,6 @@
 # 授粉 · graph-memory-starter 轻量 KG 记忆 — 落地报告（2026-09-20）
 
-> 卷139 交付 | 沈遥签
+> 卷139 交付 | 实验田维护者签
 > 上游：Glitch-Cat-Club/graph-memory-starter（227★ · MIT ✅ gh api 核验 · 2026-08-30 最后推送）
 > 落点：`mcpserver/graph_memory_adapter/`（engine.py + adapter.py + schema.sql + manifest + prompts/）
 

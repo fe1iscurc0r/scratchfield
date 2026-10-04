@@ -82,7 +82,7 @@
 
 ## 七、论文 backlog 状态更新（诚实标注）
 
-> 工单要求"在对应记录处标注已勘察"。本仓**无独立的论文 backlog 纯文本文件**：`research/papers/` 不存在，根目录 `papers/` 无相关条目；"电磁孪生/NICWhisper"两个条目仅出现在 `BATCH-WORKORDERS-2026-08-30-第三期.md` 与 `TRAE_WORKORDER_PROMPT_AGENT_09.md` 中，实际状态由 **weekly_pollination（`mcpserver/memory_maas/guard.py` 引用的 8-26 轮授粉数据）** 承载，非本 checkout 可编辑的纯文本。故本轮把状态记录于此，并请沈遥/用户在 memory_maas 授粉库中同步：
+> 工单要求"在对应记录处标注已勘察"。本仓**无独立的论文 backlog 纯文本文件**：`research/papers/` 不存在，根目录 `papers/` 无相关条目；"电磁孪生/NICWhisper"两个条目仅出现在 `BATCH-WORKORDERS-2026-08-30-第三期.md` 与 `TRAE_WORKORDER_PROMPT_AGENT_09.md` 中，实际状态由 **weekly_pollination（`mcpserver/memory_maas/guard.py` 引用的 8-26 轮授粉数据）** 承载，非本 checkout 可编辑的纯文本。故本轮把状态记录于此，并请实验田维护者/用户在 memory_maas 授粉库中同步：
 
 | 条目 | arXiv | 勘察状态 | 落点 |
 |---|---|---|---|
@@ -95,5 +95,5 @@
 1. 工单指认的 `security/tesla-touchscreen-em-sidechannel` skill 与 `research/papers/` 论文池**均不存在于本仓**，本单以 web 调研论文（arXiv 号已列）+ 本仓已有文档为准。
 2. 所有采集参数（采样率/带宽/FFT 点数/干扰数/多径簇数）、成本单价、运放增益/磁棒电感均为**估算**，未真机实测。
 3. ESP32 ADC 的 ENOB/带宽为通用规格（非论文数据），需真机标定。
-4. NICWhisper 为无同行评审预印本；Channel2World 已由沈遥判读为"直接照抄无意义，价值在范式"。
+4. NICWhisper 为无同行评审预印本；Channel2World 已由实验田维护者判读为"直接照抄无意义，价值在范式"。
 5. 全程**未烧硬件、未 clone 重依赖、未写完整固件**，仅出方案 + 可行性评估。

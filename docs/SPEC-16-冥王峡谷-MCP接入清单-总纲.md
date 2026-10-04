@@ -1,9 +1,9 @@
 # SPEC-16 冥王峡谷 MCP 接入清单 · 总纲 v1
 
 > 状态：待施工（2026-08-25 用户拍板：scratchpad 的 MCP/插件按三层清单筛选上机）
-> 用途：冥王峡谷（NUC8i7HVK, i7-8809G + Vega M GH, 16GB RAM, 512GB NVMe, Kali 主力）给林楠（Hermes profile `~/.hermes/profiles/linnan/`）接入 MCP 模块的选型与施工蓝图
+> 用途：冥王峡谷（NUC8i7HVK, i7-8809G + Vega M GH, 16GB RAM, 512GB NVMe, Kali 主力）给执行侧（Hermes profile `~/.hermes/profiles/linnan/`）接入 MCP 模块的选型与施工蓝图
 > 归属：本 SPEC 属冥王峡谷线，**随 SPEC-14/15 迁入独立仓 canyon-kb**，不留在 scratchpad
-> 读者：沈遥（spec+review）/ 部署执行者（林楠侧 Kali）/ Trae（如需写码）
+> 读者：实验田维护者（spec+review）/ 部署执行者（执行侧侧 Kali）/ Trae（如需写码）
 > 依据：SPEC-15（知识底座）、native-mcp（Hermes MCP 客户端）、linnan-onboarding、2026-08-25 会话结论
 
 ## 〇、定位与铁律（用户拍板）
@@ -108,5 +108,5 @@ systemctl enable --now kb-build.timer linan-proactive.timer
 
 ---
 
-*制定：沈遥（Hermes）· 2026-08-25*
+*制定：实验田维护者（Hermes）· 2026-08-25*
 *依据：SPEC-15 + native-mcp + 2026-08-25 会话结论*

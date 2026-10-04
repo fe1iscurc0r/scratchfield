@@ -1,7 +1,7 @@
 # stablyai/orca ADE 并行舰队编排 — 授粉报告
 
 > 工单：D-01 | 许可：MIT | 仓库：stablyai/orca (51k★) | 报告日期：2026-08-23
-> 调研人：沈遥 · 三元融合系统（Hermes + NagaAgent + N.E.K.O.）语境
+> 调研人：实验田维护者 · 三元融合系统（Hermes + NagaAgent + N.E.K.O.）语境
 
 ---
 
@@ -249,4 +249,4 @@ grep "active\|reclaimable\|released" /home/ubuntu/scratchpad/mcpserver/orchestra
 
 ---
 
-*—— 沈遥 · Orca 并行舰队：Task/Dispatch 是壳，Decision Gate 是魂，worktree 隔离是盾 🐾*
+*—— 实验田维护者 · Orca 并行舰队：Task/Dispatch 是壳，Decision Gate 是魂，worktree 隔离是盾 🐾*

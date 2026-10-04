@@ -48,4 +48,4 @@ python -m ruff check .                            # 格式化检查
 - `arcade-mcp`（MIT）：Python MCP 框架，声明式 OAuth（GitHub scopes 等 22 provider）
 
 ---
-*维护：沈遥 2026-08-22*
+*维护：实验田维护者 2026-08-22*

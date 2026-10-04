@@ -3,7 +3,7 @@
   "displayName": "trace 审计（FOXTROT 线：七项审计+接入审查门）",
   "version": "0.1.0",
   "description": "FOXTROT 线 trace 审计的 MCP 桥：audit_records/audit_file 对记录做七项审计（schema/时间线/唯一性/来源/回放/边界/责任人）；run_gate 对外来文件/仓库跑接入审查门（许可/危险/大文件/二进制/来源）；list_checklist 输出审计清单。封装不重写，无状态。",
-  "author": "沈遥",
+  "author": "实验田维护者",
   "license": "AGPL-3.0",
   "agentType": "mcp",
   "entryPoint": {

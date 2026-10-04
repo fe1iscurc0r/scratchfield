@@ -82,7 +82,7 @@ async def require_proxy_token(request: Request) -> dict:
     if not hmac.compare_digest(token, _token):
         raise HTTPException(status_code=401, detail="invalid credentials")
 
-    # 返回值不含 token（沈遥 R4：防日志/异常链泄露密钥）
+    # 返回值不含 token（实验田维护者 R4：防日志/异常链泄露密钥）
     return {"auth": "proxy"}
 
 
@@ -90,7 +90,7 @@ async def require_proxy_token(request: Request) -> dict:
 
 
 class SpeakRequest(BaseModel):
-    # 沈遥 R3：长度上限防 OOM；铁锚 MEDIUM-6：min_length 防 empty payload
+    # 实验田维护者 R3：长度上限防 OOM；铁锚 MEDIUM-6：min_length 防 empty payload
     lanlan_name: str = Field(..., min_length=1, max_length=64, description="目标角色名")
     text: str = Field(..., min_length=1, max_length=4096, description="注入的说话内容")
     emotion: Optional[str] = Field(None, max_length=32, description="伴随表情（可选）")
@@ -102,7 +102,7 @@ class EmotionRequest(BaseModel):
     emotion: str = Field(..., min_length=1, max_length=32, description="neutral/happy/sad/angry/surprised")
     # 铁锚 LOW-7：与 SpeakRequest.emotion_confidence 默认值统一（0.5），
     # 避免同一 emotion 标签经不同端点产生不同规范化结果
-    # 沈遥 No.6：默认 0.5 不触发宽松 fuzzy 分支（<0.72），更严格匹配
+    # 实验田维护者 No.6：默认 0.5 不触发宽松 fuzzy 分支（<0.72），更严格匹配
     confidence: float = Field(0.5, ge=0.0, le=1.0)
 
 
@@ -130,8 +130,8 @@ async def inject_speak(req: SpeakRequest, _auth: dict = Depends(require_proxy_to
     except KeyError:
         raise HTTPException(status_code=404, detail="target not found")
 
-    # 审计日志（沈遥 R4：不记 text 全文，只记长度；铁锚 #7：不记原始 emotion 输入值）
-    # 沈遥 No.7：额外记 emotion_confidence，便于排查 fuzzy 匹配分支
+    # 审计日志（实验田维护者 R4：不记 text 全文，只记长度；铁锚 #7：不记原始 emotion 输入值）
+    # 实验田维护者 No.7：额外记 emotion_confidence，便于排查 fuzzy 匹配分支
     logger.info(f"[lumo_inject] action=speak char={req.lanlan_name} text_len={len(req.text)} emotion={'present' if req.emotion else 'none'} emotion_confidence={req.emotion_confidence}")
 
     # issue #17：队列余量预检——本次请求需要入队的消息数（带 emotion 为 2 条），
@@ -175,7 +175,7 @@ async def inject_speak(req: SpeakRequest, _auth: dict = Depends(require_proxy_to
 
     # 推 speak 指令（陆墨扩展类型，前端需适配）
     # 铁锚 MEDIUM：捕获 QueueFull，避免极端 race 下返回 500
-    # 沈遥 R3：用 429 而非 503——队列满是背压，非服务故障，避免客户端按 503 重试打满队列
+    # 实验田维护者 R3：用 429 而非 503——队列满是背压，非服务故障，避免客户端按 503 重试打满队列
     # issue #17：部分成功语义已由上方余量预检根治；此处 QueueFull 仅作为
     #   预检后极端 race 的兜底，不再是常规路径
     try:
@@ -229,7 +229,7 @@ async def inject_emotion(req: EmotionRequest, _auth: dict = Depends(require_prox
 
     # 1. 入 sync_message_queue → cross_server → monitor_server（原有路径）
     # 铁锚 MEDIUM：捕获 QueueFull，避免极端 race 下返回 500
-    # 沈遥 R3：用 429 而非 503——队列满是背压，非服务故障
+    # 实验田维护者 R3：用 429 而非 503——队列满是背压，非服务故障
     try:
         q.put({"type": "json", "data": emotion_payload})
     except asyncio.QueueFull:
@@ -310,7 +310,7 @@ async def inject_task(req: TaskRequest, _auth: dict = Depends(require_proxy_toke
     headers = {"Authorization": f"Bearer {exec_token}"}
     target = f"http://127.0.0.1:{TOOL_SERVER_PORT}/{tool}/run"
 
-    # 沈遥 P0：computer_use 立即返回 task_id（30s 足够）；browser_use 同步等待执行完成（需 180s）
+    # 实验田维护者 P0：computer_use 立即返回 task_id（30s 足够）；browser_use 同步等待执行完成（需 180s）
     bridge_timeout = 180.0 if tool == "browser_use" else 30.0
     try:
         client = _get_http_client()

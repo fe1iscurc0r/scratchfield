@@ -19,7 +19,7 @@ graphify 知识图谱（已装 Hermes）、duckdb（已评估）。
 ## 阶段拆解
 
 ### Phase 1: academic 16 融合（基础，优先）
-- 任务 1.1: 16 项目逐一读文档，提取"模型弹药"（算法/API/数据格式）
+- 任务 1.1: 16 项目逐一读文档，提取"模型候选"（算法/API/数据格式）
 - 任务 1.2: 按学术包标准出 DATASET.md / BENCHMARK.md / MODEL_INTERFACE.md
 - 任务 1.3: 接入 material_science 模块（matchat_bridge 旁）
 - 验收: 16 项全部有 MODEL_INTERFACE.md，Lumo 可调用 ≥5 项
@@ -61,7 +61,7 @@ graphify 知识图谱（已装 Hermes）、duckdb（已评估）。
 ```
 scratchpad/
 ├── research/         # Lumo 研究数据（天选7 已有）
-├── academic/         # 16 项目模型弹药（MODEL_INTERFACE.md 索引）
+├── academic/         # 16 项目模型候选（MODEL_INTERFACE.md 索引）
 ├── mcpserver/material_science/
 │   ├── academic_bridge/   # 16 项目调用接口
 │   ├── graphrag/          # 图谱检索
