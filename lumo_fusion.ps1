@@ -264,7 +264,7 @@ $script:childJobs = @()
 function Start-ChildProcess($label, $filePath, $argumentList, $workingDir) {
   $psi = [System.Diagnostics.ProcessStartInfo]::new()
   $psi.FileName = $filePath
-  # 沈遥 P0：含空格路径需加引号，否则 CreateProcess 在空格处截断
+  # P0：含空格路径需加引号，否则 CreateProcess 在空格处截断
   $psi.Arguments = ($argumentList | ForEach-Object {
     '"' + ($_ -replace '"', '\"') + '"'
   }) -join " "

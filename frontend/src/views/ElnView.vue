@@ -198,7 +198,7 @@ async function submitCreate() {
  * scripts/materials_model/predict.py（CLI，支持 --temp/--time 等特征入参，
  * 输出 JSON 含 predictions[{target,value,unit,interval}] 不确定区间）。
  *
- * 按工单「后端缺失的接口先 grep 确认，缺了标记 TODO 报沈遥，禁止自造」：
+ * 按工单「后端缺失的接口先 grep 确认，缺了标记 TODO 上报维护者，禁止自造」：
  * 此处不伪造 HTTP 调用，改为引导用户走 CLI，并把当前记录特征导出为提示。
  * TODO(后端): 需新增 POST /api/materials/predict（入参：ELN 记录 id 或特征矩阵；
  *   出参：predict.py 的 JSON 结构），届时把本函数换成真实调用。
@@ -489,7 +489,7 @@ onMounted(async () => {
         </div>
 
         <div class="text-xs text-white/30 border-t border-white/10 pt-2">
-          TODO(后端·报沈遥): 新增 POST /api/materials/predict，入参记录 id 或特征矩阵，
+          TODO(后端·上报维护者): 新增 POST /api/materials/predict，入参记录 id 或特征矩阵，
           出参 predict.py 的 JSON 结构；届时此处换成真实调用并把区间直接回显。
         </div>
 
