@@ -55,7 +55,7 @@ mss>=10.2.0
 
 # ---------- RAG 向量检索 ----------
 torch>=2.14.0  # CPU 版即可，pip install torch 默认安装 CPU 版
-transformers>=4.30.0
+transformers>=5.18.0
 tokenizers>=0.15.0
 
 # ---------- GRAG 五元组提取（可选，api_format=anthropic 时需要） ----------
