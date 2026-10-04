@@ -19,6 +19,13 @@ _OPTIONAL_MODULE_TESTS: list[tuple[str, str]] = [
     # 卷173 分层落地时补登记：scipy 为 try/except 降级依赖（pyproject 未声明，
     # 见 2026-09-29 依赖审计），干净 venv 下缺失属预期——跳过收集不拦全量。
     ("test_raman_utils.py", "scipy"),
+    # 展示仓同步口径（2026-10-04）：research/ 目录属私有工作仓，不进公开仓——
+    # 其对应测试为孤儿，跳过收集。matplotlib 属科研绘图依赖，CI 最小依赖下
+    # 缺失属预期，跳过对应测试。
+    ("test_lorebook.py", "research"),
+    ("test_planner.py", "research"),
+    ("test_domain_pack.py", "matplotlib"),
+    ("test_mcp_assembly_policy.py", "matplotlib"),
 ]
 
 collect_ignore = [
