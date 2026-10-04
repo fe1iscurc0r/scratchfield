@@ -269,7 +269,7 @@ def _query_triples_from_file(keywords, limit=5):
             if _has_pronoun(triple):
                 continue
             head, rel, tail = triple
-            if kw == head or kw == tail or kw == rel:
+            if kw in (head, tail, rel):
                 if triple not in exact:
                     exact.append(triple)
             elif kw in head or kw in tail or kw in rel:

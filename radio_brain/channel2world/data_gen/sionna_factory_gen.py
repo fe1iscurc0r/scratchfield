@@ -2,12 +2,12 @@
 
 主路径：NVIDIA Sionna RT（Apache-2.0）射线追踪，替代商业 Wireless InSite，
 生成工厂场景多径信道数据，对齐论文 Table I 参数（7.0 GHz、BS 高 15 m、
-UE 高 1.5 m、最多 12 路径、≤3 次反射、衍射关）。
+UE 高 1.5 m、最多 12 路径、≤3 次反射、衍射关）。Sionna 2.x 已迁移到
+DrJit + Mitsuba 后端（不依赖 TensorFlow），可在 Python 3.13 + CPU 上运行。
 
-降级路径（草稿 §七 风险 1）：Sionna 依赖 TensorFlow 且未提供 Python 3.13
-轮子，无法在本环境安装时，回退到 ``specular_tracer.SpecularTracer``（纯 NumPy
-镜像源法）。两个后端共享同一输出 schema（HDF5 + parquet + 数据卡 JSON），
-T2 无需感知差异。
+降级路径（草稿 §七 风险 1）：Sionna 无法安装/运行时，回退到
+``specular_tracer.SpecularTracer``（纯 NumPy 镜像源法）。两个后端共享同一
+输出 schema（HDF5 + parquet + 数据卡 JSON），T2 无需感知差异。
 
 用法::
 
@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -113,6 +114,85 @@ def _empty_record(scene_id: int, layout: FactoryLayout, bs: np.ndarray, ue: np.n
     )
 
 
+def _build_room_ply(width: float, length: float, height: float) -> str:
+    """生成内法线（指向房间内部）的立方体 PLY 文本，供 Mitsuba 场景使用。"""
+    w, l, h = width, length, height
+    verts = [
+        (0, 0, 0), (w, 0, 0), (w, l, 0), (0, l, 0),
+        (0, 0, h), (w, 0, h), (w, l, h), (0, l, h),
+    ]
+    # 12 个三角形（6 面 × 2），法线指向房间内部
+    faces = [
+        (0, 1, 2), (0, 2, 3),  # 地面  +z
+        (4, 7, 6), (4, 6, 5),  # 天花板 -z
+        (0, 3, 7), (0, 7, 4),  # x=0  +x
+        (1, 5, 6), (1, 6, 2),  # x=W  -x
+        (0, 4, 5), (0, 5, 1),  # y=0  +y
+        (3, 2, 6), (3, 6, 7),  # y=L  -y
+    ]
+    lines = [
+        "ply", "format ascii 1.0",
+        "element vertex 8",
+        "property float x", "property float y", "property float z",
+        "element face 12",
+        "property list uchar int vertex_indices",
+        "end_header",
+    ]
+    lines += [f"{x} {y} {z}" for x, y, z in verts]
+    lines += ["3 %d %d %d" % f for f in faces]
+    return "\n".join(lines)
+
+
+def _build_factory_scene(layout: FactoryLayout, workdir: Path) -> Path:
+    """把工厂布局写成 Mitsuba XML 场景（金属材质矩形房间），返回 XML 路径。"""
+    workdir.mkdir(parents=True, exist_ok=True)
+    ply_path = workdir / "room.ply"
+    ply_path.write_text(_build_room_ply(layout.width, layout.length, layout.height), encoding="utf-8")
+    xml = (
+        '<scene version="2.1.0">\n'
+        '  <bsdf type="itu-radio-material" id="wall-mat">\n'
+        '    <string name="type" value="metal"/>\n'
+        '    <float name="thickness" value="0.5"/>\n'
+        '  </bsdf>\n'
+        '  <shape type="ply" id="room">\n'
+        f'    <string name="filename" value="{ply_path.as_posix()}"/>\n'
+        '    <boolean name="face_normals" value="true"/>\n'
+        '    <ref id="wall-mat" name="bsdf"/>\n'
+        '  </shape>\n'
+        '</scene>\n'
+    )
+    xml_path = workdir / "room.xml"
+    xml_path.write_text(xml, encoding="utf-8")
+    return xml_path
+
+
+def _extract_sionna_paths(paths, max_paths: int) -> dict:
+    """Sionna Paths 对象 → 与 specular tracer 同构的多径参数字典。
+
+    Sionna 2.0 的 ``a`` 为 (实部, 虚部) 元组；增益取 |a|²，按时延升序（LOS 首径）
+    取前 max_paths 条，输出相对时延 / 相对增益。
+    """
+    tau = np.asarray(paths.tau).reshape(-1)
+    theta_r = np.asarray(paths.theta_r).reshape(-1)
+    phi_r = np.asarray(paths.phi_r).reshape(-1)
+    a = (np.asarray(paths.a[0]) + 1j * np.asarray(paths.a[1])).reshape(-1)
+    valid = np.asarray(paths.valid).reshape(-1).astype(bool)
+    power = np.abs(a) ** 2
+
+    order = np.argsort(np.where(valid, tau, np.inf))[:max_paths]
+    tau = tau[order]
+    theta_r = theta_r[order]
+    phi_r = phi_r[order]
+    power = power[order]
+    return {
+        "tau_rel": (tau - tau[0]).astype(np.float32),
+        "aoa_theta": theta_r.astype(np.float32),
+        "aoa_phi": phi_r.astype(np.float32),
+        "gain_rel": (10.0 * np.log10(power / (power[0] + 1e-12))).astype(np.float32),
+        "num_paths": int(tau.shape[0]),
+    }
+
+
 def generate_sionna(
     *,
     scenes: int,
@@ -125,60 +205,59 @@ def generate_sionna(
     bs_height: float,
     ue_height: float,
 ) -> list[SceneRecord]:
-    """Sionna RT 主路径。未在本环境实测（Sionna 需 TensorFlow）。"""
+    """Sionna RT 主路径（Sionna 2.0 / DrJit + Mitsuba，已在本环境实测可用）。"""
     try:
-        import sionna  # noqa: F401
-        from sionna.rt import PlanarArray, Receiver, Scene, Transmitter
+        import mitsuba as mi
+        from sionna.rt import PathSolver, PlanarArray, Receiver, Transmitter, load_scene
     except ImportError as exc:  # pragma: no cover - 取决于部署环境
         raise RuntimeError(
-            "Sionna RT 未安装（需要 TensorFlow，Python 3.13 无官方轮子）。"
-            "请改用 --backend specular 走镜面反射降级路径，或按 README 在 Python "
-            "3.10~3.12 + TensorFlow 环境安装 Sionna。"
+            "Sionna RT 未安装（pip install sionna 即可，Sionna 2.x 不再依赖 TensorFlow）。"
+            "若无法安装，请改用 --backend specular 走镜面反射降级路径。"
         ) from exc
 
     rng = np.random.default_rng(seed)
     records: list[SceneRecord] = []
+    workdir = Path(tempfile.mkdtemp(prefix="c2w_sionna_"))
+
     for scene_id in range(scenes):
         layout = _sample_layout(rng, seed_vary=scenes > 1)
         bs, ue = _sample_positions(rng, layout, bs_per_scene, ue_per_bs, bs_height, ue_height)
         rec = _empty_record(scene_id, layout, bs, ue, max_paths)
 
-        # 用一个空的 Sionna Scene 承载工厂几何（矩形反射面），此处按草稿 §四 A 线
-        # P0 以 XML 场景文件注入；几何构建与材质绑定见 README 的 Sionna 小节。
-        scene = Scene()
+        xml_path = _build_factory_scene(layout, workdir / f"scene_{scene_id:03d}")
+        scene = load_scene(str(xml_path))
         scene.frequency = frequency_hz
-        scene.synthetic_array = False
+        scene.tx_array = PlanarArray(num_rows=1, num_cols=1, pattern="iso", polarization="V")
+        scene.rx_array = PlanarArray(num_rows=1, num_cols=1, pattern="iso", polarization="V")
+
+        tx = Transmitter(name="tx", position=mi.Point3f(*bs[0].tolist()))
+        rx = Receiver(name="rx", position=mi.Point3f(*ue[0, 0].tolist()))
+        scene.add(tx)
+        scene.add(rx)
+        solver = PathSolver()
 
         for i in range(bs_per_scene):
-            tx = Transmitter(name=f"tx-{i}", position=bs[i].tolist())
-            rx = Receiver(name=f"rx", position=[0.0, 0.0, 0.0], orientation=[0.0, 0.0, 0.0])
-            scene.add(tx)
-            scene.add(rx)
+            tx.position = mi.Point3f(*bs[i].tolist())
             for j in range(ue_per_bs):
-                rx.position = ue[i, j].tolist()
-                paths = scene.compute_paths(
+                rx.position = mi.Point3f(*ue[i, j].tolist())
+                paths = solver(
+                    scene,
                     max_depth=max_reflections,
                     los=True,
-                    reflection=True,
+                    specular_reflection=True,
+                    refraction=False,
                     diffraction=False,
-                    scattering=False,
+                    edge_diffraction=False,
+                    max_num_paths_per_src=256,
+                    seed=seed,
                 )
-                tau = paths.tau.numpy().squeeze()  # (num_paths,)
-                theta_r = paths.theta_r.numpy().squeeze()
-                phi_r = paths.phi_r.numpy().squeeze()
-                a = paths.a.numpy().squeeze()  # 复路径系数
-                gain = np.abs(a) ** 2
-                # 相对时延/相对增益：对齐 LOS 首径
-                tau_rel = tau - tau[0]
-                gain_rel = 10.0 * np.log10(gain / (gain[0] + 1e-12))
-                n = min(len(tau), max_paths)
+                out = _extract_sionna_paths(paths, max_paths)
+                n = out["num_paths"]
                 rec.num_paths[i, j] = n
-                rec.tau_rel[i, j, :n] = tau_rel[:n]
-                rec.aoa_theta[i, j, :n] = theta_r[:n]
-                rec.aoa_phi[i, j, :n] = phi_r[:n]
-                rec.gain_rel[i, j, :n] = gain_rel[:n]
-            scene.remove(tx)
-            scene.remove(rx)
+                rec.tau_rel[i, j, :n] = out["tau_rel"]
+                rec.aoa_theta[i, j, :n] = out["aoa_theta"]
+                rec.aoa_phi[i, j, :n] = out["aoa_phi"]
+                rec.gain_rel[i, j, :n] = out["gain_rel"]
         records.append(rec)
     return records
 
@@ -325,7 +404,7 @@ def write_datacard(records: list[SceneRecord], path: Path, cfg: dict) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Channel2World T1 工厂信道数据生成器")
-    p.add_argument("--backend", choices=["sionna", "specular"], default="specular",
+    p.add_argument("--backend", choices=["sionna", "specular"], default="sionna",
                    help="射线追踪后端：sionna 主路径 / specular 镜面反射降级路径")
     p.add_argument("--scenes", type=int, default=1, help="工厂环境（布局）数 N")
     p.add_argument("--bs-per-scene", type=int, default=100, help="每环境 BS 位置数 M")

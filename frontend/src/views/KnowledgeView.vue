@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ConfirmDialog } from 'primevue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 /**
  * 知识库 · MatChat 内嵌页
  *
@@ -13,11 +15,12 @@
  *   3) 悬浮态切换时自动 detach/attach（悬浮态窗口太窄放不下 MatChat）
  */
 import { useRouter } from 'vue-router'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useToast } from 'primevue/usetoast'
 import API from '@/api/core'
 import backIcon from '@/assets/icons/back.png'
 import brainIcon from '@/assets/icons/brain.png'
+import EmptyState from '@/components/EmptyState.vue'
+import SkeletonCard from '@/components/SkeletonCard.vue'
+import { feedback } from '@/utils/feedback'
 
 // 保存流程的状态机：idle→extracting→saving→success/error
 type SaveStatus = 'idle' | 'extracting' | 'saving' | 'success' | 'error'
@@ -39,7 +42,6 @@ interface QaPair {
   a: string
 }
 
-const toast = useToast()
 const router = useRouter()
 // 是否在 Electron 桌面端（决定 BrowserView 能否使用）
 const isElectron = !!window.electronAPI
@@ -123,7 +125,7 @@ onMounted(async () => {
     currentUrl.value = u
   })
   unsubLoadError = window.electronAPI!.matchat.onLoadError((err) => {
-    toast.add({ severity: 'warn', summary: 'MatChat 加载失败', detail: String(err).slice(0, 120), life: 5000 })
+    feedback.warn('MatChat 加载失败', String(err).slice(0, 120))
   })
 
   // 悬浮态自动 detach BrowserView（悬浮态没有空间）
@@ -133,13 +135,8 @@ onMounted(async () => {
     if (floating && !wasFloating) {
       // 进入悬浮态：摘除 BrowserView
       try { await window.electronAPI!.matchat.detach() }
-      catch (_) { /* noop */ }
-      toast.add({
-        severity: 'info',
-        summary: '已切换到悬浮态',
-        detail: 'MatChat 内嵌已临时收起，请展开主窗口后恢复',
-        life: 5000,
-      })
+      catch { /* noop */ }
+      feedback.success('已切换到悬浮态', 'MatChat 内嵌已临时收起，请展开主窗口后恢复')
     }
     else if (!floating && wasFloating && router.currentRoute.value.path === '/knowledge') {
       // 退出悬浮态且回到本页：重新 attach
@@ -149,7 +146,7 @@ onMounted(async () => {
         if (bounds)
           await window.electronAPI!.matchat.attach(bounds)
       }
-      catch (_) { /* noop */ }
+      catch { /* noop */ }
     }
   })
 
@@ -186,7 +183,7 @@ onMounted(async () => {
       await window.electronAPI!.matchat.attach(bounds)
   }
   catch (e: any) {
-    toast.add({ severity: 'error', summary: 'MatChat 内嵌初始化失败', detail: String(e?.message || e), life: 6000 })
+    feedback.error('MatChat 内嵌初始化失败', String(e?.message || e))
   }
 })
 
@@ -206,7 +203,7 @@ onBeforeUnmount(async () => {
     try {
       await window.electronAPI!.matchat.detach()
     }
-    catch (_) { /* noop */ }
+    catch { /* noop */ }
   }
 })
 
@@ -225,12 +222,7 @@ async function loadDocs() {
     totalDocs.value = r.total || 0
   }
   catch (e: any) {
-    toast.add({
-      severity: 'error',
-      summary: '加载本地知识库失败',
-      detail: String(e?.message || e).slice(0, 150),
-      life: 6000,
-    })
+    feedback.error('加载本地知识库失败', String(e?.message || e).slice(0, 150))
     docs.value = []
   }
   finally {
@@ -256,7 +248,7 @@ watch(filterSource, loadDocs)
  */
 async function extractAndSave(pairs: number = 1) {
   if (!isElectron) {
-    toast.add({ severity: 'warn', summary: '仅桌面端可用', detail: '当前为 Web 环境，MatChat 内嵌需在桌面端使用', life: 4000 })
+    feedback.warn('仅桌面端可用', '当前为 Web 环境，MatChat 内嵌需在桌面端使用')
     return
   }
   saveStatus.value = 'extracting'
@@ -282,7 +274,7 @@ async function extractAndSave(pairs: number = 1) {
       return
     }
     // 把最后一条展示到确认区（用户可手动编辑后再点“确认入库”）
-    const last = arr[arr.length - 1]!
+    const last = arr.at(-1)!
     editableQ.value = last.q
     editableA.value = last.a
     // 直接提交入库（用户可手动点击确认编辑区再次修改后提交）
@@ -310,7 +302,7 @@ async function doIngest(pair: QaPair) {
   saveError.value = null
   const q = pair.q.trim()
   const a = pair.a.trim()
-  const title = q.length > 48 ? q.slice(0, 48) + '…' : q
+  const title = q.length > 48 ? `${q.slice(0, 48)}…` : q
   const content = `Q: ${q}\n\nA: ${a}\n`
   const today = new Date().toISOString().slice(0, 10)
   const tags = ['来源:MatChat', `入库:${today}`]
@@ -333,12 +325,7 @@ async function doIngest(pair: QaPair) {
     }
     saveStatus.value = 'success'
     lastDocId.value = r.docId || r.doc?.docId || null
-    toast.add({
-      severity: 'success',
-      summary: '已保存到知识库',
-      detail: title,
-      life: 3000,
-    })
+    feedback.success('已保存到知识库', title)
     // 刷新列表，让新文档出现
     await loadDocs()
   }
@@ -348,19 +335,33 @@ async function doIngest(pair: QaPair) {
   }
 }
 
-/** 删除一篇文档及其全部分块（二次确认） */
-async function deleteDoc(d: DocMeta) {
-  if (!confirm(`删除「${d.title}」及其所有分块？此操作不可恢复。`))
+// ── 删除文档二次确认（卷150 任务D：ConfirmDialog 列出影响范围） ──
+const confirmDeleteVisible = ref(false)
+const pendingDelete = ref<DocMeta | null>(null)
+
+function askDeleteDoc(d: DocMeta) {
+  pendingDelete.value = d
+  confirmDeleteVisible.value = true
+}
+
+/** 删除一篇文档及其全部分块 */
+async function doDeleteDoc() {
+  const d = pendingDelete.value
+  if (!d)
     return
+  confirmDeleteVisible.value = false
   try {
     const r = await API.ragDelete(d.docId)
     if (!r.success)
       throw new Error(r.error || '删除失败')
-    toast.add({ severity: 'success', summary: '已删除', detail: d.title, life: 2000 })
+    feedback.success('已删除', d.title)
     await loadDocs()
   }
   catch (e: any) {
-    toast.add({ severity: 'error', summary: '删除失败', detail: String(e?.message || e), life: 4000 })
+    feedback.error('删除失败', String(e?.message || e))
+  }
+  finally {
+    pendingDelete.value = null
   }
 }
 
@@ -369,17 +370,7 @@ async function reloadPage() {
   if (!isElectron)
     return
   await window.electronAPI!.matchat.reload()
-  toast.add({ severity: 'info', summary: '正在刷新 MatChat…', life: 2000 })
-}
-
-/** 清除 MatChat 登录态并刷新（用于切账号） */
-async function clearAndRelogin() {
-  if (!isElectron)
-    return
-  if (!confirm('将清除 MatChat 登录态并刷新页面，确定？'))
-    return
-  await window.electronAPI!.matchat.clearStorage()
-  toast.add({ severity: 'info', summary: '已清除登录态', detail: '请重新登录', life: 3000 })
+  feedback.success('正在刷新 MatChat…')
 }
 
 /** 返回上一页 */
@@ -487,7 +478,7 @@ const statusLabel = computed(() => ({
             </div>
             <div class="text-sm mb-6 text-white/40 leading-relaxed">
               当前为 Web 环境，无法加载 Electron BrowserView。
-              <br />请启动桌面端客户端，或
+              <br>请启动桌面端客户端，或
             </div>
             <a
               href="https://ai.matchat.cn/chat"
@@ -567,13 +558,17 @@ const statusLabel = computed(() => ({
             <!-- 清空确认区并回到 idle -->
             <button
               class="px-3 py-1.5 rounded text-xs bg-white/5 hover:bg-white/10"
-              @click="editableQ=''; editableA=''; saveStatus='idle'; saveError=null"
-            >清空</button>
+              @click="editableQ = ''; editableA = ''; saveStatus = 'idle'; saveError = null"
+            >
+              清空
+            </button>
             <!-- 用编辑后的内容入库 -->
             <button
               class="px-3 py-1.5 rounded text-xs bg-emerald-700 hover:bg-emerald-600 text-white"
               @click="doIngest({ q: editableQ, a: editableA })"
-            >💾 确认入库</button>
+            >
+              💾 确认入库
+            </button>
           </div>
         </div>
 
@@ -612,6 +607,7 @@ const statusLabel = computed(() => ({
 
         <!-- 文档列表（滚动区） -->
         <div class="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col gap-2">
+          <SkeletonCard v-if="loading" :rows="5" />
           <div
             v-for="d in docs"
             :key="d.docId"
@@ -645,22 +641,30 @@ const statusLabel = computed(() => ({
             <div class="mt-2 flex justify-end gap-2">
               <button
                 class="text-xs px-2 py-1 rounded bg-red-500/10 text-red-300 hover:bg-red-500/20"
-                @click="deleteDoc(d)"
-              >删除</button>
+                @click="askDeleteDoc(d)"
+              >
+                删除
+              </button>
             </div>
           </div>
           <!-- 空状态引导 -->
-          <div
+          <EmptyState
             v-if="!loading && !docs.length"
-            class="text-center op-40 py-14 text-sm"
-          >
-            <div class="text-4xl mb-3">📭</div>
-            <div>本地知识库还是空的。</div>
-            <div class="mt-1">在左侧 MatChat 中提问后，点击顶部「💾 保存当前问答」即可入库。</div>
-          </div>
+            icon="📭"
+            title="本地知识库还是空的"
+            description="在左侧 MatChat 中提问后，点击顶部「💾 保存当前问答」即可入库"
+          />
         </div>
       </div>
     </div>
+
+    <!-- 删除文档确认（卷150 任务D：列出影响范围） -->
+    <ConfirmDialog v-model:visible="confirmDeleteVisible" @confirm="doDeleteDoc">
+      <template #message>
+        确认删除文档「{{ pendingDelete?.title }}」？
+        <br>将同时删除其全部 <b>{{ pendingDelete?.chunkCount ?? 0 }}</b> 个分块，不可恢复。
+      </template>
+    </ConfirmDialog>
   </div>
 </template>
 

@@ -1,8 +1,9 @@
 """Phase 6 · 多协议解码器库验收测试（provider 注册表）
 
 覆盖工单验收点：
-1. 注册表架构：四个解码器（aprs/psk31/dtmf/pocsag）声明式注册；
-   list_decoders / get_decoder / decode / decode_all 泛型消费，无协议分支
+1. 注册表架构：全部解码器（aprs/psk31/dtmf/pocsag + OOK 的 acurite/nexus/kerui
+   + 弱信号 wspr/ft8 + 慢扫描电视 sstv）
+   声明式注册；list_decoders / get_decoder / decode / decode_all 泛型消费，无协议分支
 2. APRS/AX.25：模拟帧（文本→AX.25→NRZI→FSK）端到端解码，FCS-16 校验
 3. PSK31：Varicode 表关键码字核对 + 全字符表往返 + BPSK 端到端解码
 4. DTMF：Goertzel 端到端拨号序列解码
@@ -19,26 +20,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # scratchpad/
 
 from mcpserver.rf_brain.decoders import (  # noqa: E402
     DecodeResult,
+    aprs,
     decode,
     decode_all,
+    dtmf,
     get_decoder,
     list_decoders,
-    aprs,
     psk31,
-    dtmf,
 )
 from mcpserver.rf_brain.pocsag import build_frame_bits  # noqa: E402
-
 
 # --------------------------------------------------------------------------- #
 # 注册表架构验收
 # --------------------------------------------------------------------------- #
 
-def test_registry_has_four_decoders():
+def test_registry_has_all_decoders():
     names = list_decoders()
-    assert set(names) == {"aprs", "psk31", "dtmf", "pocsag"}, names
+    assert set(names) == {"aprs", "psk31", "dtmf", "pocsag",
+                          "acurite", "nexus", "kerui",
+                          "wspr", "ft8", "sstv", "ft4"}, names
     for name, mode in (("aprs", "afsk"), ("psk31", "bpsk"),
-                       ("dtmf", "dtmf"), ("pocsag", "fsk")):
+                       ("dtmf", "dtmf"), ("pocsag", "fsk"),
+                       ("acurite", "ook"), ("nexus", "ook"), ("kerui", "ook"),
+                       ("wspr", "fsk"), ("ft8", "fsk"), ("sstv", "fm"),
+                       ("ft4", "fsk")):
         p = get_decoder(name)
         assert p.demod_mode == mode and p.description, name
 
@@ -175,8 +180,9 @@ def test_pocsag_noise_rejected():
 
 def test_decode_all_never_raises_on_noise():
     rng = np.random.default_rng(11)
-    iq = (rng.standard_normal(8000) + 1j * rng.standard_normal(8000)).astype(complex)
-    for r in decode_all(iq, 8000.0):
+    # 16 s @12 kHz：保证 15 s 时隙的 wspr/ft8 完整跑真实噪声流水线
+    iq = (rng.standard_normal(192000) + 1j * rng.standard_normal(192000)).astype(complex)
+    for r in decode_all(iq, 12000.0):
         assert isinstance(r, DecodeResult)
         assert not r.success, f"{r.decoder} 对纯噪声误检: {r.message}"
 
@@ -203,7 +209,7 @@ def test_decoder_internal_exception_trapped():
 
 
 if __name__ == "__main__":
-    test_registry_has_four_decoders()
+    test_registry_has_all_decoders()
     test_unknown_decoder_returns_failure()
     test_decode_all_is_generic_no_branches()
     test_aprs_roundtrip()

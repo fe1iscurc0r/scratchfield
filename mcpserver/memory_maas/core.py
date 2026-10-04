@@ -21,6 +21,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+from mcpserver.memory_maas import capture, guard, maintenance
+from mcpserver.memory_maas.entities import (
+    EntityValidationError,
+    TypedMemoryStore,
+    normalize_type,
+)
+
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # scratchpad/
@@ -45,8 +52,8 @@ def _import_five_pieces():
     try:
         from memory.hybrid_search.rrf import HybridSearchIndex, Record
         from memory.index_cards.store import IndexCardStore
-        from memory.lineage.model import LineageError, SessionLineage
         from memory.lifecycle.policy import BackgroundWriter, LifecyclePolicy, enrich
+        from memory.lineage.model import LineageError, SessionLineage
     except ImportError as e:  # NEKO 子树缺失/损坏时给出可定位错误
         raise MemoryMaasError(
             f"记忆五件套导入失败（NEKO 根目录={_NEKO_ROOT}）: {e}") from e
@@ -78,6 +85,7 @@ class MemoryMaasCore:
 
         self.data_dir = Path(data_dir or os.environ.get("MEMORY_MAAS_DATA_DIR")
                              or (_REPO_ROOT / "memory_maas_data"))
+        self._repo_root = _REPO_ROOT  # 03-02 项目根相对路径形式的基准
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._lineage = SessionLineage(self.data_dir / "lineage.db")
@@ -88,6 +96,8 @@ class MemoryMaasCore:
         # hs 库不存 Record.meta → 自维护 record_id→meta 映射（启动时从 cards 库重建）
         self._meta_by_id: dict[str, dict[str, Any]] = {}
         self._rebuild_meta()
+        # typed 实体旁路库（X-01）：独立 entities.db，不碰 NEKO 五件套
+        self._typed = TypedMemoryStore(self.data_dir / "entities.db")
 
     def _rebuild_meta(self) -> None:
         """从 cards 库重建检索命中的 meta（进程重启后仍可溯源）。"""
@@ -127,6 +137,10 @@ class MemoryMaasCore:
                     store.close()
                 except Exception:
                     pass
+            try:
+                self._typed.close()
+            except Exception:
+                pass
 
     # ---- 血统（lineage） ----
     def register_session(self, session_id: str, parent_id: str | None = None,
@@ -264,6 +278,147 @@ class MemoryMaasCore:
             return {"ok": True, "records": self._enrich(records,
                                                         policy=self.policy)}
 
+    # ---- typed 实体（X-01：decision/insight/handoff/note，可过滤可建关系） ----
+
+    def add_memory(self, content: str, type: str = "note",
+                   tags: list[str] | None = None, pinned: bool = False,
+                   relations: list[str] | None = None,
+                   source_rank: int = 0,
+                   entity_id: str | None = None,
+                   platform: str = "local") -> dict[str, Any]:
+        """新增 typed 记忆实体（X-03：写前注入校验 + 来源分级进隔离区）。
+
+        platform（03-04）：写时打标平台来源（weixin/qqbot/cli/local，
+        别名 qq/wechat/wx 自动归一），落库后不可改，随 provenance 必填投影。
+        """
+        decision = guard.pre_write_check(content, source_rank=source_rank)
+        if decision.blocked:
+            raise MemoryMaasError(decision.reason)
+        try:
+            etype = normalize_type(type)
+            eid = self._typed.add(content, etype, tags=tags, pinned=pinned,
+                                  relations=relations, source_rank=source_rank,
+                                  isolation=decision.isolation,
+                                  entity_id=entity_id, platform=platform)
+        except EntityValidationError as e:
+            raise MemoryMaasError(str(e)) from e
+        with self._lock:
+            entity = self._typed.get(eid)
+        return {"ok": True, "id": eid, "type": etype, "entity": entity,
+                "guard": decision.to_dict()}
+
+    def capture_observation(self, memory_session_id: str, title: str,
+                            narrative: str, *, type: str = "note",
+                            tags: list[str] | None = None,
+                            pinned: bool = False,
+                            source_rank: int = 0,
+                            platform: str = "local") -> dict[str, Any]:
+        """观察捕获入库（03-01 内容哈希去重 + 03-04 平台打标）。
+
+        写前校验顺序 = 来源分级（guard.pre_write_check）→ 哈希去重
+        （observation_hash 唯一索引幂等）→ 入库；同一观察重复捕获只留一条，
+        返回已存在 id 且 deduped=True，不抛错。platform 写时打标三端来源。
+        """
+        if not str(memory_session_id or "").strip():
+            raise MemoryMaasError("memory_session_id 不能为空")
+        with self._lock:
+            try:
+                return capture.capture_observation(
+                    self._typed, memory_session_id, title, narrative,
+                    type=type, tags=tags, pinned=pinned,
+                    source_rank=source_rank, platform=platform)
+            except capture.MemoryMaasCaptureError as e:
+                raise MemoryMaasError(str(e)) from e
+
+    def query(self, type: str | None = None,
+              tags: list[str] | None = None,
+              pinned: bool | None = None,
+              limit: int | None = None,
+              include_isolation: bool = False,
+              path: str | None = None,
+              platform: str | None = None) -> dict[str, Any]:
+        """按 type / tags / pinned / path / platform 过滤 typed 实体。
+
+        默认只返回可信来源（source_rank ≤ 1）；显式 include_isolation=true 才含隔离区。
+        path（03-02）：绝对/项目根相对/cwd 相对三种写法等价匹配。
+        platform（03-04）：平台来源过滤，别名自动归一。
+        """
+        source_rank_max = None if include_isolation else 1
+        with self._lock:
+            entities = self._typed.list_entities(
+                type=type, tags=tags, pinned=pinned,
+                source_rank_max=source_rank_max, limit=limit,
+                path=path, project_root=self._repo_root,
+                platform=platform)
+        return {"ok": True, "count": len(entities), "entities": entities}
+
+    def guard_status(self) -> dict[str, Any]:
+        """注入防护状态：隔离区计数 / 来源分级 / 触发词 / 流策略路径。"""
+        with self._lock:
+            isolated = self._typed.list_entities(
+                source_rank_min=guard.LOW_TRUST_THRESHOLD)
+            policy = guard.FlowPolicy()
+        return {"ok": True, "policy_path": str(policy.path),
+                "isolated_count": len(isolated),
+                "source_labels": dict(guard.SOURCE_LABELS),
+                "injection_triggers": list(guard.INJECTION_TRIGGERS)}
+
+    # ---- 维护入口（X-04：暴露 typed store + promote / 隔离审查） ----
+
+    @property
+    def typed_store(self) -> TypedMemoryStore:
+        """typed 实体旁路库（供 maintenance / app / bridge 直接驱动 sweep/consolidate）。"""
+        return self._typed
+
+    def promote_memory(self, entity_id: str) -> dict[str, Any]:
+        """隔离条目升级为可信来源（source_rank=1，解除隔离）。"""
+        try:
+            with self._lock:
+                return guard.promote(self._typed, entity_id)
+        except EntityValidationError as e:
+            raise MemoryMaasError(str(e)) from e
+
+    def list_isolated_memories(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return guard.list_isolated(self._typed)
+
+    def maintenance_status(self) -> dict[str, Any]:
+        """维护状态：实体/标星计数 + 快照列表。"""
+        with self._lock:
+            snaps = maintenance.list_snapshots(self.data_dir / "snapshots")
+            return {"ok": True, "data_dir": str(self.data_dir),
+                    "entities": self._typed.count(),
+                    "pinned": len(self._typed.list_entities(pinned=True)),
+                    "snapshots": len(snaps),
+                    "last_snapshot": snaps[-1]["path"] if snaps else None}
+
+    def pin_memory(self, entity_id: str) -> dict[str, Any]:
+        with self._lock:
+            entity = self._typed.set_pinned(entity_id, True)
+        return {"ok": True, "id": entity_id, "entity": entity}
+
+    def unpin_memory(self, entity_id: str) -> dict[str, Any]:
+        with self._lock:
+            entity = self._typed.set_pinned(entity_id, False)
+        return {"ok": True, "id": entity_id, "entity": entity}
+
+    def add_relation(self, from_id: str, to_id: str,
+                     rel_type: str = "related") -> dict[str, Any]:
+        try:
+            return self._typed.add_relation(from_id, to_id, rel_type)
+        except EntityValidationError as e:
+            raise MemoryMaasError(str(e)) from e
+
+    def get_relations(self, entity_id: str,
+                      rel_type: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            return self._typed.get_relations(entity_id, rel_type)
+
+    def traverse_relations(self, entity_id: str,
+                           max_hops: int = 1) -> dict[str, Any]:
+        with self._lock:
+            return self._typed.traverse(entity_id, max_hops)
+
     # ---- 状态 ----
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -276,6 +431,7 @@ class MemoryMaasCore:
                 "cards": self._cards.db.execute(
                     "SELECT COUNT(*) FROM index_cards").fetchone()[0],
                 "hs_records": self._hs.count(),
+                "typed_entities": self._typed.count(),
                 "writer_stats": dict(self._writer.stats),
             }
 

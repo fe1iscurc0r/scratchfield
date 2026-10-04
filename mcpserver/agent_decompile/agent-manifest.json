@@ -1,0 +1,81 @@
+{
+  "name": "agent_decompile",
+  "version": "1.0.0",
+  "description": "MCP Agent wrapper for JADX APK/DEX decompiler CLI",
+  "author": "MCP Agent Generator",
+  "license": "MIT",
+  "agent_class": "AgentDecompile",
+  "module": "agent_decompile",
+  "tools": [
+    {
+      "name": "decompile_apk",
+      "description": "Decompile an APK file to Java source code",
+      "parameters": {
+        "apk_path": {
+          "type": "string",
+          "required": true,
+          "description": "Path to the APK file to decompile"
+        },
+        "output_dir": {
+          "type": "string",
+          "required": false,
+          "description": "Output directory for decompiled sources (default: temp dir)"
+        }
+      }
+    },
+    {
+      "name": "decompile_dex",
+      "description": "Decompile a DEX file to Java source code",
+      "parameters": {
+        "dex_path": {
+          "type": "string",
+          "required": true,
+          "description": "Path to the DEX file to decompile"
+        }
+      }
+    },
+    {
+      "name": "search_code",
+      "description": "Search for a keyword in previously decompiled sources",
+      "parameters": {
+        "keyword": {
+          "type": "string",
+          "required": true,
+          "description": "Keyword or regex pattern to search for"
+        },
+        "search_dir": {
+          "type": "string",
+          "required": false,
+          "description": "Directory containing decompiled sources to search in"
+        }
+      }
+    }
+  ],
+  "protocol": {
+    "type": "subprocess",
+    "description": "Calls jadx CLI via subprocess, 10-minute timeout for APK decompilation"
+  },
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_decompile.agent_decompile",
+    "class": "AgentDecompile"
+  },
+  "classification": {
+    "families": [
+      "offense"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream_license": "Apache-2.0",
+      "upstream": "jadx"
+    }
+  },
+  "requires": {
+    "external_cli": [
+      "jadx"
+    ]
+  },
+  "capability_pairs": [["decode", "binary"]]
+}

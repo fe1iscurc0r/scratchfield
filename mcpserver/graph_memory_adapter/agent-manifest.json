@@ -1,0 +1,79 @@
+{
+  "name": "graph_memory_adapter",
+  "displayName": "轻量 KG 记忆（三表 + 递归 CTE）",
+  "version": "0.1.0",
+  "description": "对话记忆级知识图谱：实体/关系/别名三表 + 一条 recursive CTE 多跳检索，零外部依赖、无模型调用。实体 ID 用 uuid5(type+归一名) 确定性生成，同名实体跨轮次自动归一。边携带 source_doc 可回溯来源，条件类信息（金额/日期/时间窗）挂在实体 description 上。数据落 knowledge-base/graph_memory/graph_memory.db（LUMO_GRAPH_MEMORY_DB 可覆盖）。设计借鉴 Glitch-Cat-Club/graph-memory-starter（MIT，227★），只取设计不复制代码。与 graphify 适配器分工：graphify 管语料级批量建图，本件管对话级增量记忆。",
+  "author": "沈遥",
+  "license": "MIT",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.graph_memory_adapter.adapter",
+    "class": "GraphMemoryBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "graph_memory_remember",
+        "description": "记一条三元组（实体-关系-实体），幂等；条件信息写进 description",
+        "params": {
+          "entity": "源实体名",
+          "relation": "谓词，如 delegates_to / part_of",
+          "target": "目标实体名",
+          "entity_type": "源实体类型（可选，影响 ID 归一）",
+          "target_type": "目标实体类型（可选）",
+          "description": "源实体的条件/限定（金额、日期、时间窗）",
+          "source_doc": "来源标识（文档名/会话号），回答时作 citation",
+          "aliases": "别名，逗号分隔（可选）"
+        },
+        "example": "{\"tool_name\":\"graph_memory_remember\",\"entity\":\"陆墨\",\"relation\":\"delegates_to\",\"target\":\"砚\",\"description\":\"仅限仓库内写码任务\"}"
+      },
+      {
+        "command": "graph_memory_recall",
+        "description": "从提问出发多跳检索，返回相关三元组与实体注释（纯 SQLite，无模型调用）",
+        "params": {
+          "query": "提问文本（实体名/别名出现在其中即为种子）",
+          "hops": "跳数 1-5，默认 3",
+          "top_k": "返回条数 1-50，默认 8"
+        },
+        "example": "{\"tool_name\":\"graph_memory_recall\",\"query\":\"谁负责仓库写码？\",\"hops\":3}"
+      },
+      {
+        "command": "graph_memory_hook",
+        "description": "把检索结果格式化成可注入的上下文文本（无匹配返回空串，不抛错）",
+        "params": {
+          "context": "当前对话上下文/用户提问",
+          "hops": "跳数 1-5，默认 3",
+          "top_k": "条数 1-50，默认 8"
+        },
+        "example": "{\"tool_name\":\"graph_memory_hook\",\"context\":\"水凝胶的流变参数从哪来\"}"
+      },
+      {
+        "command": "graph_memory_export",
+        "description": "导出命中子图（nodes + links），供前端可视化",
+        "params": {
+          "query": "检索提问",
+          "hops": "跳数 1-5，默认 3"
+        },
+        "example": "{\"tool_name\":\"graph_memory_export\",\"query\":\"陆墨\"}"
+      },
+      {
+        "command": "graph_memory_stats",
+        "description": "图谱规模（实体数/关系数/别名数）+ 库文件路径",
+        "params": {},
+        "example": "{\"tool_name\":\"graph_memory_stats\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "context"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["control", "memory"], ["export", "memory"], ["ingest", "memory"], ["lookup", "memory"], ["status", "memory"]]
+}

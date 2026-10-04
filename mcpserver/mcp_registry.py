@@ -16,11 +16,81 @@ logger = logging.getLogger(__name__)
 ALLOWED_MODULE_PREFIXES = ["mcpserver.", "vendor."]
 
 # 全局注册表
-MCP_REGISTRY: dict[str, Any] = {}  # MCP服务池 {name: agent_instance}
-MANIFEST_CACHE: dict[str, Any] = {}  # manifest信息缓存 {name: manifest_dict}
+MCP_REGISTRY: dict[str, Any] = {}  # MCP服务池 {name: agent_instance}（热表：已实例化）
+MANIFEST_CACHE: dict[str, Any] = {}  # manifest信息缓存 {name: manifest_dict}（冷热都在这）
 _ADAPTER_CAPABILITIES: dict[str, dict[str, Any]] = {}  # adapter 非 manifest 型能力登记 {name: capability_dict}
 _REGISTERED = False  # 是否已完成注册
 _ADAPTER_REGISTERED = False  # adapters 是否已跑过 register_all_adapters（独立于 _REGISTERED）
+
+# === 卷189-A1 manifest 懒加载（冷热分层）===
+# 冷表：启动时只登记 manifest 占位、**不实例化** agent 类（省掉 import 各种重依赖）。
+# 首次调用该服务时才 create_agent_instance 并转入 MCP_REGISTRY（热表）。
+# 缺省启用；MCP_LAZY_REGISTRY=0 回退到「启动即全量实例化」的旧行为（兼容红线）。
+_COLD_TABLE: dict[str, dict[str, Any]] = {}  # {name: {"manifest_path","agent_dir","manifest"}}
+_COLD_HOT_FAILED: dict[str, str] = {}  # 冷表转热失败的记录 {name: 失败原因}（供 B2 结构化报错）
+
+
+def _lazy_enabled() -> bool:
+    """MCP_LAZY_REGISTRY：默认 1。0/false/no/off → 关闭懒加载（回退旧行为）。"""
+    return os.environ.get("MCP_LAZY_REGISTRY", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def is_hot(service_name: str) -> bool:
+    """该服务是否已实例化（在热表）。"""
+    return service_name in MCP_REGISTRY
+
+
+def cold_service_names() -> list[str]:
+    """仍在冷表、尚未实例化的服务名（sorted）。"""
+    return sorted(_COLD_TABLE.keys())
+
+
+def all_service_names() -> list[str]:
+    """全部服务名（热表 ∪ 冷表，sorted）——懒加载下的权威服务清单。"""
+    return sorted(set(MCP_REGISTRY) | set(_COLD_TABLE))
+
+
+def ensure_hot(service_name: str) -> Any | None:
+    """把冷表服务实例化并转入热表（幂等）；已在热表直接返回实例。
+
+    实例化失败（依赖缺失 / 入口不可解析）返回 None，并把原因记入 _COLD_HOT_FAILED，
+    供调用侧做结构化报错（不抛 500 堆栈）。
+    """
+    inst = MCP_REGISTRY.get(service_name)
+    if inst is not None:
+        return inst
+    cold = _COLD_TABLE.get(service_name)
+    if not cold:
+        return None
+    manifest = cold.get("manifest") or MANIFEST_CACHE.get(service_name) or {}
+    try:
+        agent_instance = create_agent_instance(manifest, cold.get("agent_dir", ""))
+    except Exception as e:  # 依赖缺失/入口异常 → 记因不抛
+        _COLD_HOT_FAILED[service_name] = f"{type(e).__name__}: {e}"
+        logger.warning("[MCP Registry] 冷表转热异常 %s: %s", service_name, e)
+        return None
+    if agent_instance is None:
+        _COLD_HOT_FAILED[service_name] = "create_agent_instance 返回 None（入口不可用）"
+        return None
+    MCP_REGISTRY[service_name] = agent_instance
+    _COLD_TABLE.pop(service_name, None)
+    logger.debug("[MCP Registry] 冷表转热: %s", service_name)
+    return agent_instance
+
+
+def get_cold_hot_failure(service_name: str) -> str | None:
+    """冷表转热失败原因（无则 None）。"""
+    return _COLD_HOT_FAILED.get(service_name)
+
+
+def get_service_source(service_name: str) -> str:
+    """服务来源（供熔断判定豁免）：manifest（内置）/ mcporter（外部）/ adapter。"""
+    if service_name in _ADAPTER_CAPABILITIES:
+        return "adapter"
+    m = MANIFEST_CACHE.get(service_name)
+    if isinstance(m, dict) and m.get("source") in ("mcporter",):
+        return "mcporter"
+    return "manifest"
 
 # === B1 跨源冲突严格化（CONFLICT_STRICT）===
 # strict=1 时冲突登记从"静默 WARNING"变"可配置阻断"：
@@ -222,6 +292,43 @@ def create_agent_instance(manifest: dict[str, Any], agent_dir_name: str = "") ->
         return None
 
 
+def verify_entrypoint(manifest: dict[str, Any], agent_dir_name: str = "") -> tuple[bool, str]:
+    """零实例化深检 entryPoint：解析 → 前缀白名单 → import → getattr → handle_handoff 契约。
+
+    与 create_agent_instance 的区别：**不实例化**。GET /mcp/services 会对每个内置
+    agent 调用本函数，实例化的副作用（开连接 / 起线程 / 读配置）不可控且浪费；
+    本函数只回答「运行时能否创建实例并调到 handle_handoff」。
+
+    契约要求与注册表运行时一致：entryPoint.class 指向的类必须具备
+    handle_handoff（类方法）；Format C/D 下类名为 handle_handoff，则目标本身
+    须为可调用对象。
+
+    返回 (ok, 失败原因)；ok=True 时 reason 为空串。
+    """
+    module_name, class_name = _resolve_entrypoint(manifest, agent_dir_name)
+    if not module_name:
+        return False, "manifest 缺少 entryPoint"
+    if not any(module_name.startswith(p) for p in ALLOWED_MODULE_PREFIXES):
+        return False, f"模块名不在允许列表: {module_name}"
+    try:
+        module = importlib.import_module(module_name)
+    except Exception as e:
+        return False, f"模块导入失败: {type(e).__name__}: {e}"
+    if not class_name:
+        class_name = "handle_handoff"
+    target = getattr(module, class_name, None)
+    if target is None:
+        return False, f"模块 {module_name} 中不存在 {class_name}"
+    if class_name == "handle_handoff":
+        # Format C/D：目标本身就是 handoff 函数
+        if not callable(target):
+            return False, f"{class_name} 不是可调用对象"
+    elif not hasattr(target, "handle_handoff"):
+        # Format A/B：目标为类，须具备 handle_handoff（运行时按 instance.handle_handoff 调用）
+        return False, f"{class_name} 缺少 handle_handoff 契约"
+    return True, ""
+
+
 def _trust_gate_registration(manifest: dict[str, Any], manifest_path: Path) -> str | None:
     """②-1 认知免疫层：manifest 信任门禁。
 
@@ -251,10 +358,19 @@ def _trust_gate_registration(manifest: dict[str, Any], manifest_path: Path) -> s
     return None
 
 
-def scan_and_register_mcp_agents(mcp_dir: str = "mcpserver") -> list[str]:
-    """扫描目录中的agent-manifest.json，注册MCP类型的agent"""
+def scan_and_register_mcp_agents(mcp_dir: str = "mcpserver", *,
+                                 lazy: bool | None = None) -> list[str]:
+    """扫描目录中的agent-manifest.json，注册MCP类型的agent。
+
+    lazy=None（默认）时按 MCP_LAZY_REGISTRY 环境变量决定：
+    - 懒加载（默认开）：只读 manifest 写 MANIFEST_CACHE + 冷表占位，**不实例化** agent；
+      首次调用时由 ensure_hot() 转热（冷启动省掉 50 个 agent 模块的 import）。
+    - 关闭（MCP_LAZY_REGISTRY=0）：旧行为，扫到即实例化写入 MCP_REGISTRY。
+    信任门禁与跨源门禁在两条路径下都照跑（语义不变）。
+    """
     d = Path(mcp_dir)
     registered_agents = []
+    lazy_mode = _lazy_enabled() if lazy is None else lazy
 
     for manifest_file in d.glob("**/agent-manifest.json"):
         try:
@@ -281,21 +397,32 @@ def scan_and_register_mcp_agents(mcp_dir: str = "mcpserver") -> list[str]:
             if agent_type == "mcp":
                 # 优先使用 name 字段（英文标识）做注册 key，fallback 到 displayName
                 registry_key = manifest.get("name") or service_name
-                agent_instance = create_agent_instance(manifest, manifest_file.parent.name)
-                if agent_instance:
-                    # 跨源门禁：CONFLICT_STRICT=0 仅 WARNING（现状）；=1 低优先级/同类源拒绝登记
-                    if _gate_cross_source_registration(registry_key, "manifest") == CONFLICT_REJECTED:
-                        logger.warning(
-                            "[MCP Registry] name='%s' (manifest) 登记被 CONFLICT_STRICT=1 拒绝，跳过 (%s)",
-                            registry_key, manifest_file,
-                        )
-                        continue
-                    # 实例创建成功才写入 MANIFEST_CACHE，避免半挂载状态
-                    # （LLM 看到工具但调用失败）
+                # 跨源门禁：CONFLICT_STRICT=0 仅 WARNING（现状）；=1 低优先级/同类源拒绝登记
+                if _gate_cross_source_registration(registry_key, "manifest") == CONFLICT_REJECTED:
+                    logger.warning(
+                        "[MCP Registry] name='%s' (manifest) 登记被 CONFLICT_STRICT=1 拒绝，跳过 (%s)",
+                        registry_key, manifest_file,
+                    )
+                    continue
+                if lazy_mode:
+                    # 冷表：只登记 manifest（轻量），实例化推迟到首次调用
                     MANIFEST_CACHE[registry_key] = manifest
-                    MCP_REGISTRY[registry_key] = agent_instance
+                    _COLD_TABLE[registry_key] = {
+                        "manifest_path": str(manifest_file),
+                        "agent_dir": manifest_file.parent.name,
+                        "manifest": manifest,
+                    }
                     registered_agents.append(registry_key)
-                    logger.info("注册MCP服务: %s (%s) (来自 %s)", registry_key, service_name, manifest_file)
+                    logger.debug("冷表登记MCP服务: %s (来自 %s)", registry_key, manifest_file)
+                else:
+                    agent_instance = create_agent_instance(manifest, manifest_file.parent.name)
+                    if agent_instance:
+                        # 实例创建成功才写入 MANIFEST_CACHE，避免半挂载状态
+                        # （LLM 看到工具但调用失败）
+                        MANIFEST_CACHE[registry_key] = manifest
+                        MCP_REGISTRY[registry_key] = agent_instance
+                        registered_agents.append(registry_key)
+                        logger.info("注册MCP服务: %s (%s) (来自 %s)", registry_key, service_name, manifest_file)
 
         except Exception as e:
             logger.warning("处理manifest文件失败 %s: %s", manifest_file, e)
@@ -390,9 +517,13 @@ def get_available_tools(service_name: str):
 
 
 def get_all_services_info():
-    """获取所有服务信息（以 MCP_REGISTRY 为权威源，避免半挂载状态数据不一致）"""
+    """获取所有服务信息（以 MANIFEST_CACHE 为权威源——懒加载下冷表项也须可见）。
+
+    注意：卷189-A1 前以 MCP_REGISTRY 为权威源；懒加载后冷表项不在 MCP_REGISTRY，
+    改以 MANIFEST_CACHE 为准（manifest 型全覆盖），实例类名对冷表项为 None（未实例化）。
+    """
     result = {}
-    for name in MCP_REGISTRY:
+    for name in MANIFEST_CACHE:
         result[name] = get_service_info(name)
     return result
 
@@ -417,18 +548,25 @@ def query_services_by_capability(keyword: str) -> list[dict[str, Any]]:
 
 
 def get_service_statistics():
-    """获取服务统计信息（MCP_REGISTRY manifest 型 + adapter 能力型）"""
+    """获取服务统计信息（manifest 型冷+热 + adapter 能力型）。
+
+    卷189-A1：total_services 改为「热表 ∪ 冷表」的合并数（懒加载下不再等于 len(MCP_REGISTRY)），
+    并新增 hot_services / cold_services 明细。
+    """
     total_tools = 0
-    for name in MCP_REGISTRY:
+    names = all_service_names()
+    for name in names:
         manifest = MANIFEST_CACHE.get(name, {})
         caps = manifest.get("capabilities", {})
         if isinstance(caps, dict):
             total_tools += len(caps.get("invocationCommands", []))
     return {
-        "total_services": len(MCP_REGISTRY),
+        "total_services": len(names),
         "total_tools": total_tools,
+        "hot_services": len(MCP_REGISTRY),
+        "cold_services": len(_COLD_TABLE),
         "adapter_capabilities": len(_ADAPTER_CAPABILITIES),
-        "service_names": list(MCP_REGISTRY.keys()),
+        "service_names": names,
         "adapter_names": list(_ADAPTER_CAPABILITIES.keys()),
     }
 
@@ -492,7 +630,10 @@ def auto_register_mcp():
     registered = scan_and_register_mcp_agents("mcpserver")
     registered.extend(register_external_mcp_agents())
     _REGISTERED = True
-    logger.info(f"[MCP Registry] 自动注册完成，已注册 {len(registered)} 个服务: {registered}")
+    logger.info(
+        "[MCP Registry] 自动注册完成，已登记 %d 个服务（热 %d / 冷 %d，lazy=%s）",
+        len(registered), len(MCP_REGISTRY), len(_COLD_TABLE), _lazy_enabled(),
+    )
     return registered
 
 
@@ -523,7 +664,8 @@ def register_adapters(mcp_server: Any = None) -> list[str]:
 
 
 def get_registered_services() -> list[str]:
-    return list(MCP_REGISTRY.keys())
+    """全部已登记服务名（热 ∪ 冷）——懒加载下仍返回完整清单，避免调用方少看到服务。"""
+    return all_service_names()
 
 
 def list_registered_capabilities() -> list[dict[str, Any]]:
@@ -558,7 +700,8 @@ def list_registered_capabilities() -> list[dict[str, Any]]:
 
 
 def get_service_instance(service_name: str) -> Any | None:
-    return MCP_REGISTRY.get(service_name)
+    """取服务实例；冷表项首次调用会触发 ensure_hot 转热（卷189-A1）。"""
+    return ensure_hot(service_name)
 
 
 def clear_registry():
@@ -571,6 +714,8 @@ def clear_registry():
     MCP_REGISTRY.clear()
     MANIFEST_CACHE.clear()
     _ADAPTER_CAPABILITIES.clear()
+    _COLD_TABLE.clear()
+    _COLD_HOT_FAILED.clear()
     _CONFLICT_LOG.clear()
     _REGISTERED = False
     _ADAPTER_REGISTERED = False
@@ -593,8 +738,10 @@ def get_conflict_log() -> list[dict[str, Any]]:
 def get_registry_status() -> dict[str, Any]:
     return {
         "registered_services": len(MCP_REGISTRY),
+        "cold_services": len(_COLD_TABLE),
+        "lazy_enabled": _lazy_enabled(),
         "cached_manifests": len(MANIFEST_CACHE),
-        "service_names": list(MCP_REGISTRY.keys()),
+        "service_names": all_service_names(),
         "conflict_strict": _conflict_strict_enabled(),
         "conflict_log_entries": len(_CONFLICT_LOG),
     }
@@ -618,6 +765,13 @@ __all__ = [
     "get_registered_services",
     "get_service_statistics",
     "get_registry_status",
+    # 懒加载（卷189-A1 冷热分层）
+    "ensure_hot",
+    "is_hot",
+    "cold_service_names",
+    "all_service_names",
+    "get_cold_hot_failure",
+    "get_service_source",
     "get_service_scope",
     "get_service_owner_agent_id",
     "is_service_visible_to_agent",

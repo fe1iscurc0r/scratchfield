@@ -20,11 +20,11 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-import litellm
-from litellm import acompletion
-
+# litellm 走懒加载（首次 import 约 8.9s，见 apiserver/litellm_lazy.py）—— 卷191-B2
 from system.config import get_config
 from system.llm_params import build_model_name, get_llm_params
+
+from .litellm_lazy import acompletion, litellm
 
 logger = logging.getLogger("ContextCompressor")
 

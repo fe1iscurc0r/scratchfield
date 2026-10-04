@@ -228,8 +228,11 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.warning(f"端口清理失败（可忽略）: {e}")
 
-                # ── Step 2: 启动 Gateway ──
-                await _start_gateway_if_port_free(embedded_runtime)
+                # ── Step 2: 启动 Gateway（尊重 openclaw.enabled 开关，关闭时不自启） ──
+                if config.openclaw.enabled:
+                    await _start_gateway_if_port_free(embedded_runtime)
+                else:
+                    logger.info("openclaw.enabled=False，跳过 Gateway 自启（可在设置界面手动开启）")
 
             # 检测最终状态并初始化客户端
             openclaw_status = detect_openclaw(check_connection=False)
@@ -1276,6 +1279,51 @@ async def openclaw_get_status():
         raise HTTPException(500, f"获取失败: {e}")
 
 
+# ============ OpenClaw 网关运行时启停 API ============
+
+
+@app.get("/openclaw/gateway/status")
+async def openclaw_gateway_status():
+    """查询项目网关（OpenClaw Gateway）运行状态与开关配置"""
+    runtime = get_embedded_runtime()
+    return {
+        "success": True,
+        "running": runtime.gateway_running,
+        "enabled": config.openclaw.enabled,
+        "port": config.openclaw.gateway_port,
+        "port_in_use": runtime.is_gateway_port_in_use(),
+    }
+
+
+@app.post("/openclaw/gateway/start")
+async def openclaw_gateway_start():
+    """启动项目网关：先清理端口残留进程，再拉起 Gateway，并同步置 enabled=True"""
+    runtime = get_embedded_runtime()
+    if runtime.gateway_running:
+        config.openclaw.enabled = True
+        return {"success": True, "running": True, "message": "网关已在运行"}
+    try:
+        from agentserver.openclaw.instance_manager import cleanup_port_range
+        cleaned = cleanup_port_range()
+        if cleaned:
+            await asyncio.sleep(1)  # 等端口释放
+    except Exception as e:
+        logger.warning(f"网关启动前端口清理失败（可忽略）: {e}")
+    ok = await _start_gateway_if_port_free(runtime)
+    if ok:
+        config.openclaw.enabled = True
+    return {"success": ok, "running": runtime.gateway_running, "message": "网关启动成功" if ok else "网关启动失败（见后端日志）"}
+
+
+@app.post("/openclaw/gateway/stop")
+async def openclaw_gateway_stop():
+    """停止项目网关并同步置 enabled=False（重启后端后不再自启）"""
+    runtime = get_embedded_runtime()
+    await runtime.stop_gateway()
+    config.openclaw.enabled = False
+    return {"success": True, "running": runtime.gateway_running, "message": "网关已停止"}
+
+
 # ============ OpenClaw 安装和配置管理 API ============
 
 
@@ -1364,36 +1412,6 @@ async def openclaw_setup(payload: dict[str, Any] = None):
         raise HTTPException(500, f"初始化失败: {e}")
 
 
-@app.post("/openclaw/gateway/start")
-async def openclaw_start_gateway():
-    """启动 OpenClaw Gateway"""
-    try:
-        from agentserver.openclaw import get_openclaw_installer
-
-        installer = get_openclaw_installer()
-        result = await installer.start_gateway(background=True)
-
-        return result.to_dict()
-    except Exception as e:
-        logger.error(f"启动 Gateway 失败: {e}")
-        raise HTTPException(500, f"启动失败: {e}")
-
-
-@app.post("/openclaw/gateway/stop")
-async def openclaw_stop_gateway():
-    """停止 OpenClaw Gateway"""
-    try:
-        from agentserver.openclaw import get_openclaw_installer
-
-        installer = get_openclaw_installer()
-        result = await installer.stop_gateway()
-
-        return result.to_dict()
-    except Exception as e:
-        logger.error(f"停止 Gateway 失败: {e}")
-        raise HTTPException(500, f"停止失败: {e}")
-
-
 @app.post("/openclaw/gateway/restart")
 async def openclaw_restart_gateway():
     """重启 OpenClaw Gateway"""
@@ -1422,21 +1440,6 @@ async def openclaw_install_gateway_service():
     except Exception as e:
         logger.error(f"安装 Gateway 服务失败: {e}")
         raise HTTPException(500, f"安装失败: {e}")
-
-
-@app.get("/openclaw/gateway/status")
-async def openclaw_gateway_status():
-    """获取 Gateway 状态"""
-    try:
-        from agentserver.openclaw import get_openclaw_installer
-
-        installer = get_openclaw_installer()
-        result = await installer.check_gateway_status()
-
-        return result
-    except Exception as e:
-        logger.error(f"获取 Gateway 状态失败: {e}")
-        raise HTTPException(500, f"获取失败: {e}")
 
 
 @app.get("/openclaw/doctor")

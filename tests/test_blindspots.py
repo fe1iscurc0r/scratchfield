@@ -5,11 +5,16 @@
 - ③-1: docs/adr/ 目录存在，每次大决策一条 ADR
 （①-1 战情面板由并行会话 apiserver+EventBus 实现覆盖，84b3d049）
 """
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
 
 import json
 from pathlib import Path
 
 from mcpserver.trust_layer import TrustScorer, score_source
+
 
 class TestTrustScorer:
     def test_source_scoring(self):

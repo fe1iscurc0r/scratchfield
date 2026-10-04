@@ -1,0 +1,29 @@
+{
+  "_comment": "巨石文件红名单（卷190-C 闸门）。只应在拆分后收窄——不要为了过闸门加宽。",
+  "threshold": 800,
+  "files": {
+    "agentserver/agent_server.py": 3095,
+    "agentserver/openclaw/embedded_runtime.py": 1008,
+    "agentserver/openclaw/instance_manager.py": 1517,
+    "agentserver/openclaw/openclaw_client.py": 1540,
+    "apiserver/message_manager.py": 890,
+    "apiserver/routes/chat.py": 1268,
+    "apiserver/routes/openai_proxy.py": 875,
+    "apiserver/task_flow.py": 923,
+    "apiserver/travel_service.py": 1305,
+    "frontend/src/App.vue": 908,
+    "frontend/src/components/NotificationSettingsPanel.vue": 809,
+    "frontend/src/components/SpectrumPanel.vue": 951,
+    "frontend/src/forum/components/ForumSidebarRight.vue": 832,
+    "frontend/src/views/SkillView.vue": 1050,
+    "frontend/src/views/mind/renderer.ts": 1863,
+    "mcpserver/adapters/bio_adapter/align.py": 1049,
+    "mcpserver/adapters/hamlog_adapter/adapter.py": 1048,
+    "mcpserver/agent_pentest/agent_pentest.py": 921,
+    "mcpserver/material_science/materialscience_agent.py": 897,
+    "mcpserver/ptz_service/service.py": 817,
+    "mcpserver/rf_brain/decoders/ft8.py": 1255,
+    "scripts/build-win.py": 875,
+    "system/config.py": 2042
+  }
+}

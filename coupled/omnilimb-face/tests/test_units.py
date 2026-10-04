@@ -289,7 +289,6 @@ def test_stop_then_enqueue_starts_fresh_session():
 def test_enqueue_rejects_bad_arguments():
     """enqueue validates its inputs (type + non-negative seq)."""
     import pytest
-
     from omnilimb_face.tts import TTSPlayer
 
     player = TTSPlayer(sink=_RecordingSink())
@@ -1305,7 +1304,6 @@ def test_signal_no_active_model_raises_and_preserves_context():
     context is left untouched).
     """
     import pytest
-
     from omnilimb_face.llm_bridge import NoActiveModelError
 
     ctx = _RecordingBridgeCtx(inject_result=False)
@@ -1336,7 +1334,6 @@ def test_conclude_turn_without_reply_surfaces_no_active_model():
     or injecting any reply beyond the single user utterance.
     """
     import pytest
-
     from omnilimb_face.llm_bridge import NoActiveModelError
 
     ctx = _RecordingBridgeCtx(inject_result=False)
@@ -1389,7 +1386,6 @@ def test_check_timeout_raises_reply_timeout_after_window_with_no_text():
     turn inactive (voice/avatar output terminated), and fabricates nothing.
     """
     import pytest
-
     from omnilimb_face.llm_bridge import ReplyTimeoutError
 
     ctx = _RecordingBridgeCtx(inject_result=True)
@@ -1420,7 +1416,6 @@ def test_check_timeout_raises_reply_timeout_after_window_with_no_text():
 def test_check_timeout_fires_at_exact_window_boundary():
     """At exactly the timeout the window has elapsed and fires (>= boundary)."""
     import pytest
-
     from omnilimb_face.llm_bridge import ReplyTimeoutError
 
     ctx = _RecordingBridgeCtx(inject_result=True)
@@ -1484,7 +1479,6 @@ def test_conclude_turn_raises_timeout_when_host_available_but_silent():
     carrying ``elapsed_s`` / ``timeout_s`` and terminates the turn.
     """
     import pytest
-
     from omnilimb_face.llm_bridge import ReplyTimeoutError
 
     ctx = _RecordingBridgeCtx(inject_result=True)
@@ -1525,7 +1519,6 @@ def test_default_reply_timeout_window_is_30_seconds():
     just under 30s but must fire at 30s, pinning the default window.
     """
     import pytest
-
     from omnilimb_face.chunker import SentenceChunker
     from omnilimb_face.llm_bridge import LLMBridge, ReplyTimeoutError
 
@@ -1810,7 +1803,6 @@ def test_register_does_not_modify_hermes_agent_core_files():
     assertion is skipped gracefully rather than failing.
     """
     import pytest
-
     from omnilimb_face.plugin import register
 
     agent_root = _find_hermes_agent_root()
@@ -2238,7 +2230,6 @@ def test_synthesize_success_single_attempt_with_real_wav(tmp_path):
     (peak-normalized to [0, 1]).
     """
     import pytest
-
     from omnilimb_face.tts import AudioSegmentOut, TTSPlayer
 
     samples = [0, 8000, -8000, 16000, -16000, 12000, -12000, 0]

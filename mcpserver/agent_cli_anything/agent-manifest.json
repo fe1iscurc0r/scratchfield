@@ -32,5 +32,19 @@
         "example": "{\"tool_name\":\"search_capabilities\",\"query\":\"video download\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "ecology"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "CLI-Anything 能力目录",
+      "upstream_license": "见上游"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["list", "cli"], ["search", "cli"]]
 }

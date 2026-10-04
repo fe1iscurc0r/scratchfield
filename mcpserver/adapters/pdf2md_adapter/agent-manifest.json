@@ -36,5 +36,23 @@
         "example": "{\"tool_name\":\"pdf2md_status\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "document"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "Docling (IBM) + MarkItDown",
+      "upstream_license": "MIT"
+    }
+  },
+  "requires": {
+    "python_packages": [
+      "docling"
+    ]
+  },
+  "capability_pairs": [["batch", "document"], ["convert", "document"], ["status", "document"]]
 }

@@ -10,6 +10,7 @@
 """
 from .bus import EventBus, EventHandler, InProcessEventBus, WaterfallHandler, is_bailed
 from .disposable import Disposable, DisposableList
+from .event_store import EventStore, build_envelope, get_event_store
 from .topics import Topics
 
 __all__ = [
@@ -17,10 +18,13 @@ __all__ = [
     "DisposableList",
     "EventBus",
     "EventHandler",
+    "EventStore",
     "InProcessEventBus",
     "Topics",
     "WaterfallHandler",
+    "build_envelope",
     "get_bus",
+    "get_event_store",
     "is_bailed",
 ]
 

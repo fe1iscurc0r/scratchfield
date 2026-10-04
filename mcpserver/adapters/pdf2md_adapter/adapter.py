@@ -69,7 +69,7 @@ def engines_status() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _convert_with_docling(src: Path, assets_dir: Optional[Path]) -> dict:
+def _convert_with_docling(src: Path, assets_dir: Path | None) -> dict:
     """Docling 转换。中文 OCR（ch_sim+en）、表格结构保留、脚注随正文导出。
 
     图像提取：Docling markdown 导出默认以 ``<!-- image -->`` 占位，
@@ -88,16 +88,14 @@ def _convert_with_docling(src: Path, assets_dir: Optional[Path]) -> dict:
     # 回退 EasyOCR（需另装 easyocr 包）；两者都无则用引擎默认
     ocr_options = None
     try:
-        from docling.datamodel.pipeline_options import RapidOcrOptions  # type: ignore
-
         import rapidocr  # noqa: F401  运行时依赖在才用
+        from docling.datamodel.pipeline_options import RapidOcrOptions  # type: ignore
 
         ocr_options = RapidOcrOptions(lang=["ch"])  # PP-OCRv6 ch 模型自带中英混排识别
     except Exception:
         try:
-            from docling.datamodel.pipeline_options import EasyOcrOptions  # type: ignore
-
             import easyocr  # noqa: F401
+            from docling.datamodel.pipeline_options import EasyOcrOptions  # type: ignore
 
             ocr_options = EasyOcrOptions(lang=["ch_sim", "en"])
         except Exception:
@@ -231,7 +229,7 @@ def pdf2md_convert(file_path: str, output_dir: str = "") -> dict:
         assets_dir = out_root / f"{src.stem}_assets"
 
         error = None
-        converted: Optional[dict] = None
+        converted: dict | None = None
         if engines["docling"]:
             try:
                 converted = _convert_with_docling(src, assets_dir)
@@ -423,7 +421,7 @@ def _stdio_main() -> None:
         },
     ]
 
-    async def _handle(msg: dict) -> Optional[dict]:
+    async def _handle(msg: dict) -> dict | None:
         method = msg.get("method")
         mid = msg.get("id")
         if method == "initialize":

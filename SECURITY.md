@@ -4,7 +4,7 @@
 
 如果你发现安全漏洞，请**不要**提交公开 Issue。
 
-请发送邮件至：1951864121@qq.com
+请发送邮件至：fe1iscurc0r@users.noreply.github.com
 
 请包含以下信息：
 - 漏洞描述

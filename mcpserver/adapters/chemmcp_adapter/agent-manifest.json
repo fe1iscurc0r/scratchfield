@@ -1,0 +1,112 @@
+{
+  "name": "chemmcp",
+  "displayName": "ChemMCP SMILES 纯转换工具",
+  "version": "0.1.0",
+  "description": "SMILES 规范化 / 分子式 / CAS 号 / 合法性检查四件纯转换工具（材料知识库分子检索层的结构规范化底座）。上游 OSU-NLP-Group/ChemMCP（Apache-2.0）。除 smiles2cas 需联网查 PubChem 外均为本地计算。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.flat_bridges",
+    "class": "ChemmcpBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "chemmcp_canonicalize_smiles",
+        "description": "SMILES 规范化：任意写法 → canonical SMILES（分子入库前的标准形态）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "smiles": {
+              "type": "string",
+              "description": "待规范化的 SMILES"
+            },
+            "isomeric": {
+              "type": "boolean",
+              "description": "保留立体信息，默认 true"
+            },
+            "kekulization": {
+              "type": "boolean",
+              "description": "Kekulé 化，默认 true"
+            },
+            "keep_atom_map": {
+              "type": "boolean",
+              "description": "保留原子映射，默认 true"
+            }
+          },
+          "required": [
+            "smiles"
+          ]
+        },
+        "example": "{\"tool_name\":\"chemmcp_canonicalize_smiles\",\"smiles\":\"C(C)O\"}"
+      },
+      {
+        "command": "chemmcp_smiles2formula",
+        "description": "SMILES → 分子式（Hill 序），如 CCO → C2H6O",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "smiles": {
+              "type": "string",
+              "description": "SMILES 字符串"
+            }
+          },
+          "required": [
+            "smiles"
+          ]
+        },
+        "example": "{\"tool_name\":\"chemmcp_smiles2formula\",\"smiles\":\"CCO\"}"
+      },
+      {
+        "command": "chemmcp_check_molecule_smiles",
+        "description": "检查 SMILES 字符串的语法合法性",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "smiles": {
+              "type": "string",
+              "description": "SMILES 字符串"
+            }
+          },
+          "required": [
+            "smiles"
+          ]
+        },
+        "example": "{\"tool_name\":\"chemmcp_check_molecule_smiles\",\"smiles\":\"c1ccccc1\"}"
+      },
+      {
+        "command": "chemmcp_smiles2cas",
+        "description": "SMILES → CAS 号（PubChem 在线查询，需联网）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "smiles": {
+              "type": "string",
+              "description": "SMILES 字符串"
+            }
+          },
+          "required": [
+            "smiles"
+          ]
+        },
+        "example": "{\"tool_name\":\"chemmcp_smiles2cas\",\"smiles\":\"CCO\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "compute"
+    ],
+    "domains": [
+      "materials"
+    ],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "OSU-NLP-Group/ChemMCP",
+      "upstream_license": "Apache-2.0"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["check", "chem_molecule"], ["convert", "chem_formula"], ["convert", "chem_molecule"]]
+}

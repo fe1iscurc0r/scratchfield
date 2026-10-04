@@ -124,7 +124,73 @@
           "target": "预测目标（默认 conductivity）"
         },
         "example": "{\"tool_name\":\"biopred_suggest\"}"
+      },
+      {
+        "command": "bo_recommend",
+        "description": "BO 寻优：推荐下一实验点（数据不足自动退化为随机采样，配方字典列表）",
+        "params": {
+          "k": "推荐个数，默认 1",
+          "strategy": "采集策略（ei/ucb/random 等，默认 ei）"
+        },
+        "example": "{\"tool_name\":\"bo_recommend\",\"k\":2}"
+      },
+      {
+        "command": "bo_record",
+        "description": "BO 回填：实测结果入库（指标字典，或 failed 标记），供后续推荐消费",
+        "params": {
+          "recipe": "配方字典（与 bo_recommend 输出同构）",
+          "metrics": "实测指标字典",
+          "failed": "是否实验失败，默认 false",
+          "objective": "直接给目标值（可选）"
+        },
+        "example": "{\"tool_name\":\"bo_record\",\"recipe\":{\"T\":180.0,\"t\":6.0,\"C\":5.0,\"R\":3.0,\"S\":\"纯水\",\"pH\":\"中性\",\"L\":\"碱木质素\"},\"metrics\":{\"yield\":0.42}}"
+      },
+      {
+        "command": "bo_get_params",
+        "description": "BO 参数空间：连续范围/离散选项/约束 + 当前观测/待测计数（与代码同源）"
+      },
+      {
+        "command": "synth_search",
+        "description": "合成路线检索：按产物/反应物/条件过滤 + 相似度排序（sqlite 轻量检索，不走向量库）",
+        "params": {
+          "product": "产物关键词",
+          "reactant": "反应物关键词",
+          "condition": "条件关键词",
+          "top_k": "返回条数，默认 10"
+        },
+        "example": "{\"tool_name\":\"synth_search\",\"product\":\"木质素纳米颗粒\"}"
+      },
+      {
+        "command": "synth_add",
+        "description": "合成路线入库：新增一条路线（name/product 必填，其余字段见 schema.Route）",
+        "params": {
+          "route": "路线字典 {name, product, method, yield_min, yield_max, reactants, conditions, ...}"
+        },
+        "example": "{\"tool_name\":\"synth_add\",\"route\":{\"name\":\"示例路线\",\"product\":\"木质素纳米颗粒\",\"method\":\"水热\"}}"
+      },
+      {
+        "command": "synth_validate",
+        "description": "合成路线物理校验：产率区间/温度合理等规则（不入库，规则可开关）",
+        "params": {
+          "route": "路线字典",
+          "rules": "规则开关 {规则id: bool}，可选"
+        },
+        "example": "{\"tool_name\":\"synth_validate\",\"route\":{\"name\":\"示例\",\"product\":\"木质素纳米颗粒\",\"yield_min\":0.3,\"yield_max\":0.6}}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "compute"
+    ],
+    "domains": [
+      "materials"
+    ],
+    "tier": "read-only",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["analyze", "thermal"], ["capture", "material"], ["check", "material"], ["compare", "material"], ["compute", "material"], ["compute", "material_property"], ["compute", "phase_diagram"], ["extract", "material"], ["ingest", "material"], ["lookup", "crystal"], ["lookup", "material"], ["query", "material"], ["recommend", "material"], ["search", "chem_formula"], ["search", "literature"], ["search", "material"]]
 }

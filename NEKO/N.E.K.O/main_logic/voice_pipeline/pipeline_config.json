@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "pipeline": {
+    "vad": "silero_vad",
+    "turn": "energy_threshold",
+    "asr": "sense_voice",
+    "llm": "openai",
+    "tts": "edge_tts"
+  },
+  "stage_config": {
+    "silero_vad": {
+      "threshold": 0.5,
+      "min_speech_duration_ms": 250,
+      "speech_pad_ms": 300
+    },
+    "energy_threshold": {
+      "silence_timeout_ms": 800,
+      "energy_floor": 0.02
+    },
+    "sense_voice": {
+      "core_type": "qwen",
+      "sample_rate": 16000,
+      "language": "auto"
+    },
+    "openai": {
+      "model": "gpt-4o-mini",
+      "base_url": ""
+    },
+    "edge_tts": {
+      "voice": "zh-CN-XiaoxiaoNeural",
+      "rate": "+0%"
+    }
+  },
+  "fallback": {
+    "asr": "dummy",
+    "tts": "dummy_tts"
+  }
+}

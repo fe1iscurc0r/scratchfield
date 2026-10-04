@@ -92,7 +92,7 @@ class ReversibleMemory:
         return ok
 
     async def add_memory(self, user_input: str = "", ai_response: str = "",
-                         quintuples: Optional[List] = None, **kw) -> bool:
+                         quintuples: List | None = None, **kw) -> bool:
         fn = getattr(self._backend, "add_memory", None)
         if fn is None:
             fn = getattr(self._remote, "add_memory", None)
@@ -242,7 +242,7 @@ class ReversibleMemory:
         return any(t in text for t in self._tombstoned_texts)
 
     @staticmethod
-    def _record_key(record) -> Optional[Tuple[str, str, str]]:
+    def _record_key(record) -> Tuple[str, str, str] | None:
         """五元组记录 → (S, P, O) 归一化键；无法识别的形态返回 None。"""
         if isinstance(record, (tuple, list)) and len(record) >= 3:
             return (str(record[0]).strip(), str(record[1]).strip(), str(record[2]).strip())
@@ -288,7 +288,7 @@ class ReversibleMemory:
         if len(self._stack) > self._undo_limit:
             self._stack.pop(0)
 
-    def _top_active(self) -> Optional[UndoOp]:
+    def _top_active(self) -> UndoOp | None:
         for op in reversed(self._stack):
             if op.active:
                 return op

@@ -43,7 +43,7 @@ class ProactiveDecider:
 
     # ── 阶段 A：规则门（纯 Python，零 LLM）──
 
-    def _gate(self, sid: str, snapshot: str, now: float) -> Optional[str]:
+    def _gate(self, sid: str, snapshot: str, now: float) -> str | None:
         """过五道门，返回 None=通过，否则返回 reason_code（可审计）。"""
         st = self._states.setdefault(sid, ProactiveState())
 
@@ -86,7 +86,8 @@ class ProactiveDecider:
         """轻量 LLM 判定「开口/不开口」。任何异常降级为不开（不崩溃）。"""
         try:
             import litellm
-            from system.llm_params import get_llm_params, build_model_name
+
+            from system.llm_params import build_model_name, get_llm_params
             resp = await litellm.acompletion(
                 model=build_model_name(PROACTIVE_MODEL, model_type="router"),
                 messages=[{"role": "system", "content": prompt}],
@@ -106,7 +107,7 @@ class ProactiveDecider:
 
     # ── 主入口：一次「主动搭话检查」──
 
-    async def check(self, sid: str, snapshot: str, topic: str) -> Optional[dict]:
+    async def check(self, sid: str, snapshot: str, topic: str) -> dict | None:
         """规则门 → 话题衰减 → LLM 决策 → 返回行动（或 None=不搭话）。"""
         now = time.time()
         reason = self._gate(sid, snapshot, now)
@@ -156,7 +157,11 @@ class ProactiveDecider:
     # ── 定时器兜底 ──
 
     async def _periodic_check(self, interval: int = 300) -> None:
-        """每 5 分钟兜底检查一次（无事件时也能主动）。"""
+        """每 5 分钟兜底检查一次（无事件时也能主动）。
+
+        W120-02：主路径改为订阅 `SCHEDULER_TICK`（见 `on_scheduler_tick`）；本方法保留为
+        兜底/降级路径（`config.bus.scheduler.use_bus=false` 或总线订阅失败时启用）。
+        """
         from .lumo_state import get_state_store
         store = get_state_store()
         while True:
@@ -167,6 +172,25 @@ class ProactiveDecider:
                     await self.check(sid, snap, "科研提醒")
                 except Exception:
                     pass
+
+    async def on_scheduler_tick(self, event) -> None:
+        """W120-02：订阅 SCHEDULER_TICK —— 仅 5m 档执行与 `_periodic_check` 等价的兜底检查。
+
+        判定与旧定时器一致：对当前已知会话逐个取快照 → `check(sid, snap, "科研提醒")`；
+        是否真的搭话仍由 `check()` 内部既有逻辑决定（本方法不新增判定）。
+        """
+        payload = event if isinstance(event, dict) else {}
+        if str(payload.get("interval") or "") != "5m":
+            return
+        from .lumo_state import get_state_store
+
+        store = get_state_store()
+        for sid in list(self._states.keys()):
+            try:
+                snap = store.get_snapshot(sid)
+                await self.check(sid, snap, "科研提醒")
+            except Exception:
+                logger.debug("[proactive] tick 兜底检查失败 sid=%s", sid, exc_info=True)
 
 
 _decider = ProactiveDecider()

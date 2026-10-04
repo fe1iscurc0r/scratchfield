@@ -1,0 +1,3 @@
+sample_id,date,material,method,variable_1,variable_2,temperature_c,duration_min,metric_primary,metric_secondary,notes
+S001,2026-08-22,秸秆,碳化,4,5,750,120,10.8,1350,示例：替换为你的实验列
+S002,2026-08-22,玉米芯,碳化,3,5,800,120,11.2,1400,

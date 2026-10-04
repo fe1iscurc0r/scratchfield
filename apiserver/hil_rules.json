@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "comment": "HIL 边界规则集（卷131 W131-02）。HILEvaluator 启动时读取，文件变更自动热重载。",
+  "weights": {
+    "reversible_read": 2.0,
+    "irreversible_write": -2.0,
+    "scope_self": 1.0,
+    "scope_cross_system": -1.5,
+    "dangerous_tag": -10.0,
+    "irreversible_tag": -6.0,
+    "critical_tool": 0.0,
+    "user_preference": 2.5
+  },
+  "thresholds": {
+    "auto_approve": 1.0,
+    "block": -4.0
+  },
+  "tool_rules": {
+    "file_read": {"reversible": true},
+    "search": {"reversible": true},
+    "query": {"reversible": true},
+    "list": {"reversible": true},
+    "file_write": {"reversible": false},
+    "file_edit": {"reversible": false},
+    "exec": {"reversible": false},
+    "bash": {"reversible": false},
+    "delete": {"reversible": false}
+  },
+  "dangerous_tools": [],
+  "critical_tools": []
+}

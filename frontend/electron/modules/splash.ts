@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 /**
  * 早期启动 splash 窗口
  *

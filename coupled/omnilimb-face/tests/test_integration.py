@@ -459,7 +459,6 @@ import threading
 import time
 
 import websockets
-
 from omnilimb_face.config import ProtocolSettings
 from omnilimb_face.protocol.events import (
     ControlEvent,

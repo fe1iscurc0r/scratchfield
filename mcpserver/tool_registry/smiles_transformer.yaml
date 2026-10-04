@@ -1,0 +1,53 @@
+# smiles-transformer 材料工具统一 meta.yaml（S-02）
+# 按 docs/academic/lumo-molec-授粉报告.md 调研（DSPsleeporg/smiles-transformer，
+# MIT，预训练 SMILES autoencoder → 分子嵌入，只参考未封装）。
+app:
+  name: smiles_transformer
+  display_name: smiles-transformer 分子嵌入
+  version: 0.1.0
+  description: 预训练 SMILES autoencoder → 固定长度分子指纹嵌入（表示学习，非生成），面向小样本性质预测
+  categories: [molecular-representation, representation-learning]  # 领域名已移出
+  families: [compute]
+  domains: [materials]
+  tier: read-only
+  origin:
+    kind: bridge
+    upstream: DSPsleeporg/smiles-transformer
+    upstream_license: MIT
+  security_schemes: {}
+  visibility: public
+  active: true
+
+functions:
+  - name: smiles_transformer_encode
+    description: 分子 SMILES → 固定长度稠密嵌入向量（预训练指纹，小样本性质预测用）
+    tags: [embedding, representation]
+    parameters:
+      type: object
+      properties:
+        smiles:
+          type: string
+          description: 单个分子 SMILES（RDKit 可处理）
+        canonicalize:
+          type: boolean
+          description: 是否先 RDKit 规范化（默认 true）
+          default: true
+      required: [smiles]
+      additionalProperties: false
+
+  - name: smiles_transformer_encode_batch
+    description: SMILES 列表 → 批量嵌入矩阵（rows=分子数, cols=嵌入维度）
+    tags: [embedding, batch]
+    parameters:
+      type: object
+      properties:
+        smiles_list:
+          type: array
+          description: SMILES 数组
+          items: { type: string }
+        canonicalize:
+          type: boolean
+          description: 是否先 RDKit 规范化（默认 true）
+          default: true
+      required: [smiles_list]
+      additionalProperties: false

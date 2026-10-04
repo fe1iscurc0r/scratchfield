@@ -1,0 +1,314 @@
+{
+  "name": "ptz_service",
+  "displayName": "PTZ 云台执行器服务（Lumo↔机械）",
+  "version": "0.3.0",
+  "description": "把天线云台/转台做成 Lumo 可调的工具：定位、扇扫、任务编排（TLE 跟踪/扇扫循环/记忆位）、回零、停止、状态、LoRa 无线遥控、急停/复位、看门狗与审计。控制器与实体分离（PTZTransport 抽象：串口 / LoRa433 双后端 + sim），双路仲裁 last-wins；机械命令过确认门（卷119 W119-03 tool_gate）与 Scope 隔离（卷124 W124-01）；心跳超时自动兜底停住并停掉自动任务。对端执行卷129 的 G 代码命令面（ok / error:limit / error:unknown 逐字透传）。",
+  "author": "砚",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.ptz_service.tools",
+    "class": "PTZBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "ptz_move_to",
+        "description": "云台定位到指定方位/俯仰角，速度可配；重复下发相同目标为 no-op（不空跑机构）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "az": {
+              "type": "number",
+              "description": "方位角，0..360（355→5 走最短路径）"
+            },
+            "el": {
+              "type": "number",
+              "description": "俯仰角，−90..90"
+            },
+            "speed": {
+              "type": "number",
+              "description": "进给速度（度/秒），缺省用对端默认"
+            },
+            "timeout_s": {
+              "type": "number",
+              "description": "单命令超时，默认 2s"
+            }
+          },
+          "required": [
+            "az",
+            "el"
+          ]
+        },
+        "example": "{\"tool_name\":\"ptz_move_to\",\"az\":45,\"el\":30,\"speed\":10}"
+      },
+      {
+        "command": "ptz_scan",
+        "description": "扇扫：方位按步长走一遍（俯仰保持），用于频谱扫描或天线方向图实测",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "start_az": {
+              "type": "number"
+            },
+            "end_az": {
+              "type": "number"
+            },
+            "step": {
+              "type": "number",
+              "description": "步长（度），需为正数"
+            },
+            "dwell": {
+              "type": "number",
+              "description": "每点驻留秒数，默认 1.0"
+            },
+            "speed": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "start_az",
+            "end_az",
+            "step"
+          ]
+        },
+        "example": "{\"tool_name\":\"ptz_scan\",\"start_az\":0,\"end_az\":350,\"step\":10,\"dwell\":1.0}"
+      },
+      {
+        "command": "ptz_home",
+        "description": "回零（G28，两轴一起）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "timeout_s": {
+              "type": "number"
+            }
+          }
+        },
+        "example": "{\"tool_name\":\"ptz_home\"}"
+      },
+      {
+        "command": "ptz_status",
+        "description": "查云台状态：az/el/moving/fault/ring/link/held + 缓存时延、最后控制来源、锁机标志",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"ptz_status\"}"
+      },
+      {
+        "command": "ptz_stop",
+        "description": "进给保持（!）：平滑停下但保持使能，不锁故障",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"ptz_stop\"}"
+      },
+      {
+        "command": "ptz_estop",
+        "description": "紧急停止（M112）：最高优先、绕过确认门，执行后锁机；须 ptz_reset 才能再动",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"ptz_estop\"}"
+      },
+      {
+        "command": "ptz_reset",
+        "description": "解除急停锁机并显式清故障（$X）",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"ptz_reset\"}"
+      },
+      {
+        "command": "ptz_heartbeat",
+        "description": "一拍心跳探活；连续失败达阈值触发兜底（停住 + 卸载使能 + fault 上报）",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"ptz_heartbeat\"}"
+      },
+      {
+        "command": "ptz_memory",
+        "description": "记忆位：list 列出 / set 存位 / get 取值 / delete 删除 / goto 一键回位。落盘到本地 JSON，掉电不丢",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "list / set / get / delete / goto"
+            },
+            "slot": {
+              "type": "string",
+              "description": "位名"
+            },
+            "az": {
+              "type": "number"
+            },
+            "el": {
+              "type": "number"
+            }
+          }
+        },
+        "example": "{\"tool_name\":\"ptz_memory\",\"action\":\"goto\",\"slot\":\"north\"}"
+      },
+      {
+        "command": "ptz_task",
+        "description": "任务编排（W130-03）：add 建任务 / list 列任务 / stop 停任务 / report 跟踪误差报告 / tick 推进一拍 / remove 删任务。type 取 track（TLE 跟踪）/ scan（扇扫循环）/ goto_mem（走记忆位）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "add / list / stop / report / tick / remove"
+            },
+            "type": {
+              "type": "string",
+              "description": "track / scan / goto_mem"
+            },
+            "params": {
+              "type": "object",
+              "description": "track: tle_line1/tle_line2/name/speed；scan: start_az/end_az/step/dwell/el/loops；goto_mem: slot/speed"
+            },
+            "schedule": {
+              "type": "object",
+              "description": "duration_s（跑多久）/ start_at（ISO 8601 定时启动）"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "description": "list 时按状态过滤：running/done/aborted/failed"
+            },
+            "start": {
+              "type": "boolean",
+              "description": "add 后是否立即启动，默认 true"
+            }
+          }
+        },
+        "example": "{\"tool_name\":\"ptz_task\",\"action\":\"add\",\"type\":\"track\",\"params\":{\"name\":\"ISS\",\"tle_line1\":\"1 25544U ...\",\"tle_line2\":\"2 25544 ...\"}}"
+      },
+      {
+        "command": "ptz_track_source",
+        "description": "跟踪数据源状态：sgp4 是否可用（MIT 许可）、观测站坐标（manual/GPS）、跟踪节拍、TLE 龄期告警",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"ptz_track_source\"}"
+      },
+      {
+        "command": "ptz_watchdog",
+        "description": "看门狗（W130-04）：tick 按节拍推进探活 / status 看快照 / reset 复位。连续 max_miss 次无响应触发兜底",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "tick / status / reset"
+            }
+          }
+        },
+        "example": "{\"tool_name\":\"ptz_watchdog\",\"action\":\"tick\"}"
+      },
+      {
+        "command": "ptz_audit",
+        "description": "审计尾巴（W130-04）：最近若干条命令/结果/fault 的 JSONL（ts/source/cmd/result），对齐卷124 surface_telemetry 消费口径",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "number",
+              "description": "取最近几条，默认 50"
+            }
+          }
+        },
+        "example": "{\"tool_name\":\"ptz_audit\",\"limit\":20}"
+      },
+      {
+        "command": "ptz_lora",
+        "description": "经 LoRa433 第二通道（W130-02）发一条命令面指令；文本帧 PTZ <cmd>#<SUM2>，≤64B，校验和 + 超时重传 2 次",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "cmd": {
+              "type": "string",
+              "description": "卷129 命令面原文，如 G1 X30 Y10 / G28 / ! / M112"
+            },
+            "timeout_s": {
+              "type": "number",
+              "description": "单次等待回传，默认 2s"
+            }
+          },
+          "required": [
+            "cmd"
+          ]
+        },
+        "example": "{\"tool_name\":\"ptz_lora\",\"cmd\":\"G28\"}"
+      },
+      {
+        "command": "ptz_arbitration",
+        "description": "双路仲裁（W130-02）：status 看当前控制来源与切换轨迹 / release 释放控制权 / release_if_idle 空闲释放。语义为 last-wins（最后指令优先）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "status / release / release_if_idle"
+            },
+            "source": {
+              "type": "string",
+              "description": "release 时限定来源"
+            }
+          }
+        },
+        "example": "{\"tool_name\":\"ptz_arbitration\",\"action\":\"status\"}"
+      },
+      {
+        "command": "ptz_config",
+        "description": "查当前编排配置与运行快照（后端/连接/心跳阈值/确认档/仲裁/记忆位/任务/故障事件/审计统计）",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"ptz_config\"}"
+      }
+    ]
+  },
+  "runtime": {
+    "env": {
+      "PTZ_TRANSPORT": "sim（默认，无硬件）/ COM3 / COM3@9600 / /dev/ttyUSB0@115200",
+      "PTZ_TRANSPORT_LORA": "第二通道（LoRa 桥）：sim / COM4@115200 / /dev/ttyUSB1",
+      "PTZ_MOVEMENT_CONFIRM": "required（默认）/ audit_only",
+      "PTZ_TRACKING_SOURCE": "sgp4（默认，需 pip install sgp4；MIT）/ simple（内置简化，仅离线自测）/ auto"
+    },
+    "dependencies": {
+      "sgp4": ">=2.23（MIT 许可，已核验 2.27 的 License-Expression: MIT）。未安装时跟踪任务**拒绝启动**（no_propagator），不返回假角度"
+    },
+    "safety": {
+      "watchdog": "连续 max_miss 次探活失败 → 停住（!）+ 卸载使能（M18）+ 停掉全部自动任务 + ptz.fault 事件",
+      "estop": "M112 双通道（串口 + LoRa）都发，任一通则锁机；锁机期间自动任务全部停止，须 ptz_reset 才能恢复",
+      "confirm_gate": "写操作复用卷119 W119-03 tool_gate；audit_only=False 时敏感工具需批准",
+      "scope": "复用卷124 W124-01；ptz 工具默认只对指定角色可见",
+      "firmware_failsafe": "兜底必须由设备侧固件执行——链路断了主机发不出命令；主机侧看门狗只能尽力而为"
+    },
+    "license_note": "自研实现，参考 ros2_control / LeRobot 的机制不整抄；对端为卷129 hardware/antenna-rotator 命令面；可选依赖 sgp4（MIT）"
+  },
+  "classification": {
+    "families": [
+      "instrument"
+    ],
+    "domains": [
+      "mechat"
+    ],
+    "tier": "process-control",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "capability_pairs": [["control", "antenna"], ["control", "antenna_control"], ["list", "antenna_control"], ["lookup", "antenna_control"], ["monitor", "antenna_control"], ["query", "antenna"], ["status", "antenna_control"], ["write", "antenna_control"]]
+}

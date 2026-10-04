@@ -7,6 +7,11 @@
 """
 from __future__ import annotations
 
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import json
 import os
 import threading
@@ -141,7 +146,7 @@ class HamlogAdapterTest(unittest.TestCase):
         self.assertEqual(len(all_debts), 2)
 
     def test_qso_add_and_qsl_update(self):
-        from mcpserver.adapters.hamlog_adapter.adapter import qso_add, qsl_update
+        from mcpserver.adapters.hamlog_adapter.adapter import qsl_update, qso_add
 
         added = qso_add(callsign="BG5ABC", qso_date="2026-08-18", mode="FT8", freq="14.074")
         self.assertTrue(added["success"])
@@ -314,7 +319,7 @@ class HamlogSqliteBackendTest(unittest.TestCase):
 
     def test_a_roundtrip_add_update_card(self):
         # test_a 前缀：unittest 字母序下最先跑，先完成 JA1XYZ 录入+发卡
-        from mcpserver.adapters.hamlog_adapter.adapter import card_content, qso_add, qsl_update
+        from mcpserver.adapters.hamlog_adapter.adapter import card_content, qsl_update, qso_add
 
         added = qso_add(callsign="ja1xyz", qso_date="2026-08-18", mode="cw", freq="21.2", rst_sent="579")
         self.assertTrue(added["success"])
@@ -356,6 +361,142 @@ class HamlogSqliteBackendTest(unittest.TestCase):
         self.assertEqual([r["callsign"] for r in rows], ["BG5ABC"])  # 14.074 命中 20m 前缀（JA1XYZ 在 21.2）
         with self.assertRaises(HamlogError):
             qso_search(band="3cm")
+
+
+class HamlogNewToolsTest(unittest.TestCase):
+    """Y-01 新增能力测试：ADIF 往返 / DXCC 查询 / 通联统计 / CAT 降级。
+
+    使用独立临时 SQLite DB，不污染 HamlogSqliteBackendTest 的共享 fixture；
+    CAT 测试不依赖数据库，任何后端下都应诚实降级返回 ok:False 而不抛异常。"""
+
+    @classmethod
+    def setUpClass(cls):
+        import sqlite3
+        import tempfile
+
+        cls._tmpdir = tempfile.mkdtemp(prefix="hamlog_newtools_")
+        cls.db_file = Path(cls._tmpdir) / "Log.db"
+        conn = sqlite3.connect(cls.db_file)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS log(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Callsign TEXT NOT NULL, Freq TEXT,
+                Year INTEGER, Month INTEGER, Day INTEGER, Time TEXT,
+                Mode TEXT, Power_self TEXT, Power_side TEXT,
+                Rst_self TEXT, Rst_side TEXT, QTH TEXT, Device TEXT,
+                QSL_RX TEXT, QSL_SEND TEXT, Remarks TEXT,
+                CreateTime TEXT DEFAULT CURRENT_TIMESTAMP)
+        """)
+        conn.execute("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)")
+        # 三条已知记录：2 条 FT8（14.074→20m）+ 1 条 SSB（7.050→40m），仅一条已收卡
+        conn.execute("INSERT INTO log (Callsign, Freq, Year, Month, Day, Time, Mode, "
+                     "Rst_self, Rst_side, QSL_RX, QSL_SEND) "
+                     "VALUES ('JA1ABC', '14.074', 2026, 8, 1, '1200', 'FT8', '-12', '-05', '20260810', '')")
+        conn.execute("INSERT INTO log (Callsign, Freq, Year, Month, Day, Time, Mode, "
+                     "Rst_self, Rst_side, QSL_RX, QSL_SEND) "
+                     "VALUES ('K1ABC', '7.050', 2026, 8, 2, '1300', 'SSB', '59', '59', '', '')")
+        conn.execute("INSERT INTO log (Callsign, Freq, Year, Month, Day, Time, Mode, "
+                     "Rst_self, Rst_side, QSL_RX, QSL_SEND) "
+                     "VALUES ('VK2XYZ', '14.074', 2026, 8, 3, '1400', 'FT8', '-10', '-03', '', '')")
+        conn.execute("INSERT INTO settings VALUES ('my_callsign', 'BI5XXX')")
+        conn.execute("INSERT INTO settings VALUES ('my_grid', 'PM01')")
+        conn.commit()
+        conn.close()
+        cls._old_db = os.environ.get("HAMLOG_DB_PATH")
+        cls._old_url = os.environ.get("HAMLOG_API_URL")
+        os.environ["HAMLOG_DB_PATH"] = str(cls.db_file)
+        os.environ.pop("HAMLOG_API_URL", None)  # 不设 URL → SQLite 主路径
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._old_db is None:
+            os.environ.pop("HAMLOG_DB_PATH", None)
+        else:
+            os.environ["HAMLOG_DB_PATH"] = cls._old_db
+        if cls._old_url is not None:
+            os.environ["HAMLOG_API_URL"] = cls._old_url
+        import shutil
+
+        shutil.rmtree(cls._tmpdir, ignore_errors=True)
+
+    def test_adif_export_import_roundtrip(self):
+        """导出的 ADIF 能被 import 回来（写入独立空库，避免污染统计断言）。"""
+        import sqlite3
+
+        from mcpserver.adapters.hamlog_adapter.adapter import adif_export, adif_import
+
+        exported = adif_export()
+        self.assertGreaterEqual(exported["count"], 3)
+        self.assertIn("<EOH>", exported["adif"])
+        self.assertIn("<CALL:", exported["adif"])
+        self.assertIn("<EOR>", exported["adif"])
+
+        fresh = Path(self._tmpdir) / "Fresh.db"
+        conn = sqlite3.connect(fresh)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS log(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Callsign TEXT NOT NULL, Freq TEXT,
+                Year INTEGER, Month INTEGER, Day INTEGER, Time TEXT,
+                Mode TEXT, Power_self TEXT, Power_side TEXT,
+                Rst_self TEXT, Rst_side TEXT, QTH TEXT, Device TEXT,
+                QSL_RX TEXT, QSL_SEND TEXT, Remarks TEXT,
+                CreateTime TEXT DEFAULT CURRENT_TIMESTAMP)
+        """)
+        conn.commit()
+        conn.close()
+
+        old = os.environ["HAMLOG_DB_PATH"]
+        os.environ["HAMLOG_DB_PATH"] = str(fresh)
+        try:
+            result = adif_import(exported["adif"])
+            self.assertEqual(result["failed"], 0)
+            self.assertEqual(result["success"], exported["count"])
+        finally:
+            os.environ["HAMLOG_DB_PATH"] = old
+
+    def test_adif_import_skips_bad_records(self):
+        from mcpserver.adapters.hamlog_adapter.adapter import adif_import
+
+        bad = "<CALL:5>JA1ZZ <EOR>\n<MODE:3>FT8 <EOR>\n"  # 第一条缺 MODE，第二条缺 CALL
+        result = adif_import(bad)
+        self.assertEqual(result["success"], 0)
+        self.assertEqual(result["failed"], 2)
+        self.assertEqual(result["total"], 2)
+
+    def test_dxcc_lookup_hit(self):
+        from mcpserver.adapters.hamlog_adapter.adapter import dxcc_lookup
+
+        self.assertEqual(dxcc_lookup("JA1ABC"), {"prefix": "JA", "entity": "Japan", "continent": "Asia"})
+        self.assertEqual(dxcc_lookup("VE3XYZ")["entity"], "Canada")
+        self.assertEqual(dxcc_lookup("K5ABC")["entity"], "United States")
+        self.assertEqual(dxcc_lookup("BY1AA")["entity"], "China")
+        # 带便携斜杠后缀也能命中主前缀
+        self.assertEqual(dxcc_lookup("JA1ABC/2")["prefix"], "JA")
+
+    def test_dxcc_lookup_miss(self):
+        from mcpserver.adapters.hamlog_adapter.adapter import HamlogError, dxcc_lookup
+
+        with self.assertRaises(HamlogError):
+            dxcc_lookup("1A0XX")  # 非精简表内前缀
+
+    def test_hamlog_stats_counts(self):
+        from mcpserver.adapters.hamlog_adapter.adapter import hamlog_stats
+
+        stats = hamlog_stats()
+        self.assertEqual(stats["total_qsos"], 3)
+        self.assertEqual(stats["by_mode"], {"FT8": 2, "SSB": 1})
+        self.assertEqual(stats["by_band"], {"20m": 2, "40m": 1})
+        self.assertEqual(stats["qsl_confirmed"], 1)
+
+    def test_cat_get_freq_no_radio_returns_ok_false(self):
+        from mcpserver.adapters.hamlog_adapter.adapter import hamlog_cat_get_freq
+
+        result = hamlog_cat_get_freq()  # 无电台/无 rsba1 包时诚实降级，不抛裸异常
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result["ok"])
+        self.assertIn("error", result)
+        self.assertTrue(result["error"])
 
 
 if __name__ == "__main__":

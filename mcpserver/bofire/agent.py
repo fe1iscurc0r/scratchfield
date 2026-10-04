@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -150,6 +151,22 @@ class BofireAgent:
             "bofire_tell_results": self._bofire_tell_results,
         }
         logger.info(f"[MCP] {self.display_name} 初始化完成，共 {len(self.tools)} 个工具")
+
+    async def handle_handoff(self, task: dict[str, Any]) -> str:
+        """类方法入口（总线契约）：委托 invoke 分发。
+
+        注册表运行时按 instance.handle_handoff 调用（Format A: {module, class}），
+        task 格式 {"tool": ..., "params": {...}}，返回 JSON 字符串。
+        """
+        command = str(task.get("tool") or task.get("command") or "").strip()
+        params = task.get("params")
+        if not isinstance(params, dict):
+            params = {}
+        try:
+            result = self.invoke(command, params)
+        except ValueError as e:  # invoke 对未知命令/坏参数 fail-fast，总线边界落 JSON 不崩
+            result = {"status": "error", "error": str(e)}
+        return json.dumps(result, ensure_ascii=False, default=str)
 
     def invoke(self, command: str, params: dict | None = None) -> dict:
         """MCP 分发入口：按命令名调用对应工具。"""

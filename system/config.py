@@ -825,6 +825,21 @@ class OnlineSearchConfig(BaseModel):
     search_api_base: str = Field(default="https://api.search.brave.com/res/v1/web/search", description="搜索API地址")
 
 
+class VonConfig(BaseModel):
+    """Von 决策模型（判决书自动打标）配置 — 卷164。
+
+    Von 是**外部自托管服务**（与 Ollama 同等地位），apiserver 不负责拉起，
+    仅探活 + 调用。离线时打标功能降级禁用，不影响其他功能。
+    """
+
+    enabled: bool = Field(default=True, description="是否启用 Von 打标（关闭则前端按钮置灰）")
+    endpoint: str = Field(default="http://127.0.0.1:8001", description="von serve 端点")
+    timeout: float = Field(default=10.0, ge=1.0, le=120.0, description="单问题超时（秒）")
+    #: 断路器：连续失败次数阈值后熔断
+    breaker_threshold: int = Field(default=5, ge=1, le=50, description="连续失败几次后熔断")
+    breaker_cooldown: float = Field(default=60.0, ge=1.0, le=3600.0, description="熔断持续秒数")
+
+
 class OpenClawFeishuConfig(BaseModel):
     """OpenClaw 飞书通道配置。
 
@@ -878,6 +893,381 @@ class TelemetryConfig(BaseModel):
     batch_size: int = Field(default=50, ge=1, le=500, description="每次最多上传的事件数")
     max_queue_events: int = Field(default=5000, ge=100, le=50000, description="本地队列最多保留的事件数")
     max_queue_bytes: int = Field(default=8 * 1024 * 1024, ge=1024 * 1024, le=128 * 1024 * 1024, description="本地队列最大字节数")
+
+
+class EventStoreConfig(BaseModel):
+    """W119-02：总线事件持久化（append-only JSONL）配置。"""
+
+    enabled: bool = Field(default=True, description="是否把总线事件落入 event_store（审计/回放）")
+    buffer_lines: int = Field(default=200, ge=1, le=10000, description="写盘缓冲行数（攒够即刷）")
+    max_bytes: int = Field(
+        default=16 * 1024 * 1024, ge=64 * 1024, le=512 * 1024 * 1024,
+        description="单个 JSONL 文件上限，超限滚动到新文件（保留最近文件）",
+    )
+    keep_files: int = Field(default=5, ge=1, le=50, description="滚动后保留的历史文件数")
+    queue_max: int = Field(default=5000, ge=100, le=100000, description="写盘队列上限（满则丢弃并计数）")
+
+
+class ToolGateConfig(BaseModel):
+    """W119-03：工具调用安全门（TOOL_PRE_EXECUTE waterfall）配置。
+
+    默认清单来自对 tool_schemas.py / mcpserver manifests 的实际枚举（见
+    apiserver/event_bus/README.md 的清单表），不是凭空列。
+    """
+
+    enabled: bool = Field(default=True, description="是否启用工具安全门")
+    audit_only: bool = Field(
+        default=False,
+        description="只记审计不拦截（灰度用）；true 时敏感工具门与熔断门只记录不 veto",
+    )
+    sensitive_tools: list[str] = Field(
+        default_factory=lambda: [
+            "exec",           # 本地命令执行（白名单内）
+            "write",          # 写文件
+            "edit",           # 编辑文件
+            "process",        # 进程管理（转发 openclaw agent）
+            "sessions_spawn", # 起子 agent 会话
+            "sessions_send",
+            "gateway",
+            "nodes",
+            "mcp__vulnclaw__vulnclaw_invoke",  # 渗透编排（另有独立开关）
+            # W121-04：Code Workspace 工具（写类由 W121-03 确认门把关，见 allowlist 放行）
+            "code_exec",
+            "file_write",
+            "file_edit",
+            "shell_exec",
+            "test_run",
+        ],
+        description="敏感工具黑名单：命中即 veto（allowlist 可覆盖）",
+    )
+    sensitive_keywords: list[str] = Field(
+        default_factory=lambda: ["shell", "ssh", "scp", "sudo"],
+        description="按名字片段判定的敏感族（如 shell/ssh/scp）",
+    )
+    allowlist: list[str] = Field(
+        default_factory=lambda: [
+            # W121-04：Code Workspace 走自己的沙箱 + 确认门，不需要敏感门再拦一道
+            # （登记进敏感名单是为了进「敏感工具清单表」被审计口径覆盖）
+            "code_exec",
+            "file_write",
+            "file_edit",
+            "shell_exec",
+            "test_run",
+        ],
+        description="显式放行清单（优先于黑名单）",
+    )
+    breaker_threshold: int = Field(default=5, ge=1, le=100, description="同一工具连续失败 N 次触发熔断")
+    breaker_window_seconds: int = Field(default=60, ge=5, le=3600, description="熔断统计窗口（秒）")
+
+
+class SchedulerConfig(BaseModel):
+    """W120-02：定时任务总线化配置。"""
+
+    use_bus: bool = Field(default=True, description="用 SCHEDULER_TICK 总线事件驱动定时任务（false 时切回原 _periodic_check 定时器）")
+    ticks: list[str] = Field(
+        default_factory=lambda: ["5m", "1h"],
+        description="发号档位（支持 30s/5m/2h 形式）；5m 档驱动 proactive 兜底检查",
+    )
+
+
+class MemoryLayeringConfig(BaseModel):
+    """W120-03：记忆分层（短期窗口 → 超限提升为长期）配置。"""
+
+    enabled: bool = Field(default=True, description="是否启用记忆分层事件（MEMORY_ARCHIVED 提升）")
+    max_short_term: int = Field(default=50, ge=1, le=5000, description="短期层容量上限（超出即提升为长期）")
+    promote_after_seconds: int = Field(
+        default=6 * 3600, ge=60, le=30 * 24 * 3600, description="短期条目最长驻留秒数（超时提升）"
+    )
+
+
+class CodeSpaceConfig(BaseModel):
+    """W121：代码工作区（Code Workspace）安全与行为配置。"""
+
+    workspace_root: str = Field(default="", description="工作区根目录；留空用 <user_data>/code_workspace")
+    shell_allowlist: list[str] = Field(
+        default_factory=lambda: [
+            "python", "python3", "py", "pytest", "node", "npm",
+            "pip", "pip3", "git", "ls", "dir", "cat", "type", "echo",
+            "pwd", "cd", "head", "tail", "wc", "find", "grep", "ruff",
+        ],
+        description="shell_exec 白名单命令（按首 token 精确匹配；sudo/rm 等永不在内）",
+    )
+    exec_timeout_s: float = Field(default=10.0, ge=1.0, le=300.0, description="code_exec/shell_exec 超时（秒）")
+    memory_limit_mb: int = Field(default=256, ge=32, le=8192, description="子进程内存上限（MB；POSIX 用 rlimit，Windows 走 psutil 看门狗）")
+    plan_confirm: bool = Field(default=True, description="写操作是否需用户确认（plan/diff 确认门）")
+    max_output_chars: int = Field(default=20000, ge=1000, le=200000, description="单次执行回传输出上限（字符）")
+
+
+class AgentLoopConfig(BaseModel):
+    """W121-02：Agentic Loop 迭代控制（工具结果回流 / 步数上限 / 失败重试 / 收敛）。"""
+
+    max_steps: int = Field(
+        default=8, ge=1, le=40,
+        description="工具迭代轮数上限；达到后强制收敛（给出已完成/未完成摘要，不再调工具）",
+    )
+    max_retries: int = Field(
+        default=2, ge=0, le=5,
+        description="单个工具调用失败后的最大重试次数（0=不重试；策略拒绝/确认等待类失败不重试）",
+    )
+    retry_backoff_s: float = Field(default=0.5, ge=0.0, le=10.0, description="工具重试间隔（秒）")
+    converge_hint: str = Field(
+        default="", description="收敛轮附加提示；留空用内置文案（含已完成/未完成清单）"
+    )
+
+
+class MemoryConfig(BaseModel):
+    """W120-03：记忆生命周期配置。"""
+
+    layering: MemoryLayeringConfig = Field(default_factory=MemoryLayeringConfig)
+
+
+class ScopeRoleConfig(BaseModel):
+    """W124-01：单个角色的工具可见性配置。
+
+    - `allowed_tools` 为空 = 该角色不设白名单（但仍受 denied_tools 限制）
+    - 工具名支持 `{agentType}__{service}__{tool}` 前缀与 `*` 通配：`mcp__code_workspace__*`
+    - `denied_tools` 优先于 `allowed_tools`
+    """
+
+    allowed_tools: list[str] = Field(
+        default_factory=list, description="白名单（空=不限制）；支持前缀与 * 通配"
+    )
+    denied_tools: list[str] = Field(
+        default_factory=list, description="黑名单（优先于白名单）"
+    )
+    skills: list[str] = Field(
+        default_factory=list, description="卷124-05：该角色可见的技能白名单（空=不限制）"
+    )
+
+
+class ScopeConfig(BaseModel):
+    """W124-01：Scope 原语（per-角色 / per-会话 工具可见性）。
+
+    默认全可见（未配置角色行为不变，向后兼容）；`enabled=false` 时整层旁路。
+    """
+
+    enabled: bool = Field(default=True, description="总开关（false=不做任何可见性过滤）")
+    default_visible_all: bool = Field(
+        default=True, description="未配置的角色是否可见全部工具（true=向后兼容）"
+    )
+    roles: dict[str, ScopeRoleConfig] = Field(
+        default_factory=dict,
+        description="角色 → 可见工具配置（角色名对应 characters/registry.json 的 role_id 或 display_name）",
+    )
+    session_roles: dict[str, str] = Field(
+        default_factory=dict, description="会话 → 角色绑定（会话级覆盖，便于按通道/按会话隔离）"
+    )
+    registry_path: str = Field(
+        default="characters/registry.json",
+        description="角色注册表路径（其中的 tool_scope 字段会被并入 roles；文件不存在则忽略）",
+    )
+
+
+class EmbedderConfig(BaseModel):
+    """W125-03：端侧嵌入配置（本地优先，云端回退）。"""
+
+    mode: str = Field(default="auto", description="auto=本地优先云端回退 / local=只用本地 / cloud=只用云端")
+    cache_size: int = Field(default=512, ge=0, le=100000, description="向量 LRU 缓存条数（0=关缓存）")
+    cloud_api_base: str = Field(default="", description="云端 embedding 端点（留空回退 embedding.api_base / api.base_url）")
+    cloud_api_key: str = Field(default="", description="云端 embedding 密钥（留空回退 embedding.api_key / api.api_key）")
+    cloud_model: str = Field(default="", description="云端 embedding 模型名（留空回退 embedding.model）")
+
+
+class AntennaSimConfig(BaseModel):
+    """卷122：天线仿真管线配置（模型/执行/结果）。"""
+
+    lab_root: str = Field(default="", description="天线实验室根目录；留空用 <user_data>/antenna-lab")
+    openems_dir: str = Field(
+        default="", description="OpenEMS 安装目录（含 openEMS.exe）；也可用环境变量 ANTENNA_SIM_OPENEMS_DIR"
+    )
+    openems_python: str = Field(
+        default="", description="装了 openEMS/CSXCAD wheel 的 python 解释器（跑 Python 模型脚本用）"
+    )
+    kali_endpoint: str = Field(default="", description="Kali 桥端点（SSH/HTTP 中转）；留空则不启用 kali 后端")
+    timeout_s: float = Field(default=1800.0, ge=30.0, le=86400.0, description="单任务超时（秒）")
+    extra_model_dirs: list[str] = Field(
+        default_factory=list, description="允许存放模型的额外目录（路径校验白名单）"
+    )
+    scale_to_vhf: bool = Field(
+        default=True,
+        description="HF/短波天线按 λ 等比缩放到 VHF 再跑（FDTD 网格量级可控；PEC 无耗下物理等价）",
+    )
+
+
+class PtzSafetyConfig(BaseModel):
+    """卷130 W130-04：云台机械安全档（三保险的编排层那一环 + 审计 + 急停）。
+
+    这几个值直接决定「失联时机械怎么动」，所以默认取最保守的一档：
+    心跳 5s 一拍、连续 3 拍无响应即兜底、兜底动作包含 stop、机械命令需确认。
+    `movement_confirm="audit_only"` 是灰度档：只记审计不拦（对齐卷119 tool_gate 语义）。
+    """
+
+    watchdog_interval_s: float = Field(
+        default=5.0, ge=0.5, le=120.0, description="心跳探活间隔（秒）"
+    )
+    max_miss: int = Field(
+        default=3, ge=1, le=20, description="连续多少次探活失败触发兜底"
+    )
+    estop_on_watchdog: bool = Field(
+        default=True, description="兜底时是否同时回零（ptz_home）"
+    )
+    home_on_watchdog: bool = Field(
+        default=False, description="兜底时是否下发回零（与 estop_on_watchdog 任一为真即回零）"
+    )
+    disable_on_watchdog: bool = Field(
+        default=True, description="兜底时是否卸载使能（M18；防止长时间堵转发热）"
+    )
+    movement_confirm: str = Field(
+        default="required",
+        description="机械命令确认档：required（需批准）/ audit_only（只记不拦，灰度）",
+    )
+    command_timeout_s: float = Field(
+        default=2.0, ge=0.1, le=60.0, description="单条命令默认超时（秒）"
+    )
+    audit_path: str = Field(
+        default="", description="PTZ 审计 JSONL 路径；留空用 <user_data>/audit/ptz_calls.ndjson"
+    )
+    estop_dual_channel: bool = Field(
+        default=True, description="急停双通道：串口与 LoRa 都发一遍（任一通则锁机）"
+    )
+    tracking_period_s: float = Field(
+        default=3.0, ge=1.0, le=5.0, description="W130-03 TLE 跟踪节拍（工单规定 1-5s 可配）"
+    )
+    tracking_source: str = Field(
+        default="sgp4",
+        description=("TLE 传播实现：sgp4（MIT，优先，需 pip install sgp4）/ "
+                     "simple（内置简化圆轨道，仅离线自测，精度远低）/ auto（有 sgp4 就用）"),
+    )
+    gps_source: str = Field(
+        default="manual",
+        description="观测站坐标来源：manual（配置里给经纬高）/ gps（NEO6M 串口）/ sim",
+    )
+    gps_port: str = Field(default="", description="NEO6M 串口（gps_source=gps 时用）")
+    site_lat_deg: float = Field(default=39.9042, ge=-90.0, le=90.0, description="观测站纬度（默认北京）")
+    site_lon_deg: float = Field(default=116.4074, ge=-180.0, le=180.0, description="观测站经度")
+    site_alt_m: float = Field(default=50.0, ge=-500.0, le=9000.0, description="观测站海拔（米）")
+    memory_path: str = Field(
+        default="", description="记忆位持久化 JSON 路径；留空用 <user_data>/ptz/memory.json"
+    )
+    track_fail_action: str = Field(
+        default="hold",
+        description="跟踪中断（TLE/GPS 源失败）时的动作：hold（原地保持）/ home（平滑回零）",
+    )
+
+
+class RouterConfig(BaseModel):
+    """W125-01：Turn 级模型路由配置（默认关闭，保守）。
+
+    默认 `enabled=false` → 完全走现有 llm_service 行为；开启后按复杂度在
+    cheap/strong 之间选，`default` 档表示「沿用现有配置不做覆盖」。
+    """
+
+    enabled: bool = Field(default=False, description="是否启用 turn 级模型路由（默认关，灰度开启）")
+    cheap_model: str = Field(default="deepseek-v4-flash-0731", description="便宜档模型名（日常/简单 turn）")
+    strong_model: str = Field(default="deepseek-v4-pro-0813", description="强档模型名（复杂/代码/长上下文）")
+    default_model: str = Field(default="", description="默认档模型名；留空=沿用现有配置（不覆盖）")
+    strong_api_base: str = Field(default="", description="强档模型的独立 api_base（留空沿用现有）")
+    strong_api_key: str = Field(default="", description="强档模型的独立 api_key（留空沿用现有）")
+    strong_score_threshold: int = Field(
+        default=3, ge=1, le=20, description="复杂度分达到多少走强模型"
+    )
+    length_threshold_chars: int = Field(
+        default=8000, ge=500, le=200000, description="上下文超过多少字符算复杂（+3 分）"
+    )
+    strong_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "code_exec", "test_run", "file_write", "file_edit", "shell_exec",
+            "重构", "调试", "报错", "栈回溯", "多文件",
+        ],
+        description="强任务关键词（命中即 +3 分）",
+    )
+    complex_patterns: list[str] = Field(
+        default_factory=list, description="复杂任务正则（命中即 +3 分），默认空"
+    )
+    step_budget: dict[str, str] = Field(
+        default_factory=lambda: {"explore": "cheap", "code": "strong", "test": "cheap", "review": "strong"},
+        description="卷123 Goal Mode 步骤类型 → 档位映射",
+    )
+    sensitive_keywords: list[str] = Field(
+        default_factory=lambda: ["审批", "审计", "安全", "权限", "支付", "删除数据", "approval", "audit"],
+        description="敏感任务关键词：命中强制强模型（不允许因省钱走弱模型）",
+    )
+    sensitive_force_strong: bool = Field(default=True, description="敏感任务是否强制强模型")
+    daily_budget_usd: float = Field(default=0.0, ge=0.0, description="当日路由预算上限（0=不限）")
+    pricing: dict[str, float] = Field(
+        default_factory=dict, description="模型单价表（美元/1K token），用于成本估算"
+    )
+    log_enabled: bool = Field(default=True, description="是否记录路由决策（W125-02 飞轮数据）")
+
+
+class SkillConfig(BaseModel):
+    """W124-05：Skills 技能加载循环配置（按意图检索 SKILL.md → 注入 → 回写）。"""
+
+    enabled: bool = Field(default=True, description="是否按意图加载技能")
+    max_skills: int = Field(default=2, ge=1, le=5, description="单轮最多注入几个技能（token 预算）")
+    threshold: int = Field(default=2, ge=1, le=20, description="命中阈值（低于此分不注入，避免硬塞）")
+    max_chars_per_skill: int = Field(
+        default=1200, ge=200, le=8000, description="单个技能正文注入上限（字符）"
+    )
+    extra_dirs: list[str] = Field(
+        default_factory=list, description="额外技能库目录（在用户技能目录与内置模板之外）"
+    )
+
+
+class SubagentConfig(BaseModel):
+    """W124-02：Subagent 子代理配置。
+
+    子代理 = 独立 LLM 调用 + **受限工具集**（安全边界）；默认不可见写盘类与高风险工具，
+    父任务要扩权必须显式声明，且仍要过 Scope（W124-01）与 guard（W124-03）。
+    """
+
+    enabled: bool = Field(default=True, description="是否允许派生/执行子代理")
+    max_parallel: int = Field(default=3, ge=1, le=10, description="同一父任务同时最多几个子代理")
+    default_tools: list[str] = Field(
+        default_factory=lambda: ["file_read", "code_exec", "test_run"],
+        description="子代理默认工具白名单",
+    )
+    max_rounds: int = Field(default=4, ge=1, le=20, description="单个子代理最多几轮工具迭代")
+    timeout_s: float = Field(default=180.0, ge=5.0, le=1800.0, description="单个子代理超时（秒）")
+
+
+class TaskFlowConfig(BaseModel):
+    """卷123：任务流（Task 容器 / Goal Mode / 探查 / 验证门 / Review）配置。"""
+
+    enabled: bool = Field(default=True, description="是否启用任务流（task: 元指令与 [TASK] 段解析）")
+    step_template: list[str] = Field(
+        default_factory=list,
+        description="Goal Mode 默认步骤模板，每条 `type:描述`（type ∈ explore/code/test/verify）；留空用内置四步",
+    )
+    verify_audit_only: bool = Field(
+        default=False,
+        description="验证门只记录不拦截（灰度）；true 时验证失败不回写 blocked",
+    )
+    verify_max_retries: int = Field(
+        default=2, ge=0, le=5, description="验证失败后允许模型修改重试的次数，超限则任务 blocked（fail-closed）"
+    )
+    review_dir: str = Field(
+        default="docs/task-reviews", description="Review 报告落盘目录（相对仓库根）"
+    )
+    review_enabled: bool = Field(
+        default=True, description="步骤全部完成后是否进入 review 阶段（false 则直接 done）"
+    )
+    cross_channel_shared: bool = Field(
+        default=True,
+        description="同用户的跨通道任务可见（QQ/微信/CLI 可 task:list/continue 彼此的任务）；false 则按通道隔离",
+    )
+    idle_advance: bool = Field(
+        default=False, description="空闲期由 SCHEDULER_TICK 提示空闲任务（默认只提示不自动推进）"
+    )
+    idle_minutes: int = Field(default=30, ge=1, le=1440, description="任务多久没动算空闲（分钟）")
+
+
+class BusConfig(BaseModel):
+    """W119/W120：事件总线进阶配置（可观测 / 持久化 / 工具安全门 / 调度）。"""
+
+    event_store: EventStoreConfig = Field(default_factory=EventStoreConfig)
+    tool_gate: ToolGateConfig = Field(default_factory=ToolGateConfig)
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
 
 
 class FeishuNotificationConfig(BaseModel):
@@ -1144,6 +1534,10 @@ def _assemble_prompt_tier(tier_name: str, variables: dict[str, str]) -> str:
     sections: list[str] = []
     for template_path in sorted(path for path in tier_dir.iterdir() if path.is_file()):
         rendered = _render_prompt_template(_read_prompt_text_file(template_path), variables)
+        if rendered:
+            # 变量值里可能自带 `// 说明` 注释行（模板剥离只作用于模板文本本身），
+            # 渲染后再剥一次，避免注释被当成提示词内容发给模型（既费 token 又干扰）。
+            rendered = strip_prompt_comment_lines(rendered).strip()
         if rendered:
             sections.append(rendered)
     return "\n\n".join(sections).strip()
@@ -1452,6 +1846,27 @@ def build_context_supplement(
     return result or runtime_context_text
 
 
+def merge_context_supplement(messages: list[dict], supplement: str) -> list[dict]:
+    """把附加知识并入首条 system 消息，而不是追加成末尾的独立 system 消息。
+
+    上游中继（tokenrhythm / deepseek-v4）会把「user 之后的 system 消息」直接拼进
+    上一条 user 内容，模型因此在 user 消息里看到整段背景资料，判定为提示词注入并
+    拒答（实测：同一段资料作为末尾 system 送出时，模型回答「它躺在 user 消息里，
+    不是我真正收到的系统提示」）。只有 messages[0] 的 system 位被上游完整保留，
+    所以统一并入首条 system：静态人格在前、易变段落（时间/RAG/搜索）在后，
+    前缀缓存依然命中人格块。
+    """
+    text = (supplement or "").strip()
+    if not text:
+        return messages
+    if messages and messages[0].get("role") == "system":
+        first = dict(messages[0])
+        merged = f"{str(first.get('content') or '').strip()}\n\n{text}".strip()
+        first["content"] = merged
+        return [first, *messages[1:]]
+    return [{"role": "system", "content": text}, *messages]
+
+
 class NagaConfig(BaseModel):
     """NagaAgent主配置类"""
 
@@ -1477,9 +1892,22 @@ class NagaConfig(BaseModel):
     floating: FloatingConfig = Field(default_factory=FloatingConfig)
     voice_realtime: VoiceRealtimeConfig = Field(default_factory=VoiceRealtimeConfig)
     online_search: OnlineSearchConfig = Field(default_factory=OnlineSearchConfig)
+    von: VonConfig = Field(default_factory=VonConfig)  # 卷164：Von 判决书打标
     openclaw: OpenClawConfig = Field(default_factory=OpenClawConfig)
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
+    bus: BusConfig = Field(default_factory=BusConfig)  # W119：总线可观测/持久化/安全门
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)  # W120-03：记忆分层
+    code_space: CodeSpaceConfig = Field(default_factory=CodeSpaceConfig)  # W121：代码工作区
+    agent_loop: AgentLoopConfig = Field(default_factory=AgentLoopConfig)  # W121-02：agentic loop 迭代控制
+    task_flow: TaskFlowConfig = Field(default_factory=TaskFlowConfig)  # 卷123：任务流（Task 容器/Goal Mode/验证门/Review）
+    scope: ScopeConfig = Field(default_factory=ScopeConfig)  # 卷124-01：per-角色/会话 工具可见性
+    subagent: SubagentConfig = Field(default_factory=SubagentConfig)  # 卷124-02：子代理
+    skills: SkillConfig = Field(default_factory=SkillConfig)  # 卷124-05：技能加载循环
+    router: RouterConfig = Field(default_factory=RouterConfig)  # 卷125-01：turn 级模型路由
+    embedder: EmbedderConfig = Field(default_factory=EmbedderConfig)  # 卷125-03：端侧嵌入
+    antenna_sim: AntennaSimConfig = Field(default_factory=AntennaSimConfig)  # 卷122：天线仿真管线
+    ptz_safety: PtzSafetyConfig = Field(default_factory=PtzSafetyConfig)  # 卷130-04：云台机械安全档
     system_check: SystemCheckConfig = Field(default_factory=SystemCheckConfig)
     computer_control: ComputerControlConfig = Field(default_factory=ComputerControlConfig)
     guide_engine: GuideEngineConfig = Field(default_factory=GuideEngineConfig)

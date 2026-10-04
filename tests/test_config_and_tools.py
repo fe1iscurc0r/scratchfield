@@ -1,3 +1,7 @@
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
 import asyncio
 import json
 import os
@@ -19,6 +23,10 @@ from apiserver.api_server import app as api_app
 from apiserver.routes import extensions as extensions_routes
 from apiserver.routes import openai_proxy
 from apiserver.routes import tools as tools_routes
+
+# 卷190-A1：extensions.py 已拆到 extensions_parts/。模块级常量的 patch 目标必须指向
+# **实际读取该常量的子模块**（patch 薄壳的属性不会影响子模块内部的名字绑定）。
+from apiserver.routes.extensions_parts import skills as skills_parts
 from apiserver.routes.system import _sanitize_system_config_payload
 from apiserver.routes.tools import _build_tool_result_blocks
 from system import config as system_config
@@ -792,7 +800,7 @@ class ConfigAndToolTests(unittest.TestCase):
 
                     transport = httpx.ASGITransport(app=api_app, raise_app_exceptions=False)
                     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-                        with patch("apiserver.routes.extensions._call_agentserver", _capture_agent_call):
+                        with patch("apiserver.routes.extensions_parts.travel._call_agentserver", _capture_agent_call):
                             response = await client.post(
                                 f"/travel/sessions/{session.session_id}/browser",
                                 json={
@@ -865,10 +873,10 @@ class ConfigAndToolTests(unittest.TestCase):
             marker.write_text("keep", encoding="utf-8")
 
             with (
-                patch.object(extensions_routes, "NAGA_PUBLIC_SKILLS_DIR", public_dir),
-                patch.object(extensions_routes, "NAGA_CACHE_SKILLS_DIR", data_dir / "skills" / "cache"),
-                patch.object(extensions_routes, "OPENCLAW_SKILLS_DIR", data_dir / "openclaw" / "skills"),
-                patch.object(extensions_routes, "NAGA_AGENTS_DIR", data_dir / "agents"),
+                patch.object(skills_parts, "NAGA_PUBLIC_SKILLS_DIR", public_dir),
+                patch.object(skills_parts, "NAGA_CACHE_SKILLS_DIR", data_dir / "skills" / "cache"),
+                patch.object(skills_parts, "OPENCLAW_SKILLS_DIR", data_dir / "openclaw" / "skills"),
+                patch.object(skills_parts, "NAGA_AGENTS_DIR", data_dir / "agents"),
             ):
                 with self.assertRaises(HTTPException):
                     extensions_routes._delete_skill_from_scope("../outside", "public")

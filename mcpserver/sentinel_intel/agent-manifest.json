@@ -40,5 +40,19 @@
         "example": "{\"tool_name\":\"intel_timeline\",\"etype\":\"indicator\",\"value\":\"BG5GXO\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "offense"
+    ],
+    "domains": [
+      "security"
+    ],
+    "tier": "local-write",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["ingest", "intel"], ["lookup", "intel"], ["search", "intel"]]
 }

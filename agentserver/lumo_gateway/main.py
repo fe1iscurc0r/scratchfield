@@ -19,7 +19,7 @@ from .adapters.base import PlatformAdapter
 from .adapters.qqbot import QQBotAdapter
 from .config import GatewayConfig
 from .health import HealthServer
-from .lumo_client import LumoClient, split_reply, build_lumo_client
+from .lumo_client import LumoClient, build_lumo_client, split_reply
 from .models import InboundMessage, OutboundMessage
 from .queue import MessageQueue
 from .session_router import SessionRouter

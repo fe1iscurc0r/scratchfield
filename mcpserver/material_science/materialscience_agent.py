@@ -81,6 +81,57 @@ class MaterialScienceAgent:
         except Exception as e:
             logger.warning(f"[MCP] biopred 工具加载失败: {e}")
 
+        # 注册 duckdb 分析工作台（SPEC-02 Phase 3；duckdb 未安装则跳过）
+        try:
+            from mcpserver.material_science.duckdb_workbench import register_duckdb_tools
+            register_duckdb_tools(self)
+        except ImportError:
+            logger.info("[MCP] duckdb 工作台未加载（duckdb 未安装）")
+        except Exception as e:
+            logger.warning(f"[MCP] duckdb 工作台加载失败: {e}")
+
+        # 注册 academic 16 项目调用桥（SPEC-02 Phase 1；依赖缺失的包按需降级）
+        try:
+            from mcpserver.material_science.academic_bridge import register_academic_tools
+            register_academic_tools(self)
+        except Exception as e:
+            logger.warning(f"[MCP] academic_bridge 加载失败: {e}")
+
+        # 注册科研写作管线（SPEC-02 Phase 4；bibtex/模板/一条龙，纯 Python 无外部依赖）
+        try:
+            from mcpserver.material_science.writing_pipeline import register_writing_tools
+            register_writing_tools(self)
+        except Exception as e:
+            logger.warning(f"[MCP] writing_pipeline 加载失败: {e}")
+
+        # 注册 GraphRAG（SPEC-02 Phase 2；只读旁路，不碰 SQLite RAG 主链路）
+        try:
+            from mcpserver.material_science.graphrag import register_graphrag_tools
+            register_graphrag_tools(self)
+        except Exception as e:
+            logger.warning(f"[MCP] graphrag 加载失败: {e}")
+
+        # 注册 BO 寻优（U-03/HOTEL 线：recommend/record/get_params）
+        try:
+            from mcpserver.material_science.bo_optim.bridge import register_bo_tools
+            register_bo_tools(self)
+        except Exception as e:
+            logger.warning(f"[MCP] bo_optim 工具加载失败: {e}")
+
+        # 注册合成路线 RAG（U-03/INDIA 线：search/add/validate，sqlite 轻量检索）
+        try:
+            from mcpserver.material_science.synth_rag.bridge import register_synth_tools
+            register_synth_tools(self)
+        except Exception as e:
+            logger.warning(f"[MCP] synth_rag 工具加载失败: {e}")
+
+        # 注册实验前安全审查（AGENT-05 线：material_safety_check，纯 stdlib 规则驱动）
+        try:
+            from research.safety_checker.mcp_tools import register_safety_tools
+            register_safety_tools(self)
+        except Exception as e:
+            logger.warning(f"[MCP] safety_check 工具加载失败: {e}")
+
         logger.info(f"[MCP] {self.display_name} 初始化完成，共 {len(self.tools)} 个工具")
 
     def invoke(self, command: str, params: dict[str, Any] = None) -> dict[str, Any]:

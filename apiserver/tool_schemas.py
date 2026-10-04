@@ -94,6 +94,23 @@ def get_all_tool_schemas(agent_id: str | None = None) -> list[dict[str, Any]]:
     schemas.extend(_build_naga_control_schema())
     schemas.extend(_build_neko_cua_schema())
 
+    # W124-01：Scope 展示层过滤——只把该角色可见的工具交给模型
+    # （执行层另有一道校验，直接构造调用绕不过去）
+    try:
+        from mcpserver import scope as scope_mod
+
+        if scope_mod.enabled():
+            before = len(schemas)
+            schemas = scope_mod.filter_schemas(schemas, agent_id=agent_id)
+            dropped = before - len(schemas)
+            if dropped:
+                logger.info(
+                    "[ToolSchemas] Scope 过滤：角色 %s 隐藏 %d/%d 个工具",
+                    scope_mod.resolve_role(agent_id=agent_id), dropped, before,
+                )
+    except Exception as e:  # noqa: BLE001 - 过滤失败不拦对话（执行层仍校验）
+        logger.warning(f"[ToolSchemas] Scope 过滤跳过（可忽略）: {e}")
+
     _schema_cache[cache_key] = schemas
     logger.info(f"[ToolSchemas] 生成 {len(schemas)} 个工具 schema")
     return schemas

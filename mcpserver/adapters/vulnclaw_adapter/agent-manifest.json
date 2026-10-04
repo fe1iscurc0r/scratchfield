@@ -1,0 +1,69 @@
+{
+  "name": "vulnclaw",
+  "displayName": "渗透测试编排",
+  "version": "0.3.7",
+  "description": "AI 渗透测试编排（信息收集 → 扫描 → 利用 → 报告），上游 VulnClaw（MIT，vendor/top5/VulnClaw）。⚠️ 仅限自有资产或书面授权目标，未授权使用可能违法。vulnclaw_status 报告脱敏后的 LLM 配置；vulnclaw_invoke 按需调用 VulnClaw CLI——**默认关闭**，需在 .env.local 设 VULNCLAW_ENABLE_INVOKE=1 才开放侦察/扫描类命令，exploit/persistent 还需 VULNCLAW_ALLOW_EXPLOIT=1。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.flat_bridges",
+    "class": "VulnclawBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "vulnclaw_status",
+        "description": "VulnClaw 状态：脱敏的 LLM 配置（provider/base_url/model/key 是否就位）+ 工具 schema 与运行时说明",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"vulnclaw_status\"}"
+      },
+      {
+        "command": "vulnclaw_invoke",
+        "description": "调用 VulnClaw CLI 执行任务（默认关闭，需 VULNCLAW_ENABLE_INVOKE=1；exploit/persistent 需 VULNCLAW_ALLOW_EXPLOIT=1）。⚠️ 仅限已授权目标",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "子命令：doctor / manual / report / recon / scan / network-scan / solve / run（exploit、persistent 需额外开关）"
+            },
+            "target": {
+              "type": "string",
+              "description": "目标 URL / IP / CIDR；只读命令（doctor/manual/report）可留空"
+            },
+            "extra_args": {
+              "type": "string",
+              "description": "追加参数（按 shell 词法切分，不经 shell 执行）"
+            },
+            "timeout_s": {
+              "type": "integer",
+              "description": "超时秒数，默认 600，上限 1800"
+            }
+          },
+          "required": [
+            "command"
+          ]
+        },
+        "example": "{\"tool_name\":\"vulnclaw_invoke\",\"command\":\"doctor\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "offense"
+    ],
+    "domains": [
+      "security"
+    ],
+    "tier": "offensive",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "VulnClaw",
+      "upstream_license": "MIT"
+    }
+  },
+  "capability_pairs": [["exec", "security"], ["status", "security"]]
+}

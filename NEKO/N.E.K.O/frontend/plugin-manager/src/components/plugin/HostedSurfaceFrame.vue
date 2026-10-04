@@ -11,6 +11,12 @@
       @close="runtimeError = ''"
     />
 
+    <div v-if="localeChangePending" class="hosted-surface-frame__locale-notice" data-testid="surface-locale-pending">
+      {{ t('common.surfaceLanguagePending') }}
+      <el-button data-testid="surface-apply-locale" @click="applyDocumentLocale">{{ t('common.surfaceApplyLanguage') }}</el-button>
+    </div>
+
+    <!-- Preserve standard alert/confirm/prompt behavior authored by static plugins. -->
     <iframe
       v-if="surface.mode === 'static' && surfaceUrl"
       ref="iframeRef"
@@ -18,7 +24,7 @@
       :src="surfaceUrl"
       :title="surfaceTitle"
       class="hosted-surface-frame__iframe"
-      sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+      sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-modals"
       @load="handleLoad"
       @error="handleError"
     />
@@ -43,6 +49,10 @@
       </el-icon>
       <h3>{{ placeholderTitle }}</h3>
       <p>{{ placeholderText }}</p>
+      <div v-if="error && !loading && surface.available !== false && (surface.mode === 'hosted-tsx' || surface.mode === 'markdown')">
+        <el-button v-if="!rendererReloadRequired" data-testid="surface-retry" @click="loadHostedTsx">{{ t('market.retry') }}</el-button>
+        <el-button data-testid="surface-reload-page" @click="reloadPage">{{ t('common.languageReload') }}</el-button>
+      </div>
       <div class="hosted-surface-frame__meta">
         <el-tag size="small" effect="plain">{{ surface.kind }}</el-tag>
         <el-tag size="small" type="info" effect="plain">{{ surface.mode }}</el-tag>
@@ -55,20 +65,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Document, Loading, WarningFilled } from '@element-plus/icons-vue'
-import { callPluginHostedSurfaceAction, getPluginHostedSurfaceContext, getPluginHostedSurfaceSource } from '@/api/plugins'
-import { buildHostedTsxDocument } from '@/components/plugin/hosted/tsxRuntime'
+import { callPluginHostedSurfaceAction, getPluginHostedSurfaceContext, getPluginHostedSurfaceSource, parseHostedDocument } from '@/api/plugins'
+import { loadTsxRenderer, loadMarkdownRenderer } from '@/components/plugin/hosted/rendererModules'
 import { openExternalUrl, openLocalPath } from '@/utils/openExternal'
+import { PANEL_FILL_HEIGHT, PANEL_MAX_HEIGHT } from '@/utils/constants'
 import type { PluginUiSurface } from '@/types/api'
+import { OptionalModuleError } from '@/utils/retryableModule'
+import { ElMessageBox } from 'element-plus'
 
 const props = withDefaults(defineProps<{
   pluginId: string
   surface: PluginUiSurface
   height?: string
+  active?: boolean
+  activationRevision?: number
 }>(), {
-  height: 'clamp(520px, calc(100vh - 220px), 1200px)',
+  height: PANEL_FILL_HEIGHT,
+  active: false,
+  activationRevision: 0,
 })
 
 const emit = defineEmits<{
@@ -87,9 +104,55 @@ const maxPendingStaticSurfaceMessages = 100
 const hostedDocument = ref('')
 const loading = ref(false)
 const error = ref('')
+const rendererReloadRequired = ref(false)
+// A live plugin document owns its language. An app-language update must not
+// discard drafts or cancel a surviving static document's pending mutations.
+const documentLocale = ref<string | null>(null)
+const localeChangePending = computed(() => !!hostedDocument.value && props.surface.mode !== 'markdown'
+  && documentLocale.value !== String(locale.value))
 const runtimeError = ref('')
 const runtimeErrorFatal = ref(false)
 let currentLoadId = 0
+let sourceController: AbortController | null = null
+let hostedRequestGeneration = 0
+let componentMounted = false
+const hostedDocumentControllers = new Map<string, AbortController>()
+const hostedActionControllers = new Map<string, AbortController>()
+const contextControllers = new Set<AbortController>()
+let contextQueue: Promise<unknown> = Promise.resolve()
+
+function readContextInOrder() {
+  const generation = hostedRequestGeneration
+  const pluginId = props.pluginId
+  const params = { kind: props.surface.kind, id: props.surface.id, locale: documentLocale.value ?? String(locale.value) }
+  const task = contextQueue.then(async () => {
+    if (!componentMounted || generation !== hostedRequestGeneration) throw new Error('Surface changed')
+    const controller = new AbortController()
+    contextControllers.add(controller)
+    try {
+      return await getPluginHostedSurfaceContext(pluginId, params, { signal: controller.signal, suppressErrorMessage: true })
+    } finally { contextControllers.delete(controller) }
+  })
+  contextQueue = task.catch(() => {})
+  return task
+}
+
+function abortAllHostedRequests(reason: string) {
+  for (const controller of contextControllers) controller.abort(reason)
+  contextControllers.clear()
+  contextQueue = Promise.resolve()
+  for (const controller of hostedDocumentControllers.values()) controller.abort(reason)
+  hostedDocumentControllers.clear()
+  for (const controller of hostedActionControllers.values()) controller.abort(reason)
+  hostedActionControllers.clear()
+}
+
+const HOST_STARTUP_RETRY_DELAYS_MS = [100, 200, 400, 800, 1600] as const
+const MAX_HOSTED_DOCUMENT_BYTES = 16 * 1024 * 1024
+const HOSTED_DOCUMENT_MIME_BY_EXTENSION = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+} as const
 
 type HostedBridgeError = {
   message: string
@@ -100,7 +163,7 @@ type HostedBridgeError = {
 
 const frameStyle = computed(() => ({
   height: props.height,
-  minHeight: props.height,
+  maxHeight: PANEL_MAX_HEIGHT,
 }))
 
 const surfaceTitle = computed(() => {
@@ -174,94 +237,6 @@ const runtimeErrorTitle = computed(() => {
   return runtimeErrorFatal.value ? t('plugins.ui.loadError') : t('plugins.ui.controlError')
 })
 
-function escapeHtml(value: string) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-function escapeAttribute(value: string) {
-  return escapeHtml(value).replace(/'/g, '&#39;')
-}
-
-function renderInlineMarkdown(value: string) {
-  const escaped = escapeHtml(value)
-  return escaped
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_match, label, url) => {
-      const safeUrl = escapeAttribute(String(url))
-      return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${label}</a>`
-    })
-}
-
-function renderMarkdownToHtml(markdown: string) {
-  const lines = markdown.replace(/\r\n/g, '\n').split('\n')
-  const html: string[] = []
-  let inCode = false
-  let codeLines: string[] = []
-  let inList = false
-  const closeList = () => {
-    if (inList) {
-      html.push('</ul>')
-      inList = false
-    }
-  }
-
-  for (const line of lines) {
-    const fence = line.match(/^```/)
-    if (fence) {
-      if (inCode) {
-        html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`)
-        codeLines = []
-        inCode = false
-      } else {
-        closeList()
-        inCode = true
-      }
-      continue
-    }
-    if (inCode) {
-      codeLines.push(line)
-      continue
-    }
-    if (!line.trim()) {
-      closeList()
-      continue
-    }
-    const heading = line.match(/^(#{1,3})\s+(.+)$/)
-    if (heading) {
-      closeList()
-      const level = heading[1]?.length || 1
-      html.push(`<h${level}>${renderInlineMarkdown(heading[2] || '')}</h${level}>`)
-      continue
-    }
-    const listItem = line.match(/^\s*[-*]\s+(.+)$/)
-    if (listItem) {
-      if (!inList) {
-        html.push('<ul>')
-        inList = true
-      }
-      html.push(`<li>${renderInlineMarkdown(listItem[1] || '')}</li>`)
-      continue
-    }
-    const quote = line.match(/^>\s?(.+)$/)
-    if (quote) {
-      closeList()
-      html.push(`<blockquote>${renderInlineMarkdown(quote[1] || '')}</blockquote>`)
-      continue
-    }
-    closeList()
-    html.push(`<p>${renderInlineMarkdown(line)}</p>`)
-  }
-  closeList()
-  if (inCode) {
-    html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`)
-  }
-  return html.join('\n')
-}
-
 function readResponseHeader(headers: Record<string, any> | undefined, name: string) {
   if (!headers || typeof headers !== 'object') return ''
   if (typeof headers.get === 'function') {
@@ -299,81 +274,25 @@ function normalizeHostedBridgeError(caught: any): HostedBridgeError {
   return { message, code: code || undefined, details, status }
 }
 
-// Inline click-interceptor: the markdown document is loaded into a sandboxed
-// iframe (sandbox="allow-scripts", no allow-popups), so `<a target="_blank">`
-// generated by renderInlineMarkdown cannot navigate on its own. Route the
-// click through the parent via postMessage so HostedSurfaceFrame can hand
-// the URL to openExternalUrl — same trapped-webview fix we apply elsewhere
-// (frontend/react-neko-chat/src/openExternal.ts, src/utils/openExternal.ts).
-const MARKDOWN_LINK_INTERCEPTOR_SCRIPT = `
-<script>
-(function () {
-  document.addEventListener('click', function (event) {
-    var el = event.target;
-    while (el && el !== document.body) {
-      if (el.tagName === 'A' && el.getAttribute('href')) {
-        var href = el.getAttribute('href');
-        if (/^https?:\\/\\//i.test(href)) {
-          event.preventDefault();
-          window.parent.postMessage({
-            type: 'neko-hosted-surface-open-external',
-            payload: { url: href },
-          }, '*');
-        }
-        return;
-      }
-      el = el.parentNode;
-    }
-  }, true);
-})();
-<\/script>`
-
-function buildMarkdownDocument(source: string, title: string) {
-  return `<!doctype html>
-<html lang="${escapeAttribute(String(locale.value))}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    :root { color-scheme: light dark; }
-    body { margin: 0; padding: 24px; font: 14px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; background: #fff; }
-    main { max-width: 880px; margin: 0 auto; }
-    h1, h2, h3 { line-height: 1.25; color: #111827; }
-    h1 { font-size: 28px; margin: 0 0 20px; }
-    h2 { font-size: 22px; margin: 28px 0 12px; }
-    h3 { font-size: 17px; margin: 22px 0 10px; }
-    p, ul, blockquote, pre { margin: 12px 0; }
-    ul { padding-left: 22px; }
-    code { padding: 2px 5px; border-radius: 5px; background: #f3f4f6; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    pre { overflow: auto; padding: 14px; border-radius: 10px; background: #111827; color: #f9fafb; }
-    pre code { padding: 0; background: transparent; color: inherit; }
-    blockquote { padding: 8px 14px; border-left: 4px solid #93c5fd; background: #eff6ff; color: #374151; }
-    a { color: #2563eb; }
-    @media (prefers-color-scheme: dark) {
-      body { color: #e5e7eb; background: #111827; }
-      h1, h2, h3 { color: #f9fafb; }
-      code { background: #1f2937; }
-      blockquote { background: #172554; color: #dbeafe; }
-      a { color: #93c5fd; }
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>${escapeHtml(title)}</h1>
-    ${renderMarkdownToHtml(source)}
-  </main>
-  ${MARKDOWN_LINK_INTERCEPTOR_SCRIPT}
-</body>
-</html>`
-}
-
 function handleLoad() {
   if (props.surface.mode === 'static') {
     staticSurfaceReady.value = true
     flushStaticSurfaceMessages()
   }
+  postActivation()
   emit('load')
+}
+
+function postActivation() {
+  if (!props.active || !Number.isSafeInteger(props.activationRevision) || props.activationRevision < 0) return
+  const targetOrigin = trustedIframeOrigin.value === 'null' ? '*' : trustedIframeOrigin.value
+  iframeRef.value?.contentWindow?.postMessage({
+    type: 'neko-hosted-surface-activated',
+    payload: {
+      surfaceId: props.surface.id,
+      revision: props.activationRevision,
+    },
+  }, targetOrigin)
 }
 
 function handleError() {
@@ -404,55 +323,72 @@ function sendSurfaceMessage(message: unknown) {
   pendingStaticSurfaceMessages.push(message)
 }
 
-async function loadHostedTsx() {
-  if (!['hosted-tsx', 'markdown'].includes(props.surface.mode) || props.surface.available === false) {
-    hostedDocument.value = ''
-    error.value = ''
-    runtimeError.value = ''
-    runtimeErrorFatal.value = false
-    loading.value = false
-    return
-  }
+// Some browsers cache module evaluation failures until document reload. Do not
+// auto-reload (it would destroy user work); expose an explicit escape hatch.
+function reloadPage() { window.location.reload() }
 
-  const loadId = ++currentLoadId
-  loading.value = true
+function invalidateSurfaceLoad() {
+  sourceController?.abort('surface-replaced')
+  sourceController = null
+  currentLoadId += 1
+  hostedRequestGeneration += 1
+  abortAllHostedRequests('surface-changed')
+  hostedDocument.value = ''
+}
+
+async function loadHostedTsx() {
+  // Invalidate even for static/unavailable transitions: an earlier source or
+  // chunk may still resolve. Never let it publish into the replacement frame.
+  invalidateSurfaceLoad()
+  const loadId = currentLoadId
+  const pluginId = props.pluginId
+  const surface = { ...props.surface }
+  const requestLocale = String(locale.value)
+  const title = surfaceTitle.value
+  rendererReloadRequired.value = false
+  const isCurrent = () => componentMounted && loadId === currentLoadId
   error.value = ''
   runtimeError.value = ''
   runtimeErrorFatal.value = false
-  hostedDocument.value = ''
+  loading.value = false
+  if (!componentMounted || !['hosted-tsx', 'markdown'].includes(surface.mode) || surface.available === false) return
+  loading.value = true
+  const controller = new AbortController()
+  sourceController = controller
+  const requestConfig = { signal: controller.signal, suppressErrorMessage: true }
   try {
-    const response = await getPluginHostedSurfaceSource(props.pluginId, {
-      kind: props.surface.kind,
-      id: props.surface.id,
-    })
-    if (loadId !== currentLoadId) return
-    if (props.surface.mode === 'markdown') {
-      hostedDocument.value = buildMarkdownDocument(response.source, surfaceTitle.value)
+    // Observe import failure immediately; don't leave a rejected import promise
+    // unhandled while source/context is pending. Compilation remains synchronous
+    // inside the selected module, not secretly described as worker-based.
+    const renderer = surface.mode === 'markdown' ? loadMarkdownRenderer() : loadTsxRenderer()
+    const [response, module] = await Promise.all([
+      getPluginHostedSurfaceSource(pluginId, { kind: surface.kind, id: surface.id, locale: requestLocale }, requestConfig),
+      renderer,
+    ])
+    if (!isCurrent()) return
+    let document: string
+    if (surface.mode === 'markdown') {
+      document = (module as Awaited<ReturnType<typeof loadMarkdownRenderer>>).buildMarkdownDocument(response.source, title, requestLocale)
     } else {
-      const context = await getPluginHostedSurfaceContext(props.pluginId, {
-        kind: props.surface.kind,
-        id: props.surface.id,
-        locale: String(locale.value),
-      })
-      if (loadId !== currentLoadId) return
-      hostedDocument.value = buildHostedTsxDocument({
-        source: response.source,
-        dependencies: response.dependencies,
-        pluginId: props.pluginId,
-        surface: props.surface,
-        context,
-        locale: String(locale.value),
+      const context = await getPluginHostedSurfaceContext(pluginId, { kind: surface.kind, id: surface.id, locale: requestLocale }, requestConfig)
+      if (!isCurrent()) return
+      document = (module as Awaited<ReturnType<typeof loadTsxRenderer>>).buildHostedTsxDocument({
+        source: response.source, dependencies: response.dependencies, pluginId, surface, context, locale: requestLocale,
       })
     }
+    if (!isCurrent()) return
+    documentLocale.value = requestLocale
+    hostedDocument.value = document
     iframeKey.value += 1
   } catch (caught: any) {
-    if (loadId !== currentLoadId) return
+    if (!isCurrent()) return
     error.value = normalizeHostedBridgeError(caught).message
+    rendererReloadRequired.value = caught instanceof OptionalModuleError && caught.reloadRequired
     emit('error', error.value)
   } finally {
-    if (loadId === currentLoadId) {
-      loading.value = false
-    }
+    controller.abort('surface-load-finished')
+    if (sourceController === controller) sourceController = null
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -509,7 +445,13 @@ function handleMessage(event: MessageEvent) {
   }
   if (data && typeof data === 'object' && data.type === 'neko-hosted-surface-open-path') {
     const path = typeof data.payload?.path === 'string' ? data.payload.path : ''
-    if (path) openLocalPath(path)
+    if (path) openLocalPath(path).catch(() => {}) // 宿主插件发起的打开请求，失败时静默处理
+    return
+  }
+  if (data && typeof data === 'object' && data.type === 'neko-hosted-surface-cancel') {
+    const requestId = typeof data.requestId === 'string' ? data.requestId : ''
+    hostedDocumentControllers.get(requestId)?.abort('client-cancelled')
+    hostedActionControllers.get(requestId)?.abort('client-cancelled')
     return
   }
   if (data && typeof data === 'object' && data.type === 'neko-hosted-surface-request') {
@@ -525,8 +467,13 @@ async function handleHostedRequest(data: any) {
   const requestId = typeof data.requestId === 'string' ? data.requestId : ''
   const method = typeof data.method === 'string' ? data.method : ''
   const actionId = method === 'call' ? String(data.payload?.actionId || '') : ''
-  const userInitiated = method === 'call' && data.userInitiated === true
+  const userInitiated = (method === 'call' || method === 'parseDocument') && data.userInitiated === true
+  const requestGeneration = hostedRequestGeneration
+  let responded = false
+  const isCurrentRequest = () => componentMounted && requestGeneration === hostedRequestGeneration
   const respond = (payload: Record<string, any>) => {
+    if (responded || !isCurrentRequest()) return
+    responded = true
     // PR #1480 review-fix 1.30: target the trusted origin instead of '*'.
     // For srcdoc iframes (opaque origin, reported as 'null'), the postMessage
     // spec rejects 'null' as a target; the standard idiom is to use '*' and
@@ -543,23 +490,111 @@ async function handleHostedRequest(data: any) {
     if (method === 'call') {
       const args = data.payload?.args && typeof data.payload.args === 'object' ? data.payload.args : {}
       const timeoutMs = Number(data.timeoutMs)
-      const result = await callPluginHostedSurfaceAction(props.pluginId, actionId, args, {
-        kind: props.surface.kind,
-        id: props.surface.id,
-        locale: String(locale.value),
-        timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : undefined,
-        userInitiated,
-      })
-      respond({ ok: true, result })
-      return
+      const hasRequestDeadline = Number.isFinite(timeoutMs) && timeoutMs > 0
+      const requestDeadline = hasRequestDeadline ? Date.now() + timeoutMs : undefined
+      const pluginId = props.pluginId
+      const surfaceKind = props.surface.kind
+      const surfaceId = props.surface.id
+      const requestLocale = documentLocale.value ?? String(locale.value)
+      const controller = new AbortController()
+      hostedActionControllers.set(requestId, controller)
+      try {
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            const remainingTimeoutMs = requestDeadline === undefined
+              ? undefined
+              : Math.max(1, Math.ceil(requestDeadline - Date.now()))
+            const result = await callPluginHostedSurfaceAction(pluginId, actionId, args, {
+              kind: surfaceKind,
+              id: surfaceId,
+              locale: requestLocale,
+              timeoutMs: remainingTimeoutMs,
+              signal: controller.signal,
+              userInitiated,
+            })
+            if (controller.signal.aborted) return
+            respond({ ok: true, result })
+            return
+          } catch (caught: any) {
+            if (controller.signal.aborted) return
+            const bridgeError = normalizeHostedBridgeError(caught)
+            const retryDelayMs = HOST_STARTUP_RETRY_DELAYS_MS[attempt]
+            if (userInitiated || bridgeError.code !== 'PLUGIN_NOT_RUNNING' || retryDelayMs === undefined) {
+              throw caught
+            }
+            if (!isCurrentRequest()) return
+            if (requestDeadline !== undefined && retryDelayMs >= requestDeadline - Date.now()) {
+              throw caught
+            }
+            await new Promise<void>((resolve) => window.setTimeout(resolve, retryDelayMs))
+            if (controller.signal.aborted || !isCurrentRequest()) return
+          }
+        }
+      } finally {
+        if (hostedActionControllers.get(requestId) === controller) {
+          hostedActionControllers.delete(requestId)
+        }
+      }
     }
     if (method === 'refresh') {
-      const context = await getPluginHostedSurfaceContext(props.pluginId, {
-        kind: props.surface.kind,
-        id: props.surface.id,
-        locale: String(locale.value),
-      })
+      const context = await readContextInOrder()
       respond({ ok: true, result: context })
+      return
+    }
+    if (method === 'parseDocument') {
+      if (!props.surface.permissions?.includes('document:parse')) {
+        respond({
+          ok: false,
+          error: 'This hosted surface is not allowed to parse documents.',
+          code: 'document_parse_permission_denied',
+        })
+        return
+      }
+      if (!userInitiated) {
+        respond({
+          ok: false,
+          error: 'Document parsing must be started by a user action.',
+          code: 'document_parse_permission_denied',
+        })
+        return
+      }
+      const file = data.payload?.file
+      if (typeof File === 'undefined' || !(file instanceof File)) {
+        respond({ ok: false, error: 'parseDocument requires one File.', code: 'unsupported_document' })
+        return
+      }
+      if (file.size > MAX_HOSTED_DOCUMENT_BYTES) {
+        respond({ ok: false, error: 'Document exceeds the 16 MiB upload limit.', code: 'document_too_large' })
+        return
+      }
+      const extension = file.name.split('.').pop()?.toLowerCase() || ''
+      const expectedMime = HOSTED_DOCUMENT_MIME_BY_EXTENSION[extension as keyof typeof HOSTED_DOCUMENT_MIME_BY_EXTENSION]
+      if (!expectedMime || (file.type && ![expectedMime, 'application/octet-stream'].includes(file.type))) {
+        respond({ ok: false, error: 'Only PDF and DOCX documents are supported.', code: 'unsupported_document' })
+        return
+      }
+      const requestedTimeoutMs = Number(data.timeoutMs)
+      const timeoutMs = Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0 ? requestedTimeoutMs : 30000
+      const controller = new AbortController()
+      hostedDocumentControllers.set(requestId, controller)
+      const timeoutId = window.setTimeout(() => controller.abort('timeout'), timeoutMs)
+      try {
+        const parsed = await parseHostedDocument(file, { timeoutMs, signal: controller.signal })
+        if (!parsed?.document) throw new Error('Document parser returned an invalid response.')
+        respond({ ok: true, result: parsed.document })
+      } catch (caught: any) {
+        if (controller.signal.aborted && controller.signal.reason === 'timeout') {
+          respond({ ok: false, error: 'Document parsing timed out.', code: 'document_parse_timeout' })
+          return
+        }
+        if (controller.signal.aborted) return
+        throw caught
+      } finally {
+        window.clearTimeout(timeoutId)
+        if (hostedDocumentControllers.get(requestId) === controller) {
+          hostedDocumentControllers.delete(requestId)
+        }
+      }
       return
     }
     respond({ ok: false, error: `Unsupported hosted surface method: ${method}` })
@@ -580,12 +615,31 @@ async function handleHostedRequest(data: any) {
   }
 }
 
+async function refreshContext() {
+  if (props.surface.mode !== 'hosted-tsx' || !componentMounted || !hostedDocument.value) return
+  const requestGeneration = hostedRequestGeneration
+  const context = await readContextInOrder()
+  if (!componentMounted || requestGeneration !== hostedRequestGeneration) return
+  const targetOrigin = trustedIframeOrigin.value === 'null' ? '*' : trustedIframeOrigin.value
+  iframeRef.value?.contentWindow?.postMessage({
+    type: 'neko-hosted-surface-context',
+    context,
+  }, targetOrigin)
+}
+
 onMounted(() => {
+  componentMounted = true
   window.addEventListener('message', handleMessage)
   loadHostedTsx()
 })
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
+  componentMounted = false
+  sourceController?.abort('surface-disposed')
+  sourceController = null
+  currentLoadId += 1
+  hostedRequestGeneration += 1
+  abortAllHostedRequests('surface-disposed')
   window.removeEventListener('message', handleMessage)
 })
 
@@ -600,15 +654,67 @@ watch(
 )
 
 watch(
-  () => [props.pluginId, props.surface.kind, props.surface.id, props.surface.mode, props.surface.entry, props.surface.available, surfaceUrl.value, locale.value],
-  () => {
-    if (props.surface.mode === 'static') return
-    loadHostedTsx()
+  () => [
+    props.pluginId,
+    props.surface.kind,
+    props.surface.id,
+    props.surface.mode,
+    props.surface.entry,
+    props.surface.available,
+    surfaceUrl.value,
+  ],
+  (current, previous) => {
+    // Metadata refresh replaces surface objects even when the document identity
+    // is unchanged. A newly allocated watch tuple is not a document change.
+    if (current.every((value, index) => Object.is(value, previous[index]))) return
+    documentLocale.value = null
+    void loadHostedTsx()
   },
+  { flush: 'sync' },
+)
+
+watch(
+  () => [locale.value, props.surface.mode, props.pluginId, props.surface.id, props.surface.entry, surfaceTitle.value],
+  (current, previous) => {
+    if (current.slice(1, 5).some((value, index) => !Object.is(value, previous[index + 1]))) return
+    const localeChanged = !Object.is(current[0], previous[0])
+    if (!localeChanged && Object.is(current[5], previous[5])) return
+    // Static plugin documents cannot receive the hosted locale handshake.
+    // Reload them when the app locale changes, matching the old full-page
+    // reload behavior while keeping the rest of the app mounted. Their title
+    // only lives on the iframe attribute, so a title change needs no reload.
+    if (props.surface.mode === 'static') {
+      if (!localeChanged) return
+      staticSurfaceReady.value = false
+      pendingStaticSurfaceMessages.length = 0
+      iframeKey.value += 1
+      return
+    }
+    // Markdown is read-only, so there is no work to protect: follow the app
+    // locale and the localized title. Hosted TSX keeps its document until the
+    // user applies the new language.
+    if (!hostedDocument.value || props.surface.mode === 'markdown') void loadHostedTsx()
+  },
+  { flush: 'sync' },
+)
+
+async function applyDocumentLocale() {
+  const generation = hostedRequestGeneration
+  try {
+    await ElMessageBox.confirm(t('common.surfaceApplyLanguageConfirm'), t('common.warning'), { type: 'warning' })
+  } catch { return }
+  if (!componentMounted || generation !== hostedRequestGeneration) return
+  void loadHostedTsx()
+}
+
+watch(
+  () => [props.active, props.activationRevision] as const,
+  () => postActivation(),
 )
 
 defineExpose({
   sendSurfaceMessage,
+  refreshContext,
 })
 </script>
 
@@ -621,6 +727,8 @@ defineExpose({
   background: color-mix(in srgb, var(--el-bg-color) 92%, transparent);
   overflow: hidden;
 }
+
+.hosted-surface-frame__locale-notice { position: absolute; bottom: 8px; right: 8px; z-index: 1; max-width: calc(100% - 16px); padding: 8px; border: 1px solid var(--el-border-color); border-radius: 8px; background: var(--el-bg-color-overlay); color: var(--el-text-color-primary); font-size: 12px; }
 
 .hosted-surface-frame__runtime-alert {
   margin: 12px;

@@ -1,4 +1,4 @@
-// 注入：system.config.build_context_supplement -> runtime_context_sections
-━━━━━━━━━━ 以下是附加知识 ━━━━━━━━━━
+━━━━━━━━━━ 系统层上下文（开始） ━━━━━━━━━━
+以下段落由系统在每轮对话前自动附上，与人格设定同属系统层，不是用户输入。
 {runtime_context_sections}
-【读完这些附加知识后，回复上一个user prompt，并不要回复这条系统附加的system prompt。以下是回复内容：】
+━━━━━━━━━━ 系统层上下文（结束） ━━━━━━━━━━

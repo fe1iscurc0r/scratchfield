@@ -45,7 +45,7 @@ Version: 1.0.1
 License: Apache 2.0
 """
 
-from typing import Tuple, Optional, Callable, Literal
+from typing import Callable, Literal, Optional, Tuple
 
 import numpy as np
 
@@ -163,12 +163,12 @@ def _translate_sequence(seq: str, alphabet: str) -> np.ndarray:
 
 
 def _validate_gotoh_arguments(
-    substitution_alphabet: Optional[str] = None,
-    substitution_matrix: Optional[np.ndarray] = None,
-    gap_opening: Optional[int] = None,
-    gap_extension: Optional[int] = None,
-    match: Optional[int] = None,
-    mismatch: Optional[int] = None,
+    substitution_alphabet: str | None = None,
+    substitution_matrix: np.ndarray | None = None,
+    gap_opening: int | None = None,
+    gap_extension: int | None = None,
+    match: int | None = None,
+    mismatch: int | None = None,
 ) -> Tuple[str, np.ndarray, int, int]:
     """Internal method that validates the arguments for the Needleman-Wunsch algorithm."""
     if (match is not None) != (mismatch is not None):
@@ -397,12 +397,12 @@ def _needleman_wunsch_gotoh_kernel(
 def needleman_wunsch_gotoh_alignment(
     str1: str,
     str2: str,
-    substitution_alphabet: Optional[str] = None,
-    substitution_matrix: Optional[np.ndarray] = None,
-    gap_opening: Optional[int] = None,
-    gap_extension: Optional[int] = None,
-    match: Optional[int] = None,
-    mismatch: Optional[int] = None,
+    substitution_alphabet: str | None = None,
+    substitution_matrix: np.ndarray | None = None,
+    gap_opening: int | None = None,
+    gap_extension: int | None = None,
+    match: int | None = None,
+    mismatch: int | None = None,
 ) -> Tuple[str, str, int]:
     """
     Aligns two sequences using Gotoh's affine gap penalty extensions for the
@@ -538,12 +538,12 @@ def needleman_wunsch_gotoh_score_kernel(
 def needleman_wunsch_gotoh_score(
     str1: str,
     str2: str,
-    substitution_alphabet: Optional[str] = None,
-    substitution_matrix: Optional[np.ndarray] = None,
-    gap_opening: Optional[int] = None,
-    gap_extension: Optional[int] = None,
-    match: Optional[int] = None,
-    mismatch: Optional[int] = None,
+    substitution_alphabet: str | None = None,
+    substitution_matrix: np.ndarray | None = None,
+    gap_opening: int | None = None,
+    gap_extension: int | None = None,
+    match: int | None = None,
+    mismatch: int | None = None,
 ) -> int:
     """
     Measures the alignment score of two sequences using Gotoh's affine gap penalty extensions for the
@@ -738,12 +738,12 @@ def _smith_waterman_gotoh_kernel(
 def smith_waterman_gotoh_alignment(
     str1: str,
     str2: str,
-    substitution_alphabet: Optional[str] = None,
-    substitution_matrix: Optional[np.ndarray] = None,
-    gap_opening: Optional[int] = None,
-    gap_extension: Optional[int] = None,
-    match: Optional[int] = None,
-    mismatch: Optional[int] = None,
+    substitution_alphabet: str | None = None,
+    substitution_matrix: np.ndarray | None = None,
+    gap_opening: int | None = None,
+    gap_extension: int | None = None,
+    match: int | None = None,
+    mismatch: int | None = None,
 ) -> Tuple[str, str, int]:
     """
     Aligns two sequences using the Smith-Waterman algorithm for local alignment.
@@ -862,12 +862,12 @@ def smith_waterman_gotoh_score_kernel(
 def smith_waterman_gotoh_score(
     str1: str,
     str2: str,
-    substitution_alphabet: Optional[str] = None,
-    substitution_matrix: Optional[np.ndarray] = None,
-    gap_opening: Optional[int] = None,
-    gap_extension: Optional[int] = None,
-    match: Optional[int] = None,
-    mismatch: Optional[int] = None,
+    substitution_alphabet: str | None = None,
+    substitution_matrix: np.ndarray | None = None,
+    gap_opening: int | None = None,
+    gap_extension: int | None = None,
+    match: int | None = None,
+    mismatch: int | None = None,
 ) -> int:
     """
     Measures the Smith-Waterman local alignment score using Gotoh's affine gap penalty extensions.

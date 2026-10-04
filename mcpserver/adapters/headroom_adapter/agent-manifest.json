@@ -1,0 +1,50 @@
+{
+  "name": "headroom",
+  "displayName": "上下文压缩（headroom）",
+  "version": "0.34.0",
+  "description": "LLM 上下文压缩，两级择优：① 结构保真 pass（vendor UniversalCompressor，json/code/log 自动识别 + 去重，无损，重复日志实测 ratio 0.30）；② 词元级 pass（Kompress-v2 ModernBERT token 分类，**有损**，JSON 实测 ratio 0.64，热调用 ~0.3s）。上游 vendor/top5/headroom（Apache-2.0）。权重 onnx/kompress-fp32.onnx（572MB）+ answerdotai/ModernBERT-base tokenizer 走 hf-mirror.com 预取到本地 HF 缓存；仓库自带的 int8-wo 产物与本地 onnxruntime 1.20.1 不兼容（MatMulNBits 仅支持 4bit）故钉死 fp32；权重未缓存时自动退化为纯结构模式（不发网络请求）。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.headroom_adapter.agent",
+    "class": "HeadroomBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "headroom_compress_text",
+        "description": "压缩长文本（工具输出、日志、检索结果、JSON、代码）以省 token：结构保真 pass 无损优先，压不动时再上词元级有损 pass（有损、不可逆）。返回压缩后文本、压缩比与所用模式",
+        "params": {
+          "text": "待压缩的原文（字符串）",
+          "max_ratio": "仅在退化为截断兜底时生效的保留比例（0.1-0.9，默认 0.7）",
+          "mode": "内容类型提示：general / code / json / log / markdown（默认 general，结构 pass 会自动识别）"
+        },
+        "example": "{\"tool_name\":\"headroom_compress_text\",\"text\":\"<长文本>\",\"mode\":\"general\"}"
+      },
+      {
+        "command": "headroom_stats",
+        "description": "查看 headroom 运行状态：Rust 扩展 / 结构管道 / 词元级模型可用性、已缓存的 ONNX 产物名与当前模式",
+        "params": {},
+        "example": "{\"tool_name\":\"headroom_stats\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "context"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "vendor/headroom (UniversalCompressor + Kompress)",
+      "upstream_license": "见上游"
+    }
+  },
+  "requires": {
+    "python_packages": [
+      "onnxruntime"
+    ]
+  },
+  "capability_pairs": [["convert", "context"], ["status", "context"]]
+}

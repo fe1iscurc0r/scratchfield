@@ -155,7 +155,7 @@ class MessageRouter:
         Returns:
             The :class:`RouteAction` describing what the plugin should do.
         """
-        mapping: Optional[Tuple[RouteKind, bool]] = self._DISPATCH.get(type(event))
+        mapping: Tuple[RouteKind, bool] | None = self._DISPATCH.get(type(event))
         if mapping is None:
             return RouteAction(
                 kind=RouteKind.NOOP,

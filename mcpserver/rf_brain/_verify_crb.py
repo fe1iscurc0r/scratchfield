@@ -1,10 +1,11 @@
 """验证 CRB 公式：数值 FIM vs ML 估计蒙特卡洛方差对拍。"""
 import sys
 from pathlib import Path
+
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from mcpserver.rf_brain.doa import ula_steering_vector, synthesize_snapshots, estimate_doa
+from mcpserver.rf_brain.doa import estimate_doa, synthesize_snapshots, ula_steering_vector
 
 M, D_NORM, K, SNR_DB, THETA = 8, 0.5, 256, 30.0, 30.0
 SNR_LIN = 10 ** (SNR_DB / 10.0)

@@ -1,0 +1,65 @@
+{
+  "name": "agent_osint",
+  "version": "1.0.0",
+  "description": "MCP Agent wrapper for Sherlock username search across social networks CLI",
+  "author": "MCP Agent Generator",
+  "license": "MIT",
+  "agent_class": "AgentOsint",
+  "module": "agent_osint",
+  "tools": [
+    {
+      "name": "search_username",
+      "description": "Search for a username across all supported social networks",
+      "parameters": {
+        "username": {
+          "type": "string",
+          "required": true,
+          "description": "Username to search for"
+        },
+        "sites": {
+          "type": "string",
+          "required": false,
+          "description": "Comma-separated site names to limit search"
+        }
+      }
+    },
+    {
+      "name": "search_batch",
+      "description": "Search multiple usernames (comma-separated) across social networks",
+      "parameters": {
+        "usernames": {
+          "type": "string",
+          "required": true,
+          "description": "Comma-separated list of usernames to search"
+        }
+      }
+    }
+  ],
+  "protocol": {
+    "type": "subprocess",
+    "description": "Calls sherlock CLI via subprocess with JSON output, 10-minute timeout"
+  },
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_osint.agent_osint",
+    "class": "AgentOsint"
+  },
+  "classification": {
+    "families": [
+      "offense"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream_license": "MIT",
+      "upstream": "sherlock"
+    }
+  },
+  "requires": {
+    "external_cli": [
+      "sherlock"
+    ]
+  },
+  "capability_pairs": [["search", "osint"]]
+}

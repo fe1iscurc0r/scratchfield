@@ -1,0 +1,52 @@
+{
+ "name": "retrosynthesis",
+ "displayName": "逆合成路线规划（aizynthfinder）",
+ "version": "1.0.0",
+ "description": "逆合成路线搜索/可购原料检查/反应模板回溯（aizynthfinder，MIT，纯 Python CPU 可跑；木质素解聚单体的合成路径搜索）",
+ "author": "陆墨助手",
+ "license": "MIT",
+ "agentType": "mcp",
+ "entryPoint": {
+  "module": "mcpserver.retrosynthesis.agent",
+  "class": "RetrosynthesisAgent"
+ },
+ "capabilities": {
+  "invocationCommands": [
+   {
+    "command": "route_search",
+    "description": "逆合成路线搜索：目标分子 SMILES → 合成路线树（aizynthfinder MCTS 规划，CPU）",
+    "params": {
+     "smiles": "目标分子 SMILES（如木质素解聚单体的香草醛 'COC1=CC(=CC=C1O)C=O'）",
+     "n_routes": "返回路线数（默认 5）"
+    },
+    "example": "{\"tool_name\":\"route_search\",\"smiles\":\"COC1=CC(=CC=C1O)C=O\",\"n_routes\":5}"
+   },
+   {
+    "command": "stock_check",
+    "description": "可购起始原料检查：SMILES 是否在 stock 数据库（商业可购目录）",
+    "params": {
+     "smiles": "分子 SMILES"
+    },
+    "example": "{\"tool_name\":\"stock_check\",\"smiles\":\"CC(=O)OC1=CC=CC=C1C(=O)O\"}"
+   },
+   {
+    "command": "template_lookup",
+    "description": "反应模板回溯：SMILES 命中的应用反应模板（policy 模板的展开）",
+    "params": {
+     "smiles": "分子 SMILES"
+    },
+    "example": "{\"tool_name\":\"template_lookup\",\"smiles\":\"COC1=CC(=CC=C1O)C=O\"}"
+   }
+  ]
+ },
+ "requires": {
+  "python_packages": ["aizynthfinder"]
+ },
+ "classification": {
+  "families": ["compute"],
+  "domains": [],
+  "tier": "read-only",
+  "origin": {"kind": "native", "upstream": "MolecularAI/aizynthfinder"}
+ },
+ "capability_pairs": [["check", "retrosynthesis"], ["lookup", "retrosynthesis"], ["search", "retrosynthesis"]]
+}

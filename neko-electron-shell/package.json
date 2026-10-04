@@ -10,7 +10,9 @@
     "tunnel-agent": ">=0.6.0",
     "webpack-dev-middleware": ">=5.3.4",
     "yargs-parser": ">=13.1.2",
-    "node-abi": "^4.31.0"
+    "node-abi": "^4.31.0",
+    "tar": "^7.5.21",
+    "glob": "^10.5.0"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -18,6 +20,6 @@
     "get-windows": "^9.3.0"
   },
   "devDependencies": {
-    "electron": "^40.10.6"
+    "electron": "^41.10.3"
   }
 }

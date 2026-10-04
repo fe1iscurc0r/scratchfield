@@ -9,6 +9,11 @@
 
 from __future__ import annotations
 
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import importlib.util
 import os
 import pathlib
@@ -61,11 +66,16 @@ def test_no_coeffects_returns_neutral(tmp_path):
     assert c.check_satisfied(spec, set()) == c.NEUTRAL
 
 
-def test_missing_rdkit_deactivate(tmp_path):
-    """沙箱无 rdkit → 硬依赖缺失 → deactivate。"""
+def test_missing_rdkit_deactivate(tmp_path, monkeypatch):
+    """沙箱无 rdkit → 硬依赖缺失 → deactivate。
+
+    用 monkeypatch 打桩 ``_find_spec`` 强制返回 None，模拟依赖缺失环境，
+    使测试与宿主机是否真实安装 rdkit 无关（环境无关化）。
+    """
     d = _write_skill(tmp_path, "name: x\ncoeffects:\n  packages:\n    - rdkit\n")
     spec = c.resolve_coeffects(d)
-    assert c._find_spec("rdkit") is None  # 前置条件：当前环境确实无 rdkit
+    monkeypatch.setattr(c, "_find_spec", lambda name: None)
+    assert c._find_spec("rdkit") is None  # 打桩生效校验
     assert c.check_satisfied(spec, set()) == c.DEACTIVATE
 
 
@@ -75,12 +85,24 @@ def test_rdkit_present_activate(tmp_path):
     assert c.check_satisfied(spec, {"rdkit"}) == c.ACTIVATE
 
 
-def test_soft_missing_returns_neutral(tmp_path):
+def test_soft_missing_returns_neutral(tmp_path, monkeypatch):
+    """缺 rdkit（打桩模拟）但声明为软依赖 → neutral（启用但降级）。"""
     d = _write_skill(tmp_path,
                      "name: x\ncoeffects:\n  packages:\n    - name: rdkit\n      required: false\n")
     spec = c.resolve_coeffects(d)
-    # 缺 rdkit 但声明为软依赖 → neutral（启用但降级）
+    monkeypatch.setattr(c, "_find_spec", lambda name: None)
     assert c.check_satisfied(spec, set()) == c.NEUTRAL
+
+
+def test_package_present_via_spec_activate(tmp_path, monkeypatch):
+    """打桩反向用例：spec 强制有效（模拟已安装）→ 硬依赖满足 → activate。
+
+    与打桩 None 用例构成双向覆盖，宿主机无需真实安装任何包。
+    """
+    d = _write_skill(tmp_path, "name: x\ncoeffects:\n  packages:\n    - rdpar\n")
+    spec = c.resolve_coeffects(d)
+    monkeypatch.setattr(c, "_find_spec", lambda name: object())  # 恒返回有效 spec
+    assert c.check_satisfied(spec, set()) == c.ACTIVATE
 
 
 def test_skills_dependency(tmp_path):

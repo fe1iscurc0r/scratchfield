@@ -46,7 +46,10 @@ dependencies = [
   "edge-tts>=6.1,<8",
   # Self-signed cert generation for `omnilimb-face --https` (lets phones on the
   # LAN use the microphone via a secure context).
-  "cryptography>=42,<46",
+  # 上限解封（卷161）：原 >=42,<46 卡死 4 条 cryptography critical 告警
+  # （#1346~#1353 系）。49.0.0 是 CVE-2026-69249 / CVE-2026-69248 的
+  # first_patched_version，故下限抬到 49.0.0。
+  "cryptography>=49.0.0",
 ]
 
 [project.optional-dependencies]

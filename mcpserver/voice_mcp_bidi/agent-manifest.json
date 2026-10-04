@@ -39,5 +39,18 @@
         "example": "{\"tool_name\": \"voice_status\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "verbal"
+    ],
+    "domains": [],
+    "tier": "process-control",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "shreyaskarnik/voice-mcp",
+      "upstream_license": "Apache-2.0"
+    }
+  },
+  "capability_pairs": [["capture", "speech"], ["emit", "speech"], ["status", "speech"]]
 }

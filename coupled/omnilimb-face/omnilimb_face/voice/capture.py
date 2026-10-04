@@ -186,8 +186,8 @@ class SoundDeviceAudioSource:
         self,
         cfg: "VADSettings",
         *,
-        device: Optional[Union[int, str]] = None,
-        max_queued_frames: Optional[int] = None,
+        device: Union[int, str] | None = None,
+        max_queued_frames: int | None = None,
     ) -> None:
         """Build a microphone source from VAD settings.
 
@@ -504,7 +504,7 @@ class StartResult:
     activated: bool
     success: bool
     reason: str = ""
-    error: Optional[str] = None
+    error: str | None = None
 
     @classmethod
     def activated_ok(cls, reason: str = "") -> "StartResult":
@@ -560,7 +560,7 @@ class VoiceCapture:
         cfg: "VTuberConfig",
         source: "AudioSource",
         vad: VadSegmenter,
-        wake: "Optional[WakeWord]" = None,
+        wake: "WakeWord | None" = None,
         *,
         rms_speech_threshold: float = _DEFAULT_RMS_SPEECH_THRESHOLD,
         join_timeout_s: float = 5.0,
@@ -591,13 +591,13 @@ class VoiceCapture:
         self._rms_threshold = float(rms_speech_threshold)
         self._join_timeout_s = float(join_timeout_s)
 
-        self._on_segment: Optional[SegmentCallback] = None
+        self._on_segment: SegmentCallback | None = None
 
         # Lifecycle state guarded by ``_lock``.
         self._lock = threading.RLock()
         self._running = False
         self._stop_event = threading.Event()
-        self._consumer_thread: Optional[threading.Thread] = None
+        self._consumer_thread: threading.Thread | None = None
 
         # Segment-assembly state (touched only on the consumer thread between
         # start and stop, so it needs no extra locking).

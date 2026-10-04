@@ -46,23 +46,59 @@ class OpenClawWSClient:
         self._instance_id = str(uuid.uuid4())
         self._closing = False
 
-    async def connect(self) -> bool:
-        """建立 WebSocket 连接并完成 Gateway 握手。"""
-        try:
-            self.ws = await websockets.connect(
-                self.gateway_url,
-                max_size=25 * 1024 * 1024,
-                ping_interval=None,
-            )
+    async def connect(
+        self,
+        *,
+        retries: int = 3,
+        retry_interval: float = 1.5,
+    ) -> bool:
+        """建立 WebSocket 连接并完成 Gateway 握手。
 
+        连接失败、握手超时等瞬态故障（对应上游网关 502/504 类超时）
+        自动指数退避重试；握手被明确拒绝（鉴权失败、协议不匹配）
+        属于确定性失败，不重试直接返回 False。
+        """
+        last_error = ""
+        for attempt in range(1, retries + 1):
+            try:
+                self.ws = await websockets.connect(
+                    self.gateway_url,
+                    max_size=25 * 1024 * 1024,
+                    ping_interval=20,
+                    ping_timeout=20,
+                )
+
+                if not await self._handshake():
+                    # 确定性失败（协议/鉴权），重试无意义
+                    return False
+
+                self.connected = True
+                self._recv_task = asyncio.create_task(self._recv_loop(), name="openclaw-ws-recv")
+                logger.info("WebSocket 已连接到 OpenClaw Gateway")
+                return True
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
+                logger.warning(f"WebSocket 连接失败（第 {attempt}/{retries} 次）: {e}")
+                await self.close()
+                if attempt < retries:
+                    backoff = retry_interval * (2 ** (attempt - 1))
+                    await asyncio.sleep(backoff)
+        logger.error(f"WebSocket 连接失败，已达最大重试次数: {last_error}")
+        return False
+
+    async def _handshake(self) -> bool:
+        """完成 connect.challenge / connect 握手，失败时清理连接。"""
+        try:
             challenge = await self._recv_frame()
             if challenge.get("type") != "event" or challenge.get("event") != "connect.challenge":
                 logger.error(f"WebSocket 握手失败，未收到 connect.challenge: {challenge}")
+                await self.close()
                 return False
 
             nonce = str((challenge.get("payload") or {}).get("nonce") or "").strip()
             if not nonce:
                 logger.error("WebSocket 握手失败，challenge nonce 为空")
+                await self.close()
                 return False
 
             params: dict[str, Any] = {
@@ -105,15 +141,11 @@ class OpenClawWSClient:
                 logger.error(f"WebSocket connect 响应异常: {response}")
                 await self.close()
                 return False
-
-            self.connected = True
-            self._recv_task = asyncio.create_task(self._recv_loop(), name="openclaw-ws-recv")
-            logger.info("WebSocket 已连接到 OpenClaw Gateway")
             return True
         except Exception as e:
-            logger.error(f"WebSocket 连接失败: {e}")
+            logger.error(f"WebSocket 握手异常: {e}")
             await self.close()
-            return False
+            raise
 
     async def _send_frame(self, frame: dict[str, Any]) -> None:
         if not self.ws:

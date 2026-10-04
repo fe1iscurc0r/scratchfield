@@ -42,7 +42,79 @@
       {
         "command": "memory_status",
         "description": "记忆 MaaS 状态：数据目录/血统与卡片计数/后台写统计/来源(sidecar|in-process)"
+      },
+      {
+        "command": "memory_capture_observation",
+        "description": "观察捕获（内容哈希去重）：来源分级→哈希去重→入库，同一观察幂等只留一条返回已存在 id",
+        "params": {
+          "memory_session_id": "观察所属会话 ID",
+          "title": "观察标题",
+          "narrative": "观察叙述",
+          "type": "实体类型，默认 note",
+          "tags": "标签数组",
+          "pinned": "是否标星（永不清理）",
+          "source_rank": "来源分级 0用户/1agent/2外部/3未验证",
+          "platform": "平台来源 weixin|qqbot|cli|local（别名 qq/wechat/wx 自动归一）"
+        },
+        "example": "{\"tool_name\":\"memory_capture_observation\",\"memory_session_id\":\"s1\",\"title\":\"部署结论\",\"narrative\":\"CoolProp 可用\",\"platform\":\"qq\"}"
+      },
+      {
+        "command": "memory_add_typed",
+        "description": "新增 typed 记忆实体（decision/insight/handoff/note），写前自动注入校验 + 来源分级隔离 + 平台来源打标",
+        "params": {
+          "content": "记忆内容",
+          "type": "实体类型，默认 note",
+          "tags": "标签数组",
+          "pinned": "是否标星（永不清理）",
+          "source_rank": "来源分级 0用户/1agent/2外部/3未验证",
+          "relations": "关联实体 id 数组",
+          "platform": "平台来源 weixin|qqbot|cli|local（别名 qq/wechat/wx 自动归一）"
+        },
+        "example": "{\"tool_name\":\"memory_add_typed\",\"content\":\"决策：采用 DSRC 方案 A\",\"type\":\"decision\",\"tags\":[\"射频\"],\"platform\":\"qqbot\"}"
+      },
+      {
+        "command": "memory_query_filtered",
+        "description": "按 type/tags/pinned/path/platform 过滤 typed 实体（默认排除隔离区，include_isolation=true 含之）",
+        "params": {
+          "type": "实体类型过滤",
+          "tags": "标签过滤（AND）",
+          "pinned": "标星过滤",
+          "include_isolation": "是否含隔离区，默认 false",
+          "limit": "条数上限",
+          "path": "路径过滤：绝对/项目根相对/cwd 相对三种写法等价匹配",
+          "platform": "平台来源过滤（别名自动归一）"
+        },
+        "example": "{\"tool_name\":\"memory_query_filtered\",\"type\":\"insight\",\"tags\":[\"物理\"]}"
+      },
+      {
+        "command": "memory_maintenance",
+        "description": "记忆自维护：status/sweep(遗忘调度)/consolidate(相似合并)，执行前自动快照；consolidate 组员全可解析时产出 XML 压缩块",
+        "params": {
+          "action": "status|sweep|consolidate",
+          "max_age_days": "sweep 超龄天数，默认 30",
+          "min_group": "consolidate 最小分组，默认 2",
+          "dry_run": "是否 dry-run",
+          "template_mode": "consolidate 压缩块模板模式 default|compact"
+        },
+        "example": "{\"tool_name\":\"memory_maintenance\",\"action\":\"sweep\",\"dry_run\":true}"
+      },
+      {
+        "command": "memory_guard_status",
+        "description": "注入防护状态：隔离区计数/来源分级/触发词/流策略路径"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "context"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "NEKO 记忆五件套 sidecar",
+      "upstream_license": "见 NEKO 上游"
+    }
+  },
+  "capability_pairs": [["capture", "memory"], ["ingest", "memory"], ["lookup", "memory"], ["manage", "memory"], ["search", "memory"], ["status", "memory"], ["write", "memory"]]
 }

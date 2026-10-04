@@ -21,13 +21,38 @@ permissions:
 
 jobs:
   lint:
+    # ⚠️ 2026-09-22 起本 job 默认不跑（ENABLE_LINT 闸门），原因：
+    #   GitHub Actions 账单/消费限额未解封（用户 2026-09-22 明确"不充值"），
+    #   hosted runner 不会被调度，job 直接红着退出。check-run annotation 实证原文：
+    #     "The job was not started because recent account payments have failed or your
+    #      spending limit needs to be increased. Please check the 'Billing & plans'
+    #      section in your settings"
+    #   佐证：同一 commit 上 lint / review 两个 job 的 runner_name 均为空（未分配 runner），
+    #   且 started_at 与 completed_at 相差仅 2 秒 —— 不是代码/依赖问题，是调度被拦。
+    #   ⚠️ 这**不是** lint 本身有问题：本地已按 CI 两步复现并通过
+    #     （ruff check . → All checks passed；frontend `npm ci && npm run lint` → 0 error）。
+    #   本 job 永远红着会把 PR 的 CI 结论拖成永久 failure —— 红灯变"狼来了"，
+    #   真故障会被淹没。故默认下线，保留完整定义与可本地复现的等价校验。
+    #
+    #   ★ 恢复方法（2026-09-22 修订）：仓库 Settings → Secrets and variables → Actions
+    #     → Variables 新建 ENABLE_LINT = true。未设置该变量 ⇒ 表达式为 false ⇒ 本 job 跳过。
+    #
+    #   ⚠️ 历史坑（务必不要再犯）：本行曾写成
+    #       if: ${{ vars.ENABLE_LINT == 'true' || env.ENABLE_LINT == 'true' }}
+    #     但 job 级 `if` **不允许引用 env context**（env 是运行时概念，job 级 if 在
+    #     workflow 编译期求值）。GitHub 直接报：
+    #       "The workflow is not valid. Unrecognized named-value: 'env'"
+    #     → 整个 workflow 解析失败、run 0 秒结束、jobs 为空，比"闸门不生效"更糟。
+    if: ${{ vars.ENABLE_LINT == 'true' }}
+    # TODO(2026-10-19): ubuntu-latest 将迁移到 Ubuntu 26（actions/runner-images#14748），
+    # 届时若有不兼容（glibc/Python ABI 等）需显式钉死版本，如 ubuntu-24.04。
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -39,7 +64,7 @@ jobs:
         run: ruff check . --output-format=github
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -49,33 +74,48 @@ jobs:
           npm ci
           npm run lint --if-present
 
-  # 快速冒烟测试（不跑全量，全量在 build-release.yml）
+  # 冒烟测试（卷173 分层体系：pytest -m smoke，≤60s 目标）
+  #
+  # ⚠️ 闸门铁律（2026-09-29 卷173）：本 job 挂 ENABLE_CI_TEST 闸门变量——
+  #   Actions 账单未解封期间（用户 2026-09-22 明确"不充值"）hosted runner
+  #   不会被调度，job 级 if 未设变量 ⇒ 表达式为 false ⇒ skipped（绿），
+  #   不造永久红灯。恢复方法：Settings → Secrets and variables → Actions
+  #   → Variables 新建 ENABLE_CI_TEST = true。
+  #   ⚠️ job 级 if 只允许引用 vars context，**不许引用 env context**
+  #   （历史坑见 lint job 注释：env 是运行时概念，workflow 编译期求值直接报
+  #   "Unrecognized named-value: 'env'"，整个 workflow 解析失败）。
   smoke:
+    if: ${{ vars.ENABLE_CI_TEST == 'true' }}
+    # TODO(2026-10-19): ubuntu-latest 将迁移到 Ubuntu 26（actions/runner-images#14748），
+    # 届时若有不兼容（glibc/Python ABI 等）需显式钉死版本，如 ubuntu-24.04。
     runs-on: ubuntu-latest
-    needs: lint
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
-      - name: Install deps
+      - name: Install smoke deps
         run: |
-          pip install -r requirements.txt
-          pip install pytest
+          # smoke 层三个文件的依赖面刻意收窄：mcp_assembly_policy（纯函数）、
+          # governance_rings（stdlib）、verify_entrypoint（需 numpy 跑 rf_brain 闭环冒烟）。
+          # 不走 uv sync 全装（269 包，runner 14GB 磁盘有 Errno 28 前科）。
+          pip install --no-cache-dir pytest numpy
 
-      - name: Quick import check
-        run: |
-          python -c "
-          import system.config_manager
-          import system.health_check
-          import rag.rag_service
-          import mcpserver.mcp_server
-          print('All core modules OK')
-          "
+      - name: Run smoke layer
+        run: pytest -m smoke -q --junitxml=build/test-results/smoke-junit.xml
 
-      - name: Run tests
-        run: pytest tests/ -v --timeout=60 -x
+      - name: Upload junit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-junit
+          path: build/test-results/smoke-junit.xml
+          if-no-files-found: ignore
+
+  # ⚠️ 2026-09-29 起旧版「import check + pytest tests/ 全量」步骤退役：
+  #   全量已按卷173 分层拆到 ci-nightly.yml（core 每晚 / full 每周），
+  #   本文件只保留 smoke 层——旧定义见 git 历史（卷173 之前的 ci.yml smoke job）。

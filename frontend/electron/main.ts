@@ -1,15 +1,18 @@
-import { readFileSync, unlinkSync } from 'node:fs'
+import { Buffer } from 'node:buffer'
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import * as http from 'node:http'
+import { dirname, join, resolve } from 'node:path'
+
 import process from 'node:process'
 import { domainToUnicode, fileURLToPath, pathToFileURL } from 'node:url'
+
 import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeTheme, net, protocol, safeStorage, session, shell, systemPreferences } from 'electron'
-import * as http from 'node:http'
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { getBackendLogs, startBackend, stopBackend } from './modules/backend'
 import { registerHotkeys, unregisterHotkeys } from './modules/hotkeys'
+import { notifyGeometryChanged, registerMatchatIpc } from './modules/matchat'
 import { createMenu } from './modules/menu'
+import { closeSplashWindow, createSplashWindow } from './modules/splash'
 import { createTray, destroyTray } from './modules/tray'
 import { downloadUpdate, installUpdate, setupAutoUpdater } from './modules/updater'
 import {
@@ -23,14 +26,13 @@ import {
   getFloatingState,
   getMainWindow,
   isMainWindowMaximized,
+  setFloatingDragging,
   setFloatingHeight,
   setWindowPosition,
   showMainWindow,
   toggleMainWindowMaximize,
   usesManualMainWindowMaximize,
 } from './modules/window'
-import { notifyGeometryChanged, registerMatchatIpc } from './modules/matchat'
-import { closeSplashWindow, createSplashWindow } from './modules/splash'
 
 let isQuitting = false
 let cryptoServer: http.Server | null = null
@@ -69,12 +71,14 @@ if (!gotTheLock) {
   console.warn('[Singleton] Lock still unavailable after cleanup, continuing without singleton protection.')
 }
 
-
 // ── 自定义协议：lumo-char:// 用于加载 characters 目录下的角色资源 ──
 // 打包模式：extraResources/characters；开发模式：项目根/characters
+// 注意：开发模式下 Electron 实际加载的是编译产物 dist-electron/main.js，
+// 用 import.meta.url 相对回溯会因产物目录层级不同而错位，
+// 改用 app.getAppPath()（= frontend/）锚定，上一级即项目根。
 const CHARACTERS_DIR = app.isPackaged
   ? resolve(process.resourcesPath, 'characters')
-  : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'characters')
+  : resolve(app.getAppPath(), '..', 'characters')
 // ── 自定义协议：lumo-bg:// 用于加载 premium-assets/backgrounds 目录下的背景图片 ──
 const BACKGROUNDS_DIR = app.isPackaged
   ? resolve(process.resourcesPath, 'premium-assets', 'backgrounds')
@@ -272,6 +276,10 @@ app.whenReady().then(async () => {
     const win = getMainWindow()
     if (!win || isMainWindowMaximized())
       return
+    // ★ 卷149 守卫：本通道的 Math.max(800,...) 下限会把悬浮窗强行撑到 800x600。
+    //   悬浮态下尺寸只应由 floating 状态机决定，故直接拒绝该通道。
+    if (getFloatingState() !== 'classic')
+      return
     const current = win.getBounds()
     const next = {
       x: bounds.x ?? current.x,
@@ -311,6 +319,9 @@ app.whenReady().then(async () => {
   })
   ipcMain.on('floating:setPosition', (_event, x: number, y: number) => {
     setWindowPosition(x, y)
+  })
+  ipcMain.on('floating:setDragging', (_event, dragging: boolean) => {
+    setFloatingDragging(dragging)
   })
   ipcMain.on('floating:fitHeight', (_event, height: number) => {
     setFloatingHeight(height)
@@ -431,7 +442,7 @@ app.whenReady().then(async () => {
 
   // SafeStorage HTTP 桥接：供后端 Python 调用（带 nonce 认证）
   const bridgeToken = safeStorage.encryptString(
-    JSON.stringify({ session: crypto.randomUUID(), ts: Date.now() })
+    JSON.stringify({ session: crypto.randomUUID(), ts: Date.now() }),
   ).toString('base64')
 
   cryptoServer = http.createServer(async (req, res) => {
@@ -451,12 +462,14 @@ app.whenReady().then(async () => {
           const encrypted = safeStorage.encryptString(plaintext)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ciphertext: encrypted.toString('base64') }))
-        } catch {
+        }
+        catch {
           res.writeHead(500)
           res.end(JSON.stringify({ error: 'encrypt failed' }))
         }
       })
-    } else if (req.method === 'POST' && req.url === '/crypto/decrypt') {
+    }
+    else if (req.method === 'POST' && req.url === '/crypto/decrypt') {
       let body = ''
       req.on('data', chunk => body += chunk)
       req.on('end', () => {
@@ -465,19 +478,22 @@ app.whenReady().then(async () => {
           const plaintext = safeStorage.decryptString(Buffer.from(ciphertext, 'base64'))
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ plaintext }))
-        } catch {
+        }
+        catch {
           res.writeHead(500)
           res.end(JSON.stringify({ error: 'decrypt failed' }))
         }
       })
-    } else {
+    }
+    else {
       res.writeHead(404)
       res.end()
     }
   })
 
   cryptoServer.listen(0, '127.0.0.1', () => {
-    if (!cryptoServer) return
+    if (!cryptoServer)
+      return
     const port = (cryptoServer.address() as any).port
     console.log(`[SafeStorage] Crypto bridge listening on 127.0.0.1:${port}`)
     const portFile = join(app.getPath('userData'), '.safe_storage_port')

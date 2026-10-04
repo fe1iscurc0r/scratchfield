@@ -8,6 +8,11 @@
 """
 from __future__ import annotations
 
+import pytest  # noqa: E402  (卷173 分层标注；与文件既有 import pytest 重复无害)
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import asyncio
 import json
 from pathlib import Path
@@ -130,6 +135,7 @@ def test_core_status(tmp_path: Path):
 @pytest.fixture
 def client(tmp_path: Path):
     from fastapi.testclient import TestClient
+
     from mcpserver.memory_maas.app import app
 
     with TestClient(app) as c:  # with 触发 lifespan：get_core() 建库+启动后台写

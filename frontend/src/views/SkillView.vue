@@ -4,8 +4,11 @@ import { Dialog } from 'primevue'
 import { computed, ref } from 'vue'
 import API from '@/api/core'
 import BoxContainer from '@/components/BoxContainer.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import McpAddDialog from '@/components/McpAddDialog.vue'
+import SkeletonCard from '@/components/SkeletonCard.vue'
 import SkillAddDialog from '@/components/SkillAddDialog.vue'
+import { feedback } from '@/utils/feedback'
 
 const mcpServices = ref<McpService[]>([])
 const mcpLoading = ref(true)
@@ -33,6 +36,76 @@ async function loadMcpServices() {
   }
   finally {
     mcpLoading.value = false
+  }
+}
+
+// ---- 装配策略（按族白名单 / 按 tier 关闭；agent 级开关在各服务行） ----
+interface AssemblyVocabItem { key: string; label: string; desc: string }
+const showAssembly = ref(false)
+const assemblyLoading = ref(false)
+const assemblyPolicy = ref<Record<string, any>>({})
+const assemblyVocab = ref<{ families: AssemblyVocabItem[], tiers: AssemblyVocabItem[] }>({ families: [], tiers: [] })
+const assemblyAgents = ref<{ name: string, enabled: boolean, disabled_reason?: string }[]>([])
+
+const familyWhitelist = computed(() => assemblyPolicy.value.enabled_families as string[] | undefined)
+const disabledTiers = computed(() => assemblyPolicy.value.disable_tiers as string[] | undefined)
+
+/** 白名单缺省 = 全启用；全部勾选等价于「不限」，写回时用 null 清除。 */
+function familyOn(key: string): boolean {
+  return !familyWhitelist.value || familyWhitelist.value.includes(key)
+}
+function tierOff(key: string): boolean {
+  return !!disabledTiers.value?.includes(key)
+}
+const assemblySummary = computed(() => {
+  const total = assemblyAgents.value.length
+  if (!total)
+    return ''
+  const off = assemblyAgents.value.filter(a => !a.enabled).length
+  return off === 0 ? `全部 ${total} 项启用` : `关闭 ${off} / ${total} 项`
+})
+
+async function loadAssembly() {
+  assemblyLoading.value = true
+  try {
+    const res = await API.getMcpAssembly()
+    assemblyPolicy.value = res.policy ?? {}
+    assemblyVocab.value = res.vocabulary ?? { families: [], tiers: [] }
+    assemblyAgents.value = res.agents ?? []
+  }
+  catch {
+    assemblyPolicy.value = {}
+  }
+  finally {
+    assemblyLoading.value = false
+  }
+}
+
+async function toggleFamily(key: string) {
+  const all = assemblyVocab.value.families.map(f => f.key)
+  const cur = familyWhitelist.value ? [...familyWhitelist.value] : all
+  const next = cur.includes(key) ? cur.filter(k => k !== key) : [...cur, key]
+  const body = next.length === all.length ? { enabled_families: null } : { enabled_families: next }
+  try {
+    await API.updateMcpAssembly(body)
+    await loadAssembly()
+    await loadMcpServices()
+  }
+  catch (e: any) {
+    feedback.error(e?.response?.data?.detail || '更新装配策略失败')
+  }
+}
+
+async function toggleTier(key: string) {
+  const cur = disabledTiers.value ? [...disabledTiers.value] : []
+  const next = cur.includes(key) ? cur.filter(k => k !== key) : [...cur, key]
+  try {
+    await API.updateMcpAssembly({ disable_tiers: next })
+    await loadAssembly()
+    await loadMcpServices()
+  }
+  catch (e: any) {
+    feedback.error(e?.response?.data?.detail || '更新装配策略失败')
   }
 }
 
@@ -92,11 +165,11 @@ async function onMcpConfirm(data:
       })
     }
     showMcpDialog.value = false
+    feedback.success('已保存')
     await loadMcpServices()
   }
   catch (error: any) {
-    // eslint-disable-next-line no-alert
-    alert(`操作失败: ${error?.response?.data?.detail || error?.message || '未知错误'}`)
+    feedback.error('操作失败', error?.response?.data?.detail || error?.message || '未知错误')
   }
 }
 
@@ -118,11 +191,11 @@ async function deleteMcp(service: McpService) {
     return
   try {
     await API.deleteMcpService(service.name)
+    feedback.success('已删除')
     await loadMcpServices()
   }
   catch (error: any) {
-    // eslint-disable-next-line no-alert
-    alert(`删除失败: ${error?.response?.data?.detail || error?.message || '未知错误'}`)
+    feedback.error('删除失败', error?.response?.data?.detail || error?.message || '未知错误')
   }
 }
 
@@ -175,11 +248,11 @@ async function onSkillConfirm(data:
       await API.importScopedSkill(data)
     }
     showSkillDialog.value = false
+    feedback.success('已导入')
     await loadSkillCatalog()
   }
   catch (error: any) {
-    // eslint-disable-next-line no-alert
-    alert(`导入失败: ${error?.response?.data?.detail || error?.message || '未知错误'}`)
+    feedback.error('导入失败', error?.response?.data?.detail || error?.message || '未知错误')
   }
 }
 
@@ -187,11 +260,11 @@ async function deleteScopedSkill(skill: SkillCatalogItem) {
   const scope = skill.scope === 'public' ? 'public' : 'cache'
   try {
     await API.deleteSkill(skill.name, scope)
+    feedback.success('已删除')
     await loadSkillCatalog()
   }
   catch (error: any) {
-    // eslint-disable-next-line no-alert
-    alert(`删除失败: ${error?.response?.data?.detail || error?.message || '未知错误'}`)
+    feedback.error('删除失败', error?.response?.data?.detail || error?.message || '未知错误')
   }
 }
 
@@ -218,6 +291,7 @@ const installedSkills = computed(() => {
 })
 
 void loadMcpServices()
+void loadAssembly()
 void loadSkillCatalog()
 </script>
 
@@ -278,9 +352,55 @@ void loadSkillCatalog()
           </button>
         </div>
 
-        <div v-if="mcpLoading" class="text-white/40 text-xs py-2">
-          正在检查 MCP...
+        <!-- 装配策略面板：按族白名单 / 按 tier 关闭；agent 级开关在各服务行 -->
+        <div class="assembly-panel">
+          <button class="assembly-head" @click="showAssembly = !showAssembly">
+            <span class="assembly-title">装配策略</span>
+            <span v-if="assemblySummary" class="assembly-summary">{{ assemblySummary }}</span>
+            <svg
+              class="assembly-caret" :class="{ open: showAssembly }"
+              xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            ><path d="m6 9 6 6 6-6" /></svg>
+          </button>
+          <div v-if="showAssembly" class="assembly-body">
+            <div class="assembly-group">
+              <div class="assembly-label">按族启用（白名单；全亮 = 不限）</div>
+              <div class="assembly-chips">
+                <button
+                  v-for="f in assemblyVocab.families"
+                  :key="f.key"
+                  class="assembly-chip"
+                  :class="{ on: familyOn(f.key) }"
+                  :title="f.desc"
+                  @click="toggleFamily(f.key)"
+                >
+                  {{ f.label }}
+                </button>
+              </div>
+            </div>
+            <div class="assembly-group">
+              <div class="assembly-label">按 tier 关闭</div>
+              <div class="assembly-chips">
+                <button
+                  v-for="t in assemblyVocab.tiers"
+                  :key="t.key"
+                  class="assembly-chip tier"
+                  :class="{ off: tierOff(t.key) }"
+                  :title="t.desc"
+                  @click="toggleTier(t.key)"
+                >
+                  {{ t.label }}
+                </button>
+              </div>
+            </div>
+            <div class="assembly-note">
+              服务行的开关是按 agent 的显式开关，优先于上述策略；offensive 能力另有入口环境变量闸门（默认关）。
+            </div>
+          </div>
         </div>
+
+        <SkeletonCard v-if="mcpLoading" :rows="5" />
         <template v-else>
           <div
             v-for="service in publicMcpServices"
@@ -289,24 +409,34 @@ void loadSkillCatalog()
             :class="{ 'mcp-disabled': !service.enabled }"
           >
             <div class="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-              <button
-                class="mcp-toggle"
-                :class="{ 'mcp-toggle-on': service.enabled, 'mcp-toggle-builtin': service.source === 'builtin' }"
-                :title="service.source === 'builtin' ? '内置服务（始终启用）' : (service.enabled ? '点击禁用' : '点击启用')"
-                @click="toggleMcpEnabled(service)"
-              >
-                <span class="mcp-toggle-dot" />
-              </button>
-              <div class="min-w-0 flex-1 overflow-hidden">
-                <div class="flex items-center gap-1.5">
-                  <span class="font-bold text-sm text-white truncate">{{ service.displayName }}</span>
-                  <span v-if="service.source === 'builtin'" class="mcp-badge builtin">内置</span>
-                  <span v-else class="mcp-badge external">通用</span>
+                <button
+                  class="mcp-toggle"
+                  :class="{ 'mcp-toggle-on': service.enabled, 'mcp-toggle-builtin': service.source === 'builtin' }"
+                  :title="service.source === 'builtin' ? '内置服务（前端开关写入装配策略）' : (service.enabled ? '点击禁用' : '点击启用')"
+                  @click="toggleMcpEnabled(service)"
+                >
+                  <span class="mcp-toggle-dot" />
+                </button>
+                <div class="min-w-0 flex-1 overflow-hidden">
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-bold text-sm text-white truncate">{{ service.displayName }}</span>
+                    <span v-if="service.source === 'builtin'" class="mcp-badge builtin">内置</span>
+                    <span v-else class="mcp-badge external">通用</span>
+                    <span
+                      v-if="service.requirements?.missing?.length"
+                      class="mcp-badge req-missing"
+                      :title="'缺依赖：' + service.requirements.missing.join('、')"
+                    >缺 {{ service.requirements.missing.length }} 项</span>
+                    <span
+                      v-if="service.requirements?.optional_missing?.length"
+                      class="mcp-badge req-optional"
+                      :title="'缺软依赖（功能降级但可用）：' + service.requirements.optional_missing.join('、')"
+                    >降 {{ service.requirements.optional_missing.length }} 项</span>
+                  </div>
+                  <div v-if="service.description" class="text-xs op-40 truncate mt-0.5">
+                    {{ service.description }}
+                  </div>
                 </div>
-                <div v-if="service.description" class="text-xs op-40 truncate mt-0.5">
-                  {{ service.description }}
-                </div>
-              </div>
             </div>
             <div v-if="service.source !== 'builtin'" class="flex items-center gap-1 shrink-0 ml-2">
               <button class="mcp-action-btn" title="编辑" @click="openEditMcp(service)">
@@ -317,9 +447,14 @@ void loadSkillCatalog()
               </button>
             </div>
           </div>
-          <div v-if="publicMcpServices.length === 0" class="text-white/40 text-xs py-2">
-            还没有 MCP，先添加一个试试。
-          </div>
+          <EmptyState
+            v-if="publicMcpServices.length === 0"
+            icon="🔌"
+            title="还没有 MCP"
+            description="添加一个 MCP 服务，把外部工具接进陆墨"
+            action-label="添加 MCP"
+            @action="openAddMcp"
+          />
         </template>
       </section>
 
@@ -338,9 +473,7 @@ void loadSkillCatalog()
           </div>
         </div>
 
-        <div v-if="skillCatalogLoading" class="text-white/40 text-xs py-2">
-          正在加载 Skill...
-        </div>
+        <SkeletonCard v-if="skillCatalogLoading" :rows="5" />
         <template v-else>
           <div
             v-for="skill in installedSkills"
@@ -359,9 +492,13 @@ void loadSkillCatalog()
               删除
             </button>
           </div>
-          <div v-if="!installedSkills.length" class="text-white/40 text-xs py-2">
-            还没有 Skill，先添加一个试试。
-          </div>
+          <EmptyState
+            icon="🛠"
+            title="还没有安装技能"
+            description="从市场安装，或添加本地 SKILL.md"
+            action-label="去市场看看"
+            @action="$router.push('/market')"
+          />
         </template>
       </section>
     </div>
@@ -631,6 +768,117 @@ void loadSkillCatalog()
 .mcp-badge.external {
   color: rgba(96, 165, 250, 0.8);
   background: rgba(96, 165, 250, 0.1);
+}
+
+/* 依赖预检（requires）缺项徽标：暖色警示，hover 见 title 明细 */
+.mcp-badge.req-missing {
+  color: rgba(251, 146, 60, 0.9);
+  background: rgba(251, 146, 60, 0.12);
+  cursor: help;
+}
+
+/* 软依赖缺失（degraded）：功能降级但可用，用中性灰与必须缺失区分 */
+.mcp-badge.req-optional {
+  color: rgba(148, 163, 184, 0.9);
+  background: rgba(148, 163, 184, 0.14);
+  cursor: help;
+}
+
+/* 装配策略面板：族白名单 + tier 关闭 */
+.assembly-panel {
+  margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.assembly-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.assembly-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.assembly-summary {
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.assembly-caret {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+  opacity: 0.6;
+}
+
+.assembly-caret.open {
+  transform: rotate(180deg);
+}
+
+.assembly-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 12px 12px;
+}
+
+.assembly-label {
+  font-size: 12px;
+  opacity: 0.55;
+  margin-bottom: 6px;
+}
+
+.assembly-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assembly-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: none;
+  color: inherit;
+  font-size: 12px;
+  opacity: 0.5;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.assembly-chip:hover {
+  opacity: 0.8;
+}
+
+/* 族白名单：亮 = 启用 */
+.assembly-chip.on {
+  opacity: 1;
+  border-color: rgba(129, 199, 132, 0.55);
+  background: rgba(129, 199, 132, 0.12);
+}
+
+/* tier：暗红 = 已关闭 */
+.assembly-chip.tier.off {
+  opacity: 1;
+  border-color: rgba(239, 108, 108, 0.55);
+  background: rgba(239, 108, 108, 0.12);
+}
+
+.assembly-note {
+  font-size: 11px;
+  opacity: 0.45;
+  line-height: 1.5;
 }
 
 .mcp-action-btn {

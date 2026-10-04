@@ -210,7 +210,7 @@ export function deepMerge<T, U, S extends MargeArrayStrategy>(
   }
 
   for (const key in source) {
-    if (Object.prototype.hasOwnProperty.call(source, key)) {
+    if (Object.hasOwn(source, key)) {
       const sourceValue = (source as any)[key]
       const targetValue = result[key]
 

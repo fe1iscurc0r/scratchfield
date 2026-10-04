@@ -1,6 +1,11 @@
 """M3.1b 规则门测试（纯 Python，零 LLM，mock 时间）。"""
 from __future__ import annotations
 
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import time
 from unittest import mock
 

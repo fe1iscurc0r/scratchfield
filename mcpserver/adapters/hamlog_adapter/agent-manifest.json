@@ -66,5 +66,18 @@
         "example": "{\"tool_name\":\"hamlog_card_content\",\"qso_id\":42}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "ecology"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "HamLog R1.0.0",
+      "upstream_license": "GPL-3.0"
+    }
+  },
+  "capability_pairs": [["ingest", "hamlog"], ["lookup", "hamlog"], ["search", "hamlog"], ["write", "hamlog"]]
 }

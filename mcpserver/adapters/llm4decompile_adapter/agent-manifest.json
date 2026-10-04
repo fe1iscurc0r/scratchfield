@@ -1,0 +1,94 @@
+{
+  "name": "llm4decompile",
+  "displayName": "LLM 反编译",
+  "version": "1.0",
+  "description": "基于 LLM4Decompile 把二进制汇编反编译成可读 C 代码；附带 PE 元数据与 magic 字节提取（后者不需要 LLM）。上游 albertan017/LLM4Decompile（MIT）。decompile_binary 首次调用要加载 1.3B 模型，可能耗时 1~3 分钟。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.flat_bridges",
+    "class": "Llm4decompileBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "decompile_binary",
+        "description": "反编译二进制中的单个函数，返回可再编译的 C 代码（首次调用需加载模型）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "二进制文件本地路径"
+            },
+            "func_name": {
+              "type": "string",
+              "description": "目标函数名，默认 main"
+            },
+            "arch": {
+              "type": "string",
+              "description": "目标架构，默认 x86_64"
+            },
+            "opt_level": {
+              "type": "string",
+              "description": "编译优化级别，默认 O0"
+            },
+            "max_new_tokens": {
+              "type": "integer",
+              "description": "生成上限，默认 2048"
+            },
+            "model_id": {
+              "type": "string",
+              "description": "模型 ID，默认 LLM4Binary/llm4decompile-1.3b-v1.5"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "example": "{\"tool_name\":\"decompile_binary\",\"path\":\"bin/target.exe\",\"func_name\":\"main\"}"
+      },
+      {
+        "command": "pe_metadata",
+        "description": "提取 PE 文件头信息与 magic 字节（快速标识，不调用 LLM）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "PE 文件本地路径"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "example": "{\"tool_name\":\"pe_metadata\",\"path\":\"bin/target.exe\"}"
+      },
+      {
+        "command": "decompile_status",
+        "description": "LLM4Decompile 运行状态（模型 / objdump / 依赖就绪情况）",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"decompile_status\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "offense"
+    ],
+    "domains": [
+      "security"
+    ],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "alberta / LLM4Decompile",
+      "upstream_license": "见上游"
+    }
+  },
+  "capability_pairs": [["decode", "binary"], ["lookup", "binary"], ["status", "binary"]]
+}

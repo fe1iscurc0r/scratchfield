@@ -157,7 +157,7 @@ class SecretResolution:
     """
 
     key: str
-    value: Optional[str]
+    value: str | None
     available: bool
     blocks_startup: bool
     message: str

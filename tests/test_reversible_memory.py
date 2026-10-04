@@ -11,6 +11,11 @@
 
 from __future__ import annotations
 
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import asyncio
 import os
 import sys

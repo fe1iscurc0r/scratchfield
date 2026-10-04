@@ -5,11 +5,13 @@ import { useRouter } from 'vue-router'
 import { checkIn, getAffinity, getCheckInStatus, getCredits } from '@/api/business'
 import affinityIcon from '@/assets/icons/affinity.svg'
 import pointsIcon from '@/assets/icons/points.svg'
-import { isLoggedIn, cloudUser, useAuth } from '@/composables/useAuth'
+import { cloudUser, isLoggedIn, useAuth } from '@/composables/useAuth'
+import { useElectron } from '@/composables/useElectron'
 
 const toast = useToast()
 const router = useRouter()
 const { logout, refreshUserStats } = useAuth()
+const { isElectron } = useElectron()
 const menuOpen = ref(false)
 const openLoginDialog = inject<() => void>('openLoginDialog')
 
@@ -150,6 +152,12 @@ async function handleLogout() {
   await logout()
 }
 
+// 退出应用：preload 暴露 quit() → 主进程 app:quit 走 cookie flush 后正常退出（见 electron/main.ts）
+function quitApp() {
+  closeMenu()
+  window.electronAPI?.quit()
+}
+
 const initial = computed(() => {
   if (!isLoggedIn.value) {
     return '?'
@@ -229,6 +237,10 @@ const displayName = computed(() => {
         <button class="dropdown-item logout" @click="handleLogout">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
           登出
+        </button>
+        <button v-if="isElectron" class="dropdown-item logout" @click="quitApp">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><path d="M12 2v10" /></svg>
+          退出应用
         </button>
       </div>
     </Transition>

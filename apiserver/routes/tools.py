@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from apiserver.llm_service import get_llm_service
 from apiserver.message_manager import message_manager
 from apiserver.websocket_manager import get_websocket_manager
-from system.config import build_context_supplement, build_system_prompt
+from system.config import build_context_supplement, build_system_prompt, merge_context_supplement
 
 logger = logging.getLogger(__name__)
 
@@ -287,9 +287,9 @@ async def tool_result_callback(payload: dict[str, Any]):
         messages = message_manager.build_conversation_messages(
             session_id=session_id, system_prompt=system_prompt, current_message=enhanced_message
         )
-        # 追加附加知识到末尾
+        # 附加知识并入首条 system（人格），理由同 chat.py：尾部独立 system 会被上游拼进 user 内容
         supplement = build_context_supplement(include_skills=True, include_tool_instructions=True)
-        messages.append({"role": "system", "content": supplement})
+        messages = merge_context_supplement(messages, supplement)
 
         logger.info("[工具回调] 开始生成工具后回复...")
 

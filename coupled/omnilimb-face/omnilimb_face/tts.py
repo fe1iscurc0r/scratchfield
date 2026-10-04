@@ -147,10 +147,10 @@ class SynthResult:
     """
 
     success: bool
-    segment: Optional[AudioSegmentOut] = None
-    error: Optional[str] = None
-    reason: Optional[str] = None
-    provider: Optional[str] = None
+    segment: AudioSegmentOut | None = None
+    error: str | None = None
+    reason: str | None = None
+    provider: str | None = None
 
 
 class _UnsupportedAudioError(Exception):
@@ -211,9 +211,9 @@ class TTSPlayer:
 
     def __init__(
         self,
-        cfg: "Optional[TTSSettings]" = None,
-        dispatch_tool: Optional[Any] = None,
-        sink: Optional[AudioSink] = None,
+        cfg: "TTSSettings | None" = None,
+        dispatch_tool: Any | None = None,
+        sink: AudioSink | None = None,
         enable_fallback_tts: bool = False,
     ) -> None:
         self._cfg = cfg
@@ -248,7 +248,7 @@ class TTSPlayer:
         self._active_seg = False
         # Set to request the worker to stop and to mark the player stopped.
         self._stop_event = threading.Event()
-        self._worker: Optional[threading.Thread] = None
+        self._worker: threading.Thread | None = None
 
     # ------------------------------------------------------------------
     # Pure logic (Task 9.1) — fully implemented, no I/O, no numpy.
@@ -340,7 +340,7 @@ class TTSPlayer:
     # ------------------------------------------------------------------
     # Ordered playback queue (Task 9.3) — real worker-thread consumer.
     # ------------------------------------------------------------------
-    def enqueue(self, seg: AudioSegmentOut, seq: Optional[int] = None) -> None:
+    def enqueue(self, seg: AudioSegmentOut, seq: int | None = None) -> None:
         """Queue a synthesised segment for in-order playback (Requirement 6.2).
 
         Ordering contract
@@ -448,7 +448,7 @@ class TTSPlayer:
                 return False
             return self._active_seg or bool(self._heap)
 
-    def wait_until_idle(self, timeout: Optional[float] = None) -> bool:
+    def wait_until_idle(self, timeout: float | None = None) -> bool:
         """Block until the queue has fully drained (no pending/active segment).
 
         Provided to make playback deterministically testable: after enqueuing a
@@ -595,7 +595,7 @@ class TTSPlayer:
 
         last_error = "TTS synthesis failed."
         last_reason = "tts_failed"
-        last_provider: Optional[str] = None
+        last_provider: str | None = None
 
         for attempt in range(1, max_attempts + 1):
             outcome = self._attempt_once(text, timeout, attempt, max_attempts)
@@ -635,7 +635,7 @@ class TTSPlayer:
 
     # ----- Edge-TTS fallback (host has no text_to_speech tool) ---------
     @staticmethod
-    def _looks_like_missing_tool(error: Optional[str]) -> bool:
+    def _looks_like_missing_tool(error: str | None) -> bool:
         """Heuristic: does ``error`` indicate the host lacks the TTS tool?"""
         if not isinstance(error, str):
             return False
@@ -657,7 +657,7 @@ class TTSPlayer:
             return configured
         return _EDGE_TTS_DEFAULT_VOICE
 
-    def _edge_tts_synthesize(self, text: str) -> Optional[SynthResult]:
+    def _edge_tts_synthesize(self, text: str) -> SynthResult | None:
         """Synthesise ``text`` via edge-tts (keyless) as a fallback backend.
 
         Returns a successful :class:`SynthResult` carrying the MP3 bytes with an
@@ -843,7 +843,7 @@ class TTSPlayer:
         return SynthResult(success=True, segment=segment, provider=provider)
 
     @staticmethod
-    def _coerce_envelope(raw: Any) -> Optional[dict]:
+    def _coerce_envelope(raw: Any) -> dict | None:
         """Return a dict envelope, parsing a JSON ``str`` / ``bytes`` if needed.
 
         The host tool returns a JSON string; defensively accept an already-parsed
@@ -860,7 +860,7 @@ class TTSPlayer:
         return None
 
     @staticmethod
-    def _extract_audio_path(envelope: dict) -> Optional[str]:
+    def _extract_audio_path(envelope: dict) -> str | None:
         """Extract the audio file path from the host envelope, MEDIA-aware.
 
         Tolerant of the host's real shape and likely variants: prefers the

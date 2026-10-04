@@ -54,5 +54,24 @@
         "example": "{\"tool_name\":\"skfp_scaffold\",\"smiles\":\"CC(=O)Oc1ccccc1C(=O)O\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "compute"
+    ],
+    "domains": [
+      "materials"
+    ],
+    "tier": "read-only",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {
+    "python_packages": [
+      "skfp",
+      "sklearn"
+    ]
+  },
+  "capability_pairs": [["compare", "chem_molecule"], ["compute", "chem_molecule"]]
 }

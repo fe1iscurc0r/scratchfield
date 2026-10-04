@@ -1,4 +1,6 @@
+import json
 import os
+import pathlib
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))  # 加入项目根目录到模块查找路径
@@ -24,6 +26,73 @@ app.add_middleware(
     allow_methods=["POST", "OPTIONS"],  # TTS 仅需 POST，比通用配置更严格
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# ── 只读接口：对齐 OpenAI 兼容 TTS-API 形状 ──
+# 目的：让 MCP 侧的 tts_api 适配器（走 OpenAI 兼容契约：GET / 探活、GET /v1/audio/voices 列音色、
+# POST /v1/audio/speech 合成）可以直接指向本机 TTS，而不必另起一个第三方 TTS-API 服务。
+# 注意：本地服务只监听 127.0.0.1，且 GET 接口不要求鉴权（与 POST 的 @require_api_key 独立）。
+
+
+def _character_voices() -> dict[str, str]:
+    """角色名 → 配音音色（读 characters/<角色>/<角色>.json 的 voice 字段）。"""
+    voices: dict[str, str] = {}
+    root = pathlib.Path(__file__).resolve().parents[2] / "characters"
+    if not root.exists():
+        return voices
+    for char_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        for cfg_file in sorted(char_dir.glob("*.json")):
+            if cfg_file.name.endswith("chara_card_v3.json"):
+                continue
+            try:
+                data = json.loads(cfg_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            voice = str((data or {}).get("voice") or "").strip()
+            if voice:
+                voices[char_dir.name] = voice
+                break
+    return voices
+
+
+@app.get('/')
+async def tts_root_info():
+    """服务信息 / 健康检查（tts_api 适配器的 tts_health 打的就是 GET /）。"""
+    return {
+        "status": "ok",
+        "service": "lumo-tts",
+        "engine": "edge-tts",
+        "default_voice": config.tts.default_voice,
+        "default_format": config.tts.default_format,
+        "auth_required": bool(getattr(config.tts, "require_api_key", False)),
+        "endpoints": ["/v1/audio/speech", "/v1/audio/voices"],
+    }
+
+
+@app.get('/v1/audio/voices')
+async def list_voices():
+    """可用音色列表（OpenAI 兼容形状）：默认音色 + 各角色配音。"""
+    entries: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def _add(voice_id: str, note: str) -> None:
+        if not voice_id or voice_id in seen:
+            return
+        seen.add(voice_id)
+        parts = voice_id.split("-")
+        locale = "-".join(parts[:2]) if len(parts) >= 2 else ""
+        entries.append({
+            "id": voice_id,
+            "name": voice_id,
+            "engine": "edge",
+            "locale": locale,
+            "note": note,
+        })
+
+    _add(config.tts.default_voice, "默认音色")
+    for char_name, voice_id in _character_voices().items():
+        _add(voice_id, f"角色 {char_name}")
+    return {"object": "list", "data": entries}
+
 
 @app.post('/v1/audio/speech')
 @require_api_key

@@ -15,12 +15,21 @@ permissions:
 
 jobs:
   test:
+    # TODO(2026-10-19): ubuntu-latest 将迁移到 Ubuntu 26（actions/runner-images#14748），
+    # 届时若有不兼容（glibc/Python ABI 等）需显式钉死版本，如 ubuntu-24.04。
     runs-on: ubuntu-latest
+    # ── 默认关闭（2026-09-28 实测后加）────────────────────────────────
+    # 本仓为私有仓，Actions 免费额度已耗尽：job 能创建但拿不到 runner
+    # （runner_name 为空、steps 为空、起止同秒、conclusion=failure），
+    # 属账号层问题，仓库内改不了。为避免红灯常亮淹没真故障，默认 skip（绿）。
+    # 恢复：Settings → Secrets and variables → Actions → Variables
+    #      新建仓库变量 ENABLE_FULL_BUILD = true
+    if: ${{ vars.ENABLE_FULL_BUILD == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -64,10 +73,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -130,11 +139,13 @@ jobs:
 
   release:
     needs: build
+    # TODO(2026-10-19): ubuntu-latest 将迁移到 Ubuntu 26（actions/runner-images#14748），
+    # 届时若有不兼容（glibc/Python ABI 等）需显式钉死版本，如 ubuntu-24.04。
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Determine version
         id: ver
@@ -159,7 +170,9 @@ jobs:
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: NagaAgent ${{ steps.ver.outputs.version }}
-          draft: false
+          # 卷166 约束：release 权限回归人工。CI 只能落草稿，
+          # 正式发布由本地 scripts/release-win.py 或人工在 Release 页面点「Publish」。
+          draft: true
           prerelease: false
           files: artifacts/*
           generate_release_notes: true

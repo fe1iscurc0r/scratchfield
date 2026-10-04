@@ -254,8 +254,8 @@ class VTuberRuntime:
         self._allocated: List[_AllocatedResource] = []
         #: Last session-start error / session-end summary, surfaced to the CLI
         #: ``status`` / ``doctor`` actions (Task 19.2) and inspectable by tests.
-        self._last_lifecycle_error: Optional[str] = None
-        self._last_session_end_summary: Optional[str] = None
+        self._last_lifecycle_error: str | None = None
+        self._last_session_end_summary: str | None = None
 
         # Overridable hooks for testability (Task 19.1). Each factory defaults to
         # ``None`` -> the real default factory is used at session start; a unit
@@ -263,9 +263,9 @@ class VTuberRuntime:
         # init failure, a budget overrun, or a partial-release failure without a
         # real microphone / socket / window. The clock is a monotonic source so
         # the 5 s / 3 s budgets are enforced without hard-sleeping.
-        self._frontend_server_factory: Optional[Callable[[], Any]] = None
-        self._protocol_gateway_factory: Optional[Callable[[], Any]] = None
-        self._voice_capture_factory: Optional[Callable[[], Any]] = None
+        self._frontend_server_factory: Callable[[], Any] | None = None
+        self._protocol_gateway_factory: Callable[[], Any] | None = None
+        self._voice_capture_factory: Callable[[], Any] | None = None
         self._clock: Callable[[], float] = time.monotonic
 
         # --- End-to-end pipeline collaborators (Task 22.1) -------------------
@@ -537,7 +537,7 @@ class VTuberRuntime:
 
     def _produce_audio(
         self, text: str
-    ) -> Tuple[Optional[AudioSegmentOut], Optional[str]]:
+    ) -> Tuple[AudioSegmentOut | None, str | None]:
         """Drive the TTS path for ``text`` (Requirement 6 / supports 12.2).
 
         Returns ``(segment, None)`` on success or ``(None, error_message)`` on
@@ -591,7 +591,7 @@ class VTuberRuntime:
 
     def _inline_synthesize(
         self, text: str, player: TTSPlayer
-    ) -> Tuple[Optional[Tuple[bytes, List[float], int]], Optional[str]]:
+    ) -> Tuple[Tuple[bytes, List[float], int] | None, str | None]:
         """Synthesize one sentence inline via the host ``text_to_speech`` tool.
 
         Mirrors what :meth:`TTSPlayer.synthesize` (Task 12.1) will do, kept here
@@ -842,7 +842,7 @@ class VTuberRuntime:
                 logger.debug("TTS synthesize raised in sentence sink", exc_info=True)
                 result = None
 
-        segment: Optional[AudioSegmentOut] = None
+        segment: AudioSegmentOut | None = None
         if result is not None and getattr(result, "success", False):
             base = getattr(result, "segment", None)
             if base is not None:
@@ -1233,7 +1233,7 @@ class VTuberRuntime:
         # into the interruption controller for barge-in (Task 22.1).
         self._wire_voice_pipeline(capture)
 
-    def _build(self, factory: Optional[Callable[[], Any]], default: Callable[[], Any]) -> Any:
+    def _build(self, factory: Callable[[], Any] | None, default: Callable[[], Any]) -> Any:
         """Return ``factory()`` when an override is set, else ``default()``.
 
         Lets a unit test inject a fake subsystem (to simulate an init failure or
@@ -1825,7 +1825,7 @@ def _extract_text(args: Any, kwargs: Dict[str, Any]) -> str:
     return ""
 
 
-def _parse_envelope(raw: Any) -> Optional[Dict[str, Any]]:
+def _parse_envelope(raw: Any) -> Dict[str, Any] | None:
     """Parse the host ``text_to_speech`` return value into a dict (or ``None``).
 
     ``ctx.dispatch_tool`` may hand back the tool's JSON string envelope or, in
@@ -1866,7 +1866,7 @@ def _resolve_audio_path(envelope: Dict[str, Any]) -> str:
     return ""
 
 
-def _decode_audio_file(path: str) -> Optional[Tuple[bytes, int, bytes]]:
+def _decode_audio_file(path: str) -> Tuple[bytes, int, bytes] | None:
     """Read an audio file -> ``(pcm_bytes, sample_rate, container_bytes)``.
 
     Prefers a proper WAV decode (correct header handling, accurate sample rate).
@@ -1889,7 +1889,7 @@ def _decode_audio_file(path: str) -> Optional[Tuple[bytes, int, bytes]]:
         return container, 16000, container
 
 
-def _coerce_segment(result: Any) -> Optional[AudioSegmentOut]:
+def _coerce_segment(result: Any) -> AudioSegmentOut | None:
     """Normalise a :meth:`TTSPlayer.synthesize` return value into a segment.
 
     Accepts an :class:`~omnilimb_face.tts.AudioSegmentOut`, a duck-typed object

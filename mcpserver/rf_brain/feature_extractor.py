@@ -8,6 +8,12 @@ FFT → 平滑 → 峰值/带宽/平坦度/SNR → FeatureVector。
 关键判据：频谱平坦度（flatness）区分噪声 vs 信号——
 噪声频谱平坦（flatness→1），调制信号频谱集中（flatness→0）。
 SNR 只作辅助，不作主判据（噪声的峰值天然比中位数高 ~10dB，会误判）。
+
+denoise_mode（U-04/DELTA 线，可选前置，默认 off 不改变现状）：
+- off：不去噪（现状）；
+- static：N2N 小 MLP 去噪（n2n.denoise，实/虚部分别处理后重建复信号）；
+- reservoir：ESN 漂移补偿（drift.compensate，同上）。
+去噪只影响输入波形，不改 FeatureVector schema；denoise 模块不可用时自动降级 off。
 """
 from __future__ import annotations
 
@@ -19,6 +25,54 @@ from mcpserver.rf_brain import liquid_backend
 from mcpserver.rf_brain.schemas import FeatureVector
 
 logger = logging.getLogger(__name__)
+
+# denoise 旁路模块（纯 numpy）；import 失败 → 去噪模式自动降级 off（不崩）
+try:  # pragma: no cover - 纯旁路降级分支，环境正常时恒为 True
+    from mcpserver.rf_brain.denoise.drift import DriftCompensator
+    from mcpserver.rf_brain.denoise.n2n import N2NDenoiser
+    from mcpserver.rf_brain.denoise.reservoir import Reservoir
+
+    _DENOISE_AVAILABLE = True
+except Exception:  # noqa: BLE001 — 旁路模块任何异常都不影响主链路
+    DriftCompensator = None  # type: ignore[assignment]
+    N2NDenoiser = None  # type: ignore[assignment]
+    Reservoir = None  # type: ignore[assignment]
+    _DENOISE_AVAILABLE = False
+
+_DENOISE_MODES = ("off", "static", "reservoir")
+
+
+def _denoise_complex(iq: np.ndarray, fn) -> np.ndarray:
+    """对 IQ 复信号去噪：实/虚部分别过一维去噪器后重建（相位信息保留）。"""
+    re = fn(np.asarray(np.real(iq), dtype=float))
+    im = fn(np.asarray(np.imag(iq), dtype=float))
+    n = min(len(re), len(im))
+    return re[:n] + 1j * im[:n]
+
+
+def _apply_denoise(iq: np.ndarray, denoise_mode: str, denoiser, compensator):
+    """可选去噪前置：返回（处理后 iq, 实际生效模式）。任何异常降级 off。"""
+    mode = str(denoise_mode or "off").strip().lower()
+    if mode == "off":
+        return iq, "off"
+    if mode not in _DENOISE_MODES:
+        logger.warning("[rf_brain] 未知 denoise_mode=%r，降级 off", denoise_mode)
+        return iq, "off"
+    if not _DENOISE_AVAILABLE:
+        logger.warning("[rf_brain] denoise 模块不可用，降级 off")
+        return iq, "off"
+    try:
+        if mode == "static":
+            d = denoiser or N2NDenoiser()
+            return _denoise_complex(iq, d.denoise), "static"
+        comp = compensator
+        if comp is None:
+            # 未提供补偿器：默认自关联拟合（x→x 标称流形重建）
+            comp = DriftCompensator(Reservoir()).fit(np.real(iq).astype(float))
+        return _denoise_complex(iq, comp.compensate), "reservoir"
+    except Exception as e:  # noqa: BLE001 — 去噪失败不阻断特征提取
+        logger.warning("[rf_brain] denoise_mode=%s 失败降级 off: %s", mode, e)
+        return iq, "off"
 
 
 def _smooth(x: np.ndarray, window: int = 11) -> np.ndarray:
@@ -35,11 +89,22 @@ def extract_features(
     center_freq: float = 433_920_000.0,
     timestamp: str = "",
     force_numpy: bool = False,
+    denoise_mode: str = "off",
+    denoiser=None,
+    compensator=None,
 ) -> FeatureVector:
     """从 IQ 样本提取频谱特征向量。
 
     force_numpy=True 时禁用 liquid-dsp 路径（用于两路对拍验收）。
+    denoise_mode（默认 off 保持现状）：
+    - off：不去噪；
+    - static：N2N 去噪（可传已训练的 denoiser，缺省新建未训练实例）；
+    - reservoir：漂移补偿（可传已 fit 的 compensator，缺省自关联拟合）。
+    去噪模块不可用/异常/未知模式时自动降级 off，不影响主链路。
     """
+    iq, mode = _apply_denoise(iq, denoise_mode, denoiser, compensator)
+    if mode != "off":
+        logger.debug("[rf_brain] 特征提取前置去噪: mode=%s", mode)
     n = len(iq)
     use_liquid = not force_numpy and liquid_backend.is_available()
     if use_liquid:

@@ -33,6 +33,7 @@ _ADAPTERS = {
     "llm4decompile": ("mcpserver.adapters.llm4decompile", "ENABLE_ADAPTER_LLM4DECOMPILE"),
     "paper_miner": ("mcpserver.adapters.paper_miner", "ENABLE_ADAPTER_PAPER_MINER"),
     "context7": ("mcpserver.adapters.context7", "ENABLE_ADAPTER_CONTEXT7"),
+    "chemmcp": ("mcpserver.adapters.chemmcp", "ENABLE_ADAPTER_CHEMMCP"),
 }
 
 

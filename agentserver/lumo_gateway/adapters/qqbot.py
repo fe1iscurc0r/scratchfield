@@ -227,7 +227,7 @@ class QQBotAdapter(PlatformAdapter):
                 self._last_s = frame.get("s") or self._last_s
                 await self._dispatch(frame)
             elif op == OP_HELLO:  # 服务端主动重连时可能重发 Hello
-                self._hb_interval = float(((frame.get("d") or {}).get("heartbeat_interval") or 30000)) / 1000.0
+                self._hb_interval = float((frame.get("d") or {}).get("heartbeat_interval") or 30000) / 1000.0
             elif op == OP_HEARTBEAT_ACK:
                 pass
 

@@ -1,0 +1,75 @@
+# 领域包 · default（材料科研）
+#
+# 这是默认领域包，代表改造前的行为快照。
+#
+# ⚠️ 回归红线：本包必须让 ElnView / PapersView 的渲染与改造前完全一致
+#    （页面零变化）。改动本文件前请先确认不会导致现有页面发生任何变化。
+#
+# 字段语义说明（重要）：
+#   `eln.fields` 是**前端表单**的字段 schema（顺序即表单从上到下的展示顺序，
+#   label 即表单上显示的文案）。它与后端导出 Markdown 的 frontmatter 顺序
+#   在本包中刻意不同 —— 改造前的真实情况就是如此：
+#     · 前端表单顺序：topic, date, status, purpose, reagents, conditions,
+#                     results, conclusion, references（不渲染 attachments）
+#     · 后端 frontmatter 顺序：见 apiserver/routes/eln.py 的
+#                     _LEGACY_FRONTMATTER_FIELDS（date 在前、含 attachments）
+#   后端 frontmatter 顺序由 eln.py 的快照保证，不读本文件的顺序，
+#   因此两地顺序可各自保持与改造前一致。
+#
+#   `show_in_form: false` 的字段不进前端表单，但仍会写入导出 Markdown 的
+#   frontmatter（如 attachments，改造前仅在后端出现）。
+
+name: default
+label: 材料科研
+description: 材料科研工作流（默认包，行为等价于改造前）
+
+eln:
+  # 顺序即 ElnView 表单展示顺序。与改造前 ElnView.vue 手写表单逐字段一致。
+  fields:
+    - key: topic
+      type: text
+      label: 课题 *
+      required: true
+    - key: date
+      type: date
+      label: 日期
+    - key: status
+      type: text
+      label: 状态
+    - key: purpose
+      type: textarea
+      label: 目的
+    - key: reagents
+      type: textarea
+      label: 药品与用量
+    - key: conditions
+      type: textarea
+      label: 条件
+    - key: results
+      type: textarea
+      label: 结果
+    - key: conclusion
+      type: textarea
+      label: 结论
+    - key: references
+      type: textarea
+      label: 关联文献
+    # 改造前前端表单不渲染附件字段（仅后端 frontmatter 含 attachments）。
+    - key: attachments
+      type: list
+      label: 照片附件
+      show_in_form: false
+
+papers:
+  # 改造前主键：DOI / arXiv ID
+  id_fields:
+    - doi
+    - arxiv_id
+
+source_presets:
+  - key: manual
+    label: 手动录入
+    license_note: 由用户手动录入，版权归属原始权利人
+  - key: crossref
+    label: Crossref 元数据
+    license_note: 元数据来自 Crossref 开放接口

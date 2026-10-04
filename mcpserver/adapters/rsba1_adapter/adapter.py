@@ -119,8 +119,8 @@ class Rsba1Ic705Bridge:
     name = "rsba1_ic705"
 
     def __init__(self) -> None:
-        self._link: Optional[Any] = None    # RadioLink 直连会话
-        self._sender: Optional[Any] = None  # RemoteUty fallback 发送器
+        self._link: Any | None = None    # RadioLink 直连会话
+        self._sender: Any | None = None  # RemoteUty fallback 发送器
         self._mode: str = "none"            # "radio_link" | "remote_uty" | "none"
         self._init_attempted = False
     # ============================================================
@@ -140,6 +140,16 @@ class Rsba1Ic705Bridge:
                 "IC-705 连接不可用: RadioLink 直连与 RemoteUty 兜底均已尝试失败。"
                 "请确认电台 RS-BA1 Server Function 已开启、且密钥/凭证与电台侧"
                 "RS-BA1 用户一致 (默认 192.168.0.31 / linnan)。见日志详情。"
+            )
+        # 无包快速失败（W79-01 无包降级）: 先补候选路径再判定, 缺 rsba1 直接给出
+        # 「无法定位 rsba1 包」根因提示, 而不是伪装成连接失败。
+        for p in _candidate_src_paths():
+            if str(p) not in sys.path:
+                sys.path.insert(0, str(p))
+        if not _rsba1_found():
+            raise RuntimeError(
+                "无法定位 rsba1 包: 请克隆 rsba1-core 到 scratchpad/vendor/rsba1-core, "
+                "或设置 RSBA1_SRC_PATH 指向含 rsba1/ 的 src 目录。"
             )
         self._init_attempted = True
         if self._try_radio_link():

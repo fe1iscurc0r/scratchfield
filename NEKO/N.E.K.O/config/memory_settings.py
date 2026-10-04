@@ -275,7 +275,7 @@ SPEAKER_TRUST_EVENT_HISTORY_LIMIT = 128
 # 会把 memory_dir 下每一个不在导入角色名单里的**子目录** rmtree 掉，而
 # `delete_file_targets` 只认 `memory/<角色>/<白名单叶名>` 三段路径。根级平铺
 # 文件两条都躲开。先例：`app/memory_server/gates.py` 的
-# `idle_maintenance_state.json`、`main_logic/quota/ux_state.py`。
+# `idle_maintenance_state.json`。
 # 将来若要分片，只能是 `speaker_trust.<n>.json` 这种平铺文件名。
 SPEAKER_TRUST_POOL_FILENAME = "speaker_trust.json"
 
@@ -399,6 +399,39 @@ HYBRID_RECALL_RRF_K = 60                 # RRF 常数（k=60 = Elastic / OpenSea
 # 总量是另一个问题（归档分片，见 #2716）。
 # 调小到 2 会让"两个角色交替说话"退化成每轮都重新解析，别为了省几十 MB 这么调。
 HYBRID_RECALL_POOL_CACHE_MAX_FILES = 6
+
+# 召回向量解码缓存（memory.hybrid_recall._VEC_CACHE）的常驻字节上限。
+# cosine 路径每次查询都要把池子里每条候选的 base64-fp16 embedding 解成
+# fp32 向量——5000 条实测 ~49ms（base64+fp16→fp32 ~32ms、逐条 isfinite
+# ~7ms、sha256 ~4ms），全部跑在 memory_server 的事件循环上；而池子行本身
+# 已被 _POOL_CACHE 按文件身份缓存，稳态语料下这些向量每次解出来都一样，
+# 纯属重复劳动。缓存命中要求 (model_id, text 对象, 行内两项戳记,
+# embedding 原串) 全部未变，任何一项对不上都自动回退完整解码校验路径，
+# 所以这个上限只影响内存，不影响正确性。
+#
+# ⚠️ 闸的单位是**字节**而不是条数，因为一条 entry 的大小随维度浮动、
+# 而且不止装向量：除了 fp32 向量本身（512d ≈ 2KB、768d ≈ 3KB），entry
+# 还持有该行的 embedding 原串与 text 的引用。这两个字符串平时活在池子
+# 行里不算额外开销，但池子行被 _POOL_CACHE 淘汰后就只剩这里拽着，成为
+# 真正的常驻。512d 下 base64-fp16 原串约 1.4KB，也就是每条最坏
+# 2KB + 1.4KB + text ≈ 3.7KB——按条数封顶会让标称值和实际常驻差出近一倍
+# （旧口径 10000 条标称 20MB，实际最坏 ~34MB；768d 配置超 50MB）。
+# 按字节记账则标称即实际，且维度变了不用重新标定。
+#
+# ⚠️ 记账是按**最坏情况**来的：那两个字符串只有在池子行被淘汰后才真的
+# 归缓存独占，而向量池的主体是活跃 facts——它走 FactStore 自己的 _facts
+# 进程缓存，六处失效点全在异常路径（except: pop; raise），正常写入不清。
+# 也就是说常见情况下 emb / text 一直由池子行持有，缓存的引用并不构成额外
+# 常驻，每条真实增量只有向量加簿记（512d 实测 ~2.4KB，而保守口径记的是
+# ~3.9KB）。别把这个闸当成"实际会占这么多内存"来读。
+#
+# 32MB 是照着"常见情况下的真实增量回到 20MB"定的：保守口径下 512d 约装
+# 8300 条，这些条目在字符串共享时真正多占的是 8300 × 2.4KB ≈ 19MB，也就
+# 是按条数封顶时那个 20MB 的意图值。按最坏情况定容量会在常见情况下白扔
+# 一半命中率，所以标称取保守、容量按常见情况回填。向量池只含活跃 facts +
+# reflections（归档行入池前就被投影掉 embedding 列），正常远低于这个闸；
+# 它防的是"多角色 × 大语料"叠出来的极端常驻，和上面的文件数闸一个思路。
+HYBRID_RECALL_VEC_CACHE_MAX_BYTES = 32 * 1024 * 1024
 
 # ========================================================================
 # §3.7 LLM Context & Output Budget
@@ -597,11 +630,22 @@ MEMORY_LIVENESS_MAX_ATTEMPTS = 5
 - 5 跟 `MEMORY_RECHECK_MAX_ATTEMPTS` 同口径——按 40s 一轮算 3 分钟级窗口，
   跨过偶发 transient failure 够用；再多就属于真正 poison。"""
 
+MEMORY_REVIEW_OUTPUT_MAX_TOKENS = 8192
+"""历史审阅单独的 max_completion_tokens。
+
+审阅显式 ``extra_body=None``，不套用工厂为 Qwen 准备的 ``enable_thinking: false``，
+推理 token 和 ``corrected_dialogue`` JSON 共用这一额度。共享护栏
+``LLM_OUTPUT_GUARD_MAX_TOKENS``（4096）会被默认开思考的纠错模型在 JSON
+写完前打满。8192 给思考链留头寸。
+
+不抬全局护栏：``max_completion_tokens`` 超过模型自身输出上限时，不少兼容端点
+会在请求时直接 400。摘要、去重、persona 等短 JSON 仍用 4096。"""
+
 MEMORY_REVIEW_OUTPUT_EXHAUSTION_MAX_ATTEMPTS = 3
 """历史审阅因输出 token 耗尽而暂停前的连续失败次数。
 
 - 只统计 provider 明确返回 ``length`` / ``max_tokens``，或空正文且输出 token
-  已触及 ``LLM_OUTPUT_GUARD_MAX_TOKENS`` 的调用；网络、429、普通 JSON 错误仍走
+  已触及 ``MEMORY_REVIEW_OUTPUT_MAX_TOKENS`` 的调用；网络、429、普通 JSON 错误仍走
   ``MEMORY_LIVENESS_MAX_ATTEMPTS`` 的通用 fingerprint 退避。
 - 达到 3 次后按角色暂停 review。新增消息不会解禁；只有当前 review 上下文 token
   数严格低于失败期间的最小值（通常由 recent compression 造成）才清零恢复。"""

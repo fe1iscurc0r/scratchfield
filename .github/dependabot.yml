@@ -13,7 +13,7 @@ updates:
       - "dependencies"
       - "python"
     assignees:
-      - "fenglin-maple"
+      - "fe1iscurc0r"
 
   # 前端依赖 (npm)
   - package-ecosystem: "npm"
@@ -28,7 +28,7 @@ updates:
       - "dependencies"
       - "javascript"
     assignees:
-      - "fenglin-maple"
+      - "fe1iscurc0r"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"

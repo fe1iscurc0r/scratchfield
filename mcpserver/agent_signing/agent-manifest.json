@@ -1,0 +1,70 @@
+{
+  "name": "agent_signing",
+  "version": "1.0.0",
+  "description": "MCP Agent wrapper for Cosign container image signing and verification CLI",
+  "author": "MCP Agent Generator",
+  "license": "MIT",
+  "agent_class": "AgentSigning",
+  "module": "agent_signing",
+  "tools": [
+    {
+      "name": "verify_image",
+      "description": "Verify a signed container image using Cosign",
+      "parameters": {
+        "image": {
+          "type": "string",
+          "required": true,
+          "description": "Container image reference to verify"
+        },
+        "key": {
+          "type": "string",
+          "required": false,
+          "description": "Path to public key file for verification"
+        }
+      }
+    },
+    {
+      "name": "verify_attestation",
+      "description": "Verify attestations attached to a container image",
+      "parameters": {
+        "image": {
+          "type": "string",
+          "required": true,
+          "description": "Container image reference to verify attestations for"
+        },
+        "type": {
+          "type": "string",
+          "required": false,
+          "description": "Attestation type filter (e.g. slsaprovenance, vuln, spdx, cyclonedx)"
+        }
+      }
+    }
+  ],
+  "protocol": {
+    "type": "subprocess",
+    "description": "Calls cosign CLI via subprocess with JSON output, 3-minute timeout"
+  },
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_signing.agent_signing",
+    "class": "AgentSigning"
+  },
+  "classification": {
+    "families": [
+      "offense"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream_license": "Apache-2.0",
+      "upstream": "cosign"
+    }
+  },
+  "requires": {
+    "external_cli": [
+      "cosign"
+    ]
+  },
+  "capability_pairs": [["sign", "artifact"]]
+}

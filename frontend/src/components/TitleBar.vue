@@ -19,7 +19,11 @@ const { isElectron, isMaximized, isMac, minimize, maximize, close } = useElectro
         <svg width="6" height="6" viewBox="0 0 6 6"><path d="M0 1.5V6h4.5M6 4.5V0H1.5" stroke="currentColor" stroke-width="1.2" fill="none" /></svg>
       </button>
     </div>
-    <div class="drag-region" />
+    <div
+      class="drag-region"
+      title="双击切换最大化/还原"
+      @dblclick="maximize"
+    />
     <UserMenu />
     <!-- Windows/Linux: controls on right -->
     <div v-if="!isMac" class="window-controls">

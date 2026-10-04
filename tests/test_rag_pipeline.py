@@ -9,6 +9,10 @@
 - mock 返回固定归一化向量，保证 cosine 相似度恒为 1.0，使检索结果稳定可复现
 - 不依赖后端服务、不依赖外部模型，可直接 ``pytest tests/test_rag_pipeline.py -v`` 运行
 """
+import pytest  # noqa: E402  (卷173 分层标注；与文件既有 import pytest 重复无害)
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

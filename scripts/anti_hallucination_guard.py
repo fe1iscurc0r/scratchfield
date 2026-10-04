@@ -31,6 +31,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+
 # ---------------------------------------------------------------- 本地知识库（上游检测用）
 def local_corpus_paths():
     """返回要 grep 的本地路径集合（skills / 授粉报告 / FUSION-LOG / 已融合代码）。"""

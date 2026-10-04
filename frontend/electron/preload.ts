@@ -10,7 +10,7 @@
  * 暴露原则：只通过 contextBridge.exposeInMainWorld('electronAPI', ...) 暴露最小必要 API，
  * 所有方法内部均经过白名单校验后再转发到 ipcRenderer，渲染层永远拿不到原始 ipcRenderer。
  */
-import { contextBridge, ipcRenderer as _ipcRenderer } from 'electron'
+import { ipcRenderer as _ipcRenderer, contextBridge } from 'electron'
 
 // Security: Explicit whitelist of IPC channels accessible from the renderer.
 // Only channels listed here can be called via the preload bridge.
@@ -21,25 +21,64 @@ import { contextBridge, ipcRenderer as _ipcRenderer } from 'electron'
 // 【白名单维护规范】新增主进程 ipcMain.handle / ipcMain.on 通道后，必须同步把 channel 名加到这里，
 // 否则渲染层调用会被 validate() 直接抛错。channel 名一律使用 `模块:动作` 小写命名。
 const IPC_WHITELIST = new Set<string>([
-  'window:minimize', 'window:maximize', 'window:close', 'window:isMaximized',
-  'window:getBounds', 'window:setBounds', 'app:quit', 'context-menu:show',
+  'window:minimize',
+  'window:maximize',
+  'window:close',
+  'window:isMaximized',
+  'window:getBounds',
+  'window:setBounds',
+  'app:quit',
+  'context-menu:show',
   'window:maximized',
-  'updater:download', 'updater:install', 'updater:update-available', 'updater:update-downloaded',
-  'floating:enter', 'floating:exit', 'floating:expand', 'floating:expandToFull',
-  'floating:collapse', 'floating:collapseToCompact', 'floating:getState',
-  'floating:pin', 'floating:fitHeight', 'floating:setPosition',
-  'floating:stateChanged', 'floating:windowBlur',
-  'capture:getSources', 'capture:captureWindow', 'capture:openScreenSettings',
-  'backend:getLogs', 'backend:progress', 'backend:log', 'backend:error',
+  'updater:download',
+  'updater:install',
+  'updater:update-available',
+  'updater:update-downloaded',
+  'floating:enter',
+  'floating:exit',
+  'floating:expand',
+  'floating:expandToFull',
+  'floating:collapse',
+  'floating:collapseToCompact',
+  'floating:getState',
+  'floating:pin',
+  'floating:fitHeight',
+  'floating:setPosition',
+  'floating:setDragging',
+  'floating:stateChanged',
+  'floating:windowBlur',
+  'capture:getSources',
+  'capture:captureWindow',
+  'capture:openScreenSettings',
+  'backend:getLogs',
+  'backend:progress',
+  'backend:log',
+  'backend:error',
   'backgrounds:scan',
-  'autoLaunch:get', 'autoLaunch:set',
-  'safe-storage:encrypt', 'safe-storage:decrypt',
-  'patcher:getStatus', 'patcher:checkUpdate', 'patcher:reset', 'patcher:isOfficial',
-  'patcher:revokeTrust', 'patcher:getTrustedSources',
-  'patcher:applied', 'patcher:unofficial-source', 'patcher:progress', 'patcher:error',
-  'matchat:attach', 'matchat:detach', 'matchat:setBounds', 'matchat:reload',
-  'matchat:openExternal', 'matchat:clearStorage', 'matchat:extractLastQA',
-  'matchat:openDevTools', 'matchat:url-change', 'matchat:load-error',
+  'autoLaunch:get',
+  'autoLaunch:set',
+  'safe-storage:encrypt',
+  'safe-storage:decrypt',
+  'patcher:getStatus',
+  'patcher:checkUpdate',
+  'patcher:reset',
+  'patcher:isOfficial',
+  'patcher:revokeTrust',
+  'patcher:getTrustedSources',
+  'patcher:applied',
+  'patcher:unofficial-source',
+  'patcher:progress',
+  'patcher:error',
+  'matchat:attach',
+  'matchat:detach',
+  'matchat:setBounds',
+  'matchat:reload',
+  'matchat:openExternal',
+  'matchat:clearStorage',
+  'matchat:extractLastQA',
+  'matchat:openDevTools',
+  'matchat:url-change',
+  'matchat:load-error',
 ])
 
 /**
@@ -159,6 +198,8 @@ const electronAPI = {
     pin: (value: boolean) => ipcRenderer.send('floating:pin', value),
     fitHeight: (height: number) => ipcRenderer.send('floating:fitHeight', height),
     setPosition: (x: number, y: number) => ipcRenderer.send('floating:setPosition', x, y),
+    /** 拖拽开始/结束通知：主进程据此冻结尺寸变更（卷149 双保险） */
+    setDragging: (dragging: boolean) => ipcRenderer.send('floating:setDragging', dragging),
     // 悬浮态变化推送，KnowledgeView 据此自动 detach/attach BrowserView
     onStateChange: (callback: (state: 'classic' | 'ball' | 'compact' | 'full') => void) => {
       const handler = (_event: Electron.IpcRendererEvent, state: 'classic' | 'ball' | 'compact' | 'full') => callback(state)
@@ -270,12 +311,12 @@ const electronAPI = {
   // ── MatChat 内嵌知识库（BrowserView 嵌入主窗口）──
   matchat: {
     /** 把 BrowserView 挂到主窗口并设置初始 bounds */
-    attach: (rect: { x: number; y: number; width: number; height: number }) =>
+    attach: (rect: { x: number, y: number, width: number, height: number }) =>
       ipcRenderer.invoke('matchat:attach', rect) as Promise<boolean>,
     /** 从主窗口摘除 BrowserView（不销毁，便于重新 attach） */
     detach: () => ipcRenderer.invoke('matchat:detach') as Promise<boolean>,
     /** 更新 BrowserView 的 bounds（单向发送，高频调用走 send 避免 invoke 往返开销） */
-    setBounds: (rect: { x: number; y: number; width: number; height: number }) =>
+    setBounds: (rect: { x: number, y: number, width: number, height: number }) =>
       ipcRenderer.send('matchat:setBounds', rect),
     /** 重新加载 MatChat 页面 */
     reload: () => ipcRenderer.invoke('matchat:reload') as Promise<boolean>,
@@ -286,8 +327,8 @@ const electronAPI = {
     /** 从当前 MatChat 页面 DOM 提取最近 N 轮问答对 */
     extractLastQA: (pairs?: number) =>
       ipcRenderer.invoke('matchat:extractLastQA', pairs ?? 1) as Promise<
-        | { ok: true; data: Array<{ q: string; a: string }> | { __debug: true; totalCandidates: number; candidates: Array<{ tag: string; class: string; dataRole: string | null; childCount: number; count: number; textPreview: string }> } }
-        | { ok: false; error: string }
+        | { ok: true, data: Array<{ q: string, a: string }> | { __debug: true, totalCandidates: number, candidates: Array<{ tag: string, class: string, dataRole: string | null, childCount: number, count: number, textPreview: string }> } }
+        | { ok: false, error: string }
       >,
     /** 打开 BrowserView 的 DevTools（调试 DOM selector 用） */
     openDevTools: () => ipcRenderer.send('matchat:openDevTools'),

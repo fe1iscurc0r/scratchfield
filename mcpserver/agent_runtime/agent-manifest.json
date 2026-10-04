@@ -1,0 +1,40 @@
+{
+  "name": "agent_runtime",
+  "version": "1.0.0",
+  "description": "Falco runtime threat detection agent. Reads events from a running Falco daemon for security monitoring.",
+  "author": "Group B MCP Agents",
+  "tools": [
+    "get_recent_events",
+    "get_event_stats",
+    "check_rule"
+  ],
+  "dependencies": {
+    "cli_optional": [
+      "falcoctl"
+    ],
+    "fallback": "/var/log/falco-events.json"
+  },
+  "capabilities": [
+    "threat_detection",
+    "runtime_monitoring",
+    "rule_checking"
+  ],
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_runtime.agent_runtime",
+    "class": "RuntimeAgent"
+  },
+  "classification": {
+    "families": [
+      "offense"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream_license": "Apache-2.0",
+      "upstream": "falco"
+    }
+  },
+  "capability_pairs": [["check", "rule"], ["detect", "threat"], ["monitor", "runtime"]]
+}

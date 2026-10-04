@@ -1,0 +1,58 @@
+{
+  "name": "agent_frida",
+  "version": "1.0.0",
+  "description": "Frida dynamic instrumentation agent. Provides runtime hooking, memory reading, process listing, and script injection for Android/iOS/desktop targets via frida-python bindings.",
+  "author": "MCP Agent Team",
+  "license": "MIT",
+  "capabilities": [
+    "dynamic_instrumentation",
+    "process_listing",
+    "runtime_hooking",
+    "memory_reading",
+    "script_injection",
+    "session_management"
+  ],
+  "dependencies": {
+    "python": ">=3.8",
+    "packages": [
+      "frida-tools>=12.0"
+    ]
+  },
+  "class": "FridaAgent",
+  "tags": [
+    "frida",
+    "instrumentation",
+    "reverse-engineering",
+    "hook",
+    "dynamic-analysis"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "category": "reverse-engineering",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_frida.agent_frida",
+    "class": "FridaAgent"
+  },
+  "classification": {
+    "families": [
+      "offense"
+    ],
+    "domains": [],
+    "tier": "offensive",
+    "origin": {
+      "kind": "bridge",
+      "upstream_license": "wxWindows Library Licence",
+      "upstream": "Frida"
+    }
+  },
+  "requires": {
+    "python_packages": [
+      "frida"
+    ]
+  },
+  "capability_pairs": [["hook", "runtime"], ["inject", "script"], ["instrument", "dynamic"], ["list", "process"], ["manage", "session"], ["read", "memory"]]
+}

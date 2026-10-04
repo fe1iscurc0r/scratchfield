@@ -22,10 +22,12 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    # TODO(2026-10-19): ubuntu-latest 将迁移到 Ubuntu 26（actions/runner-images#14748），
+    # 届时若有不兼容（glibc/Python ABI 等）需显式钉死版本，如 ubuntu-24.04。
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

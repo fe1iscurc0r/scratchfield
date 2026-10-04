@@ -1,6 +1,11 @@
 """M4 neko_cua integration 测试（httpx MockTransport，走真实 HTTP 请求链路）。"""
 from __future__ import annotations
 
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import asyncio
 
 import httpx

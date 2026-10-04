@@ -5,7 +5,6 @@ import pytest
 
 from apiserver.event_bus import DisposableList, InProcessEventBus, Topics
 
-
 # ---- DisposableList ----
 
 def test_clear_returns_reverse_order():

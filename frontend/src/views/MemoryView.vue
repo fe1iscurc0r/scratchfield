@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import type { MemoryStats } from '@/api/core'
+import type { GraphSummary, MemoryStats, Quintuple } from '@/api/core'
 import { useStorage } from '@vueuse/core'
 import { Accordion, Button, Divider, InputNumber, InputText, Message, Select, ToggleSwitch } from 'primevue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import API from '@/api/core'
 import BoxContainer from '@/components/BoxContainer.vue'
 import ConfigGroup from '@/components/ConfigGroup.vue'
 import ConfigItem from '@/components/ConfigItem.vue'
-import { isLoggedIn, cloudUser } from '@/composables/useAuth'
+import EmptyState from '@/components/EmptyState.vue'
+import SkeletonCard from '@/components/SkeletonCard.vue'
+import { cloudUser, isLoggedIn } from '@/composables/useAuth'
 import { CONFIG } from '@/utils/config'
 
 const accordionValue = useStorage('accordion-memory', [])
@@ -66,14 +68,338 @@ async function testConnection() {
   }
 }
 
-onMounted(() => {
+// ══════════════════════════════════════════════════════════
+// 记忆浏览（卷148 任务C）——配置之外的记忆管理面
+// ══════════════════════════════════════════════════════════
+
+const browseTab = ref<'table' | 'timeline' | 'trust'>('table')
+
+// ── 分页 + 过滤 + 搜索（走任务A 新参数） ──
+const PAGE_SIZE = 20
+const pageOffset = ref(0)
+const pageRows = ref<Quintuple[]>([])
+const pageTotal = ref(0)
+const pageLoading = ref(false)
+const pageError = ref('')
+const filterType = ref('')
+const browseQuery = ref('')
+const orderBy = ref<'degree' | 'time'>('degree')
+
+const typeOptions = ref<Array<{ label: string, value: string }>>([])
+const summary = ref<GraphSummary | null>(null)
+
+const pageIndex = computed(() => Math.floor(pageOffset.value / PAGE_SIZE) + 1)
+const pageCount = computed(() => Math.max(1, Math.ceil(pageTotal.value / PAGE_SIZE)))
+const canPrev = computed(() => pageOffset.value > 0)
+const canNext = computed(() => pageOffset.value + PAGE_SIZE < pageTotal.value)
+
+async function loadTypeOptions() {
+  try {
+    const s = await API.getGraphSummary(10)
+    summary.value = s
+    typeOptions.value = [
+      { label: '全部类型', value: '' },
+      ...s.subject_types.slice(0, 30).map(t => ({ label: `${t.type} (${t.count})`, value: t.type })),
+    ]
+  }
+  catch {
+    // 后端未升级时退化为「全部类型」
+    typeOptions.value = [{ label: '全部类型', value: '' }]
+  }
+}
+
+async function loadPage() {
+  pageLoading.value = true
+  pageError.value = ''
+  try {
+    const res = await API.getQuintuples({
+      offset: pageOffset.value,
+      limit: PAGE_SIZE,
+      entityType: filterType.value || undefined,
+      q: browseQuery.value.trim() || undefined,
+      orderBy: orderBy.value,
+      withDegree: true,
+    })
+    pageRows.value = res.quintuples ?? []
+    pageTotal.value = res.total ?? pageRows.value.length
+  }
+  catch (e: any) {
+    pageError.value = e.message || '加载失败'
+    pageRows.value = []
+    pageTotal.value = 0
+  }
+  finally {
+    pageLoading.value = false
+  }
+}
+
+function applyFilter() {
+  pageOffset.value = 0
+  loadPage()
+}
+
+function gotoPage(delta: number) {
+  const next = pageOffset.value + delta * PAGE_SIZE
+  if (next < 0)
+    return
+  pageOffset.value = next
+  loadPage()
+}
+
+// ── 时间线：按 time 排序取最近一批，做「陆墨最近记住的东西」回放 ──
+const timelineRows = ref<Quintuple[]>([])
+const timelineLoading = ref(false)
+
+async function loadTimeline() {
+  timelineLoading.value = true
+  try {
+    const res = await API.getQuintuples({ offset: 0, limit: 50, orderBy: 'time', withDegree: true })
+    timelineRows.value = res.quintuples ?? []
+  }
+  catch {
+    timelineRows.value = []
+  }
+  finally {
+    timelineLoading.value = false
+  }
+}
+
+// ── 信任面板：「它记住了我什么」 ──
+const topEntities = computed(() => summary.value?.top_entities ?? [])
+const topPredicates = computed(() => summary.value?.predicate_distribution ?? [])
+
+// 删除能力探测：后端目前无 delete 端点（已核实 summer_memory 无 delete_quintuples
+// 实现、apiserver/routes/extensions.py 只有 GET /memory/quintuples），故只读 + TODO。
+const DELETE_SUPPORTED = false
+
+function onDelete(_row: Quintuple) {
+  // TODO(后端·报沈遥): 需要 DELETE /memory/quintuples（按 subject/predicate/object 三元定位）
+  // 与 summer_memory/reversible.py 的 forget_entity / _apply_inverse 打通后再接真实删除。
+}
+
+// 切换 tab 时按需拉数据（避免进页面就打三个请求）
+watch(browseTab, (t) => {
+  if (t === 'timeline' && timelineRows.value.length === 0)
+    loadTimeline()
+})
+
+onMounted(async () => {
   testConnection()
+  await loadTypeOptions()
+  await loadPage()
 })
 </script>
 
 <template>
   <BoxContainer class="text-sm">
     <Accordion :value="accordionValue" class="pb-8" multiple>
+      <!-- 记忆浏览（卷148 任务C：配置之外的记忆管理面） -->
+      <ConfigGroup value="browse">
+        <template #header>
+          <div class="w-full flex justify-between items-center -my-1.5">
+            <span>记忆浏览</span>
+            <span v-if="pageTotal > 0" class="text-xs text-white/40">共 {{ pageTotal }} 条</span>
+          </div>
+        </template>
+
+        <!-- 三个子页签 -->
+        <div class="flex gap-1.5 mb-3">
+          <button
+            v-for="tab in ([
+              { k: 'table', label: '五元组表格' },
+              { k: 'timeline', label: '时间线' },
+              { k: 'trust', label: '它记住了我什么' },
+            ] as const)"
+            :key="tab.k"
+            type="button"
+            class="px-2.5 py-1 rounded text-xs transition"
+            :class="browseTab === tab.k ? 'bg-[#2a4a7a] text-white' : 'bg-white/5 hover:bg-white/10 text-white/60'"
+            @click="browseTab = tab.k"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+
+        <!-- ① 五元组表格 -->
+        <template v-if="browseTab === 'table'">
+          <div class="flex gap-2 mb-2 flex-wrap">
+            <Select
+              v-model="filterType"
+              :options="typeOptions"
+              option-label="label"
+              option-value="value"
+              class="!w-44"
+              @change="applyFilter"
+            />
+            <Select
+              v-model="orderBy"
+              :options="[
+                { label: '按度数', value: 'degree' },
+                { label: '按时间', value: 'time' },
+              ]"
+              option-label="label"
+              option-value="value"
+              class="!w-32"
+              @change="applyFilter"
+            />
+            <InputText v-model="browseQuery" placeholder="搜索关键词..." class="flex-1 min-w-40" @keyup.enter="applyFilter" />
+            <Button label="查询" size="small" @click="applyFilter" />
+          </div>
+
+          <!-- 卷150：错误态走统一 EmptyState（带重试），加载中走骨架 -->
+          <EmptyState
+            v-if="pageError"
+            error
+            title="记忆加载失败"
+            :description="pageError"
+            action-label="重试"
+            @action="loadPage"
+          />
+          <div v-else-if="pageLoading" class="rounded border border-white/10">
+            <SkeletonCard variant="list" :rows="8" />
+          </div>
+          <EmptyState
+            v-else-if="pageTotal === 0"
+            icon="🧠"
+            title="还没有记忆"
+            description="对话产生的五元组会自动沉淀到这里"
+          />
+
+          <div v-else class="overflow-x-auto rounded border border-white/10">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="bg-white/5 text-white/50">
+                  <th class="text-left px-2 py-1.5 font-medium">主体</th>
+                  <th class="text-left px-2 py-1.5 font-medium">主体类型</th>
+                  <th class="text-left px-2 py-1.5 font-medium">关系</th>
+                  <th class="text-left px-2 py-1.5 font-medium">客体</th>
+                  <th class="text-left px-2 py-1.5 font-medium">客体类型</th>
+                  <th class="text-right px-2 py-1.5 font-medium">度数</th>
+                  <th class="text-right px-2 py-1.5 font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(r, i) in pageRows"
+                  :key="i"
+                  class="border-t border-white/5 hover:bg-white/5 transition"
+                >
+                  <td class="px-2 py-1.5 text-white/85">{{ r.subject }}</td>
+                  <td class="px-2 py-1.5 text-white/45">{{ r.subjectType }}</td>
+                  <td class="px-2 py-1.5 text-[#7fb3e8]">{{ r.predicate }}</td>
+                  <td class="px-2 py-1.5 text-white/85">{{ r.object }}</td>
+                  <td class="px-2 py-1.5 text-white/45">{{ r.objectType }}</td>
+                  <td class="px-2 py-1.5 text-right text-white/50">{{ r.degree ?? '-' }}</td>
+                  <td class="px-2 py-1.5 text-right">
+                    <button
+                      type="button"
+                      class="text-white/25 cursor-not-allowed"
+                      :title="DELETE_SUPPORTED ? '删除这条记忆' : '后端暂无删除接口（TODO·报沈遥）：需要 DELETE /memory/quintuples'"
+                      :disabled="!DELETE_SUPPORTED"
+                      @click="onDelete(r)"
+                    >
+                      删除
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="!pageLoading && pageRows.length === 0">
+                  <td colspan="7" class="px-2 py-6 text-center text-white/35">
+                    {{ pageError ? '加载失败' : '没有匹配的记忆' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="flex items-center justify-between mt-2 text-xs text-white/50">
+            <span>{{ pageLoading ? '加载中...' : `第 ${pageIndex} / ${pageCount} 页` }}</span>
+            <div class="flex gap-1.5">
+              <Button label="上一页" size="small" severity="secondary" :disabled="!canPrev || pageLoading" @click="gotoPage(-1)" />
+              <Button label="下一页" size="small" severity="secondary" :disabled="!canNext || pageLoading" @click="gotoPage(1)" />
+            </div>
+          </div>
+        </template>
+
+        <!-- ② 时间线 -->
+        <template v-else-if="browseTab === 'timeline'">
+          <div v-if="timelineLoading" class="text-xs text-white/40 py-4 text-center">
+            加载中...
+          </div>
+          <div v-else-if="timelineRows.length === 0" class="text-xs text-white/40 py-4 text-center">
+            暂无按时间排序的记忆（后端 order_by=time 返回空）
+          </div>
+          <ol v-else class="relative border-l border-white/10 ml-2 pl-4">
+            <li v-for="(r, i) in timelineRows" :key="i" class="mb-3 last:mb-0">
+              <span class="absolute -left-[3px] mt-1.5 inline-block w-1.5 h-1.5 rounded-full bg-[#4fc3f7]" />
+              <div class="text-xs text-white/80">
+                <span class="text-white/95">{{ r.subject }}</span>
+                <span class="text-[#7fb3e8] mx-1">{{ r.predicate }}</span>
+                <span class="text-white/95">{{ r.object }}</span>
+              </div>
+              <div class="text-[10px] text-white/35 mt-0.5">
+                {{ r.subjectType }} → {{ r.objectType }}
+              </div>
+            </li>
+          </ol>
+        </template>
+
+        <!-- ③ 它记住了我什么（信任面板） -->
+        <template v-else>
+          <div class="grid grid-cols-2 gap-3 mb-3 text-center">
+            <div class="rounded border border-white/10 bg-white/5 py-2">
+              <div class="text-lg font-bold text-white/90">{{ pageTotal || summary?.total_quintuples || 0 }}</div>
+              <div class="text-[10px] text-white/40 mt-0.5">记忆五元组</div>
+            </div>
+            <div class="rounded border border-white/10 bg-white/5 py-2">
+              <div class="text-lg font-bold text-white/90">{{ summary?.total_entities ?? 0 }}</div>
+              <div class="text-[10px] text-white/40 mt-0.5">关联实体</div>
+            </div>
+          </div>
+
+          <div class="text-xs text-white/50 mb-1.5">最常出现的实体（连接最多）</div>
+          <div class="flex flex-wrap gap-1.5 mb-3">
+            <span
+              v-for="e in topEntities"
+              :key="e.id"
+              class="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[11px] text-white/70"
+              :title="`类型 ${e.type} · 度数 ${e.degree}`"
+            >
+              {{ e.id }}<span class="text-white/30 ml-1">{{ e.degree }}</span>
+            </span>
+            <span v-if="topEntities.length === 0" class="text-[11px] text-white/30">
+              暂无数据
+            </span>
+          </div>
+
+          <div class="text-xs text-white/50 mb-1.5">它最常建立的关系</div>
+          <div class="space-y-1">
+            <div
+              v-for="p in topPredicates.slice(0, 8)"
+              :key="p.predicate"
+              class="flex items-center gap-2 text-[11px]"
+            >
+              <span class="text-white/70 w-24 truncate">{{ p.predicate }}</span>
+              <div class="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                <div
+                  class="h-full rounded-full bg-[#4fc3f7]/60"
+                  :style="{ width: `${Math.max(2, (p.count / (topPredicates[0]?.count || 1)) * 100)}%` }"
+                />
+              </div>
+              <span class="text-white/35 w-8 text-right">{{ p.count }}</span>
+            </div>
+            <div v-if="topPredicates.length === 0" class="text-[11px] text-white/30">
+              暂无数据
+            </div>
+          </div>
+
+          <Divider class="m-2!" />
+          <p class="text-[10px] text-white/30 leading-relaxed">
+            这份面板展示的是长期记忆里最突出的实体与关系。记忆的删除能力仍在建设中
+            （后端暂无 DELETE 接口，见「五元组表格」中的删除按钮提示）。
+          </p>
+        </template>
+      </ConfigGroup>
+
       <!-- 大语言模型 -->
       <ConfigGroup value="llm" header="大语言模型">
         <div class="grid gap-4">

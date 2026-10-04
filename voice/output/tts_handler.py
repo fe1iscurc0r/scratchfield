@@ -75,7 +75,7 @@ def generate_speech_stream(text, voice, speed=1.0):
 def _generate_local(text, voice, response_format, speed=1.0):
     """本地 kokoro 引擎回退（Edge TTS 断网时兜底）。返回音频文件路径，失败返回 None。"""
     try:
-        from voice.output.kokoro_engine import is_available, get_engine
+        from voice.output.kokoro_engine import get_engine, is_available
         if not is_available():
             print("[TTS] 本地引擎未启用或不可用，跳过回退")
             return None

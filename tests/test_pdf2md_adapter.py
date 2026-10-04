@@ -10,6 +10,11 @@
 """
 from __future__ import annotations
 
+import pytest  # noqa: E402  (卷173 分层标注；与文件既有 import pytest 重复无害)
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import asyncio
 import importlib.util
 import sys

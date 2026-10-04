@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import type { Message, ToolEvent } from '@/utils/session'
+import type { Message } from '@/utils/session'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { CONFIG } from '@/utils/config'
+import { toolBody, toolSummary } from '@/utils/toolPayload'
 import Markdown from './Markdown.vue'
 
 const props = defineProps<Message>()
@@ -72,34 +73,6 @@ const ROLE_MAP = {
 }
 
 const reasoningExpanded = ref(true)
-
-function formatToolPayload(value: unknown): string {
-  if (value == null)
-    return ''
-  if (typeof value === 'string')
-    return value
-  try {
-    return JSON.stringify(value, null, 2)
-  }
-  catch {
-    return String(value)
-  }
-}
-
-function toolSummary(event: ToolEvent): string {
-  const name = event.name || '工具'
-  if (event.type === 'tool_call') {
-    return `🔧 ${name}`
-  }
-  return `${event.isError ? '❌' : '✅'} ${name}`
-}
-
-function toolBody(event: ToolEvent): string {
-  if (event.type === 'tool_call') {
-    return formatToolPayload(event.args)
-  }
-  return formatToolPayload(event.result)
-}
 </script>
 
 <template>
@@ -223,6 +196,44 @@ function toolBody(event: ToolEvent): string {
   font-size: 0.85rem;
   border-left: 2px solid rgba(255, 255, 255, 0.15);
   margin: 0.3rem 0;
+}
+
+/* W121-03：[PLAN] 执行计划卡片（写操作确认门） */
+.message-body :deep(.plan-card) {
+  margin: 0.4rem 0;
+  border: 1px solid rgba(120, 190, 255, 0.28);
+  border-radius: 6px;
+  background: rgba(120, 190, 255, 0.07);
+  font-size: 0.85rem;
+}
+.message-body :deep(.plan-card summary) {
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  color: rgba(160, 210, 255, 0.9);
+  user-select: none;
+  list-style: none;
+  font-weight: 500;
+}
+.message-body :deep(.plan-card summary::before) {
+  content: '▶ ';
+  font-size: 0.65rem;
+  margin-right: 0.3rem;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.message-body :deep(.plan-card[open] summary::before) {
+  transform: rotate(90deg);
+}
+.message-body :deep(.plan-body) {
+  padding: 0.35rem 0.6rem 0.5rem;
+  border-top: 1px solid rgba(120, 190, 255, 0.16);
+}
+.message-body :deep(.plan-row) {
+  padding: 0.15rem 0;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .tool-events {

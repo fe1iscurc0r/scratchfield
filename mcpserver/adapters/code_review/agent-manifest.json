@@ -1,0 +1,73 @@
+{
+  "name": "code_review_graph",
+  "displayName": "code_review_graph 代码审查图谱",
+  "version": "0.1.0",
+  "description": "审查专用代码知识图谱：git diff → 变更函数 → 风险分 + 测试缺口 + 受影响执行流，反向 BFS 影响半径，按函数/类名查定义与调用关系，架构枢纽/大函数总览。零新依赖薄引擎（stdlib ast，全确定性）；与 graphify（通用知识图谱）互补不重叠。上游 https://github.com/tirth8205/code-review-graph（MIT，见 UPSTREAM-LICENSE）。默认关（ENABLE_ADAPTER_CODE_REVIEW=1 开启）。",
+  "author": "沈遥",
+  "license": "MIT",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.code_review.adapter",
+    "class": "CodeReviewGraphBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "code_review_build_index",
+        "description": "对目录建审查图谱索引（.py 解析为 module/class/function/method 节点 + contains/imports/calls 边），落盘 crg-out/index.json 并挂载",
+        "params": {
+          "root": "待建图目录（如 apiserver）"
+        },
+        "example": "{\"tool_name\":\"code_review_build_index\",\"root\":\"apiserver\"}"
+      },
+      {
+        "command": "code_review_detect_changes",
+        "description": "git diff → 变更函数 + 风险分(0-100) + 测试缺口 + 受影响执行流（上游调用链），按风险降序",
+        "params": {
+          "base": "git 对比基（默认 HEAD~1）",
+          "changed_files": "可选，显式变更文件列表（逗号分隔）",
+          "max_depth": "受影响执行流上游深度，默认 2"
+        },
+        "example": "{\"tool_name\":\"code_review_detect_changes\",\"base\":\"HEAD~1\"}"
+      },
+      {
+        "command": "code_review_get_impact_radius",
+        "description": "变更文件的反向影响半径：谁调用这些函数、谁导入这些文件（BFS，按深度分层）",
+        "params": {
+          "changed_files": "变更文件列表（相对 root，逗号分隔）",
+          "max_depth": "BFS 深度，默认 2"
+        },
+        "example": "{\"tool_name\":\"code_review_get_impact_radius\",\"changed_files\":[\"apiserver/agentic_tool_loop.py\"]}"
+      },
+      {
+        "command": "code_review_query_graph",
+        "description": "按函数/类名查定义（file:line）+ 调用者 + 被调者（精确 > 前缀 > 子串匹配）",
+        "params": {
+          "name": "函数/类名",
+          "limit": "最多返回匹配数，默认 10"
+        },
+        "example": "{\"tool_name\":\"code_review_query_graph\",\"name\":\"run_agentic_loop\"}"
+      },
+      {
+        "command": "code_review_get_architecture_overview",
+        "description": "架构总览：节点/边统计、高扇入枢纽、高扇出依赖大户、大函数、目录分布",
+        "params": {
+          "top_k": "各榜单取前 N，默认 10"
+        },
+        "example": "{\"tool_name\":\"code_review_get_architecture_overview\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "code"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["analyze", "code"], ["build", "code"], ["lookup", "code"], ["search", "code"]]
+}

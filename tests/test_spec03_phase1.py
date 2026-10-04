@@ -5,6 +5,11 @@
 """
 from __future__ import annotations
 
+import pytest  # noqa: E402  (卷173 分层标注；与文件既有 import pytest 重复无害)
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import math
 import sys
 import time
@@ -15,15 +20,31 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "NEKO" / "N.E.K.O"))
 
-from memory.hybrid_search.rrf import (HybridSearchIndex, Record, cosine,  # noqa: E402
-                                      encode_fp16, decode_fp16, evaluate_recall, rrf_fuse)
+from memory.compaction_v2.branch_summary import (  # noqa: E402
+    branch_confidence,
+    est_tokens,
+    measure,
+    should_compress,
+    summarize_branches,
+)
+from memory.hybrid_search.rrf import (  # noqa: E402
+    HybridSearchIndex,
+    Record,
+    cosine,
+    decode_fp16,
+    encode_fp16,
+    evaluate_recall,
+    rrf_fuse,
+)
 from memory.index_cards.store import IndexCardStore  # noqa: E402
+from memory.lifecycle.policy import (  # noqa: E402
+    BackgroundWriter,
+    LifecyclePolicy,
+    decay_weight,
+    enrich,
+    expire_decision,
+)
 from memory.lineage.model import LineageError, SessionLineage  # noqa: E402
-from memory.lifecycle.policy import (BackgroundWriter, LifecyclePolicy,  # noqa: E402
-                                     decay_weight, enrich, expire_decision)
-from memory.compaction_v2.branch_summary import (branch_confidence,  # noqa: E402
-                                                 est_tokens, measure, should_compress, summarize_branches)
-
 
 # ---------------------------------------------------------------- 硬约束：旁路
 

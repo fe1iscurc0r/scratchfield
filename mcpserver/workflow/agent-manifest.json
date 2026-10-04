@@ -1,0 +1,97 @@
+{
+  "name": "workflow",
+  "displayName": "工单编排（状态机+单赢家认领）",
+  "version": "0.1.0",
+  "description": "GOLF 线工单状态机（task/board/claim/event_bus）的 MCP 桥：board_create/board_claim/board_status/board_list/board_done/board_blocked/event_log 七工具，封装不重写；数据库取 WORKFLOW_DB 环境变量或默认 workflow.db，与 CLI 同源；事件经进程内环形缓冲留痕。",
+  "author": "沈遥",
+  "license": "AGPL-3.0",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.workflow.bridge",
+    "class": "WorkflowBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "board_create",
+        "description": "创建工单（同 CLI create；id 唯一，重复创建报错）",
+        "params": {
+          "id": "工单唯一 ID",
+          "title": "标题",
+          "desc": "描述",
+          "deps": "依赖工单 ID 数组",
+          "parent": "父工单 ID",
+          "assignee": "负责人"
+        },
+        "example": "{\"tool_name\":\"board_create\",\"id\":\"U-01\",\"title\":\"workflow 挂载\",\"assignee\":\"agent\"}"
+      },
+      {
+        "command": "board_claim",
+        "description": "单赢家认领（租约制）：赢家 won=true 并推进 in_progress，其余竞争者 won=false",
+        "params": {
+          "id": "工单 ID",
+          "owner": "认领者，默认 agent",
+          "scope": "竞争域，默认 default",
+          "ttl_seconds": "租约秒数，默认 60"
+        },
+        "example": "{\"tool_name\":\"board_claim\",\"id\":\"U-01\",\"owner\":\"hermes\",\"ttl_seconds\":120}"
+      },
+      {
+        "command": "board_status",
+        "description": "查看工单；带 set 时经状态机校验迁移（非法迁移报错）",
+        "params": {
+          "id": "工单 ID",
+          "set": "目标状态（backlog/in_progress/blocked/in_review/done/cancelled）",
+          "reason": "blocked 等状态要求的 reason code"
+        },
+        "example": "{\"tool_name\":\"board_status\",\"id\":\"U-01\",\"set\":\"in_progress\"}"
+      },
+      {
+        "command": "board_list",
+        "description": "列出工单（可按状态/负责人过滤）",
+        "params": {
+          "status": "状态过滤",
+          "assignee": "负责人过滤"
+        },
+        "example": "{\"tool_name\":\"board_list\",\"status\":\"in_progress\"}"
+      },
+      {
+        "command": "board_done",
+        "description": "完成工单：审查门开启时进 in_review，否则直接 done",
+        "params": {
+          "id": "工单 ID"
+        },
+        "example": "{\"tool_name\":\"board_done\",\"id\":\"U-01\"}"
+      },
+      {
+        "command": "board_blocked",
+        "description": "阻塞工单（必带合法 reason code，可等/不可等分类）",
+        "params": {
+          "id": "工单 ID",
+          "reason": "阻塞原因 code（见 workflow/reason.py，如 blocked_wait_external）"
+        },
+        "example": "{\"tool_name\":\"board_blocked\",\"id\":\"U-01\",\"reason\":\"blocked_wait_external\"}"
+      },
+      {
+        "command": "event_log",
+        "description": "最近 N 条工单事件（进程内环形缓冲，本实例经手的全部板操作）",
+        "params": {
+          "limit": "条数上限，默认 20"
+        },
+        "example": "{\"tool_name\":\"event_log\",\"limit\":10}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "ecology"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["control", "workflow_task"], ["create", "workflow_task"], ["list", "workflow"], ["list", "workflow_task"], ["status", "workflow_task"]]
+}

@@ -31,6 +31,8 @@ export interface FloatingAPI {
   pin: (value: boolean) => void
   fitHeight: (height: number) => void
   setPosition: (x: number, y: number) => void
+  /** 拖拽开始/结束通知（卷149：主进程据此冻结尺寸变更） */
+  setDragging: (dragging: boolean) => void
   onStateChange: (callback: (state: FloatingState) => void) => () => void
   onWindowBlur: (callback: () => void) => () => void
 }
@@ -50,17 +52,17 @@ export interface SafeStorageAPI {
 }
 
 export interface MatChatAPI {
-  attach: (rect: { x: number; y: number; width: number; height: number }) => Promise<boolean>
+  attach: (rect: { x: number, y: number, width: number, height: number }) => Promise<boolean>
   detach: () => Promise<boolean>
-  setBounds: (rect: { x: number; y: number; width: number; height: number }) => void
+  setBounds: (rect: { x: number, y: number, width: number, height: number }) => void
   reload: () => Promise<boolean>
   openExternal: () => Promise<boolean>
   clearStorage: () => Promise<boolean>
   extractLastQA: (
     pairs?: number,
   ) => Promise<
-    | { ok: true; data: Array<{ q: string; a: string }> | { __debug: true; totalCandidates: number; candidates: Array<{ tag: string; class: string; dataRole: string | null; childCount: number; count: number; textPreview: string }> } }
-    | { ok: false; error: string }
+    | { ok: true, data: Array<{ q: string, a: string }> | { __debug: true, totalCandidates: number, candidates: Array<{ tag: string, class: string, dataRole: string | null, childCount: number, count: number, textPreview: string }> } }
+    | { ok: false, error: string }
   >
   openDevTools: () => void
   onUrlChange: (cb: (url: string) => void) => () => void

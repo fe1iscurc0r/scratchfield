@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title id="head-title">third-batch-test-report.html</title>
+      <style type="text/css">body {
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  /* do not increase min-width as some may use split screens */
+  min-width: 800px;
+  color: #999;
+}
+
+h1 {
+  font-size: 24px;
+  color: black;
+}
+
+h2 {
+  font-size: 16px;
+  color: black;
+}
+
+p {
+  color: black;
+}
+
+a {
+  color: #999;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+/******************************
+ * SUMMARY INFORMATION
+ ******************************/
+#environment td {
+  padding: 5px;
+  border: 1px solid #e6e6e6;
+  vertical-align: top;
+}
+#environment tr:nth-child(odd) {
+  background-color: #f6f6f6;
+}
+#environment ul {
+  margin: 0;
+  padding: 0 20px;
+}
+
+/******************************
+ * TEST RESULT COLORS
+ ******************************/
+span.passed,
+.passed .col-result {
+  color: green;
+}
+
+span.skipped,
+span.xfailed,
+span.rerun,
+.skipped .col-result,
+.xfailed .col-result,
+.rerun .col-result {
+  color: orange;
+}
+
+span.error,
+span.failed,
+span.xpassed,
+.error .col-result,
+.failed .col-result,
+.xpassed .col-result {
+  color: red;
+}
+
+.col-links__extra {
+  margin-right: 3px;
+}
+
+/******************************
+ * RESULTS TABLE
+ *
+ * 1. Table Layout
+ * 2. Extra
+ * 3. Sorting items
+ *
+ ******************************/
+/*------------------
+ * 1. Table Layout
+ *------------------*/
+#results-table {
+  border: 1px solid #e6e6e6;
+  color: #999;
+  font-size: 12px;
+  width: 100%;
+}
+#results-table th,
+#results-table td {
+  padding: 5px;
+  border: 1px solid #e6e6e6;
+  text-align: left;
+}
+#results-table th {
+  font-weight: bold;
+}
+
+/*------------------
+ * 2. Extra
+ *------------------*/
+.logwrapper {
+  max-height: 230px;
+  overflow-y: scroll;
+  background-color: #e6e6e6;
+}
+.logwrapper.expanded {
+  max-height: none;
+}
+.logwrapper.expanded .logexpander:after {
+  content: "collapse [-]";
+}
+.logwrapper .logexpander {
+  z-index: 1;
+  position: sticky;
+  top: 10px;
+  width: max-content;
+  border: 1px solid;
+  border-radius: 3px;
+  padding: 5px 7px;
+  margin: 10px 0 10px calc(100% - 80px);
+  cursor: pointer;
+  background-color: #e6e6e6;
+}
+.logwrapper .logexpander:after {
+  content: "expand [+]";
+}
+.logwrapper .logexpander:hover {
+  color: #000;
+  border-color: #000;
+}
+.logwrapper .log {
+  min-height: 40px;
+  position: relative;
+  top: -50px;
+  height: calc(100% + 50px);
+  border: 1px solid #e6e6e6;
+  color: black;
+  display: block;
+  font-family: "Courier New", Courier, monospace;
+  padding: 5px;
+  padding-right: 80px;
+  white-space: pre-wrap;
+}
+
+div.media {
+  border: 1px solid #e6e6e6;
+  float: right;
+  height: 240px;
+  margin: 0 5px;
+  overflow: hidden;
+  width: 320px;
+}
+
+.media-container {
+  display: grid;
+  grid-template-columns: 25px auto 25px;
+  align-items: center;
+  flex: 1 1;
+  overflow: hidden;
+  height: 200px;
+}
+
+.media-container--fullscreen {
+  grid-template-columns: 0px auto 0px;
+}
+
+.media-container__nav--right,
+.media-container__nav--left {
+  text-align: center;
+  cursor: pointer;
+}
+
+.media-container__viewport {
+  cursor: pointer;
+  text-align: center;
+  height: inherit;
+}
+.media-container__viewport img,
+.media-container__viewport video {
+  object-fit: cover;
+  width: 100%;
+  max-height: 100%;
+}
+
+.media__name,
+.media__counter {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  flex: 0 0 25px;
+  align-items: center;
+}
+
+.collapsible td:not(.col-links) {
+  cursor: pointer;
+}
+.collapsible td:not(.col-links):hover::after {
+  color: #bbb;
+  font-style: italic;
+  cursor: pointer;
+}
+
+.col-result {
+  width: 130px;
+}
+.col-result:hover::after {
+  content: " (hide details)";
+}
+
+.col-result.collapsed:hover::after {
+  content: " (show details)";
+}
+
+#environment-header h2:hover::after {
+  content: " (hide details)";
+  color: #bbb;
+  font-style: italic;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+#environment-header.collapsed h2:hover::after {
+  content: " (show details)";
+  color: #bbb;
+  font-style: italic;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+/*------------------
+ * 3. Sorting items
+ *------------------*/
+.sortable {
+  cursor: pointer;
+}
+.sortable.desc:after {
+  content: " ";
+  position: relative;
+  left: 5px;
+  bottom: -12.5px;
+  border: 10px solid #4caf50;
+  border-bottom: 0;
+  border-left-color: transparent;
+  border-right-color: transparent;
+}
+.sortable.asc:after {
+  content: " ";
+  position: relative;
+  left: 5px;
+  bottom: 12.5px;
+  border: 10px solid #4caf50;
+  border-top: 0;
+  border-left-color: transparent;
+  border-right-color: transparent;
+}
+
+.hidden, .summary__reload__button.hidden {
+  display: none;
+}
+
+.summary__data {
+  flex: 0 0 550px;
+}
+.summary__reload {
+  flex: 1 1;
+  display: flex;
+  justify-content: center;
+}
+.summary__reload__button {
+  flex: 0 0 300px;
+  display: flex;
+  color: white;
+  font-weight: bold;
+  background-color: #4caf50;
+  text-align: center;
+  justify-content: center;
+  align-items: center;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.summary__reload__button:hover {
+  background-color: #46a049;
+}
+.summary__spacer {
+  flex: 0 0 550px;
+}
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+}
+
+.filters,
+.collapse {
+  display: flex;
+  align-items: center;
+}
+.filters button,
+.collapse button {
+  color: #999;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.filters button:hover,
+.collapse button:hover {
+  color: #ccc;
+}
+
+.filter__label {
+  margin-right: 10px;
+}
+
+      </style>
+    
+  </head>
+  <body>
+    <h1 id="title">third-batch-test-report.html</h1>
+    <p>Report generated on 24-Aug-2026 at 00:16:04 by <a href="https://pypi.python.org/pypi/pytest-html">pytest-html</a>
+        v4.2.0</p>
+    <div id="environment-header">
+      <h2>Environment</h2>
+    </div>
+    <table id="environment"></table>
+    <!-- TEMPLATES -->
+      <template id="template_environment_row">
+      <tr>
+        <td></td>
+        <td></td>
+      </tr>
+    </template>
+    <template id="template_results-table__body--empty">
+      <tbody class="results-table-row">
+        <tr id="not-found-message">
+          <td colspan="4">No results found. Check the filters.</td>
+        </tr>
+      </tbody>
+    </template>
+    <template id="template_results-table__tbody">
+      <tbody class="results-table-row">
+        <tr class="collapsible">
+        </tr>
+        <tr class="extras-row">
+          <td class="extra" colspan="4">
+            <div class="extraHTML"></div>
+            <div class="media">
+              <div class="media-container">
+                  <div class="media-container__nav--left">&lt;</div>
+                  <div class="media-container__viewport">
+                    <img src="" />
+                    <video controls>
+                      <source src="" type="video/mp4">
+                    </video>
+                  </div>
+                  <div class="media-container__nav--right">&gt;</div>
+                </div>
+                <div class="media__name"></div>
+                <div class="media__counter"></div>
+            </div>
+            <div class="logwrapper">
+              <div class="logexpander"></div>
+              <div class="log"></div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </template>
+    <!-- END TEMPLATES -->
+    <div class="summary">
+      <div class="summary__data">
+        <h2>Summary</h2>
+        <div class="additional-summary prefix">
+        </div>
+        <p class="run-count">161 tests took 00:00:02.</p>
+        <p class="filter">(Un)check the boxes to filter the results.</p>
+        <div class="summary__reload">
+          <div class="summary__reload__button hidden" onclick="location.reload()">
+            <div>There are still tests running. <br />Reload this page to get the latest results!</div>
+          </div>
+        </div>
+        <div class="summary__spacer"></div>
+        <div class="controls">
+          <div class="filters">
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="failed" disabled>
+            <span class="failed">0 Failed,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="passed" >
+            <span class="passed">161 Passed,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="skipped" disabled>
+            <span class="skipped">0 Skipped,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="xfailed" disabled>
+            <span class="xfailed">0 Expected failures,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="xpassed" disabled>
+            <span class="xpassed">0 Unexpected passes,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="error" disabled>
+            <span class="error">0 Errors,</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="rerun" disabled>
+            <span class="rerun">0 Reruns</span>
+            <input checked="true" class="filter" name="filter_checkbox" type="checkbox" data-test-result="retried" disabled>
+            <span class="retried">0 Retried,</span>
+          </div>
+          <div class="collapse">
+            <button id="show_all_details">Show all details</button>&nbsp;/&nbsp;<button id="hide_all_details">Hide all details</button>
+          </div>
+        </div>
+      </div>
+      <div class="additional-summary summary">
+      </div>
+      <div class="additional-summary postfix">
+      </div>
+    </div>
+    <table id="results-table">
+      <thead id="results-table-head">
+        <tr>
+          <th class="sortable" data-column-type="result">Result</th>
+          <th class="sortable" data-column-type="testId">Test</th>
+          <th class="sortable" data-column-type="duration">Duration</th>
+          <th>Links</th>
+        </tr>
+      </thead>
+    </table>
+  <footer>
+    <div id="data-container" data-jsonblob="{&#34;environment&#34;: {&#34;Python&#34;: &#34;3.11.15&#34;, &#34;Platform&#34;: &#34;Windows-10-10.0.26200-SP0&#34;, &#34;Packages&#34;: {&#34;pytest&#34;: &#34;9.1.1&#34;, &#34;pluggy&#34;: &#34;1.6.0&#34;}, &#34;Plugins&#34;: {&#34;anyio&#34;: &#34;4.12.0&#34;, &#34;Faker&#34;: &#34;40.36.0&#34;, &#34;langsmith&#34;: &#34;0.4.59&#34;, &#34;asyncio&#34;: &#34;1.4.0&#34;, &#34;html&#34;: &#34;4.2.0&#34;, &#34;metadata&#34;: &#34;3.1.1&#34;}, &#34;CI&#34;: &#34;true&#34;, &#34;JAVA_HOME&#34;: &#34;C:\\Program Files\\Microsoft\\jdk-17.0.20.8-hotspot&#34;}, &#34;tests&#34;: {&#34;mcpserver/chembl/test_chembl.py::test_search_compound_by_name&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_search_compound_by_name&#34;, &#34;duration&#34;: &#34;50 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_search_compound_by_name&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;50 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_search_compound_by_chembl_id&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_search_compound_by_chembl_id&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_search_compound_by_chembl_id&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_target_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_target_ok&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_target_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_activity_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_activity_ok&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_activity_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_structure_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_structure_ok&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_structure_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_similarity_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_similarity_ok&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_similarity_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_batch_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_batch_ok&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_batch_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_batch_str_ids&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_batch_str_ids&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_batch_str_ids&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_search_compound-params0]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_search_compound-params0]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_search_compound-params0]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_target-params1]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_target-params1]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_target-params1]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_activity-params2]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_activity-params2]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_activity-params2]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_structure-params3]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_structure-params3]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_structure-params3]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_similarity-params4]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_similarity-params4]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_similarity-params4]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_similarity-params5]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_similarity-params5]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_similarity-params5]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_batch-params6]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_batch-params6]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_batch-params6]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_batch-params7]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_batch-params7]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_invalid_params_raise_valueerror[chembl_batch-params7]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_unknown_command_raise_valueerror&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_unknown_command_raise_valueerror&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_unknown_command_raise_valueerror&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_dependency_missing_raises_academic_dependency_error&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_dependency_missing_raises_academic_dependency_error&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_dependency_missing_raises_academic_dependency_error&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_dependency_missing_unknown_command_still_raises&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_dependency_missing_unknown_command_still_raises&#34;, &#34;duration&#34;: &#34;2 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_dependency_missing_unknown_command_still_raises&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;2 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/chembl/test_chembl.py::test_network_error_raises_unavailable&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/chembl/test_chembl.py::test_network_error_raises_unavailable&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/chembl/test_chembl.py::test_network_error_raises_unavailable&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_fingerprint_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_fingerprint_ok&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_fingerprint_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_fingerprint_maccs_no_radius&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_fingerprint_maccs_no_radius&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_fingerprint_maccs_no_radius&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_similarity_matrix_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_similarity_matrix_ok&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_similarity_matrix_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_transform_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_transform_ok&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_transform_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_scaffold_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_scaffold_ok&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_scaffold_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_scaffold_smiles_string_ok&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_scaffold_smiles_string_ok&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_scaffold_smiles_string_ok&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params0]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params0]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params0]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params1]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params1]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params1]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params2]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params2]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params2]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params3]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params3]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_fingerprint-params3]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_similarity_matrix-params4]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_similarity_matrix-params4]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_similarity_matrix-params4]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_similarity_matrix-params5]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_similarity_matrix-params5]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_similarity_matrix-params5]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_transform-params6]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_transform-params6]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_transform-params6]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_scaffold-params7]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_scaffold-params7]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_invalid_params_raise_valueerror[skfp_scaffold-params7]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_scaffold_invalid_smiles_raise_valueerror&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_scaffold_invalid_smiles_raise_valueerror&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_scaffold_invalid_smiles_raise_valueerror&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_unknown_command_raise_valueerror&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_unknown_command_raise_valueerror&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_unknown_command_raise_valueerror&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_skfp_missing_raises_academic_dependency_error&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_skfp_missing_raises_academic_dependency_error&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_skfp_missing_raises_academic_dependency_error&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_rdkit_missing_raises_academic_dependency_error&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_rdkit_missing_raises_academic_dependency_error&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_rdkit_missing_raises_academic_dependency_error&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_all_commands_carry_source&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_all_commands_carry_source&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/scikit_fingerprints/test_scikit_fingerprints.py::test_all_commands_carry_source&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_define_domain_degraded_returns_structure&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_define_domain_degraded_returns_structure&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_define_domain_degraded_returns_structure&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_ask_candidates_degraded_returns_placeholders&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_ask_candidates_degraded_returns_placeholders&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_ask_candidates_degraded_returns_placeholders&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_tell_results_degraded_accepts&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_tell_results_degraded_accepts&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_tell_results_degraded_accepts&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_ask_default_n_candidates_is_five&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_ask_default_n_candidates_is_five&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_ask_default_n_candidates_is_five&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_tell_results_validates_field_names_against_domain&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_tell_results_validates_field_names_against_domain&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_tell_results_validates_field_names_against_domain&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_ask_real_path_uses_strategy&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_ask_real_path_uses_strategy&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_ask_real_path_uses_strategy&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_define_domain_real_path_not_degraded&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_define_domain_real_path_not_degraded&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_define_domain_real_path_not_degraded&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_load_bofire_returns_none_when_missing&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_load_bofire_returns_none_when_missing&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_load_bofire_returns_none_when_missing&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_unknown_command_raises_valueerror&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_unknown_command_raises_valueerror&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_unknown_command_raises_valueerror&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params0-variables \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params0-variables \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params0-variables \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params1-variables \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params1-variables \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params1-variables \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params2-variables \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params2-variables \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params2-variables \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params3-type \\u5e94\\u4e3a]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params3-type \\u5e94\\u4e3a]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params3-type \\u5e94\\u4e3a]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params4-bounds]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params4-bounds]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params4-bounds]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params5-\\u4e0b\\u9650 &lt; \\u4e0a\\u9650]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params5-\\u4e0b\\u9650 &lt; \\u4e0a\\u9650]&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params5-\\u4e0b\\u9650 &lt; \\u4e0a\\u9650]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params6-values]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params6-values]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params6-values]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params7-objectives \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params7-objectives \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params7-objectives \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params8-type \\u5e94\\u4e3a]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params8-type \\u5e94\\u4e3a]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_define_domain-params8-type \\u5e94\\u4e3a]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_ask_candidates-params9-domain \\u5e94\\u4e3a]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_ask_candidates-params9-domain \\u5e94\\u4e3a]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_ask_candidates-params9-domain \\u5e94\\u4e3a]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_ask_candidates-params10-1-100]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_ask_candidates-params10-1-100]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_ask_candidates-params10-1-100]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_ask_candidates-params11-1-100]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_ask_candidates-params11-1-100]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_ask_candidates-params11-1-100]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_tell_results-params12-experiments \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_tell_results-params12-experiments \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_tell_results-params12-experiments \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_tell_results-params13-experiments \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_tell_results-params13-experiments \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_tell_results-params13-experiments \\u5e94\\u4e3a\\u975e\\u7a7a\\u5217\\u8868]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_tell_results-params14-inputs \\u4e0e outputs]&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_tell_results-params14-inputs \\u4e0e outputs]&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_invalid_params_raise_valueerror[bofire_tell_results-params14-inputs \\u4e0e outputs]&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_all_commands_carry_source&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_all_commands_carry_source&#34;, &#34;duration&#34;: &#34;2 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_all_commands_carry_source&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;2 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;mcpserver/bofire/test_bofire.py::test_manifest_has_three_commands&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;mcpserver/bofire/test_bofire.py::test_manifest_has_three_commands&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;mcpserver/bofire/test_bofire.py::test_manifest_has_three_commands&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestFormatTurns::test_basic&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestFormatTurns::test_basic&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestFormatTurns::test_basic&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestFormatTurns::test_empty_content_skipped&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestFormatTurns::test_empty_content_skipped&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestFormatTurns::test_empty_content_skipped&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestFormatTurns::test_truncation&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestFormatTurns::test_truncation&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestFormatTurns::test_truncation&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_plain_json&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_plain_json&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_plain_json&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_code_fence&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_code_fence&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_code_fence&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_truncated_tail_recovered&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_truncated_tail_recovered&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_truncated_tail_recovered&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_garbage_returns_none&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_garbage_returns_none&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestParseJson::test_garbage_returns_none&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_defaults&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_defaults&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_defaults&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_keywords_normalized&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_keywords_normalized&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_keywords_normalized&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_memory_type_enum&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_memory_type_enum&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_memory_type_enum&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_weight_clamped&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_weight_clamped&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_weight_clamped&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_memory_types_enum_defined&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_memory_types_enum_defined&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestValidate::test_memory_types_enum_defined&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_returns_none_without_config&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_returns_none_without_config&#34;, &#34;duration&#34;: &#34;2 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_returns_none_without_config&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;2 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nWARNING  memory.index_cards.enrich:enrich.py:134 llm_enrich: \u672a\u63d0\u4f9b config_manager\uff0c\u964d\u7ea7\u542f\u53d1\u5f0f\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_success&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_success&#34;, &#34;duration&#34;: &#34;6 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_success&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;6 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_llm_error_returns_none&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_llm_error_returns_none&#34;, &#34;duration&#34;: &#34;3 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_llm_error_returns_none&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;3 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nWARNING  memory.index_cards.enrich:enrich.py:163 llm_enrich: \u8c03\u7528\u5931\u8d25 (RuntimeError: boom)\uff0c\u964d\u7ea7\u542f\u53d1\u5f0f\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_unconfigured_tier_returns_none&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_unconfigured_tier_returns_none&#34;, &#34;duration&#34;: &#34;2 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_unconfigured_tier_returns_none&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;2 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nWARNING  memory.index_cards.enrich:enrich.py:138 llm_enrich: tier=summary \u672a\u914d\u7f6e\u6a21\u578b\uff0c\u964d\u7ea7\u542f\u53d1\u5f0f\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_invalid_json_returns_none&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_invalid_json_returns_none&#34;, &#34;duration&#34;: &#34;4 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmEnrich::test_invalid_json_returns_none&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;4 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nWARNING  memory.index_cards.enrich:enrich.py:159 llm_enrich: JSON \u89e3\u6790\u5931\u8d25\uff0c\u964d\u7ea7\u542f\u53d1\u5f0f\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestEnrichCard::test_write_back&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestEnrichCard::test_write_back&#34;, &#34;duration&#34;: &#34;25 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestEnrichCard::test_write_back&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;25 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestEnrichCard::test_llm_failure_keeps_heuristic&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestEnrichCard::test_llm_failure_keeps_heuristic&#34;, &#34;duration&#34;: &#34;18 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestEnrichCard::test_llm_failure_keeps_heuristic&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;18 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nWARNING  memory.index_cards.enrich:enrich.py:163 llm_enrich: \u8c03\u7528\u5931\u8d25 (RuntimeError: boom)\uff0c\u964d\u7ea7\u542f\u53d1\u5f0f\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestEnrichCard::test_build_card_with_summarizer&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestEnrichCard::test_build_card_with_summarizer&#34;, &#34;duration&#34;: &#34;16 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestEnrichCard::test_build_card_with_summarizer&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;16 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmSummarizer::test_fallback_to_heuristic_when_llm_fails&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmSummarizer::test_fallback_to_heuristic_when_llm_fails&#34;, &#34;duration&#34;: &#34;10 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/index_cards/test_enrich.py::TestLlmSummarizer::test_fallback_to_heuristic_when_llm_fails&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;10 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nWARNING  memory.index_cards.enrich:enrich.py:134 llm_enrich: \u672a\u63d0\u4f9b config_manager\uff0c\u964d\u7ea7\u542f\u53d1\u5f0f\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestSameEntitySameAttributeDifferentValue::test_contradiction_detected_and_edge_written&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestSameEntitySameAttributeDifferentValue::test_contradiction_detected_and_edge_written&#34;, &#34;duration&#34;: &#34;32 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_contradiction.py::TestSameEntitySameAttributeDifferentValue::test_contradiction_detected_and_edge_written&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;32 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestSameEntitySameAttributeDifferentValue::test_find_contradictions_by_entity_attribute&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestSameEntitySameAttributeDifferentValue::test_find_contradictions_by_entity_attribute&#34;, &#34;duration&#34;: &#34;30 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_contradiction.py::TestSameEntitySameAttributeDifferentValue::test_find_contradictions_by_entity_attribute&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;30 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestNoFalsePositives::test_different_attribute_no_conflict&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestNoFalsePositives::test_different_attribute_no_conflict&#34;, &#34;duration&#34;: &#34;24 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_contradiction.py::TestNoFalsePositives::test_different_attribute_no_conflict&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;24 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestNoFalsePositives::test_different_entity_no_conflict&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestNoFalsePositives::test_different_entity_no_conflict&#34;, &#34;duration&#34;: &#34;24 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_contradiction.py::TestNoFalsePositives::test_different_entity_no_conflict&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;24 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestNoFalsePositives::test_same_value_reregistration_no_conflict&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestNoFalsePositives::test_same_value_reregistration_no_conflict&#34;, &#34;duration&#34;: &#34;25 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_contradiction.py::TestNoFalsePositives::test_same_value_reregistration_no_conflict&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;25 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_star_chain_v3_supersedes_both&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_star_chain_v3_supersedes_both&#34;, &#34;duration&#34;: &#34;41 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_star_chain_v3_supersedes_both&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;41 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_register_idempotent_same_fact&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_register_idempotent_same_fact&#34;, &#34;duration&#34;: &#34;37 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_register_idempotent_same_fact&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;37 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_reopen_existing_db_migration_idempotent&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_reopen_existing_db_migration_idempotent&#34;, &#34;duration&#34;: &#34;27 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_reopen_existing_db_migration_idempotent&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;27 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_empty_fields_rejected&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_empty_fields_rejected&#34;, &#34;duration&#34;: &#34;19 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_contradiction.py::TestChainAndIdempotency::test_empty_fields_rejected&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;19 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_no_llm_config_card_still_generated&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_no_llm_config_card_still_generated&#34;, &#34;duration&#34;: &#34;19 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_no_llm_config_card_still_generated&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;19 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_llm_returns_none_degrades_to_rule&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_llm_returns_none_degrades_to_rule&#34;, &#34;duration&#34;: &#34;14 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_llm_returns_none_degrades_to_rule&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;14 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_llm_raises_degrades_to_rule&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_llm_raises_degrades_to_rule&#34;, &#34;duration&#34;: &#34;17 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_llm_raises_degrades_to_rule&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;17 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nWARNING  memory.enrichment:enrichment.py:139 [enrichment] LLM \u670d\u52a1\u5f02\u5e38 (LLM \u7f51\u7edc\u70b8\u4e86)\uff0c\u89c4\u5219\u964d\u7ea7\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_single_content_record_no_llm&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_single_content_record_no_llm&#34;, &#34;duration&#34;: &#34;16 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_single_content_record_no_llm&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;16 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_empty_record_returns_none&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_empty_record_returns_none&#34;, &#34;duration&#34;: &#34;9 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleFallbackAlwaysSucceeds::test_empty_record_returns_none&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;9 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestLLMPathMocked::test_llm_fields_written_to_card&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestLLMPathMocked::test_llm_fields_written_to_card&#34;, &#34;duration&#34;: &#34;13 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestLLMPathMocked::test_llm_fields_written_to_card&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;13 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestLLMPathMocked::test_llm_partial_output_backfilled&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestLLMPathMocked::test_llm_partial_output_backfilled&#34;, &#34;duration&#34;: &#34;17 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestLLMPathMocked::test_llm_partial_output_backfilled&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;17 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleEnrichUnits::test_rule_enrich_type_patterns&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleEnrichUnits::test_rule_enrich_type_patterns&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleEnrichUnits::test_rule_enrich_type_patterns&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleEnrichUnits::test_rule_enrich_weight_bounds&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleEnrichUnits::test_rule_enrich_weight_bounds&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleEnrichUnits::test_rule_enrich_weight_bounds&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleEnrichUnits::test_rule_service_is_enrichment_service&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleEnrichUnits::test_rule_service_is_enrichment_service&#34;, &#34;duration&#34;: &#34;2 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestRuleEnrichUnits::test_rule_service_is_enrichment_service&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;2 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_on_memory_write_builds_enriched_card&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_on_memory_write_builds_enriched_card&#34;, &#34;duration&#34;: &#34;16 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_on_memory_write_builds_enriched_card&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;16 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_install_idempotent&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_install_idempotent&#34;, &#34;duration&#34;: &#34;13 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_install_idempotent&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;13 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_respects_global_switch&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_respects_global_switch&#34;, &#34;duration&#34;: &#34;10 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_respects_global_switch&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;10 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_with_llm_via_hook&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_with_llm_via_hook&#34;, &#34;duration&#34;: &#34;17 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_enrichment.py::TestHookIntegration::test_with_llm_via_hook&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;17 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_direct_connection&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_direct_connection&#34;, &#34;duration&#34;: &#34;13 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_direct_connection&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;13 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_prefers_shorter_path_when_added&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_prefers_shorter_path_when_added&#34;, &#34;duration&#34;: &#34;34 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_prefers_shorter_path_when_added&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;34 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_unreachable_returns_none&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_unreachable_returns_none&#34;, &#34;duration&#34;: &#34;18 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_unreachable_returns_none&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;18 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_symmetric_traversable_both_directions&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_symmetric_traversable_both_directions&#34;, &#34;duration&#34;: &#34;30 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_symmetric_traversable_both_directions&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;30 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_same_node_returns_self&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_same_node_returns_self&#34;, &#34;duration&#34;: &#34;11 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_same_node_returns_self&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;11 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_case_and_space_normalization&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_case_and_space_normalization&#34;, &#34;duration&#34;: &#34;20 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_case_and_space_normalization&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;20 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_supersedes_directed_chain&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_supersedes_directed_chain&#34;, &#34;duration&#34;: &#34;21 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestShortestPath::test_supersedes_directed_chain&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;21 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_two_hop_nodes_and_inner_edges&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_two_hop_nodes_and_inner_edges&#34;, &#34;duration&#34;: &#34;23 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_two_hop_nodes_and_inner_edges&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;23 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_max_hops_one_keeps_legacy_semantics&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_max_hops_one_keeps_legacy_semantics&#34;, &#34;duration&#34;: &#34;22 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_max_hops_one_keeps_legacy_semantics&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;22 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_directed_relation_respected_in_reach&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_directed_relation_respected_in_reach&#34;, &#34;duration&#34;: &#34;20 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_directed_relation_respected_in_reach&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;20 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_supersedes_chain_subgraph&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_supersedes_chain_subgraph&#34;, &#34;duration&#34;: &#34;27 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_supersedes_chain_subgraph&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;27 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_isolated_node_returns_self_only&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_isolated_node_returns_self_only&#34;, &#34;duration&#34;: &#34;13 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_graph_ext.py::TestGetSubgraphMultiHop::test_isolated_node_returns_self_only&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;13 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestSixEventsInOrder::test_all_six_events_fire_in_lifecycle_order&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestSixEventsInOrder::test_all_six_events_fire_in_lifecycle_order&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestSixEventsInOrder::test_all_six_events_fire_in_lifecycle_order&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestSixEventsInOrder::test_hooks_within_event_fire_in_register_order&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestSixEventsInOrder::test_hooks_within_event_fire_in_register_order&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestSixEventsInOrder::test_hooks_within_event_fire_in_register_order&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestEnvSwitch::test_default_off_emit_short_circuits&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestEnvSwitch::test_default_off_emit_short_circuits&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestEnvSwitch::test_default_off_emit_short_circuits&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestEnvSwitch::test_switch_on_fires&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestEnvSwitch::test_switch_on_fires&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestEnvSwitch::test_switch_on_fires&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestEnvSwitch::test_off_values_do_not_enable&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestEnvSwitch::test_off_values_do_not_enable&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestEnvSwitch::test_off_values_do_not_enable&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_same_name_register_replaces_not_duplicates&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_same_name_register_replaces_not_duplicates&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_same_name_register_replaces_not_duplicates&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_hook_exception_does_not_infect_others&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_hook_exception_does_not_infect_others&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_hook_exception_does_not_infect_others&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nWARNING  memory.hooks:hooks.py:107 [memory-hooks] on_session_end/bad \u6267\u884c\u5931\u8d25\uff08\u5ffd\u7565\uff09: hook \u5d29\u4e86\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_unregister&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_unregister&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_unregister&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_unknown_event_rejected&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_unknown_event_rejected&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestIdempotentAndFailSafe::test_unknown_event_rejected&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestSystemPromptBlock::test_aggregates_text_blocks_in_order&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestSystemPromptBlock::test_aggregates_text_blocks_in_order&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestSystemPromptBlock::test_aggregates_text_blocks_in_order&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestSystemPromptBlock::test_empty_when_no_hooks&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestSystemPromptBlock::test_empty_when_no_hooks&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestSystemPromptBlock::test_empty_when_no_hooks&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_turns_record_builds_card&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_turns_record_builds_card&#34;, &#34;duration&#34;: &#34;12 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_turns_record_builds_card&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;12 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_single_content_record_builds_card&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_single_content_record_builds_card&#34;, &#34;duration&#34;: &#34;12 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_single_content_record_builds_card&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;12 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_empty_record_returns_none_no_card&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_empty_record_returns_none_no_card&#34;, &#34;duration&#34;: &#34;8 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_empty_record_returns_none_no_card&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;8 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_wiring_idempotent_no_double_fire&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_wiring_idempotent_no_double_fire&#34;, &#34;duration&#34;: &#34;11 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_wiring_idempotent_no_double_fire&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;11 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_wiring_respects_global_switch&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_wiring_respects_global_switch&#34;, &#34;duration&#34;: &#34;9 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestOnMemoryWriteIndexCardWiring::test_wiring_respects_global_switch&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;9 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestGlobalSingleton::test_get_memory_hooks_singleton&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_hooks.py::TestGlobalSingleton::test_get_memory_hooks_singleton&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_hooks.py::TestGlobalSingleton::test_get_memory_hooks_singleton&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_normalize&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_normalize&#34;, &#34;duration&#34;: &#34;1 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_normalize&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;1 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_self_loop_rejected&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_self_loop_rejected&#34;, &#34;duration&#34;: &#34;12 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_self_loop_rejected&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;12 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nWARNING  memory.memory_graph:memory_graph.py:112 store_association: \u62d2\u7edd\u81ea\u73af a\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_empty_rejected&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_empty_rejected&#34;, &#34;duration&#34;: &#34;13 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_empty_rejected&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;13 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nERROR    memory.memory_graph:memory_graph.py:109 store_association: \u7a7a hash\nERROR    memory.memory_graph:memory_graph.py:109 store_association: \u7a7a hash\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_similarity_bounds&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_similarity_bounds&#34;, &#34;duration&#34;: &#34;11 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_similarity_bounds&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;11 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nERROR    memory.memory_graph:memory_graph.py:115 store_association: similarity 1.5 \u8d8a\u754c\nERROR    memory.memory_graph:memory_graph.py:115 store_association: similarity -0.1 \u8d8a\u754c\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_invalid_relationship&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_invalid_relationship&#34;, &#34;duration&#34;: &#34;12 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_invalid_relationship&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;12 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;------------------------------ Captured log call -------------------------------\nERROR    memory.memory_graph:memory_graph.py:118 store_association: \u975e\u6cd5\u5173\u7cfb\u7c7b\u578b loves\n\n&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_valid_relationship_sets&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_valid_relationship_sets&#34;, &#34;duration&#34;: &#34;0 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestValidation::test_valid_relationship_sets&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;0 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_symmetric_stores_both_directions&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_symmetric_stores_both_directions&#34;, &#34;duration&#34;: &#34;19 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_symmetric_stores_both_directions&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;19 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_asymmetric_stores_one_direction&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_asymmetric_stores_one_direction&#34;, &#34;duration&#34;: &#34;17 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_asymmetric_stores_one_direction&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;17 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_contradicts_symmetric&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_contradicts_symmetric&#34;, &#34;duration&#34;: &#34;18 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_contradicts_symmetric&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;18 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_upsert_replaces&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_upsert_replaces&#34;, &#34;duration&#34;: &#34;21 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestStore::test_upsert_replaces&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;21 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_two_hop&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_two_hop&#34;, &#34;duration&#34;: &#34;20 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_two_hop&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;20 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_hops_bound&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_hops_bound&#34;, &#34;duration&#34;: &#34;27 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_hops_bound&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;27 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_cycle_prevention&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_cycle_prevention&#34;, &#34;duration&#34;: &#34;26 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_cycle_prevention&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;26 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_relationship_filter&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_relationship_filter&#34;, &#34;duration&#34;: &#34;21 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_relationship_filter&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;21 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_empty_hash_returns_empty&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_empty_hash_returns_empty&#34;, &#34;duration&#34;: &#34;13 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestFindConnected::test_empty_hash_returns_empty&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;13 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_direct&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_direct&#34;, &#34;duration&#34;: &#34;18 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_direct&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;18 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_chain&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_chain&#34;, &#34;duration&#34;: &#34;28 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_chain&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;28 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_same_node&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_same_node&#34;, &#34;duration&#34;: &#34;13 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_same_node&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;13 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_unreachable&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_unreachable&#34;, &#34;duration&#34;: &#34;24 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestShortestPath::test_unreachable&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;24 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestSubgraphAndStats::test_subgraph&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestSubgraphAndStats::test_subgraph&#34;, &#34;duration&#34;: &#34;21 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestSubgraphAndStats::test_subgraph&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;21 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestSubgraphAndStats::test_relationship_stats&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestSubgraphAndStats::test_relationship_stats&#34;, &#34;duration&#34;: &#34;23 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestSubgraphAndStats::test_relationship_stats&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;23 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestSubgraphAndStats::test_count&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestSubgraphAndStats::test_count&#34;, &#34;duration&#34;: &#34;23 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestSubgraphAndStats::test_count&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;23 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}], &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestMetadata::test_metadata_stored&#34;: [{&#34;extras&#34;: [], &#34;result&#34;: &#34;Passed&#34;, &#34;testId&#34;: &#34;NEKO/N.E.K.O/memory/test_memory_graph.py::TestMetadata::test_metadata_stored&#34;, &#34;duration&#34;: &#34;18 ms&#34;, &#34;resultsTableRow&#34;: [&#34;&lt;td class=\&#34;col-result\&#34;&gt;Passed&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-testId\&#34;&gt;NEKO/N.E.K.O/memory/test_memory_graph.py::TestMetadata::test_metadata_stored&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-duration\&#34;&gt;18 ms&lt;/td&gt;&#34;, &#34;&lt;td class=\&#34;col-links\&#34;&gt;&lt;/td&gt;&#34;], &#34;log&#34;: &#34;No log output captured.&#34;}]}, &#34;renderCollapsed&#34;: [&#34;passed&#34;], &#34;initialSort&#34;: &#34;result&#34;, &#34;title&#34;: &#34;third-batch-test-report.html&#34;}"></div>
+    <script>
+      (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+const { getCollapsedCategory, setCollapsedIds } = require('./storage.js')
+
+class DataManager {
+    setManager(data) {
+        const collapsedCategories = [...getCollapsedCategory(data.renderCollapsed)]
+        const collapsedIds = []
+        const tests = Object.values(data.tests).flat().map((test, index) => {
+            const collapsed = collapsedCategories.includes(test.result.toLowerCase())
+            const id = `test_${index}`
+            if (collapsed) {
+                collapsedIds.push(id)
+            }
+            return {
+                ...test,
+                id,
+                collapsed,
+            }
+        })
+        const dataBlob = { ...data, tests }
+        this.data = { ...dataBlob }
+        this.renderData = { ...dataBlob }
+        setCollapsedIds(collapsedIds)
+    }
+
+    get allData() {
+        return { ...this.data }
+    }
+
+    resetRender() {
+        this.renderData = { ...this.data }
+    }
+
+    setRender(data) {
+        this.renderData.tests = [...data]
+    }
+
+    toggleCollapsedItem(id) {
+        this.renderData.tests = this.renderData.tests.map((test) =>
+            test.id === id ? { ...test, collapsed: !test.collapsed } : test,
+        )
+    }
+
+    set allCollapsed(collapsed) {
+        this.renderData = { ...this.renderData, tests: [...this.renderData.tests.map((test) => (
+            { ...test, collapsed }
+        ))] }
+    }
+
+    get testSubset() {
+        return [...this.renderData.tests]
+    }
+
+    get environment() {
+        return this.renderData.environment
+    }
+
+    get initialSort() {
+        return this.data.initialSort
+    }
+}
+
+module.exports = {
+    manager: new DataManager(),
+}
+
+},{"./storage.js":8}],2:[function(require,module,exports){
+const mediaViewer = require('./mediaviewer.js')
+const templateEnvRow = document.getElementById('template_environment_row')
+const templateResult = document.getElementById('template_results-table__tbody')
+
+function htmlToElements(html) {
+    const temp = document.createElement('template')
+    temp.innerHTML = html
+    return temp.content.childNodes
+}
+
+const find = (selector, elem) => {
+    if (!elem) {
+        elem = document
+    }
+    return elem.querySelector(selector)
+}
+
+const findAll = (selector, elem) => {
+    if (!elem) {
+        elem = document
+    }
+    return [...elem.querySelectorAll(selector)]
+}
+
+const dom = {
+    getStaticRow: (key, value) => {
+        const envRow = templateEnvRow.content.cloneNode(true)
+        const isObj = typeof value === 'object' && value !== null
+        const values = isObj ? Object.keys(value).map((k) => `${k}: ${value[k]}`) : null
+
+        const valuesElement = htmlToElements(
+            values ? `<ul>${values.map((val) => `<li>${val}</li>`).join('')}<ul>` : `<div>${value}</div>`)[0]
+        const td = findAll('td', envRow)
+        td[0].textContent = key
+        td[1].appendChild(valuesElement)
+
+        return envRow
+    },
+    getResultTBody: ({ testId, id, log, extras, resultsTableRow, tableHtml, result, collapsed }) => {
+        const resultBody = templateResult.content.cloneNode(true)
+        resultBody.querySelector('tbody').classList.add(result.toLowerCase())
+        resultBody.querySelector('tbody').id = testId
+        resultBody.querySelector('.collapsible').dataset.id = id
+
+        resultsTableRow.forEach((html) => {
+            const t = document.createElement('template')
+            t.innerHTML = html
+            resultBody.querySelector('.collapsible').appendChild(t.content)
+        })
+
+        if (log) {
+            // Wrap lines starting with "E" with span.error to color those lines red
+            const wrappedLog = log.replace(/^E.*$/gm, (match) => `<span class="error">${match}</span>`)
+            resultBody.querySelector('.log').innerHTML = wrappedLog
+        } else {
+            resultBody.querySelector('.log').remove()
+        }
+
+        if (collapsed) {
+            resultBody.querySelector('.collapsible > .col-result')?.classList.add('collapsed')
+            resultBody.querySelector('.extras-row').classList.add('hidden')
+        } else {
+            resultBody.querySelector('.collapsible > .col-result')?.classList.remove('collapsed')
+        }
+
+        const media = []
+        extras?.forEach(({ name, format_type, content }) => {
+            if (['image', 'video'].includes(format_type)) {
+                media.push({ path: content, name, format_type })
+            }
+
+            if (format_type === 'html') {
+                resultBody.querySelector('.extraHTML').insertAdjacentHTML('beforeend', `<div>${content}</div>`)
+            }
+        })
+        mediaViewer.setup(resultBody, media)
+
+        // Add custom html from the pytest_html_results_table_html hook
+        tableHtml?.forEach((item) => {
+            resultBody.querySelector('td[class="extra"]').insertAdjacentHTML('beforeend', item)
+        })
+
+        return resultBody
+    },
+}
+
+module.exports = {
+    dom,
+    htmlToElements,
+    find,
+    findAll,
+}
+
+},{"./mediaviewer.js":6}],3:[function(require,module,exports){
+const { manager } = require('./datamanager.js')
+const { doSort } = require('./sort.js')
+const storageModule = require('./storage.js')
+
+const getFilteredSubSet = (filter) =>
+    manager.allData.tests.filter(({ result }) => filter.includes(result.toLowerCase()))
+
+const doInitFilter = () => {
+    const currentFilter = storageModule.getVisible()
+    const filteredSubset = getFilteredSubSet(currentFilter)
+    manager.setRender(filteredSubset)
+}
+
+const doFilter = (type, show) => {
+    if (show) {
+        storageModule.showCategory(type)
+    } else {
+        storageModule.hideCategory(type)
+    }
+
+    const currentFilter = storageModule.getVisible()
+    const filteredSubset = getFilteredSubSet(currentFilter)
+    manager.setRender(filteredSubset)
+
+    const sortColumn = storageModule.getSort()
+    doSort(sortColumn, true)
+}
+
+module.exports = {
+    doFilter,
+    doInitFilter,
+}
+
+},{"./datamanager.js":1,"./sort.js":7,"./storage.js":8}],4:[function(require,module,exports){
+const { redraw, bindEvents, renderStatic } = require('./main.js')
+const { doInitFilter } = require('./filter.js')
+const { doInitSort } = require('./sort.js')
+const { manager } = require('./datamanager.js')
+const data = JSON.parse(document.getElementById('data-container').dataset.jsonblob)
+
+function init() {
+    manager.setManager(data)
+    doInitFilter()
+    doInitSort()
+    renderStatic()
+    redraw()
+    bindEvents()
+}
+
+init()
+
+},{"./datamanager.js":1,"./filter.js":3,"./main.js":5,"./sort.js":7}],5:[function(require,module,exports){
+const { dom, find, findAll } = require('./dom.js')
+const { manager } = require('./datamanager.js')
+const { doSort } = require('./sort.js')
+const { doFilter } = require('./filter.js')
+const {
+    getVisible,
+    getCollapsedIds,
+    setCollapsedIds,
+    getSort,
+    getSortDirection,
+    possibleFilters,
+} = require('./storage.js')
+
+const removeChildren = (node) => {
+    while (node.firstChild) {
+        node.removeChild(node.firstChild)
+    }
+}
+
+const renderStatic = () => {
+    const renderEnvironmentTable = () => {
+        const environment = manager.environment
+        const rows = Object.keys(environment).map((key) => dom.getStaticRow(key, environment[key]))
+        const table = document.getElementById('environment')
+        removeChildren(table)
+        rows.forEach((row) => table.appendChild(row))
+    }
+    renderEnvironmentTable()
+}
+
+const addItemToggleListener = (elem) => {
+    elem.addEventListener('click', ({ target }) => {
+        const id = target.parentElement.dataset.id
+        manager.toggleCollapsedItem(id)
+
+        const collapsedIds = getCollapsedIds()
+        if (collapsedIds.includes(id)) {
+            const updated = collapsedIds.filter((item) => item !== id)
+            setCollapsedIds(updated)
+        } else {
+            collapsedIds.push(id)
+            setCollapsedIds(collapsedIds)
+        }
+        redraw()
+    })
+}
+
+const renderContent = (tests) => {
+    const sortAttr = getSort(manager.initialSort)
+    const sortAsc = JSON.parse(getSortDirection())
+    const rows = tests.map(dom.getResultTBody)
+    const table = document.getElementById('results-table')
+    const tableHeader = document.getElementById('results-table-head')
+
+    const newTable = document.createElement('table')
+    newTable.id = 'results-table'
+
+    // remove all sorting classes and set the relevant
+    findAll('.sortable', tableHeader).forEach((elem) => elem.classList.remove('asc', 'desc'))
+    tableHeader.querySelector(`.sortable[data-column-type="${sortAttr}"]`)?.classList.add(sortAsc ? 'desc' : 'asc')
+    newTable.appendChild(tableHeader)
+
+    if (!rows.length) {
+        const emptyTable = document.getElementById('template_results-table__body--empty').content.cloneNode(true)
+        newTable.appendChild(emptyTable)
+    } else {
+        rows.forEach((row) => {
+            if (!!row) {
+                findAll('.collapsible td:not(.col-links', row).forEach(addItemToggleListener)
+                find('.logexpander', row).addEventListener('click',
+                    (evt) => evt.target.parentNode.classList.toggle('expanded'),
+                )
+                newTable.appendChild(row)
+            }
+        })
+    }
+
+    table.replaceWith(newTable)
+}
+
+const renderDerived = () => {
+    const currentFilter = getVisible()
+    possibleFilters.forEach((result) => {
+        const input = document.querySelector(`input[data-test-result="${result}"]`)
+        input.checked = currentFilter.includes(result)
+    })
+}
+
+const bindEvents = () => {
+    const filterColumn = (evt) => {
+        const { target: element } = evt
+        const { testResult } = element.dataset
+
+        doFilter(testResult, element.checked)
+        const collapsedIds = getCollapsedIds()
+        const updated = manager.renderData.tests.map((test) => {
+            return {
+                ...test,
+                collapsed: collapsedIds.includes(test.id),
+            }
+        })
+        manager.setRender(updated)
+        redraw()
+    }
+
+    const header = document.getElementById('environment-header')
+    header.addEventListener('click', () => {
+        const table = document.getElementById('environment')
+        table.classList.toggle('hidden')
+        header.classList.toggle('collapsed')
+    })
+
+    findAll('input[name="filter_checkbox"]').forEach((elem) => {
+        elem.addEventListener('click', filterColumn)
+    })
+
+    findAll('.sortable').forEach((elem) => {
+        elem.addEventListener('click', (evt) => {
+            const { target: element } = evt
+            const { columnType } = element.dataset
+            doSort(columnType)
+            redraw()
+        })
+    })
+
+    document.getElementById('show_all_details').addEventListener('click', () => {
+        manager.allCollapsed = false
+        setCollapsedIds([])
+        redraw()
+    })
+    document.getElementById('hide_all_details').addEventListener('click', () => {
+        manager.allCollapsed = true
+        const allIds = manager.renderData.tests.map((test) => test.id)
+        setCollapsedIds(allIds)
+        redraw()
+    })
+}
+
+const redraw = () => {
+    const { testSubset } = manager
+
+    renderContent(testSubset)
+    renderDerived()
+}
+
+module.exports = {
+    redraw,
+    bindEvents,
+    renderStatic,
+}
+
+},{"./datamanager.js":1,"./dom.js":2,"./filter.js":3,"./sort.js":7,"./storage.js":8}],6:[function(require,module,exports){
+class MediaViewer {
+    constructor(assets) {
+        this.assets = assets
+        this.index = 0
+    }
+
+    nextActive() {
+        this.index = this.index === this.assets.length - 1 ? 0 : this.index + 1
+        return [this.activeFile, this.index]
+    }
+
+    prevActive() {
+        this.index = this.index === 0 ? this.assets.length - 1 : this.index -1
+        return [this.activeFile, this.index]
+    }
+
+    get currentIndex() {
+        return this.index
+    }
+
+    get activeFile() {
+        return this.assets[this.index]
+    }
+}
+
+
+const setup = (resultBody, assets) => {
+    if (!assets.length) {
+        resultBody.querySelector('.media').classList.add('hidden')
+        return
+    }
+
+    const mediaViewer = new MediaViewer(assets)
+    const container = resultBody.querySelector('.media-container')
+    const leftArrow = resultBody.querySelector('.media-container__nav--left')
+    const rightArrow = resultBody.querySelector('.media-container__nav--right')
+    const mediaName = resultBody.querySelector('.media__name')
+    const counter = resultBody.querySelector('.media__counter')
+    const imageEl = resultBody.querySelector('img')
+    const sourceEl = resultBody.querySelector('source')
+    const videoEl = resultBody.querySelector('video')
+
+    const setImg = (media, index) => {
+        if (media?.format_type === 'image') {
+            imageEl.src = media.path
+
+            imageEl.classList.remove('hidden')
+            videoEl.classList.add('hidden')
+        } else if (media?.format_type === 'video') {
+            sourceEl.src = media.path
+
+            videoEl.classList.remove('hidden')
+            imageEl.classList.add('hidden')
+        }
+
+        mediaName.innerText = media?.name
+        counter.innerText = `${index + 1} / ${assets.length}`
+    }
+    setImg(mediaViewer.activeFile, mediaViewer.currentIndex)
+
+    const moveLeft = () => {
+        const [media, index] = mediaViewer.prevActive()
+        setImg(media, index)
+    }
+    const doRight = () => {
+        const [media, index] = mediaViewer.nextActive()
+        setImg(media, index)
+    }
+    const openImg = () => {
+        window.open(mediaViewer.activeFile.path, '_blank')
+    }
+    if (assets.length === 1) {
+        container.classList.add('media-container--fullscreen')
+    } else {
+        leftArrow.addEventListener('click', moveLeft)
+        rightArrow.addEventListener('click', doRight)
+    }
+    imageEl.addEventListener('click', openImg)
+}
+
+module.exports = {
+    setup,
+}
+
+},{}],7:[function(require,module,exports){
+const { manager } = require('./datamanager.js')
+const storageModule = require('./storage.js')
+
+const genericSort = (list, key, ascending, customOrder) => {
+    let sorted
+    if (customOrder) {
+        sorted = list.sort((a, b) => {
+            const aValue = a.result.toLowerCase()
+            const bValue = b.result.toLowerCase()
+
+            const aIndex = customOrder.findIndex((item) => item.toLowerCase() === aValue)
+            const bIndex = customOrder.findIndex((item) => item.toLowerCase() === bValue)
+
+            // Compare the indices to determine the sort order
+            return aIndex - bIndex
+        })
+    } else {
+        sorted = list.sort((a, b) => a[key] === b[key] ? 0 : a[key] > b[key] ? 1 : -1)
+    }
+
+    if (ascending) {
+        sorted.reverse()
+    }
+    return sorted
+}
+
+const durationSort = (list, ascending) => {
+    const parseDuration = (duration) => {
+        if (duration.includes(':')) {
+            // If it's in the format "HH:mm:ss"
+            const [hours, minutes, seconds] = duration.split(':').map(Number)
+            return (hours * 3600 + minutes * 60 + seconds) * 1000
+        } else {
+            // If it's in the format "nnn ms"
+            return parseInt(duration)
+        }
+    }
+    const sorted = list.sort((a, b) => parseDuration(a['duration']) - parseDuration(b['duration']))
+    if (ascending) {
+        sorted.reverse()
+    }
+    return sorted
+}
+
+const doInitSort = () => {
+    const type = storageModule.getSort(manager.initialSort)
+    const ascending = storageModule.getSortDirection()
+    const list = manager.testSubset
+    const initialOrder = ['Error', 'Failed', 'Rerun', 'XFailed', 'XPassed', 'Skipped', 'Passed']
+
+    storageModule.setSort(type)
+    storageModule.setSortDirection(ascending)
+
+    if (type?.toLowerCase() === 'original') {
+        manager.setRender(list)
+    } else {
+        let sortedList
+        switch (type) {
+        case 'duration':
+            sortedList = durationSort(list, ascending)
+            break
+        case 'result':
+            sortedList = genericSort(list, type, ascending, initialOrder)
+            break
+        default:
+            sortedList = genericSort(list, type, ascending)
+            break
+        }
+        manager.setRender(sortedList)
+    }
+}
+
+const doSort = (type, skipDirection) => {
+    const newSortType = storageModule.getSort(manager.initialSort) !== type
+    const currentAsc = storageModule.getSortDirection()
+    let ascending
+    if (skipDirection) {
+        ascending = currentAsc
+    } else {
+        ascending = newSortType ? false : !currentAsc
+    }
+    storageModule.setSort(type)
+    storageModule.setSortDirection(ascending)
+
+    const list = manager.testSubset
+    const sortedList = type === 'duration' ? durationSort(list, ascending) : genericSort(list, type, ascending)
+    manager.setRender(sortedList)
+}
+
+module.exports = {
+    doInitSort,
+    doSort,
+}
+
+},{"./datamanager.js":1,"./storage.js":8}],8:[function(require,module,exports){
+const possibleFilters = [
+    'passed',
+    'skipped',
+    'failed',
+    'error',
+    'xfailed',
+    'xpassed',
+    'rerun',
+]
+
+const getVisible = () => {
+    const url = new URL(window.location.href)
+    const settings = new URLSearchParams(url.search).get('visible')
+    const lower = (item) => {
+        const lowerItem = item.toLowerCase()
+        if (possibleFilters.includes(lowerItem)) {
+            return lowerItem
+        }
+        return null
+    }
+    return settings === null ?
+        possibleFilters :
+        [...new Set(settings?.split(',').map(lower).filter((item) => item))]
+}
+
+const hideCategory = (categoryToHide) => {
+    const url = new URL(window.location.href)
+    const visibleParams = new URLSearchParams(url.search).get('visible')
+    const currentVisible = visibleParams ? visibleParams.split(',') : [...possibleFilters]
+    const settings = [...new Set(currentVisible)].filter((f) => f !== categoryToHide).join(',')
+
+    url.searchParams.set('visible', settings)
+    window.history.pushState({}, null, unescape(url.href))
+}
+
+const showCategory = (categoryToShow) => {
+    if (typeof window === 'undefined') {
+        return
+    }
+    const url = new URL(window.location.href)
+    const currentVisible = new URLSearchParams(url.search).get('visible')?.split(',').filter(Boolean) ||
+        [...possibleFilters]
+    const settings = [...new Set([categoryToShow, ...currentVisible])]
+    const noFilter = possibleFilters.length === settings.length || !settings.length
+
+    noFilter ? url.searchParams.delete('visible') : url.searchParams.set('visible', settings.join(','))
+    window.history.pushState({}, null, unescape(url.href))
+}
+
+const getSort = (initialSort) => {
+    const url = new URL(window.location.href)
+    let sort = new URLSearchParams(url.search).get('sort')
+    if (!sort) {
+        sort = initialSort || 'result'
+    }
+    return sort
+}
+
+const setSort = (type) => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('sort', type)
+    window.history.pushState({}, null, unescape(url.href))
+}
+
+const getCollapsedCategory = (renderCollapsed) => {
+    let categories
+    if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href)
+        const collapsedItems = new URLSearchParams(url.search).get('collapsed')
+        switch (true) {
+        case !renderCollapsed && collapsedItems === null:
+            categories = ['passed']
+            break
+        case collapsedItems?.length === 0 || /^["']{2}$/.test(collapsedItems):
+            categories = []
+            break
+        case /^all$/.test(collapsedItems) || collapsedItems === null && /^all$/.test(renderCollapsed):
+            categories = [...possibleFilters]
+            break
+        default:
+            categories = collapsedItems?.split(',').map((item) => item.toLowerCase()) || renderCollapsed
+            break
+        }
+    } else {
+        categories = []
+    }
+    return categories
+}
+
+const getSortDirection = () => JSON.parse(sessionStorage.getItem('sortAsc')) || false
+const setSortDirection = (ascending) => sessionStorage.setItem('sortAsc', ascending)
+
+const getCollapsedIds = () => JSON.parse(sessionStorage.getItem('collapsedIds')) || []
+const setCollapsedIds = (list) => sessionStorage.setItem('collapsedIds', JSON.stringify(list))
+
+module.exports = {
+    getVisible,
+    hideCategory,
+    showCategory,
+    getCollapsedIds,
+    setCollapsedIds,
+    getSort,
+    setSort,
+    getSortDirection,
+    setSortDirection,
+    getCollapsedCategory,
+    possibleFilters,
+}
+
+},{}]},{},[4]);
+    </script>
+  </footer>
+  </body>
+</html>

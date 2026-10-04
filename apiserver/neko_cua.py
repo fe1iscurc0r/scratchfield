@@ -13,7 +13,7 @@ import httpx
 NEKO_AGENT_BASE = os.environ.get("NEKO_AGENT_BASE", "http://127.0.0.1:48915")
 NEKO_EXEC_TOKEN = os.environ.get("NEKO_EXEC_TOKEN", "")
 
-_client: Optional[httpx.AsyncClient] = None
+_client: httpx.AsyncClient | None = None
 
 
 def _get_client() -> httpx.AsyncClient:

@@ -29,5 +29,18 @@
         "example": "{\"tool_name\": \"voice_status\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "verbal"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "garan0613/voice-mcp (MiniMax t2a_v2)",
+      "upstream_license": "MIT"
+    }
+  },
+  "capability_pairs": [["emit", "speech"], ["status", "speech"]]
 }

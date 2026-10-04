@@ -1,0 +1,62 @@
+{
+  "name": "agent_animation",
+  "version": "1.0.0",
+  "description": "Diagram and animation generator (AI_Animation). Creates architecture, workflow, sequence, dataflow, and lifecycle diagrams. Exports to PNG, JPEG, SVG, GIF, and WebM. Powered by graphviz and matplotlib with custom layout engines.",
+  "author": "MCP Agent Team",
+  "license": "MIT",
+  "capabilities": [
+    "diagram_generation",
+    "animation_export",
+    "template_discovery"
+  ],
+  "dependencies": {
+    "python": ">=3.8",
+    "packages": [
+      "graphviz",
+      "matplotlib>=3.5",
+      "pillow"
+    ]
+  },
+  "class": "AnimationAgent",
+  "tags": [
+    "diagram",
+    "animation",
+    "visualization",
+    "architecture",
+    "uml",
+    "flowchart"
+  ],
+  "platforms": [
+    "windows",
+    "linux",
+    "macos"
+  ],
+  "category": "visualization",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_animation.agent_animation",
+    "class": "AnimationAgent"
+  },
+  "classification": {
+    "families": [
+      "document"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream_license": "EPL-1.0/Matplotlib",
+      "upstream": "graphviz/matplotlib"
+    }
+  },
+  "requires": {
+    "python_packages": [
+      {
+        "name": "graphviz",
+        "optional": true
+      },
+      "matplotlib"
+    ]
+  },
+  "capability_pairs": [["export", "animation"], ["generate", "diagram"], ["search", "template"]]
+}

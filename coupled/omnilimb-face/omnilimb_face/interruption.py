@@ -147,15 +147,15 @@ class InterruptionController:
     def __init__(
         self,
         cfg: "InterruptionSettings",
-        vad: Optional[Any] = None,
-        tts: Optional[Any] = None,
-        bridge: Optional[Any] = None,
-        capture: Optional[Any] = None,
+        vad: Any | None = None,
+        tts: Any | None = None,
+        bridge: Any | None = None,
+        capture: Any | None = None,
         *,
-        vad_settings: "Optional[VADSettings]" = None,
-        barge_in_min_speech_ms: Optional[int] = None,
-        on_interrupt: Optional[Callable[[], None]] = None,
-        on_error: Optional[Callable[[Exception], None]] = None,
+        vad_settings: "VADSettings | None" = None,
+        barge_in_min_speech_ms: int | None = None,
+        on_interrupt: Callable[[], None] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
     ) -> None:
         self._cfg = cfg
         # Collaborators wired by Task 21.1. The pure decision (Task 7.1) never
@@ -181,7 +181,7 @@ class InterruptionController:
         # the current continuous run; ``None`` means we are not currently in a
         # speech run. ``_accumulated_speech_ms`` is the elapsed continuous
         # speech duration derived from event timestamps.
-        self._speech_anchor_ms: Optional[int] = None
+        self._speech_anchor_ms: int | None = None
         self._accumulated_speech_ms: int = 0
 
         # --- Task 21.1 I/O wiring state (guarded by ``_lock``) -------------
@@ -192,13 +192,13 @@ class InterruptionController:
         self._armed: bool = False
         self._subscribed: bool = False
         self._barge_in_available: bool = True
-        self._last_error: Optional[Exception] = None
+        self._last_error: Exception | None = None
         self._interruption_count: int = 0
 
     @staticmethod
     def _resolve_threshold(
-        vad_settings: "Optional[VADSettings]",
-        barge_in_min_speech_ms: Optional[int],
+        vad_settings: "VADSettings | None",
+        barge_in_min_speech_ms: int | None,
     ) -> int:
         """Resolve the barge-in threshold (ms) from the supplied inputs.
 
@@ -247,7 +247,7 @@ class InterruptionController:
         return self._barge_in_available
 
     @property
-    def last_error(self) -> Optional[Exception]:
+    def last_error(self) -> Exception | None:
         """The most recent detection failure recorded while armed, if any."""
         return self._last_error
 
@@ -352,7 +352,7 @@ class InterruptionController:
     # ------------------------------------------------------------------
     # I/O entry points (Task 21.1).
     # ------------------------------------------------------------------
-    def feed_vad_event(self, event: "VadEvent") -> Optional[InterruptDecision]:
+    def feed_vad_event(self, event: "VadEvent") -> InterruptDecision | None:
         """Process one VAD event from the capture loop while armed.
 
         This is the I/O counterpart to the pure :meth:`on_vad_event`: it runs
@@ -393,7 +393,7 @@ class InterruptionController:
                 self._interrupt_now_locked()
             return decision
 
-    def signal_detection_failure(self, error: Optional[Exception] = None) -> None:
+    def signal_detection_failure(self, error: Exception | None = None) -> None:
         """Signal that the mic/VAD failed during playback (Requirement 5.6).
 
         Called by the capture loop when it can no longer produce VAD events

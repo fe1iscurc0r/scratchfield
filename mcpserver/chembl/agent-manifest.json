@@ -65,5 +65,21 @@
         "example": "{\"tool_name\":\"chembl_batch\",\"chembl_ids\":[\"CHEMBL25\",\"CHEMBL26\"]}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "compute"
+    ],
+    "domains": [
+      "materials"
+    ],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "EBI ChEMBL REST",
+      "upstream_license": "见上游"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["batch", "chem_compound"], ["compare", "chem_structure"], ["lookup", "chem_activity"], ["lookup", "chem_structure"], ["lookup", "chem_target"], ["search", "chem_compound"]]
 }

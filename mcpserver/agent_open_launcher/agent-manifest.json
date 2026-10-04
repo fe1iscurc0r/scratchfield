@@ -47,5 +47,16 @@
         "example": "{\"tool_name\":\"查询生态应用状态\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "ecology"
+    ],
+    "domains": [],
+    "tier": "process-control",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "capability_pairs": [["control", "app"], ["list", "app"], ["search", "app"]]
 }

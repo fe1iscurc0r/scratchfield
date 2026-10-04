@@ -12,10 +12,20 @@
 # 匹配示例：
 #   http://127.0.0.1:5173
 #   https://localhost:8000
+#   lumo-app://dist            （Electron 构建版页面源：loadURL('lumo-app://dist/index.html')）
 # 不匹配：
 #   http://localhost.evil.com:8080  （被 $ 锚定符挡住）
 #   file://127.0.0.1:8000           （协议不符）
-LOCAL_ORIGIN_REGEX = r"^https?://(127\.0\.0\.1|localhost):\d+$"
+#
+# Electron 补充说明：构建版窗口的 Origin 是自定义协议 lumo-app://dist，不带端口，
+# 早期正则只认 http(s)://localhost:port，导致构建版所有 /system/* 请求被 CORS 拦下
+# （实测：渲染进程报 "blocked by CORS policy: No 'Access-Control-Allow-Origin'"，
+# 应用卡在启动 10%）。补 lumo-app 与 file 两条本地壳来源。
+LOCAL_ORIGIN_REGEX = (
+    r"^(https?://(127\.0\.0\.1|localhost):\d+"
+    r"|lumo-app://[A-Za-z0-9._-]+"
+    r"|file://)$"
+)
 
 
 def apply_local_cors(app):

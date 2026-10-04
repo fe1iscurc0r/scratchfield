@@ -9,15 +9,16 @@ import hashlib
 import logging
 import os
 import sys
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import litellm
+# litellm 首次 import 约 8.9s，占启动时间 75% —— 改走懒加载代理（卷191-B2）
+# 真实 import 推迟到首次 LLM 调用，见 apiserver/litellm_lazy.py
 from fastapi import FastAPI, HTTPException
-from litellm import acompletion
 
 from system.config import get_config
 from system.config_value_utils import is_placeholder_api_key
@@ -26,6 +27,7 @@ from system.llm_params import get_access_token, get_gateway_url, should_use_gate
 from system.llm_params import get_llm_params as _get_common_llm_params
 
 from . import naga_auth
+from .litellm_lazy import acompletion, litellm
 
 # 配置日志
 logger = logging.getLogger("LLMService")
@@ -180,7 +182,7 @@ class LLMService:
             config_error = self._local_api_config_error(llm_params)
             if config_error:
                 return LLMResponse(content=config_error)
-            response = await acompletion(
+            response = await self._acompletion_thinking(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self._normalize_temperature(model_name, temperature),
@@ -194,6 +196,31 @@ class LLMService:
         except Exception as e:
             logger.error(f"API调用失败: {e}")
             return LLMResponse(content=f"API调用出错: {str(e)}")
+
+    def _apply_thinking_params(self, call_params: dict, *, enabled: bool | None = None) -> None:
+        """思考开关透传（思考找回修复）。
+
+        部分 OpenAI 兼容中转（如 tokenrhythm）默认不返回 reasoning_content，
+        需要显式 enable_thinking=true 才吐思考链；官方 DeepSeek 等忽略该参数，
+        无副作用。设 LUMO_ENABLE_THINKING=0 可整体关闭。
+
+        ``enabled=False``：显式关闭（结构化短输出类辅助调用——Galgame 候选/
+        摘要等不需要思考链，思考只会拖慢并撞超时）。
+        """
+        import os
+
+        if enabled is False:
+            return
+        if enabled is None and os.environ.get("LUMO_ENABLE_THINKING", "1") == "0":
+            return
+        extra_body = dict(call_params.get("extra_body") or {})
+        extra_body.setdefault("enable_thinking", True)
+        call_params["extra_body"] = extra_body
+
+    async def _acompletion_thinking(self, *, enable_thinking: bool | None = None, **call_params):
+        """acompletion + 思考开关透传（见 _apply_thinking_params）。"""
+        self._apply_thinking_params(call_params, enabled=enable_thinking)
+        return await acompletion(**call_params)
 
     def is_available(self) -> bool:
         """检查LLM服务是否可用"""
@@ -212,6 +239,7 @@ class LLMService:
         api_key_override: str | None = None,
         api_base_override: str | None = None,
         provider_hint: str | None = None,
+        enable_thinking: bool | None = None,
     ) -> LLMResponse:
         """带上下文聊天（支持模型/网关覆写）"""
         if not self._initialized:
@@ -244,11 +272,12 @@ class LLMService:
                 final_base,
                 provider_hint,
             )
-            response = await acompletion(
+            response = await self._acompletion_thinking(
                 model=model_name,
                 messages=prepared_messages,
                 temperature=self._normalize_temperature(model_name, temperature),
                 max_tokens=get_config().api.max_tokens if hasattr(get_config().api, 'max_tokens') else None,
+                enable_thinking=enable_thinking,
                 **llm_params
             )
             message = response.choices[0].message
@@ -259,7 +288,8 @@ class LLMService:
             logger.error(f"上下文聊天调用失败: {e}")
             return LLMResponse(content=f"聊天调用出错: {str(e)}")
 
-    async def chat_with_context_and_reasoning(self, messages: list[dict], temperature: float = 0.7) -> LLMResponse:
+    async def chat_with_context_and_reasoning(self, messages: list[dict], temperature: float = 0.7,
+                                              enable_thinking: bool | None = None) -> LLMResponse:
         """带上下文的聊天调用，返回包含 reasoning_content 的完整响应"""
         return await self.chat_with_context_and_reasoning_with_overrides(
             messages=messages,
@@ -267,11 +297,14 @@ class LLMService:
             model_override=None,
             api_key_override=None,
             api_base_override=None,
+            enable_thinking=enable_thinking,
         )
 
     async def stream_chat_with_context(self, messages: list[dict], temperature: float = 0.7,
                                        model_override: dict[str, str] | None = None,
-                                       tools: list[dict] | None = None):
+                                       tools: list[dict] | None = None,
+                                       enable_thinking: bool | None = None,
+                                       router_meta: dict[str, str] | None = None):
         """带上下文的流式聊天调用，支持 reasoning_content 交织输出 + 原生 function calling
 
         Args:
@@ -280,11 +313,72 @@ class LLMService:
             model_override: 临时模型覆盖参数，用于切换到视觉模型等场景
                 格式: {"model": "glm-4.5v", "api_base": "https://...", "api_key": "..."}
             tools: OpenAI function calling schemas（可选）
+            router_meta: W125-01 路由输入（session_id/step_type/task_type/turn_id）；
+                仅当调用方**未**指定 model_override 且 `router.enabled=true` 时生效（默认关，行为不变）
 
         Yields:
             格式为 "data: <json>\n\n" 的 SSE 事件
             JSON 结构: {"type": "content"|"reasoning"|"tool_calls_native", "text": "..."}
         """
+        # W125-01/02/04：turn 级路由（默认关）+ 决策记录 + 路由 span
+        _router_log_id = None
+        _router_started = time.perf_counter()
+        _router_finished = False
+
+        def _finish_router(ok: bool, error: str = "") -> None:
+            nonlocal _router_finished
+            if _router_finished:
+                return
+            _router_finished = True
+            latency = time.perf_counter() - _router_started
+            try:
+                if _router_log_id:
+                    from apiserver import llm_router
+
+                    llm_router.record_outcome(_router_log_id, success=ok, latency=latency, error=error)
+            except Exception:  # noqa: BLE001 - 记录失败不影响对话
+                logger.debug("[LLM] 路由结果回填失败", exc_info=True)
+            try:
+                if _router_span_cm is not None:
+                    if _router_span is not None:
+                        _router_span.attributes["status"] = "success" if ok else "error"
+                    _router_span_cm.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001
+                logger.debug("[LLM] 路由 span 收尾失败", exc_info=True)
+
+        _router_span = None
+        _router_span_cm = None
+        if model_override is None:
+            try:
+                from apiserver import llm_router
+
+                meta = dict(router_meta or {})
+                routed = llm_router.route_override(
+                    messages, tools=tools, step_type=str(meta.get("step_type") or ""),
+                    task_type=str(meta.get("task_type") or ""),
+                    session_id=str(meta.get("session_id") or ""),
+                )
+                if routed:
+                    decision = dict(routed.get("_router") or {})
+                    model_override = {k: v for k, v in routed.items() if k != "_router"}
+                    _router_log_id = llm_router.record_decision(
+                        decision, session_id=str(meta.get("session_id") or ""),
+                        turn_id=str(meta.get("turn_id") or ""),
+                    )
+                    try:
+                        from apiserver.event_bus.trace import trace_span
+
+                        _router_span_cm = trace_span(
+                            "router:route", tier=decision.get("tier"),
+                            model=decision.get("model"),
+                            complexity=decision.get("complexity"),
+                        )
+                        _router_span = _router_span_cm.__enter__()  # 拿到 Span 本体
+                    except Exception:  # noqa: BLE001 - span 失败不影响调用
+                        _router_span = None
+                        _router_span_cm = None
+            except Exception as e:  # noqa: BLE001 - 路由失败绝不拦对话（回落现有行为）
+                logger.warning(f"[LLM] 模型路由跳过（回落到现有配置）: {e}")
         if not self._initialized:
             self._initialize_client()
             if not self._initialized:
@@ -357,6 +451,7 @@ class LLMService:
                     "timeout": 120,
                     "stream_timeout": 120,
                     "num_retries": 0,
+                    "enable_thinking": enable_thinking,
                     **llm_params
                 }
                 if tools:
@@ -364,7 +459,7 @@ class LLMService:
                     if get_config().api.api_format != "anthropic":
                         call_params["parallel_tool_calls"] = True
 
-                response = await acompletion(**call_params)
+                response = await self._acompletion_thinking(**call_params)
 
                 # 累积器：tool_calls 增量拼接
                 pending_tool_calls: dict[int, dict[str, str]] = {}  # {index: {id, name, arguments}}
@@ -429,6 +524,7 @@ class LLMService:
                     )
 
                 # 流式响应正常完成，跳出重试循环
+                _finish_router(True)
                 return
 
             except litellm.AuthenticationError as e:
@@ -453,6 +549,7 @@ class LLMService:
                         logger.error(f"Token 刷新失败: {refresh_err}")
                 # 刷新失败或已刷新过 → 通知前端触发重新登录
                 logger.error(f"流式聊天认证失败: {e}")
+                _finish_router(False, error="auth_expired")
                 yield self._format_sse_chunk("auth_expired", "登录已过期，请重新登录")
                 return
 
@@ -464,11 +561,13 @@ class LLMService:
                     await asyncio.sleep(1)  # 短暂等待后重试
                     continue
                 logger.error(f"[LLM] 流式调用连接异常，已耗尽重试次数: {e}")
+                _finish_router(False, error="connection")
                 yield self._format_sse_chunk("content", f"流式调用出错（连接异常，已重试 {max_attempts} 次）: {str(e)}")
                 return
 
             except Exception as e:
                 logger.error(f"流式聊天调用失败: {e}")
+                _finish_router(False, error=type(e).__name__)
                 yield self._format_sse_chunk("content", f"流式调用出错: {str(e)}")
                 return
 

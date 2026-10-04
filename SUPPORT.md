@@ -6,14 +6,14 @@
 
 | 方式 | 说明 |
 |------|------|
-| [GitHub Issues](https://github.com/fenglin-maple/scratchpad/issues) | Bug 报告、功能请求 |
-| [GitHub Discussions](https://github.com/fenglin-maple/scratchpad/discussions) | 使用问题、经验分享 |
-| QQ 群 | 1951864121（作者，非群号） |
-| 邮箱 | 1951864121@qq.com |
+| [GitHub Issues](https://github.com/fe1iscurc0r/scratchpad/issues) | Bug 报告、功能请求 |
+| [GitHub Discussions](https://github.com/fe1iscurc0r/scratchpad/discussions) | 使用问题、经验分享 |
+| GitHub Issues | https://github.com/fe1iscurc0r/scratchfield/issues |
+| 邮箱 | fe1iscurc0r@users.noreply.github.com |
 
 ## Issue 提交前
 
-1. 搜索已有 [Issues](https://github.com/fenglin-maple/scratchpad/issues)，避免重复
+1. 搜索已有 [Issues](https://github.com/fe1iscurc0r/scratchpad/issues)，避免重复
 2. 阅读 [README.md](./README.md) 和 [DEPLOYMENT 文档](./docs/)
 3. 使用 Issue 模板（Bug Report / Feature Request）
 
@@ -27,7 +27,7 @@
 | 版本 | 状态 |
 |------|------|
 | main 分支 | 🟢 活跃开发中 |
-| 已发布版本 | 见 [Releases](https://github.com/fenglin-maple/scratchpad/releases) |
+| 已发布版本 | 见 [Releases](https://github.com/fe1iscurc0r/scratchpad/releases) |
 
 ## 社区行为准则
 

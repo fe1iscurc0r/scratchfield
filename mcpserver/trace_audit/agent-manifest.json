@@ -1,0 +1,59 @@
+{
+  "name": "trace_audit",
+  "displayName": "trace 审计（FOXTROT 线：七项审计+接入审查门）",
+  "version": "0.1.0",
+  "description": "FOXTROT 线 trace 审计的 MCP 桥：audit_records/audit_file 对记录做七项审计（schema/时间线/唯一性/来源/回放/边界/责任人）；run_gate 对外来文件/仓库跑接入审查门（许可/危险/大文件/二进制/来源）；list_checklist 输出审计清单。封装不重写，无状态。",
+  "author": "沈遥",
+  "license": "AGPL-3.0",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.trace_audit.bridge",
+    "class": "TraceAuditBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "audit_records",
+        "description": "对记录数组做七项审计，返回 verdict（PASS/FAIL）+ criteria + issues",
+        "params": {
+          "records": "记录数组，每条需含 id/timestamp/source/type/owner"
+        },
+        "example": "{\"tool_name\":\"audit_records\",\"records\":[{\"id\":\"r1\",\"timestamp\":1724900000,\"source\":\"local\",\"type\":\"log\",\"owner\":\"agent\"}]}"
+      },
+      {
+        "command": "audit_file",
+        "description": "读 JSON 数组或 JSONL 文件后审计（路径不存在/解析失败返回 error）",
+        "params": {
+          "path": "记录文件路径（.json 数组或 .jsonl）"
+        },
+        "example": "{\"tool_name\":\"audit_file\",\"path\":\"records.jsonl\"}"
+      },
+      {
+        "command": "run_gate",
+        "description": "接入审查门：许可核实/危险 import/大文件/二进制/来源黑名单，verdict 为 PASS/WARN/FAIL",
+        "params": {
+          "path": "待审查的文件或目录",
+          "source": "来源 URL/标识，默认 local",
+          "max_file_size": "大文件阈值（字节），可选"
+        },
+        "example": "{\"tool_name\":\"run_gate\",\"path\":\"mcpserver/trace_audit\",\"source\":\"local\"}"
+      },
+      {
+        "command": "list_checklist",
+        "description": "输出审计清单：必需字段/已知 type 白名单/七项标准中文标签（与代码同源）"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "ecology"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["exec", "audit"], ["list", "audit"], ["lookup", "audit"]]
+}

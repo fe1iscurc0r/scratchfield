@@ -1,0 +1,7 @@
+{
+  "faults": [
+    {"type": "mcp_slow", "mode": "once", "delay": 0.05},
+    {"type": "mcp_rate_limit", "mode": "random", "probability": 0.3},
+    {"type": "mcp_disconnect", "mode": "persistent", "duration": 2.0}
+  ]
+}

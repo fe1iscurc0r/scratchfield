@@ -1,0 +1,52 @@
+name: mirror-gitee
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Push mirror to Gitee (staged)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git config --global http.postBuffer 524288000
+          git config --global http.version HTTP/1.1
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 240
+          echo "[1] clone (blob:none) ..."
+          git clone --quiet --filter=blob:none \
+            "https://x-access-token:${GH_TOKEN}@github.com/fe1iscurc0r/scratchpad.git" repo
+          cd repo
+          git remote add gitee "https://fe1iscurc0r:${GITEE_TOKEN}@gitee.com/fe1iscurc0r/scratchpad.git"
+          push_ref() {
+            for a in 1 2 3; do
+              if git push gitee "+$1" --quiet; then return 0; fi
+              echo "    retry $a for $1"
+              sleep 15
+            done
+            return 1
+          }
+          echo "[2] staged fast-forward push ..."
+          GITEE_MAIN=$(git ls-remote gitee refs/heads/main | cut -f1 || true)
+          STAGES=""
+          if [ -n "$GITEE_MAIN" ] && git cat-file -e "$GITEE_MAIN" 2>/dev/null; then
+            STAGES=$(git rev-list --reverse "$GITEE_MAIN..main" || true)
+          fi
+          n=0
+          for sha in $STAGES; do
+            n=$((n+1))
+            echo "    stage $n: $sha"
+            push_ref "$sha:refs/heads/main"
+          done
+          echo "    stages pushed: $n"
+          echo "[3] final full refs push (branches + tags) ..."
+          push_ref "refs/heads/*:refs/heads/*"
+          push_ref "refs/tags/*:refs/tags/*"
+          echo "[4] mirror OK"

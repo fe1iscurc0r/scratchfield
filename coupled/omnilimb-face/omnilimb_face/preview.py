@@ -419,9 +419,9 @@ def _build_self_signed_ssl_context(lan_ips: list[str]):
 
     try:
         from cryptography import x509
-        from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
     except Exception as exc:  # pragma: no cover - optional dep
         raise RuntimeError(
             "--https needs the 'cryptography' package. Install it with:\n"
@@ -454,6 +454,10 @@ def _build_self_signed_ssl_context(lan_ips: list[str]):
 
     if not (cert_path.is_file() and key_path.is_file()):
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        # NOTE: CertificateBuilder exposes ONLY the naive-datetime setters
+        # (not_valid_before / not_valid_after) — the *_utc variants exist on
+        # Certificate (the read side), not on the builder. So the naive
+        # setters stay as-is; cryptography>=49 requires no change here.
         now = datetime.datetime.utcnow()
         subject = issuer = x509.Name(
             [x509.NameAttribute(NameOID.COMMON_NAME, "omnilimb-face preview")]
@@ -552,7 +556,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     # Real AI replies via the user's hermes one-shot (reuses their configured
     # LLM + credentials). The avatar then speaks the agent's real answer.
-    default_hermes_dir = str((root_default := Path(__file__).resolve().parent.parent / "hermes-agent"))
+    default_hermes_dir = str(root_default := Path(__file__).resolve().parent.parent / "hermes-agent")
     default_hermes_py = str(Path(default_hermes_dir) / ".venv" / "Scripts" / "python.exe")
     parser.add_argument(
         "--llm",

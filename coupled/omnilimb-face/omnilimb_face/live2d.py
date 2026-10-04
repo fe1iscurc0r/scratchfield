@@ -92,7 +92,7 @@ class Live2DModelInfo:
 
     def neutral_expression_index(
         self, default_expression: str = DEFAULT_NEUTRAL_EXPRESSION
-    ) -> Optional[int]:
+    ) -> int | None:
         """Resolve the neutral/default expression index from the emotion map.
 
         Returns the index mapped to ``default_expression`` (falling back to the
@@ -211,7 +211,7 @@ class Live2DModelInfo:
 
     # -- Parsing internals ---------------------------------------------------
     @staticmethod
-    def _find_model_entry(data: Any, model_name: str) -> Optional[dict]:
+    def _find_model_entry(data: Any, model_name: str) -> dict | None:
         """Locate the entry for ``model_name`` across the accepted shapes."""
         if isinstance(data, list):
             for item in data:
@@ -377,7 +377,7 @@ class Live2DDirector:
 
     # -- Internals -----------------------------------------------------------
     @staticmethod
-    def _resolve_audio(seg: Any) -> Optional[str]:
+    def _resolve_audio(seg: Any) -> str | None:
         """Resolve the optional base64 audio payload from a segment."""
         audio = _get(seg, "audio", None)
         if isinstance(audio, str):

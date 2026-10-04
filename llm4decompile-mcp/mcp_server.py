@@ -21,12 +21,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from mcp import types  # 官方 mcp SDK 的类型模块（mcp.types）
 import yaml
+from inference import LLM4Decompile, ModelNotLoadedError
+from mcp import types  # 官方 mcp SDK 的类型模块（mcp.types）
 from mcp.server import stdio
 from mcp.server.lowlevel import Server
-
-from inference import LLM4Decompile, ModelNotLoadedError
 
 logger = logging.getLogger("llm4decompile.mcp")
 
@@ -40,7 +39,7 @@ def load_config(config_path: str | None) -> dict:
 
     cfg: dict[str, Any] = {}
     if config_path and Path(config_path).exists():
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
     model = cfg.get("model", {})
     return {

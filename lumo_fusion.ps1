@@ -52,19 +52,24 @@ function Resolve-ToolPath($paramValue, $envName, $candidates) {
   return $fallback
 }
 
-# Python：探测常见安装位置 + PATH 里的 python
+# Python：项目既定运行时优先，再退回 PATH / 常见安装位置
+#   为什么项目路径必须排在 PATH 探测之前：后端与 NEKO 都跑在这个解释器上，
+#   而项目依赖（bilibili_api 等）只装在 python-sdk 里；PATH 里可能存在别的
+#   python（如 IDE/工具自带的托管版），一旦被它抢先，NEKO 会 import 失败。
+#   —— 与 lumo.ps1 的 $PYTHON_EXE 保持一致，两个启动器解析到同一个解释器。
+#   移到别处不受影响：该路径不存在时会被 Resolve-ToolPath 跳过。
 $pythonCandidates = @(
+  "C:\Users\ASUS\python-sdk\python3.13.2\python.exe",  # 项目运行时（与 lumo.ps1 同款）
   (Get-Command python -ErrorAction SilentlyContinue).Source,
   "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
-  "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
-  "C:\Users\ASUS\python-sdk\python3.13.2\python.exe"  # 历史默认（原开发机）
+  "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
 )
 $PYTHON_EXE   = Resolve-ToolPath $PythonExe "LUMO_FUSION_PYTHON" $pythonCandidates
 
-# Node：探测 PATH + 常见二进制缓存目录
+# Node：同理，项目既定版本优先，再退回 PATH
 $nodeCandidates = @(
-  (Get-Command node -ErrorAction SilentlyContinue).Source,
-  "$env:USERPROFILE\.trae-cn\binaries\node\versions\24.18.0\node.exe"  # 历史默认
+  "$env:USERPROFILE\.trae-cn\binaries\node\versions\24.18.0\node.exe",  # 项目既定（与 lumo.ps1 同款）
+  (Get-Command node -ErrorAction SilentlyContinue).Source
 )
 $NODE_EXE     = Resolve-ToolPath $NodeExe "LUMO_FUSION_NODE" $nodeCandidates
 $NPM_CMD      = if ($NODE_EXE) { Join-Path (Split-Path $NODE_EXE) "npm.cmd" } else { "npm.cmd" }
@@ -96,6 +101,30 @@ Write-Host "`n=== 陆墨 × NEKO 融合启动器（M1）===" -ForegroundColor Cy
 Test-Path-Or-Exit $PYTHON_EXE "Python"
 Test-Path-Or-Exit $WRAPPER "neko_launcher_wrapper.py"
 Test-Path-Or-Exit $NEKO_ROOT "NEKO 源码目录"
+
+# ============================================================
+# 加载 .env.local（已 gitignore）到进程环境
+# ============================================================
+# 本地凭据统一放这里，避免明文进仓库：Zotero（ZOTERO_API_KEY/ZOTERO_USER_ID）、
+# 各适配器的 OPENAI_API_KEY 等。后端不自动读 .env，所以由启动器统一注入子进程环境。
+# 只打印条目数与键名，不回显取值。
+$envLocalPath = Join-Path $PSScriptRoot ".env.local"
+if (Test-Path $envLocalPath) {
+  $loadedKeys = @()
+  foreach ($line in Get-Content $envLocalPath -Encoding UTF8) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) { continue }
+    $kv = $trimmed.Split("=", 2)
+    $keyName = $kv[0].Trim()
+    $keyValue = $kv[1].Trim().Trim('"').Trim("'")
+    if (-not $keyName) { continue }
+    [Environment]::SetEnvironmentVariable($keyName, $keyValue, "Process")
+    $loadedKeys += $keyName
+  }
+  Write-Host "[环境] 已加载 .env.local：$($loadedKeys.Count) 项（$($loadedKeys -join ', ')）" -ForegroundColor DarkGray
+} else {
+  Write-Host "[环境] 未发现 .env.local（本地凭据可放该文件，已在 .gitignore 中）" -ForegroundColor DarkGray
+}
 
 # ============================================================
 # 生成 LUMO_PROXY_TOKEN（两个进程共享的鉴权密钥）
@@ -140,6 +169,23 @@ Write-Host "[环境] LUMO_PROXY_BASE_URL=$($env:LUMO_PROXY_BASE_URL)" -Foregroun
 
 # 嵌入引擎用 CPU（避免与前端 WebGL 抢 GPU）
 $env:LUMO_EMBEDDING_DEVICE = "cpu"
+
+# 本机回环调用绕开系统代理。
+# 背景（2026-09-16 实测）：Windows 开着系统代理时（如 FlClash 127.0.0.1:7890），Python 的
+# urllib/requests 会读注册表代理设置且**不认 ProxyOverride 里的 127.*/localhost**，于是连本机
+# 服务也被送进代理：表现为 Ollama /api/tags 返回 405 Method Not Allowed、本地 HTTP 工具随机失败。
+# 这里给所有子进程显式设置 NO_PROXY，排除回环地址。
+$env:NO_PROXY = "127.0.0.1,localhost,::1"
+$env:no_proxy = $env:NO_PROXY
+Write-Host "[环境] NO_PROXY=$($env:NO_PROXY)（本机回环不走系统代理）" -ForegroundColor DarkGray
+
+# MCP tts_api 适配器指向本机 TTS（voice/output/server.py 监听 tts.port，默认 5048）。
+# 该适配器按 OpenAI 兼容契约调用（GET / 探活、GET /v1/audio/voices 列音色、POST /v1/audio/speech 合成），
+# 本机 TTS 已补齐这三个端点；不设此变量时适配器默认打第三方 TTS-API 的 :8880（本机没有该服务 → 恒失败）。
+if (-not $env:TTS_API_BASE_URL) {
+  $env:TTS_API_BASE_URL = "http://127.0.0.1:5048"
+}
+Write-Host "[环境] TTS_API_BASE_URL=$($env:TTS_API_BASE_URL)" -ForegroundColor DarkGray
 
 # ============================================================
 # 清理残留进程

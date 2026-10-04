@@ -1,0 +1,105 @@
+# BoFire 材料实验工具统一 meta.yaml（S-02）
+# 从 mcpserver/bofire/agent.py 真实接口提取（I 线已封装，只读其接口）。
+app:
+  name: bofire
+  display_name: BoFire 实验设计
+  version: 1.0.0
+  description: 多目标贝叶斯优化 + 实验设计：声明实验域（连续/离散/分类变量 + 目标 + 约束）→ 推荐下一轮实验点 → 回喂结果更新优化器
+  categories: [experimental-design, optimization]   # 领域名已移出（见下 domains）
+  families: [compute]
+  domains: [materials]
+  tier: read-only
+  origin:
+    kind: bridge
+    upstream: BoFire
+    upstream_license: 见上游
+  security_schemes: {}
+  visibility: public
+  active: true
+  entrypoint:
+    module: mcpserver.bofire.agent
+    class: BofireAgent
+
+functions:
+  - name: bofire_define_domain
+    description: 声明实验域：混合变量（连续/离散/分类）+ 目标（maximize/minimize）+ 可选约束
+    tags: [domain, variables, objectives]
+    parameters:
+      type: object
+      properties:
+        variables:
+          type: array
+          description: 变量列表，每个含 name/type（continuous|discrete|categorical）/bounds 或 values
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: 变量名
+              type:
+                type: string
+                enum: [continuous, discrete, categorical]
+              bounds:
+                type: array
+                description: "连续/离散变量的 [下限, 上限]"
+              values:
+                type: array
+                description: 分类变量的取值列表
+        objectives:
+          type: array
+          description: 目标列表，每个含 name/type（maximize|minimize）
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                enum: [maximize, minimize]
+        constraints:
+          type: array
+          description: 可选约束列表
+      required: [variables, objectives]
+      additionalProperties: false
+
+  - name: bofire_ask_candidates
+    description: 推荐下一轮实验点：给定 domain，返回 n 个候选
+    tags: [candidates, optimization]
+    parameters:
+      type: object
+      properties:
+        domain:
+          type: object
+          description: bofire_define_domain 返回的 domain dict（含 variables/objectives/constraints）
+        n_candidates:
+          type: integer
+          description: 候选数（默认 5，范围 1-100）
+          minimum: 1
+          maximum: 100
+          default: 5
+      required: [domain]
+      additionalProperties: false
+
+  - name: bofire_tell_results
+    description: 回喂真实实验结果：experiments 列表（每条含 inputs/outputs），更新优化器
+    tags: [results, feedback]
+    parameters:
+      type: object
+      properties:
+        experiments:
+          type: array
+          description: 实验列表，每条含 inputs（变量→值）与 outputs（目标→值）两个 dict
+          items:
+            type: object
+            properties:
+              inputs:
+                type: object
+                description: 变量名→实验值
+              outputs:
+                type: object
+                description: 目标名→实验值
+        domain:
+          type: object
+          description: 可选 domain dict（提供时校验字段名是否匹配）
+      required: [experiments]
+      additionalProperties: false

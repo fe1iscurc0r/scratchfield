@@ -55,8 +55,11 @@ win:
   # 已禁用：自签名证书不适用，且明文密码存在安全风险
   # cscLink: build/codesign.pfx
   # cscKeyPassword: <从环境变量读取，禁止明文写入仓库>
-  signtoolOptions:
-    sign: scripts/win-sign.cjs
+  # 自定义签名钩子（win-sign.cjs）已停用：cscLink 证书配置已移除，
+  # 钩子内部调 manager.doSign 时拿到 null 直接崩（Cannot use 'in' operator）。
+  # 按 2026-09-28 决策「不做代码签名」，这里整体停用：
+  # signtoolOptions:
+  #   sign: scripts/win-sign.cjs
 
 nsis:
   oneClick: false

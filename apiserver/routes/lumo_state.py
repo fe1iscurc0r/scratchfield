@@ -17,16 +17,16 @@ _TEXT_SNIPPET_LEN = 120
 
 @dataclass
 class LumoState:
-    last_user_input: Optional[str] = None       # 最近用户输入文本（截断）
-    last_user_input_at: Optional[float] = None
-    last_action: Optional[str] = None           # 最近 UI 操作（switch_character/stop_playback/...）
-    last_action_at: Optional[float] = None
-    tts_interrupted: Optional[bool] = None      # 最近一次 TTS 是否被打断
-    tts_interrupted_at: Optional[float] = None  # 打断时间戳（精确 TTL，不再借用）
-    last_error: Optional[str] = None            # "severity:error_type"
-    last_error_at: Optional[float] = None
+    last_user_input: str | None = None       # 最近用户输入文本（截断）
+    last_user_input_at: float | None = None
+    last_action: str | None = None           # 最近 UI 操作（switch_character/stop_playback/...）
+    last_action_at: float | None = None
+    tts_interrupted: bool | None = None      # 最近一次 TTS 是否被打断
+    tts_interrupted_at: float | None = None  # 打断时间戳（精确 TTL，不再借用）
+    last_error: str | None = None            # "severity:error_type"
+    last_error_at: float | None = None
 
-    def _fresh(self, ts: Optional[float]) -> bool:
+    def _fresh(self, ts: float | None) -> bool:
         return ts is not None and (time.time() - ts) <= _STATE_TTL_SECONDS
 
     def render(self) -> str:

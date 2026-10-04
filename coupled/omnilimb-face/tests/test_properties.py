@@ -16,7 +16,6 @@ import collections
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-
 from omnilimb_face.config import (
     ConfigIssue,
     ConfigManager,
@@ -1936,8 +1935,8 @@ def test_property6_inject_vs_blank_rejection(text):
     """
     # New names imported locally to avoid top-level redefinition; VTuberConfig
     # and SentenceChunker are reused from the module-level imports.
-    from omnilimb_face.stt import STTEngine
     from omnilimb_face.llm_bridge import LLMBridge
+    from omnilimb_face.stt import STTEngine
 
     class _RecordingCtx:
         """Deterministic fake host ctx: records inject_message(content, role)."""

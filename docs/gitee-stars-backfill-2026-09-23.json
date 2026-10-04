@@ -1,0 +1,77 @@
+{
+  "syzh120/ZYNQ7010-7020_AD9363": {
+    "stars": 2,
+    "language": null,
+    "desc": "基于ZYNQ+AD9363的开源SDR硬件"
+  },
+  "ledgejin/sdr-neutral-hydrogen": {
+    "stars": 2,
+    "language": "C",
+    "desc": "使用STM32F407ZGT6接收中性氢信号\r\n1420MHz"
+  },
+  "ledgejin/STM32_SDR": {
+    "stars": 15,
+    "language": "C",
+    "desc": "使用STM32F405RGT6设计短波SDR接收机。"
+  },
+  "yzq114/NGroundStation": {
+    "stars": 3,
+    "language": null,
+    "desc": "无名创新飞控开源地面站NGroundStation（NGS）"
+  },
+  "skydroid/OpenTower": {
+    "stars": 0,
+    "language": null,
+    "desc": "开源Tower地面站"
+  },
+  "gaasdev/GAAS": {
+    "stars": 676,
+    "language": "C++",
+    "desc": "面向 L5 自主飞行的 eVTOL 与无人机，提供稳健强大基于激光雷达的全自主飞行开源平台。"
+  },
+  "Avem/Avem": {
+    "stars": 184,
+    "language": "C",
+    "desc": "轻量级无人机飞控-[Drone]-[STM32]-[PID]-[BLDC]"
+  },
+  "ai27810617/DuiJiangJiXiePinRuanJian": {
+    "stars": 1,
+    "language": "C++",
+    "desc": "对讲机写频软件大全"
+  },
+  "tan-wenyuan1/lora-gateway": {
+    "stars": 0,
+    "language": null,
+    "desc": "基于esp32实现的Lora网关"
+  },
+  "Barry-sh/KnowledgeGraphData": {
+    "stars": 0,
+    "language": null,
+    "desc": "史上最大规模1.4亿中文知识图谱开源下载"
+  },
+  "openkg/deepke": {
+    "stars": 592,
+    "language": "Python",
+    "desc": "DeepKE是由浙江大学团队维护开源知识图谱抽取工具集。"
+  },
+  "openkg/openspg": {
+    "stars": 11,
+    "language": null,
+    "desc": "OpenSPG是由蚂蚁集团维护的以SPG框架为基础设计和实现的知识图谱开放引擎。"
+  },
+  "openkg/OpenEA": {
+    "stars": 3,
+    "language": null,
+    "desc": "OpenEA是由南京大学团队维护的开源知识图谱对齐工具集。"
+  },
+  "qiantongtech/qKnow": {
+    "stars": 798,
+    "language": "Java",
+    "desc": "qKnow 是一套面向企业知识智能化与行业 AI 应用的开源智能体构建平台，提供知识图谱、知识库 RAG、Bot 构建及开箱即用的行业深度 AI 应用，将行业专"
+  },
+  "pchen_Lyndon/cnschema": {
+    "stars": 0,
+    "language": null,
+    "desc": "开放中文知识图谱的schema"
+  }
+}

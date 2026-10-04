@@ -37,5 +37,23 @@
         "example": "{\"tool_name\":\"tts_health\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "verbal"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "自托管 TTS-API 网关 (kokoro/edge)",
+      "upstream_license": "见上游"
+    }
+  },
+  "requires": {
+    "services": [
+      "tts-api@localhost:8880"
+    ]
+  },
+  "capability_pairs": [["emit", "speech"], ["list", "speech"], ["status", "speech"]]
 }

@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![Commit](https://img.shields.io/github/last-commit/wehos/N.E.K.O?color=green)](https://github.com/Project-N-E-K-O/N.E.K.O/commits)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/5kgHfepNJr)
-![QQ群](https://custom-icon-badges.demolab.com/badge/QQ群-995414391-00BFFF?style=flat&logo=tencent-qq)
+![QQ群](https://custom-icon-badges.demolab.com/badge/QQ群-1092413003-00BFFF?style=flat&logo=tencent-qq)
 [![Steam](https://img.shields.io/badge/Steam-%23000000.svg?logo=steam&logoColor=white)](https://store.steampowered.com/app/4099310/__NEKO/)
 
 [![Docs](https://img.shields.io/badge/📖_开发者文档-project--neko.online-40C5F1?style=for-the-badge)](https://project-neko.online)
@@ -83,10 +83,10 @@
 
 #### 🚀 项目现状 & 近期计划
 
-* **✅ Steam 创意工坊**：已上线。用户可上传和分享自定义角色、模型、语音包。
-* **🚧 [K.U.R.O.](https://github.com/Project-N-E-K-O/K.U.R.O)**：基于 N.E.K.O. 生态的首款 AI Native 独立游戏，开发中。
-* **🚧 移动端**：iOS / Android 适配进行中，已有Demo。
-* **🚧 猫娘网络 (The N.E.K.O. Network)**：AI自主社交——猫娘们拥有自己的"意识"，互相交流、结成群体，在模拟社交媒体上发布动态。即将上线。
+* **✅ [Steam 创意工坊](https://steamcommunity.com/app/4099310/workshop/)**：已上线。用户可上传和分享自定义角色、模型、语音包。
+* **🚧 [K.U.R.O.](https://github.com/Project-N-E-K-O/K.U.R.O)**：基于 N.E.K.O. 生态的首款 AI Native 独立游戏，开发中。已有 Demo，可在 [Release 页面](https://github.com/Project-N-E-K-O/K.U.R.O/releases) 下载体验。
+* **🚧 移动端**：iOS / Android 适配进行中，已开始内测，可在 [官网](https://project-neko.cn) 预约。
+* **🚧 猫娘网络 (The N.E.K.O. Network)**：AI自主社交——猫娘们拥有自己的"意识"，互相交流、结成群体，在模拟社交媒体上发布动态。已有雏形，基础设施见 [喵宇宙社区](https://community.project-neko.cn)。
 
 **跨场景记忆同步**：无论你是在桌面与她聊天，还是在游戏中与她探险，她都是同一个她。所有应用中的AI伙伴将 **完全同步记忆**。
 
@@ -96,7 +96,7 @@
 * **创作者：** 画师、Live2D/3D建模师、配音演员、文案写手——你们赋予"她"灵魂。
 * **梦想家：** 你的反馈和传播也是宝贵的贡献。
 
-**QQ群**：995414391 | **Discord**：[加入我们](https://discord.gg/5kgHfepNJr)
+**QQ群**：1092413003 | **Discord**：[加入我们](https://discord.gg/5kgHfepNJr)
 
 ## 快速开始
 
@@ -169,7 +169,7 @@ docker run -d \
 启动后会自动生成以下目录结构：
 ```plaintext
 当前目录/
-├── neko-home/    # 用户主目录（配置、数据、SSL、OpenFang agent）
+├── neko-home/    # 用户主目录（配置、数据、SSL）
 ├── logs/         # 应用日志
 └── docker-compose.yml
 ```
@@ -192,10 +192,10 @@ BASE="."
 # BASE="/home/neko/neko-data"
 ```
 
-**第 1 步：把只存在于容器里的东西导出来。** 必须赶在删容器之前。两类东西可能只在容器可写层里：OpenFang 的工作目录（旧版从没挂过它），以及——如果你当初跟的是旧版 README——应用数据本身，因为那份文档把 `N.E.K.O/` 挂到了 `/root/Documents/N.E.K.O`，而服务从不往那里写。
+**第 1 步：把只存在于容器里的东西导出来。** 必须赶在删容器之前。如果你当初跟的是旧版 README，应用数据本身可能只在容器可写层里，因为那份文档把 `N.E.K.O/` 挂到了 `/root/Documents/N.E.K.O`，而服务从不往那里写。
 
 ```bash
-mkdir -p "$BASE/neko-home/.local/share/N.E.K.O" "$BASE/neko-home/ssl" "$BASE/neko-home/.openfang"
+mkdir -p "$BASE/neko-home/.local/share/N.E.K.O" "$BASE/neko-home/ssl"
 
 # 判据用「容器实际挂了什么」，不是「宿主目录里有没有东西」——后者对旧版 README
 # 部署的人是错的：那个目录里可能有你自己放进去的文件，而真数据仍然只在容器里。
@@ -215,10 +215,6 @@ else
     docker cp neko:/home/neko/.local/share/N.E.K.O/. "$BASE/neko-home/.local/share/N.E.K.O/"
     EXPORTED_APP_DATA=1
   fi
-  # OpenFang 状态其次，且不致命：从没初始化过的话容器里就没这个目录，而 docker cp
-  # 对不存在的源路径是报错退出的 —— 不能让它挡住上面已经完成的关键导出。
-  docker cp neko:/home/neko/.openfang/. "$BASE/neko-home/.openfang/" \
-    || echo "（容器里没有 .openfang，或导出失败；不影响上面的应用数据）"
 fi
 ```
 
@@ -335,12 +331,6 @@ environment:
   # API 提供商选择
   - NEKO_CORE_API=${NEKO_CORE_API:-qwen}
   - NEKO_ASSIST_API=${NEKO_ASSIST_API:-qwen}
-
-  # 模型配置
-  - NEKO_SUMMARY_MODEL=${NEKO_SUMMARY_MODEL:-qwen-plus}
-  - NEKO_CORRECTION_MODEL=${NEKO_CORRECTION_MODEL:-qwen-max}
-  - NEKO_EMOTION_MODEL=${NEKO_EMOTION_MODEL:-qwen-turbo}
-  - NEKO_VISION_MODEL=${NEKO_VISION_MODEL:-qwen3-vl-plus-2025-09-23}
 
   # SSL 配置
   - SSL_DOMAIN=${SSL_DOMAIN:-project-neko.online}
@@ -603,7 +593,7 @@ localStorage.removeItem('neko.reactChatWindow.chatSurfaceMode');        location
 
 形态说明、各形态自测点与三端验证详见 [`docs/design/compact-chat-mode-design.md`](docs/design/compact-chat-mode-design.md) 的「形态切换与本地测试」。
 
-开发者建议加入企鹅群 995414391 交流。
+开发者建议加入企鹅群 1092413003 交流。
 
 </details>
 
@@ -655,9 +645,7 @@ N.E.K.O/
 │   ├── computer_use.py          # 电脑操控
 │   ├── browser_use_adapter.py   # 浏览器自动化
 │   ├── openclaw_adapter.py      # OpenClaw 云端连接
-│   ├── openfang_adapter.py      # OpenFang 无头执行后端
-│   ├── task_executor.py         # 任务执行引擎
-│   └── 📁 cua/                  # Computer Use Agent 子系统
+│   └── task_executor.py         # 任务执行引擎
 ├── 📁 config/                   # ⚙️ 配置管理模块
 │   ├── api_providers.json       # API服务商配置
 │   └── 📁 prompts/              # 角色、系统和功能提示词
@@ -709,9 +697,9 @@ v0.7: ✅ 初步完成Agent相关功能。**第一阶段已完成。等待后续
 
 v0.8: ✅ 完善记忆相关功能和桌宠模式，内置多款双人小游戏。**第一阶段已完成。等待后续优化**
 
-v0.9：完善多系统适配，包括linux，手机。猫娘网络上线。预计2026年7月初完成。
+v0.9: ✅ 完善多系统适配，包括linux，手机。猫娘网络基础设施上线。**第一阶段已完成。手机端已经开始内测，详情见[官网](https://project-neko.cn)；猫娘网络雏形见[喵宇宙社区](https://community.project-neko.cn)。**
 
-v1.0：放弃部分模型供应商的适配，专注于自研大模型和智能体系统。预计2026年8月底完成。
+v1.0：~~放弃部分模型供应商的适配，专注于自研大模型和智能体系统~~。完善社区和插件市场功能，完成之前遗留的优化工作。预计9月底上线正式版。（自研模型计划已延期至正式版上线以后）
 
 ### 遥测说明 (Telemetry)
 

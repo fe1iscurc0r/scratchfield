@@ -1,0 +1,76 @@
+name: "CodeQL"
+
+# ⚠️ 2026-09-22 起本 workflow 默认不跑（见下方 ENABLE_CODEQL 开关），原因：
+#
+#   本仓库（fe1iscurc0r/scratchpad）是 PRIVATE 仓库，账号套餐为 GitHub Free。
+#   CodeQL 结果上传需要 "Code scanning"（GitHub Advanced Security 能力），
+#   而 GHAS 对私有仓是付费功能 —— Free 套餐下无法启用，仓库 Settings 里
+#   根本没有这个开关。
+#
+#   实证（2026-09-22 复核，可通过 API 复现）：
+#     $ gh api repos/fe1iscurc0r/scratchpad/code-scanning/analyses
+#     → HTTP 403 "Code scanning is not enabled for this repository."
+#     $ gh api repos/fe1iscurc0r/scratchpad
+#     → "security_and_analysis": null   # 无任何 GHAS 项
+#     $ gh api /users/fe1iscurc0r
+#     → "plan": {"name": "free", ...}
+#
+#   表现：三个语言 job 都正常跑完 Checkout → Init → Autobuild → Analyze
+#   （go 约 3m），失败点统一在**结果上传**，日志原文：
+#     "##[warning] Code scanning is not enabled for this repository."
+#     "CodeQL job status was configuration error."
+#   → 属"配置性失败"，非代码告警，代码层修不了。
+#
+#   处理策略与 ci.yml 的 smoke job 一致：不要让它永远红着（红灯变"狼来了"
+#   会淹没真故障）。默认关闭，保留完整定义，条件成熟后一个变量恢复。
+#
+# 🔓 恢复条件（满足任一即可）：
+#   1. 仓库转为 public —— CodeQL 对公开仓免费，此时把 ENABLE_CODEQL 设为 'true'；
+#   2. 采购 GitHub Advanced Security —— 私有仓可启用 code scanning；
+#   3. 换用其他对私有仓免费的 SAST（如 Semgrep）替代本 workflow。
+#
+# 恢复方法（2026-09-22 修订）：仓库 Settings → Secrets and variables → Actions
+#   → Variables 新建 ENABLE_CODEQL = true。未设置该变量 ⇒ 表达式为 false ⇒ 本 workflow 跳过。
+#
+# ⚠️ 历史坑（务必不要再犯）：闸门曾写成
+#     if: ${{ vars.ENABLE_CODEQL == 'true' || env.ENABLE_CODEQL == 'true' }}
+#   job 级 `if` **不允许引用 env context**，GitHub 报
+#   "The workflow is not valid. Unrecognized named-value: 'env'" → 整个 workflow 非法。
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '22 9 * * 5'
+
+jobs:
+  analyze:
+    name: Analyze
+    # 可用性闸门：未启用 code scanning 时整个 job 跳过（不报红）
+    if: ${{ vars.ENABLE_CODEQL == 'true' }}
+    # TODO(2026-10-19): ubuntu-latest 将迁移到 Ubuntu 26（actions/runner-images#14748），
+    # 届时若有不兼容（glibc/Python ABI 等）需显式钉死版本，如 ubuntu-24.04。
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'python', 'javascript-typescript', 'go' ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v4
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{matrix.language}}"

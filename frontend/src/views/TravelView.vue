@@ -36,7 +36,7 @@ const agentOptions = computed(() => {
       continue
     seen.set(session.agentId, session.agentName || session.agentId)
   }
-  return [...seen.entries()].map(([value, label]) => ({ value, label }))
+  return Array.from(seen.entries(), ([value, label]) => ({ value, label }))
 })
 
 function isWithinTimeRange(iso?: string) {

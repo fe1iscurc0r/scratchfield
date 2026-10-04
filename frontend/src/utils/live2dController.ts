@@ -175,7 +175,7 @@ function interpolateKeyframes(keyframes: Keyframe[], progress: number): Record<s
   const p = Math.max(0, Math.min(1, progress))
 
   let left = keyframes[0]!
-  let right = keyframes[keyframes.length - 1]!
+  let right = keyframes.at(-1)!
   for (let i = 0; i < keyframes.length - 1; i++) {
     if (p >= keyframes[i]!.t && p <= keyframes[i + 1]!.t) {
       left = keyframes[i]!
@@ -377,7 +377,7 @@ function computeActionParams(now: number): Record<string, number> {
   if (elapsed >= totalDuration) {
     const result: Record<string, number> = {}
     if (config.keyframes.length > 0) {
-      const lastFrame = config.keyframes[config.keyframes.length - 1]!
+      const lastFrame = config.keyframes.at(-1)!
       for (const k of Object.keys(lastFrame.params)) {
         result[k] = lastFrame.params[k] ?? 0
       }

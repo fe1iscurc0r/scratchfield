@@ -1,0 +1,55 @@
+{
+  "name": "markitdown",
+  "displayName": "MarkItDown 文档转换",
+  "version": "0.1.6",
+  "description": "把本地 PDF / Office / HTML / CSV 转成 Markdown，保留表格、公式与图注结构。上游 microsoft/markitdown（MIT）。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.flat_bridges",
+    "class": "MarkitdownBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "convert_to_markdown",
+        "description": "把单个本地文件转换为 Markdown（PDF/Office/HTML/CSV）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "待转换文件的本地路径"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "example": "{\"tool_name\":\"convert_to_markdown\",\"path\":\"papers/input/xxx.pdf\"}"
+      },
+      {
+        "command": "pipeline_status",
+        "description": "MarkItDown 知识管线状态（版本 + papers 目录盘点）",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"pipeline_status\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "document"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "microsoft/markitdown",
+      "upstream_license": "MIT"
+    }
+  },
+  "capability_pairs": [["convert", "document"], ["status", "document"]]
+}

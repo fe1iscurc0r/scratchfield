@@ -17,6 +17,10 @@ import logging
 import os
 from typing import Any
 
+from mcpserver.memory_maas.entities import MemoryEntity
+from mcpserver.memory_maas.guard import FlowPolicy, pre_write_check
+from mcpserver.memory_maas.maintenance import consolidate, retention_sweep
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SIDECAR = "http://127.0.0.1:48919"
@@ -123,6 +127,129 @@ class MemoryMaasBridge:
         return {"status": "ok", "via": "in-process",
                 **get_core().status()}
 
+    # ---- typed 实体 + 维护 + 防护（X-01~X-03 新工具） ----
+
+    def tool_typed_add(self, content: str, type: str = "note",
+                       tags: list[str] | None = None, pinned: bool = False,
+                       source_rank: int = 0,
+                       relations: list[str] | None = None,
+                       platform: str = "local") -> dict[str, Any]:
+        if not (content or "").strip():
+            return {"status": "error", "error": "content 不能为空"}
+        decision = pre_write_check(content, source_rank=source_rank)
+        if decision.blocked:
+            return {"status": "error", "error": decision.reason}
+        via_http = _sidecar_post("/memory/typed", {
+            "content": content, "type": type, "tags": tags or [],
+            "pinned": bool(pinned), "source_rank": int(source_rank),
+            "relations": relations or [], "platform": platform})
+        if via_http is not None:
+            return {"status": "ok", "via": "http-sidecar", **via_http}
+        from mcpserver.memory_maas.core import MemoryMaasError, get_core
+        try:
+            result = get_core().add_memory(
+                content, type=type, tags=tags, pinned=pinned,
+                relations=relations, source_rank=source_rank,
+                platform=platform)
+            return {"status": "ok", "via": "in-process", **result}
+        except MemoryMaasError as e:
+            return {"status": "error", "error": str(e)}
+
+    def tool_capture_observation(self, memory_session_id: str, title: str = "",
+                                 narrative: str = "", type: str = "note",
+                                 tags: list[str] | None = None,
+                                 pinned: bool = False,
+                                 source_rank: int = 0,
+                                 platform: str = "local") -> dict[str, Any]:
+        """观察捕获（03-01 内容哈希去重）：同观察幂等只留一条。03-04 platform 打标。"""
+        if not (memory_session_id or "").strip():
+            return {"status": "error", "error": "memory_session_id 不能为空"}
+        via_http = _sidecar_post("/memory/capture/observation", {
+            "memory_session_id": memory_session_id, "title": title,
+            "narrative": narrative, "type": type, "tags": tags or [],
+            "pinned": bool(pinned), "source_rank": int(source_rank),
+            "platform": platform})
+        if via_http is not None:
+            return {"status": "ok", "via": "http-sidecar", **via_http}
+        from mcpserver.memory_maas.core import MemoryMaasError, get_core
+        try:
+            result = get_core().capture_observation(
+                memory_session_id, title, narrative, type=type, tags=tags,
+                pinned=pinned, source_rank=source_rank, platform=platform)
+            return {"status": "ok", "via": "in-process", **result}
+        except MemoryMaasError as e:
+            return {"status": "error", "error": str(e)}
+
+    def tool_typed_query(self, type: str | None = None,
+                         tags: list[str] | None = None,
+                         pinned: bool | None = None,
+                         include_isolation: bool = False,
+                         limit: int | None = None,
+                         path: str | None = None,
+                         platform: str | None = None) -> dict[str, Any]:
+        via_http = _sidecar_post("/memory/typed/query", {
+            "type": type, "tags": tags, "pinned": pinned,
+            "include_isolation": bool(include_isolation), "limit": limit,
+            "path": path, "platform": platform})
+        if via_http is not None:
+            return {"status": "ok", "via": "http-sidecar", **via_http}
+        from mcpserver.memory_maas.core import get_core
+        result = get_core().query(type=type, tags=tags, pinned=pinned,
+                                  limit=limit,
+                                  include_isolation=include_isolation,
+                                  path=path, platform=platform)
+        return {"status": "ok", "via": "in-process", **result}
+
+    def tool_maintenance(self, action: str = "status",
+                         max_age_days: float = 30.0,
+                         min_group: int = 2,
+                         template_mode: str = "default",
+                         dry_run: bool = False) -> dict[str, Any]:
+        """action: status | sweep | consolidate | snapshot。"""
+        if action == "sweep":
+            via_http = _sidecar_post("/memory/maintenance/sweep",
+                                     {"max_age_days": max_age_days,
+                                      "dry_run": bool(dry_run)})
+            if via_http is not None:
+                return {"status": "ok", "via": "http-sidecar", **via_http}
+            from mcpserver.memory_maas.core import get_core
+            core = get_core()
+            result = retention_sweep(
+                core.typed_store, max_age_days=max_age_days, dry_run=dry_run,
+                snapshots_dir=str(core.data_dir / "snapshots"))
+            return {"status": "ok", "via": "in-process", **result}
+        if action == "consolidate":
+            via_http = _sidecar_post("/memory/maintenance/consolidate",
+                                     {"min_group": min_group,
+                                      "template_mode": template_mode,
+                                      "dry_run": bool(dry_run)})
+            if via_http is not None:
+                return {"status": "ok", "via": "http-sidecar", **via_http}
+            from mcpserver.memory_maas.core import get_core
+            core = get_core()
+            result = consolidate(
+                core.typed_store, min_group=min_group,
+                template_mode=template_mode, dry_run=dry_run,
+                snapshots_dir=str(core.data_dir / "snapshots"))
+            return {"status": "ok", "via": "in-process", **result}
+        if action == "status":
+            via_http = _sidecar_get("/memory/maintenance/status")
+            if via_http is not None:
+                return {"status": "ok", "via": "http-sidecar", **via_http}
+            from mcpserver.memory_maas.core import get_core
+            return {"status": "ok", "via": "in-process",
+                    **get_core().maintenance_status()}
+        return {"status": "error",
+                "error": f"不支持的 maintenance action: {action!r}（sweep/consolidate/status/snapshot）"}
+
+    def tool_guard_status(self) -> dict[str, Any]:
+        via_http = _sidecar_get("/memory/guard/status")
+        if via_http is not None:
+            return {"status": "ok", "via": "http-sidecar", **via_http}
+        from mcpserver.memory_maas.core import get_core
+        return {"status": "ok", "via": "in-process",
+                **get_core().guard_status()}
+
     # ---- MCP 分发 ----
     async def handle_handoff(self, tool_call: dict[str, Any]) -> str:
         tool_name = str(tool_call.get("tool_name") or "").strip()
@@ -146,10 +273,51 @@ class MemoryMaasBridge:
                     turns=params.get("turns") or [])
             elif tool_name == "memory_status":
                 result = self.tool_status()
+            elif tool_name == "memory_add_typed":
+                result = self.tool_typed_add(
+                    str(params.get("content") or ""),
+                    type=str(params.get("type") or "note"),
+                    tags=params.get("tags") or [],
+                    pinned=bool(params.get("pinned", False)),
+                    source_rank=int(params.get("source_rank", 0) or 0),
+                    relations=params.get("relations") or [],
+                    platform=str(params.get("platform") or "local"))
+            elif tool_name == "memory_capture_observation":
+                result = self.tool_capture_observation(
+                    str(params.get("memory_session_id")
+                        or tool_call.get("session_id") or ""),
+                    title=str(params.get("title") or ""),
+                    narrative=str(params.get("narrative") or ""),
+                    type=str(params.get("type") or "note"),
+                    tags=params.get("tags") or [],
+                    pinned=bool(params.get("pinned", False)),
+                    source_rank=int(params.get("source_rank", 0) or 0),
+                    platform=str(params.get("platform") or "local"))
+            elif tool_name == "memory_query_filtered":
+                result = self.tool_typed_query(
+                    type=params.get("type"),
+                    tags=params.get("tags"),
+                    pinned=params.get("pinned"),
+                    include_isolation=bool(params.get("include_isolation", False)),
+                    limit=params.get("limit"),
+                    path=params.get("path"),
+                    platform=params.get("platform"))
+            elif tool_name == "memory_maintenance":
+                result = self.tool_maintenance(
+                    action=str(params.get("action") or "status"),
+                    max_age_days=float(params.get("max_age_days", 30.0) or 30.0),
+                    min_group=int(params.get("min_group", 2) or 2),
+                    template_mode=str(params.get("template_mode") or "default"),
+                    dry_run=bool(params.get("dry_run", False)))
+            elif tool_name == "memory_guard_status":
+                result = self.tool_guard_status()
             else:
                 raise ValueError(
                     f"memory_maas 不支持的工具: {tool_name!r}（可用: "
-                    "memory_search/memory_lineage/memory_write/memory_status）")
+                    "memory_search/memory_lineage/memory_write/memory_status/"
+                    "memory_capture_observation/memory_add_typed/"
+                    "memory_query_filtered/memory_maintenance/"
+                    "memory_guard_status）")
         except Exception as e:
             logger.exception("[memory_maas] %s 未预期异常", tool_name)
             return json.dumps({"status": "error", "service": "memory_maas",

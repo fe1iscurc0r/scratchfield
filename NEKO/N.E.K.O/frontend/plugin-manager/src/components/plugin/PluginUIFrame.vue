@@ -1,5 +1,5 @@
 <template>
-  <div class="plugin-ui-frame" :class="{ loading, error: !!error }">
+  <div class="plugin-ui-frame" :class="{ loading, error: !!error }" :style="frameStyle">
     <div v-if="loading" class="loading-overlay">
       <el-icon class="is-loading" :size="32">
         <Loading />
@@ -24,6 +24,7 @@
       <p>{{ t('plugins.ui.noUI') }}</p>
     </div>
     
+    <!-- Legacy static plugins may rely on standard browser modal dialogs. -->
     <iframe
       v-show="!loading && !error && hasUI"
       :key="iframeKey"
@@ -32,7 +33,7 @@
       :title="pluginId"
       :data-load-generation="iframeGeneration"
       class="plugin-iframe"
-      sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+      sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-modals"
       @load="onIframeLoad"
       @error="onIframeError"
     />
@@ -44,17 +45,26 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Loading, WarningFilled, InfoFilled } from '@element-plus/icons-vue'
 import { get } from '@/api'
+import { PANEL_FILL_HEIGHT, PANEL_MAX_HEIGHT } from '@/utils/constants'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   pluginId: string
   height?: string
-}>()
+}>(), {
+  // 默认填满宿主容器（宿主必须提供确定高度）；min/max 只做兜底，理由见 utils/constants.ts。
+  height: PANEL_FILL_HEIGHT,
+})
+
+const frameStyle = computed(() => ({
+  height: props.height,
+  maxHeight: PANEL_MAX_HEIGHT,
+}))
 
 const emit = defineEmits<{
   (e: 'load'): void
   (e: 'error', error: string): void
   (e: 'message', data: any): void
-  (e: 'openSurface', payload: { pluginId?: string; surfaceId: string; kind?: string }): void
+  (e: 'openSurface', payload: { pluginId?: string; surfaceId: string; kind?: string; activationRevision?: number }): void
 }>()
 
 const { t } = useI18n()
@@ -169,10 +179,16 @@ function handleMessage(event: MessageEvent) {
     if (surfaceId) {
       const pluginId = typeof payload.pluginId === 'string' ? payload.pluginId.trim() : ''
       const kind = typeof payload.kind === 'string' ? payload.kind.trim() : ''
+      const activationRevision = typeof payload.activationRevision === 'number'
+        && Number.isSafeInteger(payload.activationRevision)
+        && payload.activationRevision >= 0
+        ? payload.activationRevision
+        : undefined
       emit('openSurface', {
         pluginId: pluginId || undefined,
         surfaceId,
         kind: kind || undefined,
+        ...(activationRevision === undefined ? {} : { activationRevision }),
       })
     }
   }
@@ -238,8 +254,6 @@ watch(() => props.pluginId, () => {
 .plugin-ui-frame {
   position: relative;
   width: 100%;
-  height: v-bind('props.height || "400px"');
-  min-height: 200px;
   border: 1px solid var(--el-border-color);
   border-radius: var(--el-border-radius-base);
   background: var(--el-bg-color);

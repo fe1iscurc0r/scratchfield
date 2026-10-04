@@ -126,7 +126,7 @@ export function useStartupProgress() {
       console.log('[Startup] 所有启动任务完成，进入主界面')
 
       // 阶段 95→100：完成
-      setTimeout(() => setTarget(100, '准备就绪'), 200)
+      setTimeout(setTarget, 200, 100, '准备就绪')
     }
     finally {
       clearTimeout(safetyTimer)

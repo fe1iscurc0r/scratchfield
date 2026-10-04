@@ -13,8 +13,10 @@
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from mcpserver.adapters.semantic_web.engine import SemanticEngine
 
@@ -98,6 +100,34 @@ class SemanticBridge:
             return "## 语义推理事实（本体规则推导）\n\n" + "\n".join(f"- {l}" for l in lines)
         except Exception:  # noqa: BLE001  # 降级边界：语义推理异常一律吞掉
             return ""
+
+    async def handle_handoff(self, tool_call: dict[str, Any]) -> str:
+        """类方法入口（总线契约）：load / query_semantic 分发。
+
+        注册表运行时按 instance.handle_handoff 调用（Format A: {module, class}），
+        task 格式 {"tool": "load|query_semantic", "params": {...}}，
+        默认（无 tool / 空 tool）走 query_semantic。返回 JSON 字符串。
+        """
+        tool = str(tool_call.get("tool") or tool_call.get("tool_name") or "").strip()
+        params = tool_call.get("params")
+        if not isinstance(params, dict):
+            params = {}
+        if tool == "load":
+            ok = self.load(params.get("quintuples"))
+            result: dict[str, Any] = {"status": "ok" if ok else "error", "loaded": bool(ok)}
+        elif tool in ("", "query_semantic"):
+            answer = self.query_semantic(
+                str(params.get("question") or ""),
+                max_facts=int(params.get("max_facts") or 8),
+            )
+            result = {"status": "ok", "answer": answer}
+        else:
+            result = {
+                "status": "error",
+                "error": f"unknown_tool: {tool}",
+                "available": ["load", "query_semantic"],
+            }
+        return json.dumps(result, ensure_ascii=False, default=str)
 
 
 # ---- 进程内单例（供 lumo_proxy 复用） ----

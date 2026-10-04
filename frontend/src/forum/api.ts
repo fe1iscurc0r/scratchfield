@@ -46,6 +46,7 @@ async function apiGet<T>(path: string, params?: Record<string, any>): Promise<T>
 
 /**
  * 发起 POST 请求并解包为业务类型 T。
+ * @param path 请求路径
  * @param body 请求体，会被 coreApi 的 transformRequest 自动 snake_case 化
  */
 async function apiPost<T>(path: string, body?: any): Promise<T> {

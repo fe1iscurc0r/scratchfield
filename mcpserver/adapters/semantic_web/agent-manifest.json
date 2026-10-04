@@ -20,5 +20,21 @@
         "example": "{\"tool_name\":\"semantic_query\",\"question\":\"木质素纳米颗粒是材料吗？\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "context"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {
+    "python_packages": [
+      "rdflib"
+    ]
+  },
+  "capability_pairs": [["search", "semantic"]]
 }

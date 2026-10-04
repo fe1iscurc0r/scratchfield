@@ -71,6 +71,26 @@ def get_resource_path(relative_path):
 
 templates = Jinja2Templates(directory=get_resource_path(""))
 
+_STATIC_ASSET_VERSION_CACHE = (0.0, "0")
+
+def _viewer_static_assets_ctx():
+    """Build viewer cache version without importing the full main router graph."""
+    global _STATIC_ASSET_VERSION_CACHE
+    now = asyncio.get_running_loop().time()
+    cached_at, cached_version = _STATIC_ASSET_VERSION_CACHE
+    if now - cached_at < 30.0:
+        return {"static_asset_version": cached_version}
+    from config import APP_VERSION
+    latest_mtime = 0
+    for relative_path in ("static/css/index.css", "static/css/edge-peek.css"):
+        try:
+            latest_mtime = max(latest_mtime, int(os.path.getmtime(get_resource_path(relative_path))))
+        except OSError:
+            continue
+    version = f"{APP_VERSION}-{latest_mtime or 0}"
+    _STATIC_ASSET_VERSION_CACHE = (now, version)
+    return {"static_asset_version": version}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -244,7 +264,8 @@ def get_emotion_mapping(model_name: str):
 async def get_index(request: Request, lanlan_name: str):
     # lanlan_name 将从 URL 中提取，前端会通过 API 获取配置
     return templates.TemplateResponse("templates/viewer.html", {
-        "request": request
+        "request": request,
+        **_viewer_static_assets_ctx(),
     })
 
 
@@ -253,18 +274,6 @@ connected_clients = set()
 subtitle_clients = set()
 current_subtitle = ""
 should_clear_next = False
-
-def is_japanese(text):
-    import re
-    # 检测平假名、片假名、汉字
-    japanese_pattern = re.compile(r'[\u3040-\u309F\u30A0-\u30FF]')
-    return bool(japanese_pattern.search(text))
-
-# 简单的日文到中文翻译（这里需要你集成实际的翻译API）
-async def translate_japanese_to_chinese(text):
-    # 为了演示，这里返回一个占位符
-    # 你需要根据实际情况实现翻译功能
-    pass
 
 async def _receive_ws_frame(websocket: WebSocket) -> dict:
     """Receive one raw ws message; convert disconnect frames to WebSocketDisconnect.
@@ -353,17 +362,8 @@ async def sync_endpoint(websocket: WebSocket, lanlan_name:str):
                         await broadcast_subtitle()
 
                 elif msg_type == "turn end":
-                    # 处理回合结束
-                    if current_subtitle:
-                        # 检查是否为日文，如果是则翻译
-                        if is_japanese(current_subtitle):
-                            translated_text = await translate_japanese_to_chinese(current_subtitle)
-                            # 翻译未实现/失败时返回 None，保留原文，避免 current_subtitle 被置空后下一轮 += 崩溃
-                            if translated_text:
-                                current_subtitle = translated_text
-                                await broadcast_subtitle_text(translated_text)
-
-                    # 清空字幕区域，准备下一条
+                    # 处理回合结束：字幕已随每个 gemini_response 增量广播，
+                    # 此处只标记清空。
                     global should_clear_next
                     should_clear_next = True
 

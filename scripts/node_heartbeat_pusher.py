@@ -101,8 +101,8 @@ def get_metrics() -> dict:
 
 # ---- 推送 ----
 def push(url: str, payload: dict, timeout: int = TIMEOUT) -> bool:
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(

@@ -12,9 +12,11 @@ const STORAGE_KEY_MIGRATIONS: ReadonlyArray<readonly [string, string]> = [
 export function migrateLegacyStorageKeys(): void {
   try {
     for (const [oldKey, newKey] of STORAGE_KEY_MIGRATIONS) {
-      if (localStorage.getItem(newKey) !== null) continue
+      if (localStorage.getItem(newKey) !== null)
+        continue
       const oldValue = localStorage.getItem(oldKey)
-      if (oldValue === null) continue
+      if (oldValue === null)
+        continue
       localStorage.setItem(newKey, oldValue)
       localStorage.removeItem(oldKey)
     }

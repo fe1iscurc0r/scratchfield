@@ -10,6 +10,11 @@
 """
 from __future__ import annotations
 
+import pytest  # noqa: E402  (卷173 分层标注；与文件既有 import pytest 重复无害)
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import asyncio
 import importlib.util
 import sys
@@ -225,6 +230,19 @@ def test_decompile_status_reports_model_cache(tools):
     assert "model_cached" in r["dependencies"]
 
 
+def _hf_model_cached() -> bool:
+    """探测 HF 缓存里是否有 llm4decompile 权重（外部资产，禁下载——卷172 纪律）。"""
+    try:
+        from mcpserver.adapters import llm4decompile as _m
+        return _m._model_available(_m._DEFAULT_MODEL) is True
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(
+    not _hf_model_cached(),
+    reason="需 HuggingFace 模型缓存（外部资产；工单纪律禁下载权重）——缓存就绪后本用例自动生效",
+)
 def test_healthcheck_true_when_model_cached(adapter):
     """模型已下载（验收前提）时 healthcheck 必须为 True，门禁不跳过。"""
     assert adapter.healthcheck() is True

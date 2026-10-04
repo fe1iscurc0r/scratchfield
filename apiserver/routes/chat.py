@@ -1,6 +1,7 @@
 """核心对话路由（/chat, /chat/stream）"""
 
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -43,6 +44,7 @@ from system.config import (
     build_system_prompt,
     get_config,
     get_data_dir,
+    merge_context_supplement,
     strip_prompt_comment_lines,
 )
 
@@ -306,6 +308,21 @@ def _load_memory_section(memory_dir: Path) -> str:
     if not chunks:
         return ""
     return "\n\n".join(chunks)
+
+
+def _try_task_meta_command(session_id: str, text: str) -> str | None:
+    """卷123 W123-01：任务元指令（task:create/list/continue/pause/resume/review）。
+
+    命中即返回给用户的回复文本（调用方短路，不进 LLM）；非任务指令返回 None。
+    任何异常都不影响主链路（返回 None 交回 LLM）。
+    """
+    try:
+        from apiserver.task_flow import run_meta_command
+
+        return run_meta_command(session_id, text)
+    except Exception as e:  # noqa: BLE001 - 任务流异常不得影响对话
+        logger.warning(f"[TaskFlow] 元指令处理失败，交回主链路: {e}")
+        return None
 
 
 def _build_agent_prompt_context(agent_id: str | None) -> _AgentPromptContext | None:
@@ -585,6 +602,12 @@ async def chat(request: ChatRequest):
             skill_labels = "，".join(f"【{s.strip()}】" for s in request.skill.split(",") if s.strip())
             user_message = f"调度技能{skill_labels}：{user_message}"
         session_id = message_manager.create_session(request.session_id, temporary=request.temporary)
+
+        # 卷123 W123-01：任务元指令（task:create / task:list / …）直接处理，不进 LLM
+        _task_reply = _try_task_meta_command(session_id, request.message)
+        if _task_reply is not None:
+            return ChatResponse(response=_task_reply, session_id=session_id)
+
         emit_telemetry(
             "chat_send",
             {
@@ -655,15 +678,18 @@ async def chat(request: ChatRequest):
             ),
             extra_sections=[lorebook_section] if lorebook_section else None,
         )
-        messages.append({"role": "system", "content": supplement})
+        # 附加知识并入首条 system（人格）：上游会把 user 之后的 system 消息拼进
+        # 上一条 user 内容，独立尾部 system 会被模型当成用户输入里的注入。
+        messages = merge_context_supplement(messages, supplement)
 
         # 使用整合后的LLM服务（支持 reasoning_content）
         llm_service = get_llm_service()
         llm_response = await llm_service.chat_with_context_and_reasoning(messages, get_config().api.temperature)
 
         # 处理完成
-        # 统一保存对话历史与日志
-        _save_conversation_and_logs(session_id, user_message, llm_response.content)
+        # 统一保存对话历史与日志（思考链一并落盘，重进会话可回显）
+        _save_conversation_and_logs(session_id, user_message, llm_response.content,
+                                    getattr(llm_response, "reasoning_content", None))
         emit_telemetry(
             "chat_finish",
             {
@@ -727,6 +753,14 @@ async def chat_stream(request: ChatRequest):
 
             # 获取或创建会话ID
             session_id = message_manager.create_session(request.session_id, temporary=request.temporary)
+
+            # 卷123 W123-01：任务元指令直接回复（流式也走同一条短路）
+            _task_reply = _try_task_meta_command(session_id, request.message)
+            if _task_reply is not None:
+                yield f"data: {json.dumps({'type': 'content', 'text': _task_reply}, ensure_ascii=False)}\n\n"
+                yield 'data: {"type":"done"}\n\n'
+                return
+
             emit_telemetry(
                 "chat_send",
                 {
@@ -841,7 +875,9 @@ async def chat_stream(request: ChatRequest):
                 ),
                 extra_sections=[lorebook_section] if lorebook_section else None,
             )
-            messages.append({"role": "system", "content": supplement})
+            # 附加知识并入首条 system（人格）：上游中继会把 user 之后的 system
+            # 消息拼进上一条 user 内容，独立尾部 system 会被模型判为注入。
+            messages = merge_context_supplement(messages, supplement)
 
             # 获取工具 schemas（仅在支持原生 function calling 时传递）
             tools = None
@@ -854,7 +890,7 @@ async def chat_stream(request: ChatRequest):
 
             # 如果携带截屏图片，将最后一条 user 消息改为多模态格式（OpenAI vision 兼容）
             if request.images:
-                # 找到最后一条 user 消息的索引（跳过末尾的 system supplement）
+                # 找到最后一条 user 消息的索引（supplement 已并入首条 system，此处不会再扫到它）
                 user_idx = None
                 for i in range(len(messages) - 1, -1, -1):
                     if messages[i].get("role") == "user":
@@ -916,6 +952,19 @@ async def chat_stream(request: ChatRequest):
             # ====== Agentic Tool Loop ======
             yield 'data: {"type":"status","text":"陆墨打字中..."}\n\n'
             from apiserver.agentic_tool_loop import run_agentic_loop
+
+            # W121-03：若上轮有等待确认的写操作，且本句是「确认/拒绝」，先落决策再进循环
+            try:
+                from apiserver.event_bus.confirm_gate import get_confirm_gate
+
+                _decision = get_confirm_gate().observe_user_message(session_id, request.message)
+                if _decision:
+                    logger.info(f"[ChatStream] 写操作确认门决策: {_decision} (session={session_id})")
+                    yield (
+                        'data: {"type":"confirm_decision","decision":"%s"}\n\n' % _decision
+                    )
+            except Exception as _cg_err:
+                logger.debug(f"[ChatStream] 确认门检查跳过: {_cg_err}")
 
             t_prepare_elapsed = _time.monotonic() - t_api_start
             logger.info(f"[ChatStream] 预处理完成: {t_prepare_elapsed:.2f}s "
@@ -1149,8 +1198,9 @@ async def chat_stream(request: ChatRequest):
                 all_rounds_content += final_text
                 complete_response = all_rounds_content.strip()
 
-            # 统一保存对话历史与日志
-            _save_conversation_and_logs(session_id, user_message, complete_response)
+            # 统一保存对话历史与日志（思考链一并落盘，重进会话可回显）
+            _save_conversation_and_logs(session_id, user_message, complete_response,
+                                        complete_reasoning)
             emit_telemetry(
                 "chat_finish",
                 {

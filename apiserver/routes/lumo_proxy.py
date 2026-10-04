@@ -34,6 +34,12 @@ from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
+# SPEC-05 S1：RRF 融合模块（多路召回融合排序，替代字符串拼接）
+try:
+    from apiserver.routes.rrf_fusion import fuse_ranked
+except Exception:  # noqa: BLE001  # 降级：模块缺失时回退字符串拼接
+    fuse_ranked = None
+
 # ============ 铁律7：fail-fast 凭证 ============
 
 _LUMO_PROXY_TOKEN = os.environ.get("LUMO_PROXY_TOKEN", "").strip()
@@ -126,45 +132,100 @@ async def _query_rag_standalone(question: str) -> str:
         return_exceptions=True,
     )
 
-    rag_sections = []
-    for r in (grag_result, vector_result, semantic_result, chem_result):
-        if isinstance(r, str) and r:
-            rag_sections.append(r)
+    # ---- 融合（SPEC-05 S1：RRF 融合排序，替代字符串拼接）----
+    # GRAG / 向量两路返回结构化 items（带 rank），RRF 融合去重排序；
+    # 语义推理 / 化学计算是确定性旁路，不进排序，附加在结果之后。
+    if fuse_ranked is not None:
+        ranked_lists = []
+        if isinstance(grag_result, list):
+            ranked_lists.append(grag_result)
+        if isinstance(vector_result, list):
+            ranked_lists.append(vector_result)
+        main = fuse_ranked(
+            ranked_lists,
+            source_labels={"grag": "知识图谱", "vector": "研究笔记"},
+        )
+    else:
+        # 降级：rrf_fusion 不可用时回退旧拼接（保持铁律5）
+        main = "\n\n".join(
+            s for s in (grag_result, vector_result) if isinstance(s, str) and s
+        )
 
-    # ---- 融合 ----
-    if not rag_sections:
+    extras = [s for s in (semantic_result, chem_result) if isinstance(s, str) and s]
+    parts = [p for p in (main, *extras) if p]
+    if not parts:
         return ""
-    return "\n\n".join(rag_sections)
+    return "\n\n".join(parts)
 
 
-async def _query_grag(question: str) -> str:
-    """GRAG 知识图谱召回（summer_memory 远程 / 本地）"""
+def _parse_memory_items(mem_result: dict) -> list[dict]:
+    """解析 NagaMemory 返回为结构化 items（SPEC-05 S1，兼容 quintuples/memories/answer）。
+
+    每条五元组 = 一个 item（rank 按序递增）；answer 模式整段作为单 item。
+    """
+    if not mem_result.get("success"):
+        return []
+    quints = mem_result.get("quintuples") or []
+    memories = mem_result.get("memories") or []
+    if memories and not quints:
+        for m in memories:
+            if isinstance(m, dict) and "subject" in m:
+                quints.append((
+                    m.get("subject", ""), m.get("subject_type", ""),
+                    m.get("relation", ""), m.get("object", ""),
+                    m.get("object_type", ""),
+                ))
+            elif isinstance(m, dict):
+                mq = m.get("quintuples") or []
+                quints.extend(mq)
+    items: list[dict] = []
+    if quints:
+        for q in quints:
+            if isinstance(q, (list, tuple)) and len(q) >= 5:
+                items.append({
+                    "text": f"{q[0]}({q[1]}) —[{q[2]}]→ {q[3]}({q[4]})",
+                    "rank": len(items), "source": "grag",
+                })
+            elif isinstance(q, dict):
+                items.append({
+                    "text": f"{q.get('subject', '')}({q.get('subject_type', '')}) "
+                            f"—[{q.get('predicate', '')}]→ "
+                            f"{q.get('object', '')}({q.get('object_type', '')})",
+                    "rank": len(items), "source": "grag",
+                })
+    if not items:
+        answer = mem_result.get("answer")
+        if answer:
+            items.append({"text": str(answer), "rank": 0, "source": "grag"})
+    return items
+
+
+async def _query_grag(question: str) -> list[dict]:
+    """GRAG 知识图谱召回（summer_memory 远程 / 本地）—— 返回结构化 items（SPEC-05 S1）。"""
     try:
-        from apiserver.routes.chat import _parse_memory_result
         from summer_memory.memory_client import get_remote_memory_client
 
         remote_mem = get_remote_memory_client()
         if not remote_mem:
-            return ""
+            return []
 
         result = await asyncio.wait_for(
             remote_mem.query_memory(question=question, limit=5),
             timeout=3.0,
         )
-        content = _parse_memory_result(result)
-        if len(content) > 2000:
-            content = content[:2000] + "...[truncated]"
-        return content
+        items = _parse_memory_items(result)
+        logger.info(f"[RAG-GRAG] 召回 {len(items)} 条记忆注入上下文")
+        return items
     except TimeoutError:
         logger.warning("[RAG-GRAG] 查询超时（3s），降级跳过")
-        return ""
+        return []
     except Exception as e:
         logger.warning(f"[RAG-GRAG] 降级跳过: {e}")
-        return ""
+        return []
 
 
-async def _query_local_rag(question: str) -> str:
-    """本地向量 RAG 召回（RAGService / SQLite 向量库）"""
+async def _query_local_rag(question: str) -> list[dict]:
+    """本地向量 RAG 召回（RAGService / SQLite 向量库）—— 返回结构化 items（rank 按 score 降序）。"""
     try:
         from rag import get_rag_service
 
@@ -185,9 +246,9 @@ async def _query_local_rag(question: str) -> str:
 
         chunks = result.get("results", [])
         if not chunks:
-            return ""
+            return []
 
-        lines = []
+        items = []
         for i, c in enumerate(chunks):
             title = c.get("title", "")
             content = c.get("content", "")
@@ -195,26 +256,23 @@ async def _query_local_rag(question: str) -> str:
             source_info = f"（来源：{title}）" if title else ""
             # 截取前 300 字符，控制 token 消耗
             snippet = content[:300] + ("..." if len(content) > 300 else "")
-            lines.append(f"- [{score:.2f}] {source_info}{snippet}")
+            items.append({
+                "text": f"[{score:.2f}] {source_info}{snippet}",
+                "rank": i,
+                "source": "vector",
+            })
 
-        if not lines:
-            return ""
-
-        logger.info(f"[RAG-Vector] 召回 {len(lines)} 条笔记片段")
-        return (
-            "\n\n## 相关研究笔记（向量检索）\n\n"
-            "以下是从你的 Obsidian 笔记库中检索到的相关内容，请参考：\n"
-            + "\n".join(lines)
-        )
+        logger.info(f"[RAG-Vector] 召回 {len(items)} 条笔记片段")
+        return items
     except ImportError:
         logger.warning("[RAG-Vector] RAGService 不可用（rag 模块未安装？）")
-        return ""
+        return []
     except TimeoutError:
         logger.warning("[RAG-Vector] 查询超时（5s），降级跳过")
-        return ""
+        return []
     except Exception as e:
         logger.warning(f"[RAG-Vector] 降级跳过: {e}")
-        return ""
+        return []
 
 
 async def _query_semantic(question: str) -> str:
@@ -260,6 +318,28 @@ async def _query_chem(question: str) -> str:
 
 
 # ============ 辅助函数 ============
+
+
+_AUX_CALL_SIGNATURES = (
+    "游戏剧本助手",        # Galgame 候选生成（config/prompts/prompts_galgame.py）
+    "回复候选",            # 同上中文变体
+    "reply candidates",   # 同上英文版
+)
+
+
+def _is_auxiliary_call(messages: list[ChatMessage]) -> bool:
+    """请求自带旁路指令（如 Galgame 严格 JSON 输出要求）→ 非对话调用。
+
+    这类调用不应注入人格（会覆盖其 JSON 指令）、不应写入会话历史
+    （否则候选文本会漏进聊天记录）。
+    """
+    for msg in messages:
+        if getattr(msg, "role", "") != "system":
+            continue
+        content = msg.content if isinstance(msg.content, str) else ""
+        if content and any(sig in content for sig in _AUX_CALL_SIGNATURES):
+            return True
+    return False
 
 
 def _extract_last_user_message(messages: list[ChatMessage]) -> str:
@@ -428,12 +508,25 @@ async def persona_chat_completions(
     from apiserver.llm_service import get_llm_service
     from apiserver.message_manager import message_manager
     from apiserver.routes.chat import _supports_function_calling
-    from system.config import build_context_supplement, build_system_prompt, get_config
+    from system.config import (
+        build_context_supplement,
+        build_system_prompt,
+        get_config,
+        merge_context_supplement,
+    )
 
     # [local-patch] 沈遥 R2：task_type 分流
     # conversation 走完整人格注入+RAG+历史写入；其他类型（summary/correction/vision/agent）
     # 走轻量路径，不注入人格、不查 RAG、不写历史，避免污染对话上下文
     is_conversation = (request.task_type or "conversation") == "conversation"
+
+    # 辅助调用兜底识别：NEKO 部分旁路功能（Galgame 候选生成等）用同一 provider
+    # 发起调用但不带 task_type，其自带 system 指令（要求严格 JSON 输出）会被人格
+    # 注入覆盖、并按对话落历史——实测泄漏：候选文本进会话，以「1. 2. 3.」列表
+    # 形式出现在聊天里。按其 system 提示词签名识别为辅助调用，走轻量路径。
+    if is_conversation and _is_auxiliary_call(request.messages):
+        is_conversation = False
+        logger.info("[lumo_proxy] 识别为辅助调用（自带指令签名），跳过人格注入与历史写入")
 
     # 1. 提取最后一条 user 消息
     user_msg = _extract_last_user_message(request.messages)
@@ -446,14 +539,31 @@ async def persona_chat_completions(
     )
 
     # 3. 系统提示词 = 纯人格（仅 conversation 注入，其他任务不注入）
-    system_prompt = build_system_prompt() if is_conversation else ""
+    #    角色串线修复：融合模式角色在 NEKO 端选择（当前猫娘），Lumo 必须按
+    #    同一角色注入人格；解析不到同名角色时回落 Lumo 全局 active_character。
+    system_prompt = ""
+    if is_conversation:
+        from system.character_bundle import resolve_neko_active_character
+
+        neko_character = resolve_neko_active_character()
+        system_prompt = build_system_prompt(neko_character)
 
     # 4. 构建对话消息（人格在 messages[0]）
-    messages = message_manager.build_conversation_messages(
-        session_id=session_id,
-        system_prompt=system_prompt,
-        current_message=user_msg,
-    )
+    #    辅助调用（Galgame 候选/摘要等）必须**原样透传**调用方消息：它们自带
+    #    system 指令（严格 JSON schema），若走 build_conversation_messages 会用
+    #    空 system 重建，指令丢失 → 模型自由发挥 → 调用方解析失败走兜底
+    #    （实测：galgame 恒 fallback）。
+    if is_conversation:
+        messages = message_manager.build_conversation_messages(
+            session_id=session_id,
+            system_prompt=system_prompt,
+            current_message=user_msg,
+        )
+    else:
+        messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in request.messages
+        ]
 
     # 5. RAG 召回（仅 conversation 查 RAG，其他任务跳过）
     rag_section = await _query_rag_standalone(user_msg) if is_conversation else ""
@@ -482,7 +592,9 @@ async def persona_chat_completions(
             agent_long_term_memory_prompt="",
             environment_snapshot=_snapshot,   # ← M3.1a 新增传参
         )
-        messages.append({"role": "system", "content": supplement})
+        # 附加知识并入首条 system（人格）：上游会把 user 之后的 system 消息拼进
+        # 上一条 user 内容，独立尾部 system 会被模型当成用户输入里的注入。
+        messages = merge_context_supplement(messages, supplement)
 
     # 8. 温度
     temperature = request.temperature if request.temperature is not None else get_config().api.temperature
@@ -496,13 +608,18 @@ async def persona_chat_completions(
 
     # 非流式
     llm_service = get_llm_service()
-    llm_response = await llm_service.chat_with_context_and_reasoning(messages, temperature)
+    llm_response = await llm_service.chat_with_context_and_reasoning(
+        messages, temperature,
+        # 非对话（辅助）调用关思考，理由同 _stream_persona_response
+        enable_thinking=None if is_conversation else False,
+    )
 
     # 10. 保存对话历史（仅 conversation 写历史，其他任务不污染 session）
     if is_conversation:
         try:
             from apiserver.routes.chat import _save_conversation_and_logs
-            _save_conversation_and_logs(session_id, user_msg, llm_response.content)
+            _save_conversation_and_logs(session_id, user_msg, llm_response.content,
+                                        getattr(llm_response, "reasoning_content", None))
         except Exception as e:
             logger.warning(f"[lumo_proxy] 保存对话历史失败（非致命）: {e}")
 
@@ -532,13 +649,17 @@ async def _stream_persona_response(
 
     llm_service = get_llm_service()
     complete_text = ""
+    complete_reasoning = ""  # 思考链累积（落盘供重进会话回显）
     # 同一响应的所有 chunk 共享同一 id（OpenAI 标准）
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created_ts = int(time.time())
 
     try:
         async for sse_chunk in llm_service.stream_chat_with_context(
-            messages, temperature
+            messages, temperature,
+            # 辅助调用（Galgame 候选/摘要等）关思考：结构化短输出无需思考链，
+            # 开启只会拖慢并撞调用方超时（实测 galgame timeout 走兜底）。
+            enable_thinking=None if is_conversation else False,
         ):
             # llm_service 的 SSE 格式: "data: {json}\n\n"
             # json 结构: {"type": "content"|"reasoning"|"tool_calls_native", "text": "..."}
@@ -573,6 +694,7 @@ async def _stream_persona_response(
                         yield f"data: {json.dumps(delta, ensure_ascii=False)}\n\n"
                     elif chunk_type == "reasoning" and text:
                         # reasoning_content 透传（DeepSeek-R1 等模型的思考过程）
+                        complete_reasoning += text
                         delta = {
                             "id": chunk_id,
                             "object": "chat.completion.chunk",
@@ -621,6 +743,7 @@ async def _stream_persona_response(
         if is_conversation and complete_text:
             try:
                 from apiserver.routes.chat import _save_conversation_and_logs
-                _save_conversation_and_logs(session_id, user_msg, complete_text)
+                _save_conversation_and_logs(session_id, user_msg, complete_text,
+                                            complete_reasoning)
             except Exception as e:
                 logger.warning(f"[lumo_proxy stream] 保存对话历史失败（非致命）: {e}")

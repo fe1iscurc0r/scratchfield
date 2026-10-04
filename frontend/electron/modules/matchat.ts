@@ -12,7 +12,7 @@
  *   - setWindowOpenHandler 拦截所有 window.open，只允许 http/https 走系统浏览器，其余协议一律拒绝
  *   - executeJavaScript 注入的提取脚本只读 DOM 文本，不执行外部代码
  */
-import { BrowserView, BrowserWindow, ipcMain, session, shell } from 'electron'
+import { BrowserView, ipcMain, session, shell } from 'electron'
 import { getMainWindow } from './window'
 
 // MatChat 首页地址（内嵌 BrowserView 的固定入口）
@@ -79,7 +79,7 @@ function ensureView(): BrowserView {
       }
       // 其它协议（file/javascript/data/vbscript 等）一律静默丢弃
     }
-    catch (_) {
+    catch {
       // URL 解析失败（非法字符串），忽略，不打开任何东西
     }
     return { action: 'deny' } // 始终拒绝在 BrowserView 内部开新窗口
@@ -100,7 +100,8 @@ function ensureView(): BrowserView {
   if (cookieFlushTimer)
     clearInterval(cookieFlushTimer)
   cookieFlushTimer = setInterval(() => {
-    if (!matchatView || matchatView.webContents.isDestroyed()) return
+    if (!matchatView || matchatView.webContents.isDestroyed())
+      return
     session.fromPartition(PARTITION).cookies.flushStore().catch(() => {})
   }, 30_000)
   // 加载首屏；失败时把错误推给渲染层 toast 提示
@@ -334,7 +335,7 @@ export function registerMatchatIpc(): void {
       try {
         ;(win as any).setTopBrowserView(view)
       }
-      catch (_) { /* noop */ }
+      catch { /* noop */ }
     }
     return true
   })

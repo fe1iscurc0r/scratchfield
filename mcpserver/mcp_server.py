@@ -91,6 +91,7 @@ async def schedule_task(req: ScheduleRequest):
     # 拦截私网/链路本地/云元数据地址（SSRF），loopback 本地回调放行
     if req.callback_url:
         from urllib.parse import urlparse
+
         from mcpserver.security_utils import is_private_url
         parsed_cb = urlparse(req.callback_url)
         host_cb = (parsed_cb.hostname or "").lower()
@@ -158,6 +159,91 @@ async def tool_metrics():
     """工具级可观测指标（B5）：调用次数/平均延迟/错误率"""
     from mcpserver.mcp_manager import get_mcp_manager
     return get_mcp_manager().get_tool_metrics()
+
+
+# ── 卷189-B：调用画像 + 熔断 ──
+
+@app.get("/tools/stats")
+async def tools_stats(window: str = "7d"):
+    """调用画像：按工具聚合 调用数/P50/P95/失败率/最近错误（window=7d/24h/30m）。"""
+    from mcpserver.telemetry import get_recorder
+    rec = get_recorder()
+    rec.flush()  # 让刚入队的数据可见（读端点容忍一次同步 flush）
+    return {"window": window, "stats": rec.stats(window)}
+
+
+@app.get("/tools/circuit")
+async def tools_circuit():
+    """熔断状态：非 closed 的工具及窗口样本/失败率/冷却截止。"""
+    from mcpserver.telemetry import get_breaker
+    return {"circuits": get_breaker().states()}
+
+
+# ── 卷189-C：声明式工具链 ──
+
+class ChainRunRequest(BaseModel):
+    chain: str                      # 链名（种子链之一或注册的链）
+    inputs: dict[str, Any] = {}
+
+
+@app.get("/chains")
+async def chains_list():
+    """列出可用链（当前 = 三条种子链）。"""
+    from mcpserver.workflow.chains import seed_chains
+    return {"chains": [c.to_dict() for c in seed_chains()]}
+
+
+@app.post("/chains/run")
+async def chains_run(req: ChainRunRequest):
+    """执行一条链：顺序 + 插值 + 重试 + 失败短路（返回含部分结果）。"""
+    from mcpserver.mcp_manager import get_mcp_manager
+    from mcpserver.workflow.chains import ChainExecutor, get_chain
+
+    chain = get_chain(req.chain)
+    if chain is None:
+        raise HTTPException(status_code=404, detail=f"未找到链: {req.chain}")
+
+    manager = get_mcp_manager()
+
+    async def _call(service: str, tool_call: dict[str, Any]) -> Any:
+        return await manager.unified_call(service, tool_call)
+
+    executor = _get_chain_executor(ChainExecutor, _call)
+    run = await executor.run(chain, req.inputs)
+    return run.to_dict()
+
+
+@app.get("/chains/runs/{run_id}")
+async def chains_run_status(run_id: str):
+    """查询链执行进度/结果。"""
+    ex = _CHAIN_EXECUTOR
+    if ex is None:
+        raise HTTPException(status_code=404, detail="尚无链执行记录")
+    run = ex.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"未找到 run: {run_id}")
+    return run.to_dict()
+
+
+@app.get("/chains/suggest")
+async def chains_suggest(window: str = "7d", top_n: int = 5):
+    """链推荐（轻量）：基于调用画像给「高频低失败」的候选种子工具。"""
+    from mcpserver.telemetry import get_recorder
+    from mcpserver.workflow.chains import suggest_chains
+    rec = get_recorder()
+    rec.flush()
+    return {"window": window, "suggestions": suggest_chains(rec.stats(window), top_n=top_n)}
+
+
+_CHAIN_EXECUTOR = None
+
+
+def _get_chain_executor(cls, call_fn):
+    """复用一个执行器实例（保持 run 历史可查）。"""
+    global _CHAIN_EXECUTOR
+    if _CHAIN_EXECUTOR is None:
+        _CHAIN_EXECUTOR = cls(call_fn)
+    return _CHAIN_EXECUTOR
 
 
 # ── ②-1 认知免疫层：内容源信任评分（低信任进隔离区）──

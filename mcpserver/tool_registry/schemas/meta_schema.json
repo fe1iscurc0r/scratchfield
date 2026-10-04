@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Lumo 工具统一 meta.yaml",
+  "description": "aci 两层结构：app 元数据 + function 调用接口（授粉自 aci app.json/functions.json，仅结构）",
+  "type": "object",
+  "required": ["app", "functions"],
+  "properties": {
+    "app": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "唯一资源名（snake_case）" },
+        "display_name": { "type": "string", "description": "人类可读名" },
+        "version": { "type": "string" },
+        "description": { "type": "string" },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "security_schemes": { "type": "object" },
+        "visibility": { "type": "string" },
+        "active": { "type": "boolean" },
+        "entrypoint": {
+          "type": "object",
+          "properties": {
+            "module": { "type": "string" },
+            "class": { "type": "string" }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "functions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "description", "parameters"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "parameters": {
+            "type": "object",
+            "required": ["type", "properties"],
+            "properties": {
+              "type": { "const": "object" },
+              "properties": { "type": "object" }
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

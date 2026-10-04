@@ -97,3 +97,104 @@ Hermes 已有 200+ skills，但按用户消息关键词自动注入领域知识�
 AgentTeams 教"人怎么进来"（审批门 + 权限分级 + 全程可见），ccg-workflow 教"机怎么不迷路"（状态机 + 面包屑 + 循环检测），三元融合已有"单一灵魂"的正确骨架——缺的是一层薄薄的协作协议：**状态落地、门禁显式、循环可断**。
 
 *—— 沈遥 · 决策要单一，协作要协议，循环要能断 🐾*
+
+---
+
+> **【附录：另一会话同题报告原文】** 以下为同名授粉报告的另一版本（2026-08-23 并行会话产出），与上文互为补充，合并时保留以防资料丢失。
+
+# 多 agent 协作对照报告：AgentTeams vs ccg-workflow vs 三元融合现状（D-03）
+
+> 智能体 D · 2026-08-23 · 只读调研，未写一行业务码
+> A = [agentscope-ai/AgentTeams](https://github.com/agentscope-ai/AgentTeams)
+> （Apache-2.0，Go controller + Matrix 房间 + MinIO，人在回路协作多 Agent OS）
+> B = [fengshao1227/ccg-workflow](https://github.com/fengshao1227/ccg-workflow)
+> （MIT，Claude Code 扩展：`/ccg:go` 意图分析→策略路由→Claude+Codex+Gemini 编排）
+> C = 三元融合现状（本仓：Hermes 决策 / NagaAgent 执行 / N.E.K.O. 交互，
+> `docs/TRAE_PROMPT-low-star-fusion-v1.md:12`；含 EventBus v2、lumo_event、
+> agent_directory、trae/agent-* 工单分支模式）
+> 调研方式：A/B 浅克隆仓外临时目录通读；C 为本仓只读盘点。行号相对各仓库根。
+
+---
+
+## 一、对照表（13 行，验收 ≥10 ✓）
+
+| # | 维度 | A: AgentTeams | B: ccg-workflow | C: 三元融合现状 |
+| --- | --- | --- | --- | --- |
+| 1 | **通信底座** | Matrix client-server API（Tuwunel 服务器），三方房间时间线即协议 | Claude 主控 + `codeagent-wrapper` 子进程（stdin 喂 ROLE_FILE+TASK，stdout 收 agent_message+SESSION_ID），模型间不直接对话 | HTTP REST（apiserver:8000 / agentserver:8001）+ 进程内 EventBus v2；跨进程靠 lumo_event HTTP 回调 |
+| 2 | **消息类型** | 文本约定协议：`New task[TASK-ID]` / `TASK_COMPLETED` / `BLOCKED` / `QUESTION` / `PHASE{N}_DONE` / `NO_REPLY` / `HEARTBEAT_OK`；结果枚举 5 种（SUCCESS/SUCCESS_WITH_NOTES/REVISION_NEEDED/BLOCKED/INTERRUPTED） | 状态面包屑 `<ccg-state>`（Task/Strategy/Phase/Gate/Next，hook 每轮注入）+ 中间产物链 requirements→analysis→plan→review→fix-log.jsonl | NEKO→陆墨 6 类事件（user_input/asr_result/tts_start/tts_end/user_action/error，`apiserver/routes/lumo_event.py:37-64`）；无任务语义消息类型 |
+| 3 | **人在回路** | 计划贴 admin DM 等人 "confirm" 才 active；打断必须先说明影响再问完即停；YOLO 模式显式绕过（`AGENTTEAMS_YOLO=1`） | in_review 状态门 + Gate 检查（策略内 `[phase-state:N]`）；Ralph Loop 审查 3 轮仍有 Critical 强制回炉重规划 | 沈 遥（Hermes 人格位）出 SPEC + review + PR merge-back 人工合并——流程有、协议无（无 gate 状态机） |
+| 4 | **角色分层** | Human → Manager（全局协调）→ Team Leader（QwenPaw 确定性 agent，四 MCP 工具）→ Worker；"Leader 不是 Worker，不做 Worker 域内活" | Claude 永远主编排器；外部模型按 7 种角色提示词套壳（analyzer/architect/reviewer/debugger/optimizer/tester/builder），路由位可换厂商 | 陆墨（Lumo）= 唯一指令源（M4 铁律：NEKO brain 不自决策）；agent_directory 干员通讯录 + agent_relay 多干员协作（`apiserver/routes/chat.py:398-406`）；无 leader/worker 分层 |
+| 5 | **任务分发与去重** | 指派制（`find-worker.sh --skills --team` 按可用性+技能选人）+ state.json 集中登记（不登记会被 idle timeout 误停）+ `.processing` 锁（15min 过期防死锁）+ taskflow 一次调用=建状态+发通知，禁手发第二条 | 决策矩阵（类型×复杂度→10 策略，风险 high 升一档，"可升级不可降级"）；wrapper `--parallel` 支持 `id:/dependencies:` 拓扑（同层并行跨层串行） | 批单人工分发（BATCH-WORKORDERS 分发说明表 + D/E/F/G 施工范围矩阵防重复）；research/planner 有 Send() map-reduce 但未接主链路 |
+| 6 | **依赖表达** | DAG 三态 `[ ]→[~]→[x]`，`[x]` 仅表 Leader 验收通过（Worker SUCCESS≠进度）；`ready_nodes` 推进 | task.json 无 DAG 字段，靠策略 phase-state 串行 + wrapper 拓扑参数 | 工单"启动条件: WO-0X 后"自然语言线性链（无 DAG） |
+| 7 | **上下文共享** | **信号/内容分离**：Matrix 只传 @mention 信号，内容走 MinIO 任务目录（`shared/tasks/{id}/` spec.md/result.md + mc 同步，先推再 @mention）；两段式消息注入（历史段仅供上下文/当前段才行动） | 文件中间产物链（`.ccg/tasks/{task}/`）+ 4 个 hook 注入（workflow-state 面包屑/session-start 全量/subagent-context 改写子代理 prompt 使"出生即带 spec"/skill-router 域知识） | lumo_event 只传事件；对话上下文在 apiserver session；记忆五件套（hybrid_search/index_cards/lineage）已具备"内容层"但未与事件层挂钩 |
+| 8 | **跨会话记忆** | SOUL.md（人格）+ memory/日期文件 + MEMORY.md 长期蒸馏（DM 场景才加载，群房不加载出于安全）；"Text > Brain，文件是唯一连续性" | BACKEND_SESSION/FRONTEND_SESSION 会话续传（resume $SESSION_ID 复用外部模型上下文）+ Spec Evolution（可复用经验写回 `.ccg/spec/{domain}/`） | 记忆五件套 + summer_memory（GRAG 五元组）；agent 侧无"人格/技能文件连续性"约定 |
+| 9 | **失败与降级** | Worker BLOCKED/QUESTION 上报；`.processing` 锁 15min 自动过期；idle timeout 停 Worker | 重试 2 次→3 败降级单模型并告知→模式互降（Agent Teams 报错才降顺序；外部 Builder 超时切回）→600s 上限问用户；退出码语义完整（124 超时/127 CLI 缺失） | "阻塞不硬做，写清原因返回"（工单铁律）；无自动重试/降级链 |
+| 10 | **状态持久化** | K8s CRD（Worker/Manager/Team/Human 四自定义资源）+ state.json 台账 + Matrix 服务器房间即账本 | task.json + context.jsonl + 归档 `.ccg/tasks/archive/YYYY-MM/`；压缩后面包屑不丢状态（hook 重注入） | git 分支即台账（trae/agent-* → PR merge-back）；lumo-task-tracker 为 mock 演示壳未接真实数据 |
+| 11 | **技能沉淀** | Manager 16 技能 + worker-skills 目录（随镜像分发） | 61 个域知识文件 + 质量关卡技能；Spec Evolution 经验回写 | skills/ 目录 + SKILL.md 体系（数量多但无"经验回写"机制） |
+| 12 | **安全/权限** | Matrix power level（Admin/Manager=100，Worker=0）+ Human permissionLevel 1/2/3 分级 + `/host-share/` 须 admin 许可 + DM allowlist | 纯 Claude 模式不调 wrapper；Codex 子代理 toml 禁再 spawn（防递归）；claude 审查后端绕权限门防 headless 卡死 | naga_auth 本地双 Token + LUMO_PROXY_TOKEN/NEKO_EXEC_TOKEN 桥接 token（已落地）；agent 级权限无分级 |
+| 13 | **技术栈/成熟度** | Go + Python/Node 多运行时 + Docker/K8s(Helm)；重基础设施，面向舰队部署 | TS 安装器 + Go wrapper + 纯 Markdown 模板；轻量，装进 `~/.claude/` 即用 | FastAPI 双服务 + Electron + MCP 农场；单机个人助手形态，事件/记忆底座已备，编排协议缺失 |
+
+## 二、核心判断
+
+1. **A 的本质是"协议在提示词层"**：Matrix 只提供传输，任务语义（New task/
+   TASK_COMPLETED/确认门）全部写在 AGENTS.md/SKILL.md 的约定里——证明协作协议
+   可以先以"文本约定+共享文件"起步，不必先造消息中间件。**信号/内容分离
+   （Matrix 传信号、MinIO 传内容）是省 token 的关键设计**。
+2. **B 的本质是"状态面包屑 + 文件产物链"**：模型间不对话，全靠 hook 每轮注入
+   `<ccg-state>` 与 `.ccg/tasks/` 中间产物传递——与 A殊途同归：**协议=文件+注入**。
+   其"可升级不可降级"风险铁律与 3 轮审查强制回炉值得直接抄进工单体系。
+3. **C 的差距集中在"任务语义层"**：传输（lumo_event）、记忆（五件套）、执行
+   （trae/agent-* 分支）三块都在，但没有任务生命周期消息与状态台账，导致
+   汇报靠 commit message、依赖靠自然语言、审批靠流程惯例。
+
+## 三、协作协议改进建议（≥3 条，给三元融合）
+
+**建议 1：定义 Lumo 任务消息枚举，把 lumo_event 从"6 类 UI 事件挤 1 个 topic"
+升级为任务语义路由。**
+现状 `apiserver/routes/lumo_event.py:211` 把 6 类事件统一 emit
+`USER_INPUT_RECEIVED`。建议新增任务消息 7 种（对齐 A 的文本协议 + D-01 的 orca
+消息模型）：`task.dispatch / task.progress / task.done / task.blocked / question /
+gate.request / gate.resolved`，每种映射 EventBus v2 的独立 topic
+（`lumo.task.dispatched` 等，命名沿用 `topics.py` 的 `lumo.*` 风格）。文本格式
+直接抄 A 的约定（`TASK_COMPLETED: <summary>`、`BLOCKED: <what>`）——人能读、
+agent 能发、正则能解析，零中间件成本。
+
+**建议 2：信号/内容分离——lumo_event 只传事件，内容走"任务目录"约定。**
+抄 A 的 `shared/tasks/{task-id}/` 结构（spec.md/meta.json/result.md）+
+"先推内容再发信号"纪律：智能体完成工单后，详细报告写 `vault`/`docs/` 产物文件，
+`task.done` 消息只带路径+摘要。这正好把记忆五件套接上：index_cards 写卡
+（会话血统 lineage 记 parent 工单），hybrid_search 事后可检索"上个月谁怎么解决
+过同类问题"。B 的经验（hook 注入面包屑使子代理"出生即带 spec"）对应到本仓：
+agentserver 给干员注入系统提示时附带当前工单的 spec 路径与状态。
+
+**建议 3：把审批协议化——gate 状态机 + YOLO 开关 + 打断确认门。**
+现状审查是惯例（沈遥 review + PR merge-back）。建议落成协议：工单状态机加
+`in_review → (gate.resolved | revision_requested)`，gate **永不自动 resolve**
+（A 的 confirm 门与 D-01 orca decision_gate 同构）；加 `AGENTTEAMS_YOLO` 式
+开关（如 `LUMO_YOLO=1` 时陆墨自动确认并事后通报）；打断/重规划必须"先说明
+影响（在途工作作废）→等确认→再动"（A 的 Interruption And Replanning 条款）。
+这一条直接治本仓多 agent 共享工作树的实际痛点（8-23 批 D-01 提交曾被并行
+agent 切分支劫持，若有 gate/登记语义可避免）。
+
+**建议 4（补充）：降级链写进工单铁律。**
+抄 B 的完整降级链：瞬态重试 2 → 3 败降级单 agent 并告知 → 模式互降（并行→
+顺序）→ 超时 600s 上报人裁决；外加"可升级不可降级"（风险 high 的单子禁止从
+full-collaborate 降为 quick-implement）。对应工单字段即 D-02 拆分规则 v2 的
+`retry` 与 `priority`。
+
+## 四、三系统互鉴一句话总结
+
+- **A 教我们**：协议可以是文本约定；信号/内容分离；Leader 不干活；`.processing` 锁防双写。
+- **B 教我们**：状态面包屑每轮注入防失忆；文件产物链即协议；降级链与退出码语义。
+- **C 已有的王牌**：grep/assert 可执行验收的工单格式（A/B 都没有）、EventBus v2
+  热插拔总线、记忆五件套内容层——补上任务语义消息与状态台账即可闭环。
+
+## 附：信息来源
+
+A/B 源码通读（临时克隆 `C:\Users\ASUS\AppData\Local\Temp\agentd-haul\{AgentTeams,ccg-workflow}`）；
+关键锚点：A `manager/agent/AGENTS.md:126-152`（三房间）、
+`skills/task-management/references/finite-tasks.md:40-58`（派单协议）、
+`team-leader-agent/skills/team-coordination/SKILL.md:144-171`（打断门）；
+B `templates/commands/go.md:36-117`（意图分析+决策矩阵）、
+`templates/engine/model-router.md`（路由/降级/会话续传）、
+`templates/hooks/subagent-context.js`（子代理 prompt 改写注入）。

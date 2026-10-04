@@ -126,6 +126,7 @@ from utils.logger_config import setup_logging  # noqa: E402
 from utils.ssl_env_diagnostics import probe_ssl_environment, write_ssl_diagnostic  # noqa: E402
 from utils.asyncio_executor import configure_default_executor  # noqa: E402
 from utils.asgi_body_limit import InboundBodySizeLimitMiddleware  # noqa: E402
+from utils.avatar_tool_store import AVATAR_TOOL_MAX_MULTIPART_BODY_BYTES  # noqa: E402
 from utils.host_origin_guard import HostOriginGuardMiddleware  # noqa: E402
 
 _main_log_level = getattr(
@@ -141,18 +142,26 @@ importlib.import_module(
 
 
 def _resolve_user_plugin_base() -> str:
+    """Delegates to config so this cannot drift from the process that mints
+    plugin media URLs, or from the router that proxies them to the browser."""
+    from config.network import resolve_user_plugin_base
+
+    # Judge the raw value directly. Inferring "it was rejected" from the
+    # resolved origin is wrong: USER_PLUGIN_BASE is itself derived from the
+    # same variable, so a VALID port makes the two match and the warning fires
+    # on correct input.
     raw_port = os.getenv("NEKO_USER_PLUGIN_SERVER_PORT", "").strip()
     if raw_port:
         try:
             port = int(raw_port)
-            if 0 < port <= 65535:
-                return f"http://127.0.0.1:{port}"
         except ValueError:
+            port = 0
+        if not 0 < port <= 65535:
             logger.warning(
                 "Invalid NEKO_USER_PLUGIN_SERVER_PORT value {!r}; using configured plugin base",
                 raw_port,
             )
-    return USER_PLUGIN_BASE.rstrip("/")
+    return resolve_user_plugin_base()
 
 
 if _IS_MAIN_PROCESS:
@@ -524,6 +533,7 @@ _MAIN_LIMITED_MODE_ALLOWED_PAGE_PATHS = {
     "/live2d_parameter_editor",
     "/soccer_demo",
     "/badminton_demo",
+    "/drawing_guess_demo",
     "/live2d_emotion_manager",
     "/vrm_emotion_manager",
     "/mmd_emotion_manager",
@@ -604,12 +614,31 @@ async def main_storage_limited_mode_guard(request: Request, call_next):
     )
 
 
-# 全局入站 body 体积守门（issue #1586）：在 router 的 request.json()/form()
-# 解析之前，按 Content-Length 拒收超大「非 multipart」请求体，跨所有 router
-# 统一生效，与各 router 的业务校验（如 validate_chat_payload）正交。multipart
-# 文件上传（模型/音乐/角色卡等）一律放行，交给各上传 router 自带的流式分块守门。
-# add_middleware 后注册即处于最外层，最先执行——解析前拒收，不浪费后续处理。
-app.add_middleware(InboundBodySizeLimitMiddleware)
+def _avatar_tool_multipart_preflight(scope):
+    from main_routers.system_router._shared import (
+        _is_loopback_request,
+        _validate_local_mutation_request,
+    )
+
+    request = Request(scope)
+    if not _is_loopback_request(request):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Forbidden: local access only"},
+        )
+    return _validate_local_mutation_request(request)
+
+
+# 全局非 multipart 请求继续沿用 16 MiB Content-Length 守门。自定义道具
+# POST/PUT 另外在 FastAPI 解析 multipart 前完成本地访问、CSRF/origin 和聚合
+# 体积校验；receive 计数同时覆盖缺失或不可信的 Content-Length。
+app.add_middleware(
+    InboundBodySizeLimitMiddleware,
+    multipart_path_prefix="/api/avatar-tools",
+    multipart_methods=("POST", "PUT"),
+    max_multipart_body_bytes=AVATAR_TOOL_MAX_MULTIPART_BODY_BYTES,
+    multipart_preflight=_avatar_tool_multipart_preflight,
+)
 # Registered after the body guard so it is the outermost ASGI middleware and
 # rejects DNS-rebinding Host values before any HTTP or WebSocket route runs.
 app.add_middleware(HostOriginGuardMiddleware)
@@ -637,6 +666,7 @@ from .web_app import (  # noqa: F401
     config_router,
     cookies_login_router,
     debug_router,
+    drawing_guess_router,
     galgame_router,
     game_router,
     get_card_drop_active_character,
@@ -1126,7 +1156,6 @@ async def on_startup():
             steamworks=steamworks,
             templates=templates,
             config_manager=_config_manager,
-            logger=logger,
             initialize_character_data=initialize_character_data,
             switch_current_catgirl_fast=switch_current_catgirl_fast,
             init_one_catgirl=init_one_catgirl,
@@ -1137,6 +1166,15 @@ async def on_startup():
             release_storage_startup_barrier=release_storage_startup_barrier,
         )
         set_steamworks_initializer(ensure_steamworks_initialized)
+        try:
+            from .voice_identity_runtime import initialize_voice_identity_runtime
+
+            await initialize_voice_identity_runtime(_config_manager)
+        except Exception as _e:
+            # Voice identity is optional and fail-open. Startup and normal
+            # speech must remain available even when secure storage or model
+            # wiring cannot initialize.
+            logger.warning("voice identity startup degraded: %s", _e)
         # GeoIP 预热已移到 _ensure_main_server_runtime_initialized 末尾——配置到那里
         # 才最终成型（Cloud Save 快照导入 + Steamworks 初始化完成）。
         # asyncio 的慢回调告警只在 loop debug 模式下输出。默认关闭，
@@ -1197,6 +1235,12 @@ async def on_shutdown():
     """Clean up resources at server shutdown"""
     if _IS_MAIN_PROCESS:
         logger.info("正在清理资源...")
+        try:
+            from .voice_identity_runtime import close_voice_identity_runtime
+
+            await close_voice_identity_runtime()
+        except Exception as e:
+            logger.debug(f"voice identity cleanup failed: {e}")
         cleanup()
         try:
             # join_sync_connector_threads 内部已经 gather 并行 join，直接 await

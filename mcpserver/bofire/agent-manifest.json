@@ -41,5 +41,28 @@
         "example": "{\"tool_name\":\"bofire_tell_results\",\"experiments\":[{\"inputs\":{\"温度\":60},\"outputs\":{\"产率\":0.82}}]}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "compute"
+    ],
+    "domains": [
+      "materials"
+    ],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "BoFire",
+      "upstream_license": "见上游"
+    }
+  },
+  "requires": {
+    "python_packages": [
+      {
+        "name": "bofire",
+        "optional": true
+      }
+    ]
+  },
+  "capability_pairs": [["create", "optimization"], ["query", "optimization"], ["write", "optimization"]]
 }

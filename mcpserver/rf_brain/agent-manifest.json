@@ -6,8 +6,8 @@
   "author": "沈遥",
   "agentType": "mcp",
   "entryPoint": {
-    "module": "mcpserver.rf_brain.loop",
-    "class": "run_loop"
+    "module": "mcpserver.rf_brain.agent",
+    "class": "RfBrainAgent"
   },
   "capabilities": {
     "invocationCommands": [
@@ -33,29 +33,66 @@
       },
       {
         "command": "sentinel_ingest",
-        "description": "收一条哨兵节点上报的 NDJSON 行并入库（协议/温湿度/RSSI）",
+        "description": "收一条边缘哨兵 NDJSON 上报入记忆库（坏 JSON/未知协议/缺字段降级跳过，不崩）",
         "params": {
-          "line": "NDJSON 单行，含 src=sentinel/protocol/id/temperature_c/humidity_pct 等字段"
+          "line": "NDJSON 单行字符串（或 data 直接传对象）"
         },
-        "example": "{\"tool_name\":\"sentinel_ingest\",\"line\":\"{\\\"src\\\":\\\"sentinel\\\",\\\"protocol\\\":\\\"acurite-tower\\\",\\\"id\\\":4660,\\\"temperature_c\\\":25.0}\"}"
+        "example": "{\"tool_name\":\"sentinel_ingest\",\"line\":\"{\\\"src\\\":\\\"sentinel\\\",\\\"protocol\\\":\\\"acurite\\\",\\\"id\\\":12345,\\\"channel\\\":\\\"B\\\",\\\"temperature\\\":21.5,\\\"humidity\\\":55,\\\"battery\\\":\\\"OK\\\",\\\"crc_ok\\\":true,\\\"rssi_dbm\\\":-60}\"}"
       },
       {
         "command": "sentinel_status",
-        "description": "查最近 N 条哨兵事件（含 failed 降级记录）",
+        "description": "哨兵记忆库状态：总条数 + 最近 N 条上报",
         "params": {
-          "n": "返回条数，默认 10"
+          "limit": "最近条数（默认 10）"
         },
-        "example": "{\"tool_name\":\"sentinel_status\",\"n\":10}"
+        "example": "{\"tool_name\":\"sentinel_status\",\"limit\":5}"
       },
       {
         "command": "sentinel_query",
-        "description": "按协议 / 设备 ID 查哨兵事件",
+        "description": "按协议/id 查哨兵上报（协议可省=全部，id 可省）",
         "params": {
-          "protocol": "协议名（可选）",
-          "device_id": "设备 ID（可选）"
+          "protocol": "acurite/nexus/kerui（可省=全部）",
+          "id": "传感器 id（可省）",
+          "limit": "条数上限（默认 100）"
         },
-        "example": "{\"tool_name\":\"sentinel_query\",\"protocol\":\"acurite-tower\",\"device_id\":4660}"
+        "example": "{\"tool_name\":\"sentinel_query\",\"protocol\":\"acurite\",\"id\":12345,\"limit\":20}"
+      },
+      {
+        "command": "spectrum_events.ingest_frame",
+        "description": "吞入一帧频谱（freqs/db），检测信号出现/消失/突发并缓存",
+        "params": {
+          "freqs": "频率数组 Hz",
+          "db": "功率数组 dBm（与 freqs 等长）",
+          "timestamp": "可选时间戳（默认 now）"
+        },
+        "example": "{\"tool_name\":\"spectrum_events.ingest_frame\",\"freqs\":[433900000,433920000],\"db\":[-50,-95]}"
+      },
+      {
+        "command": "spectrum_events.current_interferers",
+        "description": "当前活跃干扰源（未消失），按强度降序",
+        "example": "{\"tool_name\":\"spectrum_events.current_interferers\"}"
+      },
+      {
+        "command": "spectrum_events.recent_events",
+        "description": "最近 n 条频谱事件（旧→新）",
+        "params": {
+          "limit": "条数（默认 10）"
+        },
+        "example": "{\"tool_name\":\"spectrum_events.recent_events\",\"limit\":10}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "instrument"
+    ],
+    "domains": [
+      "mechat"
+    ],
+    "tier": "process-control",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "capability_pairs": [["analyze", "rf_signal"], ["compute", "rf_signal"], ["ingest", "rf_signal"], ["ingest", "sentinel"], ["list", "rf_signal"], ["lookup", "rf_signal"], ["search", "sentinel"], ["status", "sentinel"]]
 }

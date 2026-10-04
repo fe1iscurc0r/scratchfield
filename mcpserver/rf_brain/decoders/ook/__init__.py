@@ -1,26 +1,17 @@
-"""OOK 解码器子包（哨兵网格 N-02）
+"""OOK 脉冲解调 + 433MHz 传感器协议解码器（独立实现）。
 
-输入是 SX1278 OOK 模式解调出的「脉冲宽度序列」（微秒），不是 IQ 样本——
-这是 OOK 解码器与 Phase6 现有 IQ 解码器（aprs/psk31/dtfm/pocsag）的本质区别。
+参考 rtl_433（GPL-2.0-or-later）协议文档，仅引用「协议格式」公开事实，
+未复制任何 C 代码。本包不主动注册解码器，由上层 decoders/__init__.py
+统一导入触发注册（与 aprs/psk31/dtmf/pocsag 同构）。
 
-对外纯函数：
-- pulse_demod: 脉冲分类 / bit 拼装 / 奇偶校验工具
-- acurite: Acurite Tower + 515 解码（字段完整，温度待真机校准）
-- lacrosse: LaCrosse TX141TH-Bv2 骨架（字段待校准，不编造）
-
-注册：本包不主动注册进 IQ registry（输入语义不同）。由上层
-sentinel_bridge（N-04）按需调用 decode_acurite / decode_lacrosse。
+模块：
+    pulse_demod  脉冲序列 → bit 流（PWM/PPM/Manchester）+ CRC/奇偶工具
+    acurite      Acurite 592TXR/Tower（OOK-PWM 56bit）
+    nexus        Nexus TH（OOK-PPM 36bit）
+    kerui        Kerui/EV1527（OOK-PWM 24bit）
 """
 from __future__ import annotations
 
-from . import acurite, lacrosse, pulse_demod  # noqa: F401
-from .acurite import decode_acurite
-from .lacrosse import decode_lacrosse
+from . import acurite, kerui, nexus, pulse_demod  # noqa: F401
 
-__all__ = [
-    "decode_acurite",
-    "decode_lacrosse",
-    "acurite",
-    "lacrosse",
-    "pulse_demod",
-]
+__all__ = ["pulse_demod", "acurite", "nexus", "kerui"]

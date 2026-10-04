@@ -1,0 +1,74 @@
+# pycalphad 材料工具统一 meta.yaml（S-02）
+# 按 docs/academic/DATASET.md + levels.py 调研（MIT，CALPHAD 相图，未封装候选）。
+app:
+  name: pycalphad
+  display_name: pycalphad 相图计算
+  version: 0.1.0
+  description: CALPHAD 相图计算：TDB 热力学数据库解析 + Gibbs 能最小化求平衡相组成与相图截面
+  categories: [thermodynamics, phase-diagram]       # 领域名已移出（见下 domains）
+  families: [compute]
+  domains: [materials]
+  tier: read-only
+  origin:
+    kind: bridge
+    upstream: pycalphad
+    upstream_license: MIT
+  security_schemes: {}
+  visibility: public
+  active: true
+
+functions:
+  - name: pycalphad_equilibrium
+    description: 给定 TDB 数据库 + 组元/相 + 平衡条件，Gibbs 能最小化求平衡相组成
+    tags: [equilibrium, gibbs]
+    parameters:
+      type: object
+      properties:
+        tdb:
+          type: string
+          description: TDB 热力学数据库文件路径（或 .tdb 内容字符串）
+        components:
+          type: array
+          description: "组元列表，如 [AL, ZN]"
+          items:
+            type: string
+        phases:
+          type: array
+          description: 候选相列表（可省，默认数据库内全部相）
+          items:
+            type: string
+        conditions:
+          type: object
+          description: "平衡条件，如 {T: 573, P: 101325, X_ZN: 0.05}（T=开尔文，P=帕，X_<元素>=摩尔分数）"
+      required: [tdb, components, conditions]
+      additionalProperties: false
+
+  - name: pycalphad_phase_diagram
+    description: 计算温度-成分相图截面（二元/三元，给定温度/压力区间网格）
+    tags: [phase-diagram]
+    parameters:
+      type: object
+      properties:
+        tdb:
+          type: string
+          description: TDB 数据库文件路径或内容
+        components:
+          type: array
+          description: "组元列表（2-3 个）"
+          items:
+            type: string
+        phases:
+          type: array
+          description: 参与计算的相列表（可省）
+          items:
+            type: string
+        temperature_range:
+          type: array
+          description: "[Tmin, Tmax]（开尔文）"
+          items:
+            type: number
+        grid_points:
+          type: integer
+          description: 网格采样点数（默认 100）
+      required: [tdb, components, temperature_range]
+      additionalProperties: false

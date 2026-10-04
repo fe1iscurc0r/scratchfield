@@ -161,7 +161,7 @@ def launch_neko() -> dict:
                     "message": f"NEKO Main Server 已在运行（端口 {_NEKO_MAIN_PORT}），已补拉桌宠窗口，稍候几秒即会出现在桌面",
                     "data": {"neko": "shell_started", "main_port": _NEKO_MAIN_PORT}}
         return {"status": "error",
-                "message": f"NEKO Main Server 已在运行，但桌宠窗口启动失败（未找到 node 或 neko-electron-shell 依赖未装，"
+                "message": "NEKO Main Server 已在运行，但桌宠窗口启动失败（未找到 node 或 neko-electron-shell 依赖未装，"
                            "可在 neko-electron-shell 目录运行 npm install --legacy-peer-deps 补齐）",
                 "data": {"neko": "shell_start_failed"}}
 

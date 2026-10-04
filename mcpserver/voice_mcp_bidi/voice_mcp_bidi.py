@@ -82,7 +82,7 @@ def _local_mic_available() -> bool:
         return False
 
 
-def _try_local_speak(text: str, voice: str, speed: float, lang: str) -> Optional[str]:
+def _try_local_speak(text: str, voice: str, speed: float, lang: str) -> str | None:
     """真机路径：mlx Kokoro TTS → 落盘 wav，返回文件路径；失败返回 None。
 
     仅 Apple Silicon + mlx-audio 可用（待联调）。对齐上游 server.py:229-267。
@@ -126,7 +126,7 @@ def np_array_to_bytes(arr: Any) -> bytes:
         return b""
 
 
-def _try_local_listen(duration: Optional[float]) -> Optional[str]:
+def _try_local_listen(duration: float | None) -> str | None:
     """真机路径：麦克风 + webrtcvad + Voxtral STT → 文本；失败返回 None。
 
     仅 Apple Silicon + 麦克风可用（待联调）。对齐上游 server.py:204-226。
@@ -169,7 +169,7 @@ def _tts_api_reachable(timeout: float = 2.0) -> bool:
         return False
 
 
-def _call_tts_api(text: str, voice: str, speed: float) -> Optional[bytes]:
+def _call_tts_api(text: str, voice: str, speed: float) -> bytes | None:
     """TTS-API /api/tts（engine=kokoro）→ mp3 字节；失败返回 None。
 
     契约对齐 babutree/TTS-API app.py:2814(api_tts)，请求体
@@ -294,7 +294,7 @@ class VoiceMCPBidiAgent:
             ensure_ascii=False,
         )
 
-    def _do_listen(self, duration: Optional[float]) -> str:
+    def _do_listen(self, duration: float | None) -> str:
         # 真机路径（待联调）
         text = _try_local_listen(duration)
         if text is not None:

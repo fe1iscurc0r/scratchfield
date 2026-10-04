@@ -1,0 +1,89 @@
+name: CI Nightly
+
+# 卷173 分层测试矩阵的 core/full 层——本机跑不动 46k 全量、CI 也不该每次 push 全跑：
+#   core 层（≤10min 目标）每晚跑一次，full 层每周日跑一次。
+#
+# ⚠️ 闸门铁律（与 ci.yml 同源）：全部 job 挂 ENABLE_CI_TEST 闸门变量——
+#   Actions 账单未解封期间 hosted runner 不会被调度，变量未设 ⇒ skipped（绿），
+#   不造永久红灯。恢复：Settings → Secrets and variables → Actions →
+#   Variables 新建 ENABLE_CI_TEST = true。
+#   ⚠️ job 级 if 只允许 vars context，不许 env context（历史坑见 ci.yml lint 注释）。
+
+on:
+  schedule:
+    - cron: '0 3 * * *'        # 每日 03:00 UTC（北京 11:00）—— core 层
+    - cron: '0 4 * * 0'        # 每周日 04:00 UTC —— full 层（在同一个 schedule 里按 job 拆）
+  workflow_dispatch:
+    inputs:
+      layer:
+        description: '测试层'
+        required: true
+        default: 'core'
+        type: choice
+        options:
+          - core
+          - full
+
+permissions:
+  contents: read
+
+jobs:
+  core-nightly:
+    if: ${{ vars.ENABLE_CI_TEST == 'true' && (github.event_name == 'workflow_dispatch' && github.event.inputs.layer == 'core' || github.event_name == 'schedule' && github.event.schedule == '0 3 * * *') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: pip install --no-cache-dir uv
+
+      - name: Sync deps
+        run: uv sync --group build
+
+      - name: Run core layer
+        run: uv run pytest -m core -q --junitxml=build/test-results/core-junit.xml
+
+      - name: Upload junit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-junit
+          path: build/test-results/core-junit.xml
+          if-no-files-found: ignore
+
+  full-weekly:
+    if: ${{ vars.ENABLE_CI_TEST == 'true' && (github.event_name == 'workflow_dispatch' && github.event.inputs.layer == 'full' || github.event_name == 'schedule' && github.event.schedule == '0 4 * * 0') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: pip install --no-cache-dir uv
+
+      - name: Sync deps
+        run: uv sync --group build
+
+      # full 层 = tests/ 全量（未标注文件默认 full；NEKO 等已在 pyproject
+      # norecursedirs 收集期排除）
+      - name: Run full layer
+        run: uv run pytest tests/ -q --junitxml=build/test-results/full-junit.xml
+
+      - name: Upload junit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-junit
+          path: build/test-results/full-junit.xml
+          if-no-files-found: ignore

@@ -45,3 +45,20 @@ async def telemetry_status():
         "status": "success",
         "telemetry": await get_telemetry_manager().get_status(),
     }
+
+
+@router.get("/system/telemetry/summary")
+async def telemetry_summary():
+    """W120-04：关键指标仪表盘 —— 请求 / 工具 / 总线三类计数 + 失败率 + 最近错误 Top10（脱敏）。
+
+    计数只存内存（重启清零）；总线部分取 W119-01 的 `get_bus().snapshot()`。
+    """
+    from apiserver.event_bus import get_bus
+    from apiserver.telemetry import METRICS
+
+    bus_snapshot = None
+    try:
+        bus_snapshot = get_bus().snapshot()
+    except Exception:  # noqa: BLE001 - 总线不可用时降级为空
+        bus_snapshot = None
+    return {"status": "success", "summary": METRICS.snapshot(bus=bus_snapshot)}

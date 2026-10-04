@@ -230,7 +230,7 @@ export function normalizeMessages(messages: unknown, assistantName?: string): Me
     if (!message)
       continue
 
-    const previous = normalized[normalized.length - 1]
+    const previous = normalized.at(-1)
     if (message.role === 'assistant' && previous?.role === 'assistant') {
       mergeAssistantMessages(previous, message)
       continue

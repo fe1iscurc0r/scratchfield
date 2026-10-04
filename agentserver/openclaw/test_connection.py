@@ -10,6 +10,7 @@ import asyncio
 import os
 
 import httpx
+import pytest
 
 # 确保 localhost 请求绕过代理
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
@@ -30,6 +31,15 @@ HOOKS_HEADERS = {
     "Content-Type": "application/json",
     "x-openclaw-token": HOOKS_TOKEN
 }
+
+# 本文件是针对在线 OpenClaw 网关(127.0.0.1:20789) + token 的手工集成诊断脚本
+# （函数体为 try/except + print，无断言，仅供 `python test_connection.py` 手动跑），
+# 不属于自动化单元套件。默认整体跳过，避免被 pytest 误收集报
+# “async def 不被原生支持”；设 OPENCLAW_LIVE_TESTS=1 才纳入。
+pytestmark = pytest.mark.skipif(
+    os.environ.get("OPENCLAW_LIVE_TESTS") != "1",
+    reason="需在线 OpenClaw 网关 + token 的手工集成脚本，默认不纳入自动化测试",
+)
 
 
 async def test_root():

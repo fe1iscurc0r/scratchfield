@@ -1,9 +1,14 @@
 """M3.1a 反向事件状态感知层测试（纯 Python，零 LLM）。"""
 from __future__ import annotations
 
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import time
 
-from apiserver.routes.lumo_state import LumoStateStore, _STATE_TTL_SECONDS
+from apiserver.routes.lumo_state import _STATE_TTL_SECONDS, LumoStateStore
 
 
 def test_update_and_render():

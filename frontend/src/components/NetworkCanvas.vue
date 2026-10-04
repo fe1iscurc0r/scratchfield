@@ -21,6 +21,8 @@ const MAX_DISTANCE = 200
 const NODE_COLOR = 'rgba(212, 175, 55, 0.6)'
 
 function createParticles(w: number, h: number): Particle[] {
+  // 注意：不能用 Array.from({length}).fill(obj)——fill 会让所有元素共享同一对象引用
+  // eslint-disable-next-line e18e/prefer-array-fill -- 对象填充必须用映射回调，fill 会共享引用
   return Array.from({ length: PARTICLE_COUNT }, () => ({
     x: Math.random() * w,
     y: Math.random() * h,

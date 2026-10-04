@@ -66,12 +66,12 @@ def _build_agent(state: dict):
 
     logging.disable(logging.CRITICAL)
     from hermes_cli.config import load_config
-    from hermes_cli.runtime_provider import resolve_runtime_provider
     from hermes_cli.fallback_config import get_fallback_chain
     from hermes_cli.oneshot import (
         _create_session_db_for_oneshot,
         _oneshot_clarify_callback,
     )
+    from hermes_cli.runtime_provider import resolve_runtime_provider
     from run_agent import AIAgent
 
     cfg = load_config()

@@ -59,5 +59,17 @@
         "description": "图谱状态：活跃路径/规模/引擎/上游 CLI 可用性/license"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "context"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["build", "code"], ["compute", "code"], ["ingest", "code"], ["query", "code"], ["search", "code"], ["status", "code"]]
 }

@@ -187,7 +187,6 @@ onMounted(async () => {
         modelFaceScreenX = (model.x + model.rawWidth * s * 0.5) / ssaa
         modelFaceScreenY = (model.y + model.rawHeight * s * faceY) / ssaa
         markerPos.value = { left: `${modelFaceScreenX}px`, top: `${modelFaceScreenY}px` }
-        console.log('[Live2D] 触发 modelReady 事件')
         emit('modelReady', { faceX: modelFaceScreenX, faceY: modelFaceScreenY })
       }
       // 响应 face_y_ratio 配置变化（设置界面滑块调节时实时更新）

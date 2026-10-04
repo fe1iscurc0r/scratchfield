@@ -36,6 +36,7 @@ DEFAULT_CORE_CONFIG = {
     "assistApiKeyMimoTokenPlan": "",
     "assistApiKeyElevenlabs": "",
     "assistApiKeyClaude": "",
+    "assistApiKeyOrcarouter": "",
     "assistApiKeyGrok": "",
     "assistApiKeyDoubao": "",
     "assistApiKeyDoubaoTts": "",
@@ -70,7 +71,7 @@ DEFAULT_CORE_API_PROFILES = {
     },
     'glm': {
         'CORE_URL': "wss://open.bigmodel.cn/api/paas/v4/realtime",
-        'CORE_MODEL': "glm-realtime-air",
+        'CORE_MODEL': "glm-realtime-plus",
     },
     'openai': {
         'CORE_URL': "wss://api.openai.com/v1/realtime",
@@ -86,7 +87,7 @@ DEFAULT_CORE_API_PROFILES = {
     },
     'grok': {
         'CORE_URL': "wss://api.x.ai/v1/realtime",
-        'CORE_MODEL': "grok-voice-fast-1.0",
+        'CORE_MODEL': "grok-voice-latest",
     },
 }
 
@@ -128,21 +129,21 @@ DEFAULT_ASSIST_API_PROFILES = {
     },
     'openai': {
         'OPENROUTER_URL': "https://api.openai.com/v1",
-        'CONVERSATION_MODEL' : "gpt-5-chat-latest",
-        'SUMMARY_MODEL': "gpt-4.1-mini",
-        'CORRECTION_MODEL': "gpt-5-chat-latest",
-        'EMOTION_MODEL': "gpt-4.1-nano",
-        'VISION_MODEL': "gpt-5-chat-latest",
-        'AGENT_MODEL': "gpt-5-chat-latest",
+        'CONVERSATION_MODEL' : "gpt-5.6-luna",
+        'SUMMARY_MODEL': "gpt-5.6-luna",
+        'CORRECTION_MODEL': "gpt-5.6-luna",
+        'EMOTION_MODEL': "gpt-5-nano",
+        'VISION_MODEL': "gpt-5.6-luna",
+        'AGENT_MODEL': "gpt-5.6-terra",
     },
     'glm': {
         'OPENROUTER_URL': "https://open.bigmodel.cn/api/paas/v4",
-        'CONVERSATION_MODEL' : "glm-4.5-air" ,
-        'SUMMARY_MODEL': "glm-4.5-flash",
-        'CORRECTION_MODEL': "glm-4.5-air",
-        'EMOTION_MODEL': "glm-4.5-flash",
+        'CONVERSATION_MODEL': "glm-4.7-flash",
+        'SUMMARY_MODEL': "glm-4.7-flash",
+        'CORRECTION_MODEL': "glm-4.7-flash",
+        'EMOTION_MODEL': "glm-4.7-flash",
         'VISION_MODEL': "glm-4.6v-flash",
-        'AGENT_MODEL': "glm-4.5-air",
+        'AGENT_MODEL': "glm-5v-turbo",
     },
     'step': {
         'OPENROUTER_URL': "https://api.stepfun.com/v1",
@@ -208,6 +209,15 @@ DEFAULT_ASSIST_API_PROFILES = {
         'VISION_MODEL': "openai/gpt-4.1",
         'AGENT_MODEL': "openai/gpt-4.1",
     },
+    'orcarouter': {
+        'OPENROUTER_URL': "https://api.orcarouter.ai/v1",
+        'CONVERSATION_MODEL': "anthropic/claude-sonnet-5",
+        'SUMMARY_MODEL': "anthropic/claude-sonnet-5",
+        'CORRECTION_MODEL': "anthropic/claude-sonnet-5",
+        'EMOTION_MODEL': "anthropic/claude-haiku-4.5",
+        'VISION_MODEL': "anthropic/claude-sonnet-5",
+        'AGENT_MODEL': "anthropic/claude-sonnet-5",
+    },
     'grok': {
         'OPENROUTER_URL': "https://api.x.ai/v1",
         'CONVERSATION_MODEL': "grok-4-1-fast-non-reasoning",
@@ -258,6 +268,7 @@ DEFAULT_ASSIST_API_KEY_FIELDS = {
     'elevenlabs': 'ASSIST_API_KEY_ELEVENLABS',
     'claude': 'ASSIST_API_KEY_CLAUDE',
     'openrouter': 'ASSIST_API_KEY_OPENROUTER',
+    'orcarouter': 'ASSIST_API_KEY_ORCAROUTER',
     'grok': 'ASSIST_API_KEY_GROK',
     'doubao': 'ASSIST_API_KEY_DOUBAO',
 }

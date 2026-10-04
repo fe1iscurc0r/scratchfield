@@ -66,7 +66,7 @@ class LLM4Decompile:
         self.n_gpu_layers = n_gpu_layers
         self.n_ctx = n_ctx
         self.verbose = verbose
-        self._model: Optional[Any] = None
+        self._model: Any | None = None
 
     # ------------------------------------------------------------------ #
     # 模型加载
@@ -120,8 +120,8 @@ class LLM4Decompile:
     def _extract_assembly_capstone(self, binary_path: str) -> str:
         """用 Python capstone 提取汇编（跨平台，Windows 无 objdump 时使用）。"""
         try:
-            from capstone import Cs, CS_ARCH_X86, CS_MODE_64
-            from capstone.x86 import X86_OP_REG, X86_OP_IMM, X86_OP_MEM
+            from capstone import CS_ARCH_X86, CS_MODE_64, Cs
+            from capstone.x86 import X86_OP_IMM, X86_OP_MEM, X86_OP_REG
         except ImportError as e:  # pragma: no cover
             raise ModelNotLoadedError(
                 "Windows 下无 objdump，需要 capstone 提取汇编（pip install capstone）"

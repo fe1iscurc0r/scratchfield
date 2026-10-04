@@ -1,0 +1,123 @@
+OpenEMS 天线模型（由 Lumo antenna_sim 生成）——模板文件，占位符由 model_generator 填充。
+
+占位符（生成时替换）：
+  @@COMMENT@@        模型说明行
+  @@TYPE@@           天线类型
+  @@FREQ_MHZ@@       工作频率（MHz）
+  @@PARAMS_JSON@@    参数 JSON 字符串（生成脚本里用 json.loads 还原）
+  @@GENERATED_BY@@   生成器标识
+  @@GIT@@            git 短哈希
+  @@SEGMENTS@@       导体折线段列表（mm）
+  @@WIRE_DIA@@       线径（mm）
+  @@BBOX@@           几何外框（mm）
+
+== 以下为脚本正文 ==
+"""OpenEMS 天线模型（由 Lumo antenna_sim 生成）
+
+@@COMMENT@@
+antenna_type=@@TYPE@@  freq=@@FREQ_MHZ@@ MHz  params=@@PARAMS_JSON@@
+generated_by=@@GENERATED_BY@@  git=@@GIT@@
+
+网格假设：导线附近按半径倍数加密，其余 λ/25；边界 PML_8；激励 Gauss（±60% 带宽）
+运行：用装了 openEMS/CSXCAD wheel 的解释器执行（工作目录 = 结果目录，产物 s11.csv/meta.json）
+"""
+import json
+import os
+
+# Windows：OpenEMS 的 DLL 目录（扩展模块不从 PATH 找 DLL）
+DLL_DIR = os.environ.get("ANTENNA_SIM_DLL_DIR", "")
+if DLL_DIR and hasattr(os, "add_dll_directory") and os.path.isdir(DLL_DIR):
+    os.add_dll_directory(DLL_DIR)
+
+import numpy as np
+from CSXCAD import ContinuousStructure
+from openEMS import openEMS
+
+# 产物目录：执行器通过 ANTENNA_SIM_OUT_DIR 指定（默认当前目录）
+OUT_DIR = os.environ.get("ANTENNA_SIM_OUT_DIR") or "."
+
+FREQ_HZ = @@FREQ_HZ@@          # 工作频率
+SCALE = 1.0                    # λ 等比缩放（HF 天线可设 10~30，PEC 无耗下物理等价）
+MESH_CELLS_PER_LAMBDA = 25      # 空气区网格密度
+WIRE_REFINE = (-4, -2, -1, 1, 2, 4)   # 导线附近加密（半径倍数）
+FREQ_POINTS, FREQ_SPAN = 11, 0.10     # 扫频点数与相对带宽
+
+FREQ = FREQ_HZ * SCALE
+WAVELENGTH = 299792458.0 / FREQ
+# 单位：网格单位 = 1 米，所有几何坐标由 mm 换算（与手工验证脚本同形，避免 SetDeltaUnit 混用）
+MM = 1e-3 / SCALE
+
+params = json.loads(@@PARAMS_REPR@@)
+SEGMENTS_MM = @@SEGMENTS@@
+WIRE_DIA_MM = @@WIRE_DIA@@
+BBOX_MM = @@BBOX@@
+FEED_MM = @@FEED@@
+
+# 几何换算到米
+SEGMENTS = [[[c * MM for c in seg[0]], [c * MM for c in seg[1]]] for seg in SEGMENTS_MM]
+RADIUS = (WIRE_DIA_MM / 2.0) * MM
+FEED_CENTER = [_c * MM for _c in (FEED_MM.get("center") or SEGMENTS_MM[0][0])]
+FEED_WIDTH = float(FEED_MM.get("width_mm") or WIRE_DIA_MM * 2.0) * MM
+FEED_AXIS = str(FEED_MM.get("axis") or "x")
+
+FDTD = openEMS(NrTS=200000, EndCriteria=1e-5)
+FDTD.SetGaussExcite(FREQ, FREQ * 0.6)
+FDTD.SetBoundaryCond(["PML_8"] * 6)
+CSX = ContinuousStructure()
+FDTD.SetCSX(CSX)
+mesh = CSX.GetGrid()
+mesh.SetDeltaUnit(1.0)          # 单位 = 米（坐标已换算）
+
+metal = CSX.AddMetal("antenna")
+for _seg in SEGMENTS:
+    metal.AddCylinder(_seg[0], _seg[1], radius=RADIUS, priority=10)
+
+# ---- 网格：空气区 λ/25；导线所在坐标 ±{1,2,4}×半径 加密（保证导线与网格线对齐）----
+_extent = max(float(BBOX_MM[0]) * MM * 1.5, WAVELENGTH * 2.0)
+_cells = int(max(21, min(300, float(BBOX_MM[0]) * MM / WAVELENGTH * MESH_CELLS_PER_LAMBDA)))
+_coarse = np.linspace(-_extent / 2.0, _extent / 2.0, _cells)
+for _i, _axis in enumerate("xyz"):
+    _coords = sorted({round(seg[0][_i], 9) for seg in SEGMENTS} | {round(seg[1][_i], 9) for seg in SEGMENTS})
+    _fine = [c + k * RADIUS for c in _coords for k in WIRE_REFINE]
+    mesh.AddLine(_axis, np.unique(np.concatenate([_coarse, np.array(_fine)])))
+
+# ---- 馈电：端口跨在几何声明的缺口上（落在导体中间会被短路 → 激励恒 0，实测踩过）----
+# 坐标用普通 float 且取整到 1e-9：numpy 标量的浮点尾数会让 OpenEMS 匹配不上网格线，
+# 端口激励盒被判为 Unused primitive（实测：能量恒 0、S11 全 nan）
+_delta = [0.0, 0.0, 0.0]
+_delta["xyz".index(FEED_AXIS)] = round(FEED_WIDTH / 2.0, 9)
+_port_start = [round(float(FEED_CENTER[i]) - _delta[i], 9) for i in range(3)]
+_port_stop = [round(float(FEED_CENTER[i]) + _delta[i], 9) for i in range(3)]
+port = FDTD.AddLumpedPort(1, 50.0, _port_start, _port_stop, FEED_AXIS, 1.0, priority=5)
+
+FDTD.Run(OUT_DIR, cleanup=True)
+
+# ---- 后处理：S11 扫频 ----
+freqs = np.linspace(FREQ * (1 - FREQ_SPAN), FREQ * (1 + FREQ_SPAN), FREQ_POINTS)
+port.CalcPort(OUT_DIR, freqs)
+s11 = port.uf_ref / port.uf_inc
+zin = port.uf_tot / port.if_tot
+s11_db = 20 * np.log10(np.maximum(np.abs(s11), 1e-9))
+
+with open(os.path.join(OUT_DIR, "s11.csv"), "w", encoding="utf-8") as fh:
+    fh.write("freq_hz,s11_db,zin_re,zin_im\n")
+    for f, dv, z in zip(freqs, s11_db, zin):
+        fh.write("%.6e,%.4f,%.4f,%.4f\n" % (f, dv, z.real, z.imag))
+
+meta = {
+    "antenna_type": "@@TYPE@@",
+    "freq_mhz": @@FREQ_MHZ@@,
+    "params": params,
+    "scale": SCALE,
+    "mesh_cells_per_lambda": MESH_CELLS_PER_LAMBDA,
+    "boundary": "PML_8",
+    "excite_bandwidth": 0.6,
+    "s11_min_db": float(np.min(s11_db)),
+    "resonance_hz": float(freqs[int(np.argmin(s11_db))]),
+}
+with open(os.path.join(OUT_DIR, "meta.json"), "w", encoding="utf-8") as fh:
+    json.dump(meta, fh, ensure_ascii=False, indent=1)
+
+print("[model] type=%s freq=%.3f MHz scale=%.1f" % ("@@TYPE@@", FREQ_HZ / 1e6, SCALE))
+print("[model] S11 min = %.2f dB @ %.3f MHz"
+      % (float(np.min(s11_db)), float(freqs[int(np.argmin(s11_db))]) / 1e6))

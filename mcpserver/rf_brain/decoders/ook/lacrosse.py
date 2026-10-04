@@ -34,11 +34,11 @@ def decode_lacrosse(pulse_widths_us: np.ndarray) -> dict | None:
         return None
     if len(bits) != _FRAME_BITS:
         return None
-    raw = bits_to_bytes(bits)  # 41bit → 6 字节（高 7 位零填充）
+    raw = bits_to_bytes(bits)  # 41bit → 6 字节（高 7 位零填充），list[int]
     return {
         "protocol": "lacrosse-tx141th-bv2",
         "raw_bits": int(len(bits)),
-        "raw_hex": bytes(raw.tolist()).hex(),
+        "raw_hex": bytes(raw).hex(),
         "crc_ok": None,  # 字段与 CRC 待真机样本校准
         "_note": "字段映射待校准，勿用于生产",
     }

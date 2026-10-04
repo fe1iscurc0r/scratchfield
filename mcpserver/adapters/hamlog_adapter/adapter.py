@@ -1,7 +1,8 @@
 """hamlog_adapter — 陆墨的 QSO/QSL 工具桥。
 
-把本地 HamLog（业余无线电电台日志）的数据封装成 5 个 MCP 工具：
-hamlog_qso_search / hamlog_qsl_debts / hamlog_qso_add / hamlog_qsl_update / hamlog_card_content。
+把本地 HamLog（业余无线电电台日志）的数据封装成 10 个 MCP 工具：
+QSO 搜索/录入、QSL 卡债与状态、QSL 卡内容、ADIF 导入/导出、DXCC 实体查询、
+通联统计、CAT 电台联动（读 IC-705 频率）。
 
 数据源（2026-08-18 按 HamLog R1.0.0 实际仓库对齐后的双后端设计）：
 1. SQLite 直连（默认，主路径）：HamLog R1.0.0 是 PyQt6 桌面程序，没有 HTTP API，
@@ -38,14 +39,30 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # SQLite 后端（主路径）：HamLog R1.0.0 数据目录
-_LOG_TABLE_COLUMNS = (
-    "id Callsign Freq Year Month Day Time Mode Power_self Power_side "
-    "Rst_self Rst_side QTH Device QSL_RX QSL_SEND Remarks CreateTime"
-).split()
+_LOG_TABLE_COLUMNS = ["id", "Callsign", "Freq", "Year", "Month", "Day", "Time", "Mode", "Power_self", "Power_side", "Rst_self", "Rst_side", "QTH", "Device", "QSL_RX", "QSL_SEND", "Remarks", "CreateTime"]
 
 # HTTP 后端（legacy 兜底，仅 HAMLOG_API_URL 显式设置时启用）
 DEFAULT_API_PREFIX = "/api"
 REQUEST_TIMEOUT = 8  # 秒；本地回环服务，超时短一点让 fail-fast 更快
+
+# 波段 ↔ 频率前缀近似映射（HamLog 无独立 band 字段，按 Freq 前缀近似）
+_BAND_FREQ_PREFIX = {
+    "160m": "1.8", "80m": "3.5", "40m": "7", "30m": "10", "20m": "14",
+    "17m": "18", "15m": "21", "12m": "24", "10m": "28", "6m": "50",
+    "2m": "144", "70cm": "43",
+}
+
+
+def _freq_to_band(freq: Any) -> str:
+    """按频率前缀近似还原波段（HamLog 无 band 字段，best-effort；找不到返回空串）。"""
+    f = str(freq or "").strip()
+    if not f:
+        return ""
+    # 长前缀优先，避免 "144" 被 "14" 抢匹配
+    for band in sorted(_BAND_FREQ_PREFIX, key=lambda b: len(_BAND_FREQ_PREFIX[b]), reverse=True):
+        if f.startswith(_BAND_FREQ_PREFIX[band]):
+            return band
+    return ""
 
 
 class HamlogError(RuntimeError):
@@ -298,7 +315,6 @@ def _sqlite_qso_search(callsign: str, since: str, until: str, band: str, mode: s
         args.append(str(mode).strip())
     if str(band or "").strip():  # HamLog 无 band 字段：按频率前缀近似匹配（fail-fast 提示）
         band = str(band).strip().lower()
-        _BAND_FREQ_PREFIX = {"160m": "1.8", "80m": "3.5", "40m": "7", "30m": "10", "20m": "14", "17m": "18", "15m": "21", "12m": "24", "10m": "28", "6m": "50", "2m": "144", "70cm": "43"}
         prefix = _BAND_FREQ_PREFIX.get(band)
         if prefix is None:
             raise HamlogError(f"HamLog 无独立 band 字段，无法按波段 {band!r} 过滤（支持 {_BAND_FREQ_PREFIX.keys()}），请改用频率前缀搜 callsign=或去掉该条件")
@@ -568,17 +584,243 @@ def _build_card(their_callsign: str, qso_date: str, freq: Any, band: str, mode: 
     }
 
 
+# ---- ADIF 导入/导出 ----
+
+def _adif_field(name: str, value: Any) -> str:
+    """构造一个 ADIF 字段 <NAME:LEN>value（LEN 取字符数）。"""
+    v = "" if value is None else str(value)
+    return f"<{name}:{len(v)}>{v}"
+
+
+def adif_export(
+    callsign: str = "",
+    since: str = "",
+    until: str = "",
+    band: str = "",
+    mode: str = "",
+) -> dict[str, Any]:
+    """把日志导出成 ADIF 格式文本（ADIF 头 + <字段:长度> 记录），返回含 adif 文本的 dict。
+
+    过滤条件同 qso_search，全部可选；缺省导出全部 QSO。
+    """
+    if not _sqlite_backend():
+        raise HamlogError("ADIF 导出仅支持 SQLite 直连后端；HTTP legacy 后端未实现 ADIF 导出")
+    rows = _sqlite_qso_search(callsign, since, until, band, mode)
+    lines = [f"ADIF export from HamLog ({len(rows)} records)", "<EOH>"]
+    for q in rows:
+        fields = [
+            _adif_field("CALL", q["callsign"]),
+            _adif_field("FREQ", q["freq"]),
+            _adif_field("MODE", q["mode"]),
+            _adif_field("QSO_DATE", (q["qso_date"] or "").replace("-", "")),
+            _adif_field("TIME_ON", q["qso_time_utc"]),
+            _adif_field("RST_SENT", q["rst_sent"]),
+            _adif_field("RST_RCVD", q["rst_rcvd"]),
+        ]
+        band_value = q.get("band") or _freq_to_band(q["freq"])
+        if band_value:
+            fields.append(_adif_field("BAND", band_value))
+        if q.get("qsl_sent_date"):
+            fields.append(_adif_field("QSL_SENT", q["qsl_sent_date"]))
+        if q.get("qsl_rcvd_date"):
+            fields.append(_adif_field("QSL_RCVD", q["qsl_rcvd_date"]))
+        lines.append(" ".join(fields) + " <EOR>")
+    return {"adif": "\n".join(lines) + "\n", "count": len(rows)}
+
+
+_ADIF_TAG_RE = re.compile(r"<([A-Za-z_][A-Za-z0-9_]*):(\d+)(?::[^>]*)?>")
+
+
+def _parse_adif_record(record: str) -> dict[str, str]:
+    """解析单条 ADIF 记录文本 → {字段名(大写): 值}。"""
+    fields: dict[str, str] = {}
+    pos = 0
+    while True:
+        m = _ADIF_TAG_RE.search(record, pos)
+        if not m:
+            break
+        name = m.group(1).upper()
+        length = int(m.group(2))
+        start = m.end()
+        fields[name] = record[start:start + length].strip()
+        pos = start + length
+    return fields
+
+
+def adif_import(adif_text: str) -> dict[str, Any]:
+    """解析 ADIF 文本，批量写入 SQLite log 表，返回成功/失败条数。
+
+    复用 _sqlite_qso_add 的写入逻辑；缺 CALL 或 MODE 的记录计入 failed。
+    """
+    if not _sqlite_backend():
+        raise HamlogError("ADIF 导入仅支持 SQLite 直连后端；HTTP legacy 后端未实现 ADIF 导入")
+    text = str(adif_text or "")
+    if not text.strip():
+        raise HamlogError("adif_import 缺少 adif_text（要导入的 ADIF 文本为空）")
+    body = text
+    eoh = text.find("<EOH>")
+    if eoh != -1:
+        body = text[eoh + len("<EOH>"):]
+    success = 0
+    failed = 0
+    errors: list[str] = []
+    for idx, segment in enumerate(body.split("<EOR>"), start=1):
+        segment = segment.strip()
+        if not segment:
+            continue
+        fields = _parse_adif_record(segment)
+        callsign = fields.get("CALL") or fields.get("CALLSIGN") or ""
+        mode = fields.get("MODE") or ""
+        if not callsign or not mode:
+            failed += 1
+            errors.append(f"记录 {idx}: 缺少 CALL 或 MODE，跳过")
+            continue
+        qso_date = fields.get("QSO_DATE") or ""
+        if not qso_date:
+            qso_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        qso_fields = {
+            "callsign": callsign,
+            "mode": mode,
+            "freq": fields.get("FREQ") or "",
+            "qso_date": qso_date,
+            "qso_time_utc": fields.get("TIME_ON") or "",
+            "rst_sent": fields.get("RST_SENT") or "",
+            "rst_rcvd": fields.get("RST_RCVD") or "",
+            "qsl_sent_date": fields.get("QSL_SENT") or "",
+            "qsl_rcvd_date": fields.get("QSL_RCVD") or "",
+        }
+        try:
+            _sqlite_qso_add(qso_fields)
+            success += 1
+        except HamlogError as exc:
+            failed += 1
+            errors.append(f"记录 {idx}: {exc}")
+    return {"success": success, "failed": failed, "total": success + failed, "errors": errors}
+
+
+# ---- DXCC 实体查询（精简前缀表，真机可替换为全量 DXCC 表） ----
+
+_DXCC_PREFIX_TABLE = {
+    "9A": ("Croatia", "Europe"),
+    "DL": ("Germany", "Europe"),
+    "EA": ("Spain", "Europe"),
+    "F": ("France", "Europe"),
+    "G": ("England", "Europe"),
+    "I": ("Italy", "Europe"),
+    "OH": ("Finland", "Europe"),
+    "ON": ("Belgium", "Europe"),
+    "SM": ("Sweden", "Europe"),
+    "UA": ("Russia", "Europe"),
+    "BY": ("China", "Asia"),
+    "HS": ("Thailand", "Asia"),
+    "JA": ("Japan", "Asia"),
+    "VU": ("India", "Asia"),
+    "K": ("United States", "North America"),
+    "N": ("United States", "North America"),
+    "W": ("United States", "North America"),
+    "VE": ("Canada", "North America"),
+    "PY": ("Brazil", "South America"),
+    "LU": ("Argentina", "South America"),
+    "VK": ("Australia", "Oceania"),
+    "ZL": ("New Zealand", "Oceania"),
+    "ZS": ("South Africa", "Africa"),
+}
+
+
+def dxcc_lookup(callsign: str) -> dict[str, Any]:
+    """按呼号前缀查询 DXCC 实体，返回 {prefix, entity, continent}。
+
+    当前为精简前缀映射表（覆盖常见前缀），真机可替换为全量 DXCC 表；
+    找不到时抛 HamlogError（fail-fast）。
+    """
+    call = str(callsign or "").strip().upper()
+    if not call:
+        raise HamlogError("dxcc_lookup 缺少 callsign")
+    base = call.split("/")[0]  # 去掉便携/斜杠后缀（如 JA1ABC/2、VE3/P）
+    for prefix in sorted(_DXCC_PREFIX_TABLE, key=len, reverse=True):
+        if base.startswith(prefix):
+            entity, continent = _DXCC_PREFIX_TABLE[prefix]
+            return {"prefix": prefix, "entity": entity, "continent": continent}
+    raise HamlogError(
+        f"未找到呼号 {call!r} 对应的 DXCC 实体（当前为精简前缀表，真机可替换为全量 DXCC 表）"
+    )
+
+
+# ---- 通联统计 ----
+
+def hamlog_stats() -> dict[str, Any]:
+    """返回 HamLog 通联统计：总 QSO 数 / 按 mode 分组 / 按 band（频率前缀近似）分组 / 已确认 QSL 数。"""
+    if not _sqlite_backend():
+        raise HamlogError("通联统计仅支持 SQLite 直连后端；HTTP legacy 后端未实现统计")
+    conn = _connect(readonly=True)
+    try:
+        _require_table(conn, "log")
+        rows = conn.execute("SELECT Freq, Mode, QSL_RX FROM log").fetchall()
+    except sqlite3.Error as exc:
+        raise HamlogError(f"HamLog 通联统计失败: {exc}") from exc
+    finally:
+        conn.close()
+    total = len(rows)
+    by_mode: dict[str, int] = {}
+    by_band: dict[str, int] = {}
+    qsl_confirmed = 0
+    for r in rows:
+        mode = (r["Mode"] or "").strip().upper() or "未知"
+        by_mode[mode] = by_mode.get(mode, 0) + 1
+        band = _freq_to_band(r["Freq"]) or "未知"
+        by_band[band] = by_band.get(band, 0) + 1
+        if (r["QSL_RX"] or "").strip():
+            qsl_confirmed += 1
+    return {
+        "total_qsos": total,
+        "by_mode": by_mode,
+        "by_band": by_band,
+        "qsl_confirmed": qsl_confirmed,
+    }
+
+
+# ---- CAT 电台联动 ----
+
+def hamlog_cat_get_freq() -> dict[str, Any]:
+    """CAT 电台联动：懒加载 rsba1_adapter，尝试读 IC-705 当前频率。
+
+    只用 RadioLink 直连路径（纯 socket，不依赖 pywin32）；连接失败/无电台时
+    诚实降级返回 {ok: False, error: "..."}，绝不抛裸异常。
+    """
+    try:
+        from mcpserver.adapters.rsba1_adapter.adapter import Rsba1Ic705Bridge
+
+        bridge = Rsba1Ic705Bridge()
+        if not bridge._try_radio_link():
+            return {
+                "ok": False,
+                "error": "CAT 电台不可达：RadioLink 直连 IC-705 失败，请确认电台已开机且 RS-BA1 Server Function 已开启",
+            }
+        try:
+            hz = bridge._do_read_freq()
+            return {"ok": True, "freq_mhz": round(int(hz) / 1e6, 6)}
+        finally:
+            bridge.close()
+    except Exception as exc:  # 任何异常（含 rsba1 包缺失）都降级返回，不抛裸异常
+        return {"ok": False, "error": f"CAT 电台读取失败: {type(exc).__name__}: {exc}"}
+
+
 _TOOLS: dict[str, Any] = {
     "hamlog_qso_search": qso_search,
     "hamlog_qsl_debts": qsl_debts,
     "hamlog_qso_add": qso_add,
     "hamlog_qsl_update": qsl_update,
     "hamlog_card_content": card_content,
+    "hamlog_adif_export": adif_export,
+    "hamlog_adif_import": adif_import,
+    "hamlog_dxcc_lookup": dxcc_lookup,
+    "hamlog_stats": hamlog_stats,
+    "hamlog_cat_get_freq": hamlog_cat_get_freq,
 }
 
 
 class HamlogBridge:
-    """进程内接入入口（manifest entryPoint），handle_handoff 分发到 5 个工具。"""
+    """进程内接入入口（manifest entryPoint），handle_handoff 分发到已登记工具。"""
 
     name = "hamlog_adapter"
 
@@ -690,6 +932,48 @@ _TOOL_SCHEMAS = [
             "properties": {"qso_id": {"type": "integer"}},
             "required": ["qso_id"],
         },
+    },
+    {
+        "name": "hamlog_adif_export",
+        "description": "把 HamLog 日志导出成 ADIF 格式文本（ADIF 头 + <字段:长度> 记录）",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "callsign": {"type": "string", "description": "对方呼号（可选）"},
+                "since": {"type": "string", "description": "起始日期 YYYY-MM-DD（可选）"},
+                "until": {"type": "string", "description": "结束日期 YYYY-MM-DD（可选）"},
+                "band": {"type": "string", "description": "波段，如 20m（可选）"},
+                "mode": {"type": "string", "description": "模式，如 FT8（可选）"},
+            },
+        },
+    },
+    {
+        "name": "hamlog_adif_import",
+        "description": "解析 ADIF 文本并批量写入 HamLog SQLite log 表，返回成功/失败条数",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"adif_text": {"type": "string", "description": "要导入的 ADIF 文本"}},
+            "required": ["adif_text"],
+        },
+    },
+    {
+        "name": "hamlog_dxcc_lookup",
+        "description": "按呼号前缀查询 DXCC 实体（精简前缀表，返回 prefix/entity/continent）",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"callsign": {"type": "string", "description": "对方呼号，如 JA1XYZ"}},
+            "required": ["callsign"],
+        },
+    },
+    {
+        "name": "hamlog_stats",
+        "description": "HamLog 通联统计：总 QSO 数 / 按 mode 分组 / 按 band 分组 / 已确认 QSL 数",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "hamlog_cat_get_freq",
+        "description": "CAT 电台联动：读 IC-705 当前频率（无电台时返回 ok:False 与错误信息，不抛异常）",
+        "inputSchema": {"type": "object", "properties": {}},
     },
 ]
 

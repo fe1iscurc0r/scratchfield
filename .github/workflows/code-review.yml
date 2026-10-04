@@ -1,0 +1,76 @@
+name: code-review-graph
+
+# code-review-graph PR 自动审查（02-03）
+# 无 LLM 调用：纯 stdlib ast + git diff 确定性解析（见 mcpserver/adapters/code_review/engine.py）。
+# 输出：变更函数风险分 + 受影响执行流 + 测试缺口 → workflow 日志 + PR step summary。
+# sticky comment 升级路径见末尾注释块（默认降级为 workflow 日志/摘要，按工单允许降级）。
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'apiserver/**'
+      - 'summer_memory/**'
+  workflow_dispatch: {}  # 手动触发，供真机/云服实测
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    # ⚠️ 2026-09-22 起本 job 默认不跑（ENABLE_CODE_REVIEW 闸门），原因与 ci.yml 的 lint job 完全相同：
+    #   GitHub Actions 账单/消费限额未解封（用户明确"不充值"），hosted runner 不会被调度，
+    #   job 直接红着退出，报错原文（check-run annotation 实证）：
+    #     "The job was not started because recent account payments have failed or your
+    #      spending limit needs to be increased. Please check the 'Billing & plans'
+    #      section in your settings"
+    #   实证：同一 commit 上 lint / review 两个 job 的 runner_name 均为空 → 根本没分配到 runner。
+    #   这个 job 永远红着会把 PR 的 CI 结论拖成永久 failure —— 红灯变"狼来了"。
+    #
+    #   ★ 恢复方法（2026-09-22 修订）：仓库 Settings → Secrets and variables → Actions
+    #     → Variables 新建 ENABLE_CODE_REVIEW = true。未设置该变量 ⇒ 表达式为 false ⇒ 本 job 跳过。
+    #
+    #   ⚠️ 历史坑（务必不要再犯）：本行曾写成
+    #       if: ${{ vars.ENABLE_CODE_REVIEW == 'true' || env.ENABLE_CODE_REVIEW == 'true' }}
+    #     job 级 `if` **不允许引用 env context**，GitHub 报
+    #     "The workflow is not valid. Unrecognized named-value: 'env'" → 整个 workflow 非法。
+    if: ${{ vars.ENABLE_CODE_REVIEW == 'true' }}
+    # TODO(2026-10-19): ubuntu-latest 将迁移到 Ubuntu 26（actions/runner-images#14748），
+    # 届时若有不兼容（glibc/Python ABI 等）需显式钉死版本，如 ubuntu-24.04。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # detect_changes 需要 origin/main 做 diff 基
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Build code graph index (apiserver)
+        run: |
+          python tools/crg_index.py --build apiserver
+
+      - name: Detect changes + risk + test gaps
+        id: review
+        run: |
+          python tools/crg_index.py --changes --base origin/main > crg-review.json
+          cat crg-review.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report (workflow log)
+        run: |
+          python -c "import json; d=json.load(open('crg-review.json')); print('summary:', d.get('summary')); print('changed:', d.get('changed_files')); [print(f\"  {f['function']} risk={f['risk_score']}({f['level']}) test={f['has_test']}\") for f in d.get('changed_functions', [])]"
+
+      # sticky comment 升级路径（工单允许降级为日志，此处注释保留）：
+      # - uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       const fs = require('fs');
+      #       const body = fs.readFileSync('crg-review.json', 'utf8');
+      #       github.rest.issues.createComment({
+      #         issue_number: context.issue.number,
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         body: '## code-review-graph\n```json\n' + body + '\n```'
+      #       });

@@ -59,7 +59,7 @@ def _hex_to_base64(hex_str: str) -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
-def _call_t2a(text: str, voice_id: str) -> Optional[Dict[str, Any]]:
+def _call_t2a(text: str, voice_id: str) -> Dict[str, Any] | None:
     """调用 MiniMax t2a_v2（对齐上游 src/index.ts:332-384 的请求契约）。
 
     返回解析后的 JSON；任何失败返回 None（供调用方降级）。

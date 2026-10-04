@@ -111,13 +111,13 @@ class TranscribeResult:
     """
 
     success: bool
-    transcript: Optional[Transcript] = None
-    error: Optional[str] = None
-    reason: Optional[str] = None
-    provider: Optional[str] = None
+    transcript: Transcript | None = None
+    error: str | None = None
+    reason: str | None = None
+    provider: str | None = None
 
 
-def _default_host_transcribe_audio(file_path: str, model: Optional[str] = None) -> Any:
+def _default_host_transcribe_audio(file_path: str, model: str | None = None) -> Any:
     """Lazy adapter to the host's ``tools.transcription_tools.transcribe_audio``.
 
     Imported **only when called** so ``omnilimb_face.stt`` stays importable
@@ -147,7 +147,7 @@ class STTEngine:
     def __init__(
         self,
         cfg: "STTSettings",
-        host_transcribe_audio: Optional[Callable[..., Any]] = None,
+        host_transcribe_audio: Callable[..., Any] | None = None,
     ) -> None:
         self._cfg = cfg
         self._host_transcribe_audio: Callable[..., Any] = (
@@ -221,7 +221,7 @@ class STTEngine:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _resolve_model(self) -> Optional[str]:
+    def _resolve_model(self) -> str | None:
         """Resolve the model override passed to the host (``None`` when unset).
 
         ``cfg.model or None`` so an empty string falls back to the host's own
@@ -263,7 +263,7 @@ class STTEngine:
             raise
         return tmp_path
 
-    def _invoke_and_parse(self, file_path: str, model: Optional[str]) -> TranscribeResult:
+    def _invoke_and_parse(self, file_path: str, model: str | None) -> TranscribeResult:
         """Call the host back-end with a timeout guard and parse its envelope."""
         timeout = self._resolve_timeout()
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -352,7 +352,7 @@ class STTEngine:
         )
 
     @staticmethod
-    def _coerce_envelope(envelope: Any) -> Optional[dict]:
+    def _coerce_envelope(envelope: Any) -> dict | None:
         """Return a dict envelope, parsing a JSON string/bytes if needed."""
         if isinstance(envelope, dict):
             return envelope

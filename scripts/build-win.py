@@ -8,19 +8,22 @@
   3. 准备 OpenClaw 运行时（下载 Node.js 便携版 + 预装 OpenClaw/Agent Browser）
   4. PyInstaller 编译 Python 后端
   5. Electron 前端构建 + 打包
-  6. 输出汇总
+  6. 产物校验 + 输出汇总
 
 默认在构建阶段预装 OpenClaw 与 Agent Browser，用户安装后可直接使用。
 
 用法:
-  python scripts/build-win.py            # 完整构建
-  python scripts/build-win.py --skip-openclaw   # 跳过 OpenClaw 运行时准备
-  python scripts/build-win.py --backend-only    # 仅编译后端
+  python scripts/build-win.py                 # 完整构建
+  python scripts/build-win.py --tag v5.1.5    # 带版本号构建（校验 tag 与 package.json 一致）
+  python scripts/build-win.py --skip-openclaw # 跳过 OpenClaw 运行时准备
+  python scripts/build-win.py --backend-only  # 仅编译后端
+  python scripts/build-win.py --verify-only   # 不构建，只校验既有产物
 """
 
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -38,7 +41,9 @@ BACKEND_DIST_DIR = FRONTEND_DIR / "backend-dist"
 RUNTIME_DIR = BACKEND_DIST_DIR / "runtime"
 NODE_RUNTIME_DIR = RUNTIME_DIR / "node"
 OPENCLAW_RUNTIME_DIR = RUNTIME_DIR / "openclaw"
-SPEC_FILE = PROJECT_ROOT / "lumo-backend.spec"
+RELEASE_DIR = FRONTEND_DIR / "release"
+PACKAGE_JSON = FRONTEND_DIR / "package.json"
+SPEC_FILE = PROJECT_ROOT / "naga-backend.spec"
 
 # 最低版本要求
 MIN_NODE_MAJOR = 22
@@ -105,6 +110,214 @@ def get_cmd_version(cmd: str, args: list[str] | None = None) -> str | None:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return None
+
+
+# ============ 产物清单与校验 ============
+
+# 关键产物：(相对 PROJECT_ROOT 的路径, 人类可读名, 体积下限 MiB)
+# 下限用于识别「存在但是空壳/截断」的假产物（0 字节文件、缺 dll 的残缺目录）
+ARTIFACT_SPECS: list[tuple[str, str, float]] = [
+    ("frontend/backend-dist/naga-backend/naga-backend.exe", "后端主程序", 5.0),
+    ("frontend/backend-dist/runtime/node/node.exe", "Node 运行时", 20.0),
+    ("frontend/backend-dist/runtime/node/npm.cmd", "npm 命令", 0.0005),
+]
+
+
+# NSIS 安装包体积异常阈值（MiB）：小于此值几乎必然缺 extraResources（后端/运行时没打进去）
+NSIS_MIN_MIB = 200.0
+
+
+def _dir_size_mib(path: Path) -> float:
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / 1024 / 1024
+
+
+def _nsis_installers() -> list[Path]:
+    """返回 release/ 下的 NSIS 安装包（排除 blockmap / yml / unpacked 目录）"""
+    if not RELEASE_DIR.is_dir():
+        return []
+    return sorted(
+        p
+        for p in RELEASE_DIR.iterdir()
+        if p.is_file() and p.suffix.lower() == ".exe" and not p.name.endswith(".blockmap")
+    )
+
+
+def verify_artifacts(tag: str | None = None, *, verbose: bool = True) -> bool:
+    """校验构建产物是否齐全且体积合理。返回 True 表示全部通过。
+
+    任一关键文件缺失、体积低于下限，或 NSIS 安装包缺失/体积异常，即返回 False。
+    """
+    rows: list[tuple[str, str, str, str]] = []  # (检查项, 状态, 实际, 期望)
+    ok = True
+
+    for rel, label, min_mib in ARTIFACT_SPECS:
+        path = PROJECT_ROOT / rel
+        expect = f"≥ {min_mib:.2f} MiB" if min_mib >= 0.01 else "存在"
+        if not path.exists():
+            rows.append((f"{label}\n  {rel}", "缺失", "—", expect))
+            ok = False
+            continue
+        size_mib = path.stat().st_size / 1024 / 1024
+        if size_mib < min_mib:
+            rows.append((f"{label}\n  {rel}", "过小", f"{size_mib:.2f} MiB", expect))
+            ok = False
+            continue
+        rows.append((f"{label}\n  {rel}", "OK", f"{size_mib:.2f} MiB", expect))
+
+    # NSIS 安装包
+    installers = _nsis_installers()
+    if not installers:
+        rows.append(("NSIS 安装包\n  frontend/release/*.exe", "缺失", "—", "≥ 1 个"))
+        ok = False
+    else:
+        for inst in installers:
+            size_mib = inst.stat().st_size / 1024 / 1024
+            if size_mib < NSIS_MIN_MIB:
+                rows.append(
+                    (
+                        f"NSIS 安装包\n  {inst.name}",
+                        "体积异常",
+                        f"{size_mib:.0f} MiB",
+                        f"≥ {NSIS_MIN_MIB:.0f} MiB",
+                    )
+                )
+                ok = False
+            else:
+                rows.append(
+                    (
+                        f"NSIS 安装包\n  {inst.name}",
+                        "OK",
+                        f"{size_mib:.0f} MiB",
+                        f"≥ {NSIS_MIN_MIB:.0f} MiB",
+                    )
+                )
+            # 文件名是否带版本号（electron-builder 默认规则：<productName>-Setup-<version>.exe）
+            if tag:
+                want_ver = tag.lstrip("v")
+                if want_ver not in inst.name:
+                    rows.append(
+                        (
+                            f"  版本号落名 {inst.name}",
+                            "警告",
+                            "无版本号",
+                            f"应含 {want_ver}",
+                        )
+                    )
+
+    if verbose:
+        print()
+        print("=" * 72)
+        print("  产物校验" + (f"（{tag}）" if tag else ""))
+        print("=" * 72)
+        width_label = max(len(r[0].split("\n")[0]) for r in rows) if rows else 10
+        width_status = max(len(r[1]) for r in rows) if rows else 6
+        for label, status, actual, expect in rows:
+            head, *rest = label.split("\n")
+            print(
+                f"  [{status:<{width_status}}] {head:<{width_label}}  "
+                f"{actual:>12} / 期望 {expect}"
+            )
+            for line in rest:
+                print(f"{'':<{width_status + 6}}{line.strip()}")
+        print("-" * 72)
+        print(f"  结果：{'全部通过 ✓' if ok else '存在问题 ✗'}")
+        print("=" * 72)
+
+    return ok
+
+
+# ============ 版本号单一来源 ============
+
+TAG_RE = re.compile(r"^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?$")
+
+
+def read_package_version() -> str:
+    """读取 frontend/package.json 的 version"""
+    if not PACKAGE_JSON.exists():
+        raise FileNotFoundError(f"缺少 {PACKAGE_JSON}")
+    data = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
+    version = data.get("version")
+    if not version:
+        raise ValueError(f"{PACKAGE_JSON} 中没有 version 字段")
+    return str(version)
+
+
+def _git(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def verify_tag(tag: str) -> tuple[bool, str]:
+    """校验 tag：格式合法 → tag 存在 → 与 package.json version 一致 → tag 指向 HEAD。
+
+    任何一项不满足即返回 (False, 原因)，调用方必须停下。绝不自动改写任何文件。
+    """
+    if not TAG_RE.match(tag):
+        return False, f"tag 格式非法：{tag!r}（应为 vX.Y.Z，如 v5.1.5）"
+
+    # tag 是否存在
+    exists = _git(["rev-parse", "--verify", "--quiet", f"refs/tags/{tag}"])
+    if exists.returncode != 0:
+        return False, f"tag 不存在：{tag}（先 `git tag -a {tag} -m ...` 再构建）"
+
+    # 是否为 annotated tag（轻量 tag 没有独立对象，不适合作为发布锚点）
+    obj_type = _git(["cat-file", "-t", tag])
+    if obj_type.stdout.strip() != "tag":
+        return False, f"{tag} 是轻量 tag（lightweight），发布锚点必须用 annotated tag（git tag -a）"
+
+    # 与 package.json 一致
+    pkg_version = read_package_version()
+    tag_version = tag.lstrip("v")
+    if tag_version != pkg_version:
+        return (
+            False,
+            f"版本不一致：tag {tag} (= {tag_version}) "
+            f"≠ frontend/package.json version ({pkg_version})。"
+            f"\n    请先统一二者，再重新构建（脚本不会替你改写）。",
+        )
+
+    # tag 指向 HEAD（防止拿旧提交发新版本）
+    tag_sha = _git(["rev-list", "-n", "1", tag]).stdout.strip()
+    head_sha = _git(["rev-parse", "HEAD"]).stdout.strip()
+    if tag_sha != head_sha:
+        return (
+            False,
+            f"tag {tag} 指向 {tag_sha[:8]}，但当前 HEAD 是 {head_sha[:8]}。"
+            f"\n    构建必须发生在 tag 所指向的提交上（防旧构建配新 tag）。",
+        )
+
+    return True, f"版本校验通过：{tag} == package.json {pkg_version}，且 tag 即 HEAD"
+
+
+# ============ 前置自检（卷165 doctor_env.py） ============
+
+DOCTOR_SCRIPT = PROJECT_ROOT / "doctor_env.py"
+
+
+def run_doctor() -> bool:
+    """调用卷165 的 doctor_env.py 做环境自检。脚本缺失时降级为提示（不阻塞）。"""
+    if not DOCTOR_SCRIPT.exists():
+        log(f"未找到 {DOCTOR_SCRIPT.name}（卷165 可能尚未合并），降级为内置精简检查")
+        return True
+
+    log(f"运行环境自检：{DOCTOR_SCRIPT.relative_to(PROJECT_ROOT)}")
+    result = subprocess.run(
+        [sys.executable, str(DOCTOR_SCRIPT)],
+        cwd=str(PROJECT_ROOT),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        log("环境自检未通过（doctor_env.py 返回非 0），构建中止")
+        return False
+    log("环境自检通过")
+    return True
 
 
 # ============ Step 1: 环境检查 ============
@@ -260,7 +473,7 @@ def preinstall_openclaw(force: bool = False) -> None:
     compile_env["NODE_OPTIONS"] = "--max-old-space-size=4096"
     npx_cmd = NODE_RUNTIME_DIR / "npx.cmd"
     run(
-        [str(npx_cmd), "tsc", "-p", "tsconfig.lumo.json"],
+        [str(npx_cmd), "tsc", "-p", "tsconfig.naga.json"],
         cwd=vendor_root,
         env=compile_env,
     )
@@ -472,7 +685,7 @@ def build_backend() -> None:
     )
 
     # 验证产物
-    backend_exe = BACKEND_DIST_DIR / "lumo-backend" / "lumo-backend.exe"
+    backend_exe = BACKEND_DIST_DIR / "naga-backend" / "naga-backend.exe"
     if not backend_exe.exists():
         raise FileNotFoundError(f"后端编译产物缺失: {backend_exe}")
     log(f"后端编译完成: {backend_exe}")
@@ -523,22 +736,18 @@ def print_summary() -> None:
     print("=" * 50)
 
     # 后端产物
-    backend_dir = BACKEND_DIST_DIR / "lumo-backend"
+    backend_dir = BACKEND_DIST_DIR / "naga-backend"
     if backend_dir.exists():
-        size = sum(f.stat().st_size for f in backend_dir.rglob("*") if f.is_file())
-        log(f"后端产物: {backend_dir}  ({size / 1024 / 1024:.0f} MB)")
+        log(f"后端产物: {backend_dir}  ({_dir_size_mib(backend_dir):.0f} MB)")
 
     # 运行时（Node.js + OpenClaw + uv）
     runtime_dir = BACKEND_DIST_DIR / "runtime"
     if runtime_dir.exists():
-        size = sum(f.stat().st_size for f in runtime_dir.rglob("*") if f.is_file())
-        log(f"OpenClaw 运行时: {runtime_dir}  ({size / 1024 / 1024:.0f} MB)")
+        log(f"OpenClaw 运行时: {runtime_dir}  ({_dir_size_mib(runtime_dir):.0f} MB)")
 
     # Electron 安装包
-    release_dir = FRONTEND_DIR / "release"
-    if release_dir.exists():
-        for f in release_dir.glob("*.exe"):
-            log(f"安装包: {f}  ({f.stat().st_size / 1024 / 1024:.0f} MB)")
+    for inst in _nsis_installers():
+        log(f"安装包: {inst}  ({inst.stat().st_size / 1024 / 1024:.0f} MB)")
 
 
 # ============ 主入口 ============
@@ -546,6 +755,17 @@ def print_summary() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="陆墨 Windows 构建脚本")
+    parser.add_argument(
+        "--tag",
+        metavar="vX.Y.Z",
+        help="发布版本号（annotated git tag）。校验 tag 与 frontend/package.json version 一致后才构建；"
+        "不一致即报错退出，不会自动改写任何文件",
+    )
+    parser.add_argument(
+        "--verify-only",
+        action="store_true",
+        help="不构建，只按产物清单校验既有构建（可配合 --tag 校验产物文件名里的版本号）",
+    )
     parser.add_argument(
         "--skip-openclaw",
         action="store_true",
@@ -569,15 +789,43 @@ def main() -> None:
     args = parse_args()
     start_time = time.time()
 
+    # --verify-only：只校验既有产物，不做任何构建动作
+    if args.verify_only:
+        # 带 --tag 时，tag 校验也必须跑——否则「产物齐全」可能是别的版本留下的，
+        # 而 release-win.py 正是靠这一步做发布前把关。
+        if args.tag:
+            ok_tag, reason = verify_tag(args.tag)
+            log(f"版本校验：{reason}")
+            if not ok_tag:
+                log("版本校验未通过，产物校验中止")
+                sys.exit(1)
+        ok = verify_artifacts(args.tag)
+        sys.exit(0 if ok else 1)
+
+    # Step 0: 版本号校验（--tag 时）
+    if args.tag:
+        ok, reason = verify_tag(args.tag)
+        log(f"版本校验：{reason}")
+        if not ok:
+            log("版本校验未通过，构建中止")
+            sys.exit(1)
+        log(f"本次构建目标版本：{args.tag}")
+
     # 计算总步骤数
-    total_steps = 2  # 环境检查 + 同步依赖
+    total_steps = 3  # 环境自检 + 环境检查 + 同步依赖
     if not args.skip_openclaw:
         total_steps += 1
     total_steps += 1  # 编译后端
     if not args.backend_only:
-        total_steps += 1  # 前端打包
+        total_steps += 2  # 前端打包 + 产物校验
 
     step = 0
+
+    # Step 0.5: 前置环境自检（卷165 doctor_env.py）
+    step += 1
+    log_step(step, total_steps, "前置环境自检")
+    if not run_doctor():
+        sys.exit(1)
 
     # Step 1: 环境检查
     step += 1
@@ -608,6 +856,14 @@ def main() -> None:
         title = "Electron 前端打包（DEBUG）" if args.debug else "Electron 前端打包"
         log_step(step, total_steps, title)
         build_frontend(debug=args.debug)
+
+        # Step 6: 产物校验（任一失败退出码 1）
+        step += 1
+        log_step(step, total_steps, "产物校验")
+        if not verify_artifacts(args.tag):
+            print_summary()
+            log("产物校验未通过，退出码 1")
+            sys.exit(1)
 
     # 汇总
     print_summary()

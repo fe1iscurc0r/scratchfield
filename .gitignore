@@ -24,6 +24,10 @@ wheels/
 venv/
 ENV/
 env/
+# 解释器迁移时保留的旧环境（回滚用，勿入库；实测 3.11→3.12 单环境 2.7GB）
+.venv*-backup/
+.venv311-backup/
+.venv312/
 nagaagent-core/
 
 # IDE
@@ -66,6 +70,7 @@ config.json.local
 config.local.json
 *.env
 .env.local
+.lumo_token
 
 # Database
 *.db
@@ -103,6 +108,15 @@ desktop.ini
 *api_key*
 *secret*
 *token*
+# exception: paper-round2 spec files contain "token" legitimately
+!docs/paper-round2-2026-08-30/specs/
+# exception: memclaw vendor 的 Cloud Run ID token 获取器（无任何密钥，纯 OAuth 元数据服务客户端）
+!vendor/top5/caura-memclaw/core-api/src/core_api/clients/identity_token.py
+# exception: legit source module (CoT token 显著性压缩), 非密钥, 被 *token* 误伤
+!tools/cot_token_saliency.py
+# exception: token-savior 工单产物（token 压缩工具评估）, 非密钥, 被 *token* 误伤
+!docs/token-savior-实测.md
+!tools/token_savior_measure.py
 *credential*
 !**/prompts/**
 !vendor/openclaw/src/**
@@ -154,6 +168,8 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
+# vitest v8 覆盖率产物
+frontend/coverage/
 .hypothesis/
 
 # pytest
@@ -329,3 +345,25 @@ radio_brain/channel2world/logs/**/*.pt
 # 代码签名证书(私钥)，绝不入库
 *.pfx
 *.p12
+
+# 运行数据（巡检快照/模型状态），不入库
+data/
+# code-review-graph 索引派生产物（不入库）
+/crg-out/
+
+# ─── 会话工具目录与根目录临时产物（2026-09-29 补）───
+# 编辑器 / 会话工具生成目录（不带前导斜杠，覆盖任意层级：如 NEKO/N.E.K.O/.mimosa/）
+.mimosa/
+.qoder/
+.zion-mcp/
+# 根目录临时产物（.tmp_* 与 .tmp-* 前缀：tts/gal/cfg/agent 等调试输出）
+/.tmp_*/
+/.tmp_*
+/.tmp-*/
+# 前端依赖（node_modules 一律不入库；上方具体路径规则保留作显式声明）
+node_modules/
+# neko-electron-shell 的 vendor 二进制（约 92MB，含 openfang.exe）
+neko-electron-shell/vendor/
+# carpet 镜像侧的 VRM 模型（与 NEKO/N.E.K.O/**/*.vrm 同规则，但路径不同需单列）
+carpet/N.E.K.O/vrm/
+research/adm1/digester_influent.csv

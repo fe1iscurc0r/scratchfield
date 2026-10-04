@@ -8,6 +8,11 @@
 
 from __future__ import annotations
 
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import importlib.util
 import os
 import pathlib
@@ -42,7 +47,7 @@ def test_scan_real_skills_corpus_no_breakage():
     assert with_coeffects == 0
 
 
-def test_resolver_usable_inside_real_skills_tree(tmp_path):
+def test_resolver_usable_inside_real_skills_tree(tmp_path, monkeypatch):
     """在真实 skills 语料旁放一个声明 coeffects 的 skill，端到端解析/分类可用。"""
     # 复制一个真实 skill 目录结构的最小 SKILL.md，加入 coeffects 段
     d = tmp_path / "demo-skill"
@@ -57,12 +62,13 @@ def test_resolver_usable_inside_real_skills_tree(tmp_path):
     assert spec.has_coeffects is True
     assert spec.packages == [{"name": "rdkit", "required": True}]
 
-    # 依赖真实环境：rdkit 未安装 → deactivate；显式声明已装 → activate
+    # 打桩模拟 rdkit 缺失（与宿主机是否安装无关）→ deactivate；显式声明已装 → activate
+    monkeypatch.setattr(c, "_find_spec", lambda name: None)
     assert c.check_satisfied(spec, set()) == c.DEACTIVATE
     assert c.check_satisfied(spec, {"rdkit"}) == c.ACTIVATE
 
 
-def test_soft_dependency_in_real_tree(tmp_path):
+def test_soft_dependency_in_real_tree(tmp_path, monkeypatch):
     d = tmp_path / "soft-skill"
     d.mkdir()
     (d / "SKILL.md").write_text(
@@ -72,4 +78,6 @@ def test_soft_dependency_in_real_tree(tmp_path):
     )
     spec = c.resolve_coeffects(str(d))
     assert spec.has_coeffects is True
+    # 打桩模拟缺失环境（环境无关化），软依赖缺失 → neutral
+    monkeypatch.setattr(c, "_find_spec", lambda name: None)
     assert c.check_satisfied(spec, set()) == c.NEUTRAL

@@ -11,15 +11,26 @@ const scrollPanelRef = useTemplateRef<{
   scrollTop: (scrollTop: number) => void
 }>('scrollPanelRef')
 
+const boxRef = useTemplateRef<HTMLElement>('boxRef')
+
 defineExpose({
   scrollToBottom() {
     scrollPanelRef.value?.scrollTop(Infinity)
+  },
+  // 距离底部不足阈值像素视为「锚在底部」——流式输出时供父组件决定是否跟随滚动。
+  // 找不到滚动容器时返回 true（保持旧的强制滚动行为）。
+  isNearBottom(threshold = 96): boolean {
+    const content = boxRef.value?.querySelector<HTMLElement>('.p-scrollpanel-content')
+    if (!content)
+      return true
+    return content.scrollHeight - content.scrollTop - content.clientHeight <= threshold
   },
 })
 </script>
 
 <template>
   <div
+    ref="boxRef"
     class="flex min-h-0"
     :class="{ 'will-change-transform': parallax }"
     :style="parallax ? { transform: boxTransform } : undefined"

@@ -1,0 +1,69 @@
+{
+  "name": "agent_browser",
+  "displayName": "浏览器自动化代理",
+  "version": "1.0.0",
+  "description": "Browser automation agent — navigate, click, type, extract content, screenshot. Merged concepts from browser-use (107k⭐) and nanobrowser (13k⭐). Requires Playwright + Chromium.",
+  "author": "GitHub browser-use + nanobrowser + QClaw 改造",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_browser.agent_browser",
+    "class": "AgentBrowser"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "navigate",
+        "description": "Navigate browser to a URL. Params: url (string), new_tab (bool, default false), timeout (int, default 30s)",
+        "example": "{\"tool_name\": \"navigate\", \"url\": \"https://example.com\", \"new_tab\": false}"
+      },
+      {
+        "command": "get_page_state",
+        "description": "Get all interactive elements (links, buttons, inputs) on the current page with their indices for click/type actions",
+        "example": "{\"tool_name\": \"get_page_state\"}"
+      },
+      {
+        "command": "click_element",
+        "description": "Click an interactive element by its index from get_page_state. Params: index (int)",
+        "example": "{\"tool_name\": \"click_element\", \"index\": 3}"
+      },
+      {
+        "command": "type_text",
+        "description": "Type text into an input element identified by index. Params: index (int), text (string)",
+        "example": "{\"tool_name\": \"type_text\", \"index\": 5, \"text\": \"hello world\"}"
+      },
+      {
+        "command": "extract_content",
+        "description": "Extract visible text content from the current page. Params: query (string, natural-language description of what to extract)",
+        "example": "{\"tool_name\": \"extract_content\", \"query\": \"extract all product prices\"}"
+      },
+      {
+        "command": "execute_task",
+        "description": "Execute a high-level task (navigate + observe + act loop). Params: task (string), max_steps (int, default 10). Note: full autonomy requires LLM integration",
+        "example": "{\"tool_name\": \"execute_task\", \"task\": \"search Google for 'weather today' and get the result\"}"
+      },
+      {
+        "command": "screenshot",
+        "description": "Capture a screenshot of the current page. Params: full_page (bool, default false)",
+        "example": "{\"tool_name\": \"screenshot\", \"full_page\": true}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "ecology"
+    ],
+    "domains": [],
+    "tier": "process-control",
+    "origin": {
+      "kind": "bridge",
+      "upstream_license": "Apache-2.0",
+      "upstream": "playwright/nanobrowser"
+    }
+  },
+  "requires": {
+    "python_packages": [
+      "playwright"
+    ]
+  },
+  "capability_pairs": [["capture", "browser"], ["control", "browser"], ["exec", "browser"], ["extract", "browser"], ["lookup", "browser"]]
+}

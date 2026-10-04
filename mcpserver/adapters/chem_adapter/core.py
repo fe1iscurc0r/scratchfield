@@ -84,7 +84,7 @@ class ChemFormulaString:
     @property
     def charged(self) -> bool:
         """Returns whether the formula object is charged (True) or not (False)"""
-        return False if self.charge == 0 else True
+        return self.charge != 0
 
     # Returns the charge of the formula object as a text string
     @property
@@ -94,7 +94,7 @@ class ChemFormulaString:
         charge_output = ""
         if self.charge == 0:
             return charge_output
-        if not(abs(self.charge) == 1):
+        if abs(self.charge) != 1:
             charge_output = str(abs(self.charge))
         charge_output += "+" if self.charge > 0 else "-"
         return charge_output
@@ -495,7 +495,7 @@ class ChemFormula(ChemFormulaString):
                 assert element_freq is not None  # should never be None, due to the return value of `re.findall()`
                 element = element_freq.group(1)
                 freq = element_freq.group(2)
-                freq = 1 if not freq else freq  # if no frequency is given, set frequency to 1
+                freq = freq if freq else 1  # if no frequency is given, set frequency to 1
                 # create a resolved version of the bracketed unit and replace the bracketed unit with this resolved string
                 resolved_match += str(element) + str(int(freq) * multiplier_match)
             formula = pre_match + resolved_match + post_match

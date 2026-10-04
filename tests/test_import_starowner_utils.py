@@ -6,6 +6,10 @@
 - build_payload 在单分片/多分片下的 source / title / metadata 格式
 - fetch_existing_starowner_docs 对多分片 source 的去重主干提取（用 fake 数据在本地测）
 """
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
 import os
 import sys
 import unittest

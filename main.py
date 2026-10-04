@@ -36,8 +36,8 @@ _LUMO_PATCH_PUBKEY_HEX = "0fa98c0da9d94313339947e137b90227cbcb443c497a27808b56bc
 
 def _verify_patch_dir(patch_dir: str) -> bool:
     """校验补丁目录，通过才允许加载。失败返回 False 并打印安全告警。"""
-    import json as _json
     import hashlib
+    import json as _json
 
     manifest_path = os.path.join(patch_dir, _PATCH_MANIFEST_NAME)
     sig_path = os.path.join(patch_dir, _PATCH_MANIFEST_SIG_NAME)
@@ -87,8 +87,8 @@ def _verify_patch_dir(patch_dir: str) -> bool:
 
 def _sign_patch_dir(patch_dir: str, privkey_hex: str) -> bool:
     """为补丁目录生成 patch_manifest.json + patch_manifest.sig（--sign-patch 使用）。"""
-    import json as _json
     import hashlib
+    import json as _json
 
     files = {}
     for fname in sorted(os.listdir(patch_dir)):

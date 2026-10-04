@@ -90,11 +90,11 @@ class AudioEvent:
     expressions/mouth only.
     """
 
-    audio: Optional[str]  # base64 WAV; may be null (expression/lip-sync only).
+    audio: str | None  # base64 WAV; may be null (expression/lip-sync only).
     volumes: list[float] = field(default_factory=list)  # chunked normalized RMS.
     slice_length: int = 0  # milliseconds covered by each volume sample.
     display_text: dict = field(default_factory=dict)  # {"text", "name", ...}.
-    actions: Optional[dict] = None  # {"expressions": [int, ...]}.
+    actions: dict | None = None  # {"expressions": [int, ...]}.
     forwarded: bool = False
     type: Literal["audio"] = "audio"
 
@@ -197,7 +197,7 @@ class PingEvent:
     """
 
     type: Literal["ping"] = "ping"
-    t: Optional[int] = None
+    t: int | None = None
 
 
 @dataclass(frozen=True)
@@ -205,7 +205,7 @@ class PongEvent:
     """RTT probe echo (additive). Echoes the originating ping's ``t``."""
 
     type: Literal["pong"] = "pong"
-    t: Optional[int] = None
+    t: int | None = None
 
 
 # Discriminated union of all client -> server events.
@@ -243,8 +243,8 @@ class ParseOutcome:
     """
 
     ok: bool
-    event: Optional[ClientEvent] = None
-    error: Optional[ProtocolError] = None
+    event: ClientEvent | None = None
+    error: ProtocolError | None = None
 
 
 # Maximum accepted inbound message size: 1 MiB (Requirements 9.2 / 9.7).

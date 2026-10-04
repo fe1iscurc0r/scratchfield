@@ -13,7 +13,7 @@ let consecutiveFailures = 0
 
 async function poll() {
   try {
-    const [status, clawdbot, tasks, live2d, music] = await Promise.allSettled([
+    const [status, clawdbot, tasks, live2d] = await Promise.allSettled([
       API.getToolStatus(),
       API.getClawdbotReplies(),
       API.getOpenclawTasks(),

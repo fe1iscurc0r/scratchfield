@@ -1,0 +1,195 @@
+{
+  "name": "code_workspace",
+  "displayName": "代码工作区（执行/文件/测试）",
+  "version": "0.1.0",
+  "description": "让陆墨能真正动手写代码：在隔离工作目录内执行 Python/JS 片段、读写编辑文件（带 diff 预览）、跑白名单命令与 pytest。安全模型：路径隔离（越界即拒）+ 命令白名单（sudo/rm/curl 等硬拒）+ 超时与内存上限 + 全量审计；不提供任意 shell 与任意路径写。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.code_workspace.tools",
+    "class": "CodeWorkspaceBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "code_exec",
+        "description": "执行代码片段（python/javascript），隔离工作目录内、无交互、有超时与内存上限",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "要执行的代码"
+            },
+            "language": {
+              "type": "string",
+              "description": "python（默认）或 javascript"
+            },
+            "timeout_s": {
+              "type": "number",
+              "description": "超时秒数（默认 10s，上限 300）"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "会话 id（决定工作子目录）"
+            }
+          },
+          "required": [
+            "code"
+          ]
+        },
+        "example": "{\"tool_name\":\"code_exec\",\"code\":\"print(1+1)\",\"language\":\"python\"}"
+      },
+      {
+        "command": "file_read",
+        "description": "读工作区内文件（相对路径；越界/绝对路径拒绝）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "相对工作区的路径"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "会话 id"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "example": "{\"tool_name\":\"file_read\",\"path\":\"main.py\"}"
+      },
+      {
+        "command": "file_write",
+        "description": "写工作区内文件；总是返回 diff 预览，dry_run=true 时只预览不落盘",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "相对路径"
+            },
+            "content": {
+              "type": "string",
+              "description": "文件内容"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "会话 id"
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "true=只返回 diff 预览不落盘"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        },
+        "example": "{\"tool_name\":\"file_write\",\"path\":\"hello.py\",\"content\":\"print(1)\",\"dry_run\":true}"
+      },
+      {
+        "command": "file_edit",
+        "description": "old→new 片段替换（patch 语义；old 必须唯一命中），支持 dry_run 预览",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "相对路径"
+            },
+            "old": {
+              "type": "string",
+              "description": "被替换的唯一片段"
+            },
+            "new": {
+              "type": "string",
+              "description": "替换后的内容"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "会话 id"
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "true=只返回 diff 预览"
+            }
+          },
+          "required": [
+            "path",
+            "old",
+            "new"
+          ]
+        },
+        "example": "{\"tool_name\":\"file_edit\",\"path\":\"hello.py\",\"old\":\"print(1)\",\"new\":\"print(2)\"}"
+      },
+      {
+        "command": "shell_exec",
+        "description": "执行白名单命令（python/pytest/git status/ls/cat 等；sudo/rm/curl/ssh 等硬拒；禁止 shell 元字符）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "完整命令（不含 ; & | ` $ > < 等元字符）"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "会话 id"
+            },
+            "timeout_s": {
+              "type": "number",
+              "description": "超时秒数"
+            }
+          },
+          "required": [
+            "command"
+          ]
+        },
+        "example": "{\"tool_name\":\"shell_exec\",\"command\":\"git status\"}"
+      },
+      {
+        "command": "test_run",
+        "description": "在工作区内跑 pytest，返回 passed/failed/error 计数与失败用例名",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "测试目录或文件（默认当前工作区）"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "会话 id"
+            },
+            "timeout_s": {
+              "type": "number",
+              "description": "超时秒数"
+            },
+            "extra_args": {
+              "type": "string",
+              "description": "追加的 pytest 参数"
+            }
+          },
+          "required": []
+        },
+        "example": "{\"tool_name\":\"test_run\",\"path\":\"tests\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "code"
+    ],
+    "domains": [],
+    "tier": "process-control",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["exec", "code"], ["lookup", "code"], ["write", "code"]]
+}

@@ -1,0 +1,91 @@
+name: Build Windows (verify only)
+
+# 卷166 E 项：仅验证后端在 windows runner 上可构建。
+#
+# 硬约束：
+#   - **只验证，不 release**。release 权限永远在本地开发机（scripts/release-win.py + gh）。
+#   - 权限只给 contents: read，杜绝误发 Release 的可能。
+#   - 不跑 Electron 全量打包（NSIS + extraResources 体积大、耗时长），CI 首航不做。
+#
+# 与 build-release.yml 的分工：
+#   build-release.yml  = 历史遗留的全量三平台打包上传（含自动 release，已加护栏）
+#   本文件             = 轻量 tag 触发的后端构建冒烟，验证「打得出后端」这件事没坏
+#
+# ── 默认关闭（2026-09-28 实测后加）────────────────────────────────
+# 本仓为**私有仓**，Actions 免费额度已耗尽：job 能创建但拿不到 runner，
+# 表现是 runner_name 为空、steps 为空、起止同秒、conclusion=failure。
+# 同一现象在既有 build-release.yml 的 test job 上完全一致 ⇒ 账号层问题，仓库内改不了。
+#
+# 为避免「红灯变狼来了」淹没真故障，本 job 默认不跑（skipped=绿）。
+# 恢复方式：Settings → Secrets and variables → Actions → Variables
+#   新建仓库变量 ENABLE_WINDOWS_BUILD = true
+# （不要用 job 级 if 引用 env.* —— 那是编译期非法 context，会让整个 workflow 解析失败）
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# 只读 —— 本 workflow 在任何情况下都不写仓库内容、不建 Release
+permissions:
+  contents: read
+
+jobs:
+  backend-build:
+    name: Backend build smoke (windows)
+    runs-on: windows-latest
+    # 变量闸门：未设 ENABLE_WINDOWS_BUILD 时本 job skipped（绿），不报红
+    if: ${{ vars.ENABLE_WINDOWS_BUILD == 'true' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: 'latest'
+
+      - name: Sync build dependencies
+        shell: bash
+        run: uv sync --group build
+
+      - name: Build backend only (no Electron packaging)
+        shell: bash
+        run: python scripts/build-win.py --backend-only --skip-openclaw
+
+      - name: Verify backend artifact exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe="frontend/backend-dist/naga-backend/naga-backend.exe"
+          if [ ! -f "$exe" ]; then
+            echo "::error::后端产物缺失：$exe"
+            exit 1
+          fi
+          size=$(stat -c%s "$exe" 2>/dev/null || stat -f%z "$exe")
+          echo "后端产物：$exe（$((size / 1024 / 1024)) MiB）"
+
+      - name: Upload backend artifact (for inspection only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: naga-backend-windows-smoke
+          path: frontend/backend-dist/naga-backend/
+          retention-days: 7
+          if-no-files-found: error
+
+      # 明确标注：本 workflow 不发布
+      - name: Notice
+        shell: bash
+        run: |
+          echo "::notice::本 workflow 仅验证构建。正式发布请用本地 scripts/release-win.py（draft 起步，人工过目后发布）。"

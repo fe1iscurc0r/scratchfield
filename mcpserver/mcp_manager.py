@@ -1,10 +1,20 @@
 """MCP管理器 - 管理MCP服务连接和工具调用"""
 
+import json
 import os
 import time
 from typing import Any, Dict, List, Optional
 
-from mcpserver.mcp_registry import MANIFEST_CACHE, MCP_REGISTRY, list_visible_service_names
+from mcpserver.mcp_registry import (
+    MANIFEST_CACHE,
+    MCP_REGISTRY,
+    all_service_names,
+    ensure_hot,
+    get_cold_hot_failure,
+    get_service_source,
+    list_visible_service_names,
+)
+from mcpserver.telemetry import get_breaker, record_tool_call
 from system.config import logger
 
 # B5 工具级可观测：{service_name: {calls, latency_sum, errors, last_call}}
@@ -51,25 +61,60 @@ class MCPManager:
         if blocked:
             return blocked
 
-        agent = MCP_REGISTRY.get(service_name)
+        # B2 快速失败：熔断中的外部/adapter 工具直接短路（内置核心 agent 不熔断）
+        source = get_service_source(service_name)
+        breaker = get_breaker()
+        if not breaker.allow(service_name, source):
+            st = breaker.state(service_name)
+            logger.warning("[MCPManager] 熔断短路 %s（fail_rate=%.2f, samples=%d）",
+                           service_name, st["fail_rate"], st["samples"])
+            return json.dumps({
+                "status": "error", "error_type": "tool_circuit_open",
+                "tool": service_name,
+                "message": f"工具 {service_name} 连续失败已熔断，{int(st['open_until'] - time.time())}s 后半开探测",
+                "last_error": st["last_error"],
+            }, ensure_ascii=False)
+
+        agent = ensure_hot(service_name)   # 卷189-A1：冷表首次调用转热
         if not agent:
+            # B2 快速失败：冷表转热失败给结构化报错（不抛 500 堆栈）
+            reason = get_cold_hot_failure(service_name)
+            if reason:
+                logger.error(f"[MCPManager] 服务 {service_name} 冷表转热失败: {reason}")
+                return (
+                    '{"status": "error", "error_type": "tool_unavailable", '
+                    f'"message": "服务 {service_name} 无法实例化", "detail": {reason!r}}}'
+                )
             return f'{{"status": "error", "message": "未找到服务: {service_name}"}}'
 
         t0 = time.time()
+        ok = True
+        err_kind = ""
         try:
             result = await agent.handle_handoff(tool_call)
             return result
         except Exception as e:
+            ok = False
+            err_kind = type(e).__name__
             logger.error(f"[MCPManager] 调用服务 {service_name} 失败: {e}")
             self._record_metric(service_name, t0, error=True)
             return f'{{"status": "error", "message": "调用失败: {e}"}}'
         finally:
+            elapsed = time.time() - t0
             if service_name not in _TOOL_METRICS:
                 _TOOL_METRICS[service_name] = {"calls": 0, "latency_sum": 0.0, "errors": 0, "last_call": 0.0}
             # 成功路径在 finally 里也累计 calls/latency（错误路径上面已 +errors）
             _TOOL_METRICS[service_name]["calls"] += 1
-            _TOOL_METRICS[service_name]["latency_sum"] += time.time() - t0
+            _TOOL_METRICS[service_name]["latency_sum"] += elapsed
             _TOOL_METRICS[service_name]["last_call"] = time.time()
+            # B1 画像 + 熔断：入后台队列，不阻塞调用路径
+            try:
+                record_tool_call(service_name, agent="mcp_manager",
+                                 caller=str(tool_call.get("tool_name") or ""),
+                                 duration_ms=elapsed * 1000, ok=ok,
+                                 error_kind=err_kind, source=source)
+            except Exception:
+                pass
 
     def _record_metric(self, service_name: str, t0: float, error: bool = False) -> None:
         """错误路径指标记录（调用方已在 except 中调用）。"""
@@ -93,13 +138,13 @@ class MCPManager:
         return out
 
     def get_available_services(self) -> list[str]:
-        """获取可用服务列表"""
-        return list(MCP_REGISTRY.keys())
+        """获取可用服务列表（懒加载下含尚未实例化的冷表项）。"""
+        return all_service_names()
 
     def get_available_services_filtered(self) -> dict[str, Any]:
-        """获取服务详情"""
+        """获取服务详情（冷热合并：冷表项也返回，供前端/提示词展示）。"""
         result = {}
-        for name, instance in MCP_REGISTRY.items():
+        for name in all_service_names():
             manifest = MANIFEST_CACHE.get(name, {})
             caps = manifest.get("capabilities", {})
             tools = caps.get("invocationCommands", []) if isinstance(caps, dict) else []

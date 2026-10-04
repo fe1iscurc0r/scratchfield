@@ -18,6 +18,17 @@
 4. 推送到 Fork：`git push origin feat/your-feature`
 5. 创建 Pull Request 到 `master` 分支
 
+## 工单与报告的归档路径
+
+历史工单与报告**只移不改**（是台账）：
+
+- 历史工单卷（`TRAE_WORKORDER_PROMPT_AGENT_1*.md`、`BATCH-WORKORDERS-*.md`）与
+  历史法学贡献工单（`LAW_WORKORDER_CONTRIB_L*.md`）→ `workorders/archive/`
+- 执行报告（`EXEC-REPORT-*.md`、阶段报告）→ `docs/exec-reports/`
+- 根目录只保留**最新 3 卷**工单 + **最新 1 卷**法学贡献工单；
+  `LAW_WORKORDER_CONTRIB_L<n>.md` 的命名规则不变——法学贡献者按卷号在
+  `workorders/archive/` 里找历史版本。
+
 ## 提交规范
 
 使用约定式提交：
@@ -38,6 +49,19 @@ scope 示例：`adapters` `mcpserver` `frontend` `apiserver` `skills` `docs`
 - Python：遵循 ruff 规则
 - TypeScript/Vue：遵循 ESLint + Prettier
 - 提交前跑 `python -m ruff check .` 和 `npm run lint`
+
+## 文件长度（卷190 闸门）
+
+单文件（`.py` / `.ts` / `.vue`）**超过 800 行**即触发报警：
+
+```bash
+python scripts/check_file_size.py           # 报警（不阻塞）
+python scripts/check_file_size.py --strict  # CI 闸门：新增超限 → exit 1
+```
+
+- 存量巨石在 `scripts/file_size_baseline.json` **红名单**里豁免；**新文件或新膨胀一律报出来**。
+- 新增文件超过 800 行时，请在 PR 描述里说明理由（按领域拆不开？确有必要的生成代码？）。
+- 拆分完成后跑 `--update-baseline` **收窄**名单——不要为了过闸门而加宽。
 
 ## 协议
 

@@ -7,6 +7,10 @@
 3. 混合 RAG 双路召回（GRAG + 本地向量）
 4. 铁锚审查修复点：原子写入、线程安全、速率限制
 """
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
 import json
 import os
 import sys
@@ -225,13 +229,13 @@ class TestLumoProxyMixedRAG(unittest.TestCase):
         self.assertIn("run_in_executor", source)
 
     def test_query_grag_has_truncation(self):
-        """_query_grag 返回内容应有长度截断"""
+        """GRAG 召回内容应有长度截断（SPEC-05 后由 RRF 融合层统一截断）"""
         import inspect
 
-        from apiserver.routes import lumo_proxy
+        from apiserver.routes import rrf_fusion
 
-        source = inspect.getsource(lumo_proxy._query_grag)
-        self.assertIn("2000", source)  # 截断阈值
+        source = inspect.getsource(rrf_fusion.fuse_ranked)
+        self.assertIn("max_chars", source)  # 截断参数（默认 2000）
         self.assertIn("truncated", source)
 
     def test_query_grag_catches_timeout(self):

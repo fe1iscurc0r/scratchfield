@@ -17,7 +17,7 @@
 
 import json
 import os
-import platform
+import sys
 import uuid
 
 from .application import logger
@@ -25,13 +25,17 @@ from .application import logger
 # 从 Electron userData 目录读取端口覆盖配置（由前端端口设置窗口写入）
 def _read_port_overrides() -> dict:
     try:
-        system = platform.system()
-        if system == "Windows":
+        # 用 sys.platform 而不是 platform.system()：后者在 Windows 上会走
+        # platform.uname() -> win32_ver() -> _syscmd_ver()，**spawn 一个
+        # `cmd /c ver` 子进程**。实测首调 54 ms，杀软介入时观测到 224 ms。
+        # 这个模块被 config 包顶层 import，坐在 launcher 启动链的最前面。
+        # sys.platform 是解释器常量，零成本，三分支判据完全等价。
+        if sys.platform == "win32":
             appdata = os.environ.get("APPDATA") or os.path.join(
                 os.path.expanduser("~"), "AppData", "Roaming"
             )
             base = os.path.join(appdata, "N.E.K.O")
-        elif system == "Darwin":
+        elif sys.platform == "darwin":
             base = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "N.E.K.O")
         else:
             base = os.path.join(
@@ -159,13 +163,45 @@ MONITOR_SERVER_PORT = _read_port_env("MONITOR_SERVER_PORT", 48913)
 COMMENTER_SERVER_PORT = _read_port_env("COMMENTER_SERVER_PORT", 48914)
 TOOL_SERVER_PORT = _read_port_env("TOOL_SERVER_PORT", 48915)
 USER_PLUGIN_SERVER_PORT = _read_port_env("USER_PLUGIN_SERVER_PORT", 48916)
-AGENT_MQ_PORT = _read_port_env("AGENT_MQ_PORT", 48917)
-MAIN_AGENT_EVENT_PORT = _read_port_env("MAIN_AGENT_EVENT_PORT", 48918)
 USER_PLUGIN_BASE = f"http://127.0.0.1:{USER_PLUGIN_SERVER_PORT}"
 
-# OpenFang Agent 执行后端端口 (由 Electron 并行启动，端口写入 port_config.json)
-OPENFANG_PORT = _read_port_env("OPENFANG_PORT", 50051)
-OPENFANG_BASE_URL = f"http://127.0.0.1:{OPENFANG_PORT}"
+
+def resolve_user_plugin_base() -> str:
+    """The plugin server's ACTUAL loopback origin, right now.
+
+    ``USER_PLUGIN_BASE`` is the configured origin. It is not always the live
+    one: when the preferred port is busy, the LAUNCHER picks a free one and
+    publishes it in ``NEKO_USER_PLUGIN_SERVER_PORT`` before spawning anything,
+    so every child inherits the same answer.
+
+    The launcher is named deliberately. An earlier version of this docstring
+    said "the plugin server binds elsewhere and publishes the real port", which
+    reads as though the server arbitrates its own port and announces it
+    afterwards. It does not, and the difference matters to anyone auditing this
+    path: a server that re-bound on its own could only publish into its OWN
+    environment, which no sibling process would ever see. Port arbitration
+    happens exactly once, in ``launcher_core.runtime.apply_port_strategy``,
+    ahead of every consumer; the plugin HTTP app is hosted in-process by
+    agent_server (``_start_embedded_user_plugin_server``) and merely binds the
+    port it is given, failing loudly if it cannot.
+
+    This lives in config, at the bottom of the layering, because four separate
+    layers need the same answer -- the process that MINTS media URLs, the main
+    server, the router that proxies those URLs to the browser, and the agent
+    router. They had drifted into separate copies, one of which silently
+    ignored the environment variable, so a proxy resolved to the port that had
+    not minted the id and images went missing exactly in the port-busy case the
+    variable exists to handle (Codex).
+    """
+    raw_port = os.getenv("NEKO_USER_PLUGIN_SERVER_PORT", "").strip()
+    if raw_port:
+        try:
+            port = int(raw_port)
+        except ValueError:
+            port = 0
+        if 0 < port <= 65535:
+            return f"http://127.0.0.1:{port}"
+    return USER_PLUGIN_BASE.rstrip("/")
 
 # 实例 ID：同一次启动的所有服务共享。
 # launcher 会在拉起子进程前写入 NEKO_INSTANCE_ID 环境变量。

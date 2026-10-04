@@ -112,6 +112,48 @@
       "headers": {
         "Authorization": "Bearer ${APIFY_TOKEN}"
       }
+    },
+    "token-savior": {
+      "_disabled": true,
+      "_displayName": "TokenSavior (结构级代码库压缩 MCP)",
+      "_description": "结构级代码库压缩 MCP server（53 工具：项目索引/变更符号/结构摘要/补丁摘要等），token 高效开发。上游：Mibayy/token-savior (MIT)。本地实测：rf_brain/decoders 15 文件 45303 tokens → 结构索引 960 tokens（2.1%）。注意：压缩产物是「结构索引」（函数/类/符号），非全文语义压缩，适合导航/变更摘要场景，不适合全文理解。安装：pip install token-savior==1.0.0；启用前建议跑 tools/token_savior_measure.py 复测。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "-m",
+        "token_savior.server"
+      ],
+      "env": {}
+    },
+    "excalidraw-architect": {
+      "_disabled": true,
+      "_displayName": "Excalidraw Architect (架构图自动出图 MCP)",
+      "_description": "从架构描述/模块依赖快照自动生成 Excalidraw 图（architecture 相关 MCP 工具）。上游：BV-Venky/excalidraw-architect-mcp (MIT)。本仓另有本地直出路径 tools/governance_excalidraw.py（system_governance --model 快照 → .excalidraw，零网络），周线出图默认走本地路径，此 MCP 作为交互式构图补充。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "-m",
+        "excalidraw_architect"
+      ],
+      "env": {}
+    },
+    "chrome-devtools-mcp": {
+      "_disabled": true,
+      "_displayName": "Chrome DevTools MCP (前端 E2E/DOM 调试)",
+      "_description": "Chrome DevTools for coding agents——MCP server 让 agent 控制/检查真实 Chrome（DOM/网络/性能/截图，CDP）。上游：ChromeDevTools/chrome-devtools-mcp (Apache-2.0)。启用前：本机需装 Chrome/Edge 并以 --remote-debugging-port=9222 启动（或由 server 自动拉起）；npx 首跑需下载包。与本地 inspecting-hermes-desktop-dom 分工见 docs/chrome-devtools-mcp-接入-2026-09-09.md。",
+      "_scope": "private",
+      "_ownerAgentId": "",
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "env": {}
     }
   }
 }

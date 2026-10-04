@@ -40,13 +40,17 @@
       {
         "command": "ic705_set_freq",
         "description": "设置 IC-705 频率 (业余段白名单校验, 越界拒绝)",
-        "params": {"freq_mhz": "目标频率 MHz, 如 7.074"},
+        "params": {
+          "freq_mhz": "目标频率 MHz, 如 7.074"
+        },
         "example": "{\"tool_name\":\"ic705_set_freq\",\"freq_mhz\":7.074}"
       },
       {
         "command": "ic705_ptt",
         "description": "控制 IC-705 PTT (TX 会真正发射)",
-        "params": {"state": "TX 或 RX"},
+        "params": {
+          "state": "TX 或 RX"
+        },
         "example": "{\"tool_name\":\"ic705_ptt\",\"state\":\"RX\"}"
       },
       {
@@ -56,5 +60,18 @@
         "example": "{\"tool_name\":\"ic705_get_status\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "instrument"
+    ],
+    "domains": [
+      "mechat"
+    ],
+    "tier": "process-control",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "capability_pairs": [["control", "radio"], ["lookup", "radio"], ["status", "radio"]]
 }

@@ -172,14 +172,21 @@ class MessageManager:
         """获取会话信息"""
         return self.sessions.get(session_id)
     
-    def add_message(self, session_id: str, role: str, content: str) -> bool:
-        """向会话添加消息"""
+    def add_message(self, session_id: str, role: str, content: str, reasoning: str | None = None) -> bool:
+        """向会话添加消息
+
+        reasoning：思考链（可选）。持久化后前端重新进入会话仍能显示"思考过程"，
+        此前只存 content，退出再进来思考就丢了。
+        """
         if session_id not in self.sessions:
             logger.warning(f"会话不存在: {session_id}")
             return False
 
         session = self.sessions[session_id]
-        session["messages"].append({"role": role, "content": content})
+        entry: dict = {"role": role, "content": content}
+        if reasoning and str(reasoning).strip():
+            entry["reasoning"] = str(reasoning)
+        session["messages"].append(entry)
         session["last_activity"] = datetime.now().isoformat()
 
         # 限制消息数量
@@ -666,14 +673,20 @@ class MessageManager:
         except Exception as e:
             logger.error(f"保存对话日志失败: {e}")
     
-    def save_conversation_and_logs(self, session_id: str, user_message: str, assistant_response: str):
-        """统一保存对话历史与日志 - 整合重复逻辑"""
+    def save_conversation_and_logs(self, session_id: str, user_message: str, assistant_response: str,
+                                   assistant_reasoning: str | None = None):
+        """统一保存对话历史与日志 - 整合重复逻辑
+
+        assistant_reasoning：本轮思考链（可选）。与正文一起落盘，前端重进会话
+        仍能显示「思考过程」。
+        """
         try:
             # 保存对话历史到消息管理器（临时会话的 add_message 内部已跳过磁盘持久化）
             self.add_message(session_id, "user", user_message)
             # 空响应不保存到会话历史，避免 LLM 在后续对话中模仿空回复模式
             if assistant_response and assistant_response.strip():
-                self.add_message(session_id, "assistant", assistant_response)
+                self.add_message(session_id, "assistant", assistant_response,
+                                 reasoning=assistant_reasoning)
             else:
                 logger.warning(f"会话 {session_id}: assistant 响应为空，跳过保存到会话历史")
 
@@ -681,6 +694,17 @@ class MessageManager:
             session = self.sessions.get(session_id)
             if session and session.get("temporary"):
                 return
+
+            # W110-05 B方案：双写统一会话存储（SQLite message_store，NEKO 同构表）。
+            # 思考链一并落盘（data.reasoning），重进会话可复现。
+            try:
+                from apiserver.message_store import append_message as _store_append
+                _store_append(session_id, "user", user_message)
+                if assistant_response and assistant_response.strip():
+                    _store_append(session_id, "assistant", assistant_response,
+                                  reasoning=assistant_reasoning)
+            except Exception as exc:
+                logger.debug(f"统一会话存储双写失败（非致命）: {exc}")
 
             # 保存对话日志到文件
             self.save_conversation_log(
@@ -711,6 +735,42 @@ class MessageManager:
             logger.error(f"保存对话与日志失败: {e}")
 
 
+    async def _local_memory_and_emit(self, memory_manager, user_message: str, assistant_response: str) -> None:
+        """W120-03：本地五元组提取完成后发 MEMORY_CREATED（失败只记日志，不影响记忆链路）。"""
+        try:
+            await memory_manager.add_conversation_memory(user_message, assistant_response)
+        except Exception as e:
+            logger.debug(f"本地记忆提取失败: {e}")
+            return
+        self._emit_memory_event("created", source="local", summary=user_message)
+
+    def _emit_memory_event(
+        self,
+        kind: str,
+        *,
+        source: str,
+        summary: str = "",
+        memory_id: str = "",
+        extra: dict | None = None,
+    ) -> None:
+        """发记忆生命周期事件（created/archived）；总线不可用时静默。"""
+        try:
+            from apiserver.event_bus import Topics, get_bus
+
+            topic = Topics.MEMORY_CREATED if kind == "created" else Topics.MEMORY_ARCHIVED
+            payload = {
+                "id": memory_id,
+                "memory_id": memory_id,
+                "source": source,
+                "summary": str(summary or "")[:160],
+                "ts": time.time(),
+            }
+            if extra:
+                payload.update(extra)
+            get_bus().emit(topic, payload)
+        except Exception as e:
+            logger.debug(f"记忆事件分发失败（非致命）: {e}")
+
     def _create_background_task(self, coro, name: str = "background"):
         """创建后台异步任务并保存引用，防止被 GC 回收"""
         try:
@@ -738,6 +798,13 @@ class MessageManager:
             logger.info(f"[Memory] 远程记忆上传响应: {result}")
             if result.get("success") is not False:
                 logger.info(f"[Memory] 远程记忆存储成功: {user_message[:50]}...")
+                # W120-03：记忆写入成功 → 发 MEMORY_CREATED（供分层/统计/压缩检查订阅）
+                self._emit_memory_event(
+                    "created",
+                    source="remote",
+                    summary=user_message,
+                    memory_id=str(result.get("memory_id") or result.get("id") or ""),
+                )
             else:
                 logger.warning(f"[Memory] 远程记忆存储返回失败: {result.get('error', '未知错误')}，不再回退本地")
         except Exception as e:
@@ -749,7 +816,7 @@ class MessageManager:
             from summer_memory.memory_manager import memory_manager
             if memory_manager and memory_manager.enabled and memory_manager.auto_extract:
                 self._create_background_task(
-                    memory_manager.add_conversation_memory(user_message, assistant_response),
+                    self._local_memory_and_emit(memory_manager, user_message, assistant_response),
                     name=f"local_memory_{user_message[:20]}"
                 )
                 logger.info(f"已提交本地五元组提取任务: {user_message[:50]}...")

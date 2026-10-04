@@ -53,8 +53,10 @@ class TestDecompileBinary(unittest.TestCase):
     def test_model_not_loaded_raises(self):
         """无模型时 decompile 抛出 ModelNotLoadedError。"""
         # mock 汇编提取成功，确保走到模型加载检查；无模型且路径不存在时抛错
-        with patch.object(self.llm, "_get_assembly", return_value="nop"):
-            with self.assertRaises(ModelNotLoadedError):
+        with (
+            patch.object(self.llm, "_get_assembly", return_value="nop"),
+            self.assertRaises(ModelNotLoadedError),
+        ):
                 self.llm.decompile_binary("/tmp/add.o")
 
     def test_no_assembly_tool_gives_clear_error(self):

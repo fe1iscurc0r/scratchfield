@@ -39,9 +39,29 @@ class RAGService:
         self._embedding_engine = get_embedding_engine()
         self._chunk_splitter = ChunkSplitter(chunk_size=512, overlap=50)
         self._parser = DocumentParser()
-        self._initialized = True
-        
+        self._initialized = True        
         logger.info("RAG 服务初始化完成")
+
+    def _encode_chunk_texts(self, chunk_texts: list[str]):
+        """块向量编码（卷125 W125-03）。
+
+        只用「共享的那个本地引擎」时才走 `local_embedder`（拿到 LRU 缓存 + 云端回退）；
+        若 `_embedding_engine` 已被替换（测试桩/自定义引擎），直接用它，避免绕过注入。
+        """
+        engine = self._embedding_engine
+        try:
+            from apiserver import local_embedder as _le
+
+            if engine is _le._local_engine():
+                import numpy as _np
+
+                vectors = _le.embed(chunk_texts)
+                if vectors:
+                    return _np.asarray(vectors, dtype="float32")
+                return None
+        except Exception as _embed_err:  # noqa: BLE001 - 回退到原引擎
+            logger.debug(f"[RAG] 端侧嵌入不可用，回退原引擎: {_embed_err}")
+        return engine.encode(chunk_texts)
     
     def ingest_document(self, file_path: str, title: str = None,
                         tags: list[str] = None, metadata: dict[str, Any] = None) -> dict[str, Any]:
@@ -98,9 +118,9 @@ class RAGService:
             chunk_texts = [c['content'] for c in chunks]
             chunk_ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
             
-            # 生成嵌入
+            # 生成嵌入（卷125 W125-03：端侧嵌入优先 + LRU 缓存 + 云端回退）
             logger.info(f"正在生成嵌入向量: {len(chunks)} 个块")
-            embeddings = self._embedding_engine.encode(chunk_texts)
+            embeddings = self._encode_chunk_texts(chunk_texts)
             
             # HIGH-2 修复：嵌入失败不注入随机向量（种子 42 的随机向量会让检索"看起来正常"但结果完全无意义）
             # 改为 fail-fast：向上层抛出错误，调用方应提示用户检查嵌入模型/网络

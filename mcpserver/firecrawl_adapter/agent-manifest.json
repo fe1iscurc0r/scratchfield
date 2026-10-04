@@ -1,0 +1,56 @@
+{
+  "name": "firecrawl_adapter",
+  "displayName": "Firecrawl 网页抓取（RSS 全文补全）",
+  "version": "0.1.0",
+  "description": "单页网页 → 结构化 markdown。补 RSS 采集只有摘要的缺口：抓回的全文落 knowledge-base/inbox/ 带 YAML front-matter，供知识库检索与实体抽取（卷142）消费。对接可配置 Firecrawl 实例：自托管优先（FIRECRAWL_BASE_URL，默认 http://localhost:3002），云 API 作 fallback（FIRECRAWL_API_URL + FIRECRAWL_API_KEY，key 仅在内存使用）。抓取失败或正文为空一律 fail-fast 报错，绝不静默返回空正文。上游 firecrawl/firecrawl-mcp-server（MIT，7491★）。",
+  "author": "沈遥",
+  "license": "MIT",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.firecrawl_adapter.adapter",
+    "class": "FirecrawlBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "firecrawl_scrape_to_md",
+        "description": "单页 → markdown 正文（自托管优先，云 API fallback）",
+        "params": {
+          "url": "目标网页 URL（必填）",
+          "only_main_content": "只取正文，去 header/nav/footer，默认 true",
+          "allow_cloud_fallback": "自托管不可达时是否回落云 API，默认 true"
+        },
+        "example": "{\"tool_name\":\"firecrawl_scrape_to_md\",\"url\":\"https://example.com\"}"
+      },
+      {
+        "command": "firecrawl_enrich_rss",
+        "description": "RSS 摘要条目 → 抓全文 → 落盘 knowledge-base/inbox/<日期>-<标题>.md（带 front-matter）",
+        "params": {
+          "item_url": "RSS 条目链接（必填）",
+          "title": "条目标题（用于文件名与 front-matter）",
+          "source": "来源标识（feed 名/管线名）"
+        },
+        "example": "{\"tool_name\":\"firecrawl_enrich_rss\",\"item_url\":\"https://x.com/a\",\"title\":\"水凝胶新进展\",\"source\":\"materials-rss\"}"
+      },
+      {
+        "command": "firecrawl_health",
+        "description": "自托管可达性 + 云 key 是否配置（不发抓取请求）",
+        "params": {},
+        "example": "{\"tool_name\":\"firecrawl_health\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "document"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "Firecrawl",
+      "upstream_license": "见上游"
+    }
+  },
+  "capability_pairs": [["convert", "web"], ["status", "web"]]
+}

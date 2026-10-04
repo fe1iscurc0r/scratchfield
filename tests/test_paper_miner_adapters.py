@@ -8,6 +8,11 @@
 """
 from __future__ import annotations
 
+import pytest
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import os
 import sqlite3
 import sys
@@ -21,10 +26,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 # 静默 healthcheck 里的 warning
 import logging
+
 logging.basicConfig(level=logging.ERROR)
 
+from mcpserver.material_science import biopred, build_dataset
 from mcpserver.paper_miner import db as pdb
-from mcpserver.material_science import build_dataset, biopred
 
 
 def _seed_papers_db(path: str) -> None:

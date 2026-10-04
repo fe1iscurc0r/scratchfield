@@ -1,0 +1,76 @@
+{
+  "name": "agent_nuclei",
+  "version": "1.0.0",
+  "description": "MCP Agent wrapper for Nuclei vulnerability scanner CLI",
+  "author": "MCP Agent Generator",
+  "license": "MIT",
+  "agent_class": "AgentNuclei",
+  "module": "agent_nuclei",
+  "tools": [
+    {
+      "name": "scan_url",
+      "description": "Scan a single URL for vulnerabilities using Nuclei",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "required": true,
+          "description": "Target URL to scan"
+        },
+        "templates": {
+          "type": "string",
+          "required": false,
+          "description": "Comma-separated template paths or IDs"
+        }
+      }
+    },
+    {
+      "name": "scan_list",
+      "description": "Batch-scan multiple targets from a file using Nuclei",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "required": true,
+          "description": "Path to file containing target URLs (one per line)"
+        }
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List available Nuclei templates, optionally filtered by severity",
+      "parameters": {
+        "severity": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by severity: info, low, medium, high, critical"
+        }
+      }
+    }
+  ],
+  "protocol": {
+    "type": "subprocess",
+    "description": "Calls nuclei CLI via subprocess with JSON output, 5-minute timeout"
+  },
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_nuclei.agent_nuclei",
+    "class": "AgentNuclei"
+  },
+  "classification": {
+    "families": [
+      "offense"
+    ],
+    "domains": [],
+    "tier": "offensive",
+    "origin": {
+      "kind": "bridge",
+      "upstream_license": "MIT",
+      "upstream": "nuclei"
+    }
+  },
+  "requires": {
+    "external_cli": [
+      "nuclei"
+    ]
+  },
+  "capability_pairs": [["scan", "vulnerability"]]
+}

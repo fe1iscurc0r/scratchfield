@@ -239,7 +239,7 @@ def _query_quintuples_from_file(keywords, limit=5):
             if len(q) < 5:
                 continue
             subject, subject_type, predicate, obj, object_type = q[0], q[1], q[2], q[3], q[4]
-            if kw == subject or kw == obj or kw == predicate:
+            if kw in (subject, obj, predicate):
                 if q not in exact:
                     exact.append(q)
             elif kw in subject or kw in obj or kw in predicate or kw in subject_type or kw in object_type:

@@ -4,10 +4,18 @@
 """
 from __future__ import annotations
 
+import pytest  # noqa: E402  (卷173 分层标注；与文件既有 import pytest 重复无害)
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "skills"
@@ -67,6 +75,8 @@ def test_nuwa_scripts_runnable():
         r = subprocess.run([str(py), "-m", "py_compile", str(f)], capture_output=True, timeout=60)
         assert r.returncode == 0, f"{f.name} 编译失败: {r.stderr[:200]}"
     sh = SKILLS / "huashu-nvwa" / "scripts" / "download_subtitles.sh"
+    if shutil.which("bash") is None:
+        pytest.skip("bash 不在 PATH 中（Windows 无 Git Bash 时跳过 sh 语法检查）")
     r = subprocess.run(["bash", "-n", str(sh)], capture_output=True, timeout=30)
     assert r.returncode == 0, r.stderr[:200]
 

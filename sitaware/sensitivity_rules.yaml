@@ -1,0 +1,74 @@
+# 敏感检测规则（卷132 B-03）
+#
+# 判定哲学：**「能不能定位到具体的人/地点」** 是唯一判据。
+#   - 精确坐标 / Maidenhead / 手机号 / 身份证 / 邮箱 → 强信号，直接本地
+#   - 区县及以下的地址token（区/县/镇/街道/路/巷/号/栋/室）→ 具体到点，本地
+#   - 城市/省级泛称（"广州最近有什么新闻"）→ 泛化，走云端
+#
+# 这是**正则规则表，不是 NER**。姓名识别能力有限，需要时在此追加正则，
+# 或接一个本地 NER；不要把它当成完备的隐私检测（详见 README「未验证层」）。
+
+version: 1
+description: "sitaware 敏感检测规则；命中任一 strong 或 specific 规则即判为敏感"
+
+# 强信号：命中即敏感，无需上下文
+strong:
+  # 十进制经纬度对，小数位 >= 4（约 10m 级）；4 位是"精确坐标"的分界
+  - name: precise_coords
+    pattern: '(?<![\d.])-?\d{1,3}\.\d{4,}\s*[,，/\s]\s*-?\d{1,3}\.\d{4,}(?![\d.])'
+    hint: "精确十进制坐标对"
+
+  # Maidenhead 网格（4/6/8/10 位）
+  - name: maidenhead_grid
+    pattern: '\b[A-Ra-r]{2}[0-9]{2}(?:[A-Xa-x]{2}(?:[0-9]{2}(?:[A-Xa-x]{2})?)?)?\b'
+    hint: "Maidenhead 网格定位"
+
+  # 中国大陆手机号
+  - name: cn_mobile
+    pattern: '(?<!\d)1[3-9]\d{9}(?!\d)'
+    hint: "手机号"
+
+  # 18 位身份证
+  - name: cn_id_card
+    pattern: '(?<!\d)\d{17}[\dXx](?!\d)'
+    hint: "身份证号"
+
+  # 邮箱
+  - name: email
+    pattern: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+    hint: "邮箱"
+
+  # 门牌级地址：出现"号/栋/室/楼/单元"等能唯一确定的成分
+  - name: street_number
+    pattern: '\d+\s*(?:号|栋|幢|室|单元|号楼|弄)'
+    hint: "门牌号级地址"
+
+# 具体信号：区县及以下的地名粒度；单独出现即视为"具体地址"
+specific:
+  - name: district_level
+    pattern: '[\u4e00-\u9fa5]{2,8}(?:区|县|镇|街道|乡)'
+    hint: "区县级地名"
+  - name: street_level
+    pattern: '[\u4e00-\u9fa5]{2,10}(?:路|街|巷|大道|大道东|大道西|大马路)'
+    hint: "道路级地名"
+  - name: poi_level
+    pattern: '(?:小区|大厦|广场|酒店|医院|学校|车站|机场|码头|营区|哨所|仓库|变电站|机房)'
+    hint: "POI 级地点"
+
+# 白名单：命中这些片段时**不**因具体地名规则判敏感
+# （避免"广州市天河区"这种正常业务查询被过度拦截也照旧拦截；
+#   此表用于抑制误报，不用于放行强信号）
+allowlist:
+  - '天气预报'
+  - '路况'
+
+# 路由配置
+routes:
+  sensitive:
+    provider: ollama
+    base_url: 'http://localhost:11434'
+    model: 'qwen2.5:7b'
+  nonsensitive:
+    provider: minimax
+    base_url: 'https://api.minimaxi.com/anthropic'
+    model: 'MiniMax-Text-01'

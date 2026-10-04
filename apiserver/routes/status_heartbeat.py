@@ -48,13 +48,13 @@ def _purge_expired() -> None:
 
 # ============ Pydantic 模型 ============
 class HeartbeatMetrics(BaseModel):
-    cpu_percent: Optional[float] = Field(default=None, ge=0, le=100)
-    memory_percent: Optional[float] = Field(default=None, ge=0, le=100)
-    disk_percent: Optional[float] = Field(default=None, ge=0, le=100)
-    api_quota_percent: Optional[float] = Field(default=None, ge=0, le=100)
-    queue_depth: Optional[int] = Field(default=0, ge=0)
-    network_rx_mbps: Optional[float] = Field(default=None, ge=0)
-    network_tx_mbps: Optional[float] = Field(default=None, ge=0)
+    cpu_percent: float | None = Field(default=None, ge=0, le=100)
+    memory_percent: float | None = Field(default=None, ge=0, le=100)
+    disk_percent: float | None = Field(default=None, ge=0, le=100)
+    api_quota_percent: float | None = Field(default=None, ge=0, le=100)
+    queue_depth: int | None = Field(default=0, ge=0)
+    network_rx_mbps: float | None = Field(default=None, ge=0)
+    network_tx_mbps: float | None = Field(default=None, ge=0)
 
 
 class HeartbeatRequest(BaseModel):
@@ -62,7 +62,7 @@ class HeartbeatRequest(BaseModel):
     node_type: Literal["cloud-server", "kali", "k40", "tianxuan7", "other"] = Field(
         default="other", description="节点类型"
     )
-    timestamp: Optional[str] = Field(default=None, description="ISO8601 时间戳（可选，缺省则用服务器时间）")
+    timestamp: str | None = Field(default=None, description="ISO8601 时间戳（可选，缺省则用服务器时间）")
     status: Literal["online", "degraded", "offline"] = Field(default="online")
     metrics: HeartbeatMetrics = Field(default_factory=HeartbeatMetrics)
     alerts: list[str] = Field(default_factory=list, description="告警列表，如 ['rate_limit_near']")
@@ -84,7 +84,7 @@ class NodeStatus(BaseModel):
     alerts: list[str]
     last_seen: float  # epoch 秒
     # 原始时间戳（上报方提供）
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
 
 
 class NodesResponse(BaseModel):

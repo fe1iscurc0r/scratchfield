@@ -22,12 +22,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # scratchpad/
 from mcpserver.rf_brain.amateur_bands import AMATEUR_BANDS, assert_allowed_freq, is_allowed_freq
 from mcpserver.rf_brain.autonomous import run_sweep
 from mcpserver.rf_brain.loop import run_loop
-from mcpserver.rf_brain.schemas import Decision, DemodFeedback
 from mcpserver.rf_brain.scanner import (
     ScanConfig,
     energy_detect,
     scan_spectrum,
 )
+from mcpserver.rf_brain.schemas import Decision, DemodFeedback
 from mcpserver.rf_brain.sensor import generate_iq, noise_only
 
 THRESHOLD = 12.0

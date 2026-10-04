@@ -1,0 +1,642 @@
+[
+  {
+    "id": "2606.17366v1",
+    "content": "math.AT) A Persistent Homology Signature of Knotting",
+    "cats": [
+      "材料/生物质"
+    ],
+    "score": 1,
+    "level": "P2",
+    "valuable": false
+  },
+  {
+    "id": "2608.05733v1",
+    "content": "stat.ME) Multiparametric MRI Radiomics and Machine Learning Framework for Predicting Treatment Response in Glioblastoma",
+    "cats": [
+      "RF/无线电"
+    ],
+    "score": 1,
+    "level": "P2",
+    "valuable": false
+  },
+  {
+    "id": "2608.11071v1",
+    "content": "math.PR) Scaling Laws for Majority-based Opinion Dynamics in the Presence of Stubborn Agents",
+    "cats": [
+      "Agent/ML"
+    ],
+    "score": 1,
+    "level": "P2",
+    "valuable": false
+  },
+  {
+    "id": "2608.15332v1",
+    "content": "GFCM: A Tail-Sensitive Mixed-Type Conditional Independence Test for Causal Discovery",
+    "cats": [],
+    "score": 1,
+    "level": "P2",
+    "valuable": true
+  },
+  {
+    "id": "2608.20187v1",
+    "content": "Multi-Method Causal Evidence Synthesis (MCES)",
+    "cats": [],
+    "score": 1,
+    "level": "P2",
+    "valuable": true
+  },
+  {
+    "id": "2608.20253v1",
+    "content": "stat.ME) GENIE: Generative Neural Inference for Epidemics",
+    "cats": [
+      "Agent/ML"
+    ],
+    "score": 1,
+    "level": "P2",
+    "valuable": false
+  },
+  {
+    "id": "2608.20337v1",
+    "content": "Information on trajectories: martingales and random times",
+    "cats": [],
+    "score": 1,
+    "level": "P2",
+    "valuable": true
+  },
+  {
+    "id": "2608.20739v1",
+    "content": "math.CO) Laziness of Quantum Walks on Graphs",
+    "cats": [
+      "量子"
+    ],
+    "score": 1,
+    "level": "P2",
+    "valuable": false
+  },
+  {
+    "id": "2608.23203v1",
+    "content": "math.PR) Well-posedness of fully coupled McKean-Vlasov FBSDEs with jumps under full-tuple law dependence",
+    "cats": [
+      "机器人/具身"
+    ],
+    "score": 1,
+    "level": "P2",
+    "valuable": false
+  },
+  {
+    "id": "2608.25930v1",
+    "content": "stat.ME) Controlling for Omitted Variable Bias in Deep Neural Networks",
+    "cats": [
+      "Agent/ML"
+    ],
+    "score": 1,
+    "level": "P2",
+    "valuable": false
+  },
+  {
+    "id": "2608.27063v1",
+    "content": "stat.ME) An Accurate and Single-Communication Federated Inference Algorithm",
+    "cats": [
+      "Agent/ML"
+    ],
+    "score": 1,
+    "level": "P2",
+    "valuable": false
+  },
+  {
+    "id": "2605.08345v1",
+    "content": "math.PR) Quantitative ergodicity for gene regulatory networks with transcriptional bursting",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2605.15401v1",
+    "content": "math.PR) Noise Tradeoffs, Stationary Information Flow, and Structural Balance in Unit-Birth Networks",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2606.30325v1",
+    "content": "math.PR) Thermodynamic Limits of Stochastic Chemical Reaction Networks with Phosphorylation",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2607.20823v1",
+    "content": "math.PR) Fluctuation impossibility results for stochastic burst networks",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.04959v1",
+    "content": "stat.ME) Parameter identification for predator-prey system with sparse data",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.07590v1",
+    "content": "stat.AP) Uncertainty-Aware Missing-Data Multimodal Latent for Fetal-Growth Analysis",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.07609v1",
+    "content": "stat.AP) Hit Selection Using SSMD-Based Machine Learning Performance Metrics in High-Throughput Screening Assays",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.08375v1",
+    "content": "math.PR) Algebraic formulas for first-passage times of Markov processes in the linear framework: generalising the work of Hill and Kac",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.14217v1",
+    "content": "math.AG) The Quartic Hessian Conjecture in Dimension Four",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.14821v1",
+    "content": "math.CO) Proof of the TuDeng Conjecture",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.15179v1",
+    "content": "math.PR) An elementary proof of Marton and Shields' obstruction to finitary coding",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.15319v1",
+    "content": "stat.ME) CORAL: Constrained Oblique Rotation with Anchored Loadings for Fidelity-Constrained Decorrelation",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.15500v1",
+    "content": "stat.ME) Generalized Hierarchical Conformal Prediction",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.15750v1",
+    "content": "math.LO) S2a-reducibility and differentiation in Martin-Löf random reals",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.16144v1",
+    "content": "math.PR) Central limit theorem in Rényi divergence for lattice random variables",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.16466v1",
+    "content": "stat.ME) Deep adaptive design with an evidential bias criterion",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.17595v1",
+    "content": "stat.ME) Modified Bryson-Frazier Smoothing and Hyperparameter Learning for Temporal Gaussian Process Regression",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.17927v1",
+    "content": "math.PR) Near-unit-root persistence of symmetric stable autoregressive sequences",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.18294v1",
+    "content": "stat.ME) Debiased Inference for AI-Generated Data without Gold-Standard Labels: Identification via Multiple Imperfect Measurements",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.18362v1",
+    "content": "math.MG) A new unconditional lower bound for shoreline search",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.18742v1",
+    "content": "stat.ME) Regularised Iterative Generalised Least Squares with Optimal Selection of the Hyper-Parameter for Identifying Nonlinear Phenomenological Models",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19022v1",
+    "content": "stat.AP) Scalable Amortized Variational Inference for Non-Poisson Buy-'Til-You-Die Models",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19071v1",
+    "content": "math.AG) Equations of Tree Tensor Network Varieties",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19198v1",
+    "content": "math.PR) Probabilistic Representation and Convergence of Gromov-Wasserstein Gradient Flows",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19383v1",
+    "content": "stat.ME) Causal Generalization of Continuous Treatment Effects under Covariate Shift",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19501v1",
+    "content": "stat.ME) A Causal Inference Approach for Evaluating Diagnostic Tests and AI-Enabled Medical Devices: From Effect Modification to Information-Augmented Decision-Making",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19550v1",
+    "content": "math.CO) Weak arcs and applications to the DNA-based storage access problem",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19576v1",
+    "content": "math.PR) Convex order preservation for graphon mean-field systems",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19767v1",
+    "content": "stat.CO) skchange: Fast and Flexible Algorithms for Changepoint Detection",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19849v1",
+    "content": "stat.ME) Distributional Extrapolation for Interactions",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19872v1",
+    "content": "math.CO) New upper bounds on covering codes K_q(n,R) for alphabets of size six and seven",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19872v2",
+    "content": "math.CO) New upper and lower bounds on covering codes K_q(n,R) for alphabets of size 5 <= q <= 21",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19879v1",
+    "content": "stat.ME) A Repeated Measurements Approach to $SoH$ Battery Modelling of Cyclic Aged Data in a Laboratory Environment",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.19903v1",
+    "content": "stat.ME) Where Does the Union Bound Go? Best-Arm Identification and Strong FWER Control",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.20001v1",
+    "content": "math.OA) Bayesian inference and retrodiction for faithful states on von Neumann algebras",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.20476v1",
+    "content": "math.CO) Perfect state transfer and Cayley presentations",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.20511v1",
+    "content": "stat.ME) EDGE: a closed-form directed test for the calibration of probabilistic binary classifiers",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.20553v1",
+    "content": "math.CO) Four-Entropic Matroids Are Quaternary",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.20562v1",
+    "content": "stat.ME) Conditional-Independence-Regularized Distributional Autoencoders for Mixed-Type Data",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.20610v1",
+    "content": "stat.ME) Let Time Tell: Identification and Gaussian Process Estimation for Interrupted Time Series",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.21461v1",
+    "content": "math.HO) Bent Functions and the Completed Maiorana-McFarland Class",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.21670v1",
+    "content": "math.RA) Integrable Generators of Algebraic Vector Fields for Real Connected Semi-simple Matrix Groups",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.21701v1",
+    "content": "math.PR) Superdiffusivity of random walks on the three-dimensional randomly oriented Manhattan lattice",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.22024v1",
+    "content": "stat.ME) Barycentric Fused Gromov-Wasserstein Balancing for Causal Inference under Multiple Treatments",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.22088v1",
+    "content": "math.FA) On $φ$-Best Proximity Points and Proximal-type Algorithms in Banach Spaces",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.22223v1",
+    "content": "stat.AP) Spending Scarce Confirmatory PET Measurements: Target-Aligned Validation in A4/LEARN",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.22308v1",
+    "content": "math.CO) Spanning trees in the Assignment Problem: two theorems and two conjectures",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.22534v1",
+    "content": "math.PR) Entropy power inequalities in compact groups",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.22627v1",
+    "content": "stat.ME) A general-purpose sensitivity method for multiple simultaneous parameter perturbations in stochastic reaction networks",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.22829v1",
+    "content": "math.RA) Partial Progress on Stone's Conjecture: $P_0$-Membership of Fully Semimonotone Matrices with Positive Determinant",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.22829v2",
+    "content": "math.RA) Partial Progress on Stone's Conjecture: $P_0$-Membership of Fully Semimonotone Matrices with Positive Determinant",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.23262v1",
+    "content": "math.CO) A note on the ultra log-concavity of matroid intersection",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.23462v1",
+    "content": "math.PR) Strong Averaging Principle and Long-Time Dynamics for Fast-Slow SDEs with Increasing Time-Scale Separation and Degenerate Noise",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.23491v1",
+    "content": "math.PR) Stochastic Dynamics of Low Earth Orbit Near Full Capacity",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.23538v1",
+    "content": "stat.ME) Interpretable AI with Local Distillation",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.23802v1",
+    "content": "stat.ME) Graph-dependent shrinkage priors for Bayesian trend filtering",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.23888v1",
+    "content": "math.CO) Resolving a conjecture on quadratic APN functions and a new quadratic $(n,n)$-function associated to crooked functions",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.24602v1",
+    "content": "stat.ME) Toward a Semiparametric Efficiency Theory under Equality Constraints in Nested Markov Models",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.24648v1",
+    "content": "math.OA) Non-Subhomogeneity of Minimal Operator Systems over Positive Semidefinite and Lorentz Cones",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.25008v1",
+    "content": "math.AG) Kochen-Specker Configurations from Grids on Dual Quadrics",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.25279v1",
+    "content": "math.PR) Provable Non-Acceleration of Standard Strang Splittings of Kinetic Langevin Dynamics",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.25468v1",
+    "content": "stat.ME) Functional linear regression from sparse to dense designs: a pooling-ridge method and minimax optimality",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.26501v1",
+    "content": "math.PR) Explicit Bounds on the Entropy of Piecewise Hölder Graphon Models",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.26547v1",
+    "content": "math.CO) Random Recursive Simplicial Complexes",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.26610v1",
+    "content": "stat.ME) On efficiency gains via augmenting a tiny sample with a massive auxiliary sample",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.26996v1",
+    "content": "math.PR) A note on shifting distributions via Poisson races",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  },
+  {
+    "id": "2608.27372v1",
+    "content": "math.PR) Universality and sharp thresholds for ellipsoid fitting",
+    "cats": [],
+    "score": 0,
+    "level": "观察",
+    "valuable": false
+  }
+]

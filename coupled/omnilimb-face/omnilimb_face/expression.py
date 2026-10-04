@@ -82,7 +82,7 @@ class ExpressionResult:
 
     display_text: str
     expressions: list[int]
-    primary: Optional[int]
+    primary: int | None
     unmatched: list[str]
 
 
@@ -114,10 +114,10 @@ class ExpressionMapper:
         # Resolve the default/neutral index once. ``None`` when the configured
         # default expression is not present in the emotion map (graceful
         # degradation per Requirement 8.5).
-        self._default_index: Optional[int] = self._emotion_map.get(default_expression)
+        self._default_index: int | None = self._emotion_map.get(default_expression)
 
     @property
-    def default_index(self) -> Optional[int]:
+    def default_index(self) -> int | None:
         """The resolved default/neutral expression index (``None`` if unmapped)."""
         return self._default_index
 
@@ -161,7 +161,7 @@ class ExpressionMapper:
         """
         expressions: list[int] = []
         unmatched: list[str] = []
-        primary: Optional[int] = None
+        primary: int | None = None
 
         # Single left-to-right scan preserves appearance order for both the
         # recognized indices and the unmatched keys (Requirements 8.1/8.3).

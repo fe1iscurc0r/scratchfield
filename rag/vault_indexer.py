@@ -52,7 +52,7 @@ class VaultIndexer:
     - get_indexed_count(): 线程安全返回已索引文件数
     """
 
-    def __init__(self, vault_dir: Optional[str | Path] = None):
+    def __init__(self, vault_dir: str | Path | None = None):
         if vault_dir is None:
             vault_dir = _default_vault_dir()
         self.vault_dir = Path(vault_dir)

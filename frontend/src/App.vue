@@ -7,22 +7,24 @@ import type { FloatingState } from '@/electron.d'
 import { useEventListener, useWindowSize } from '@vueuse/core'
 import Toast from 'primevue/toast'
 import { useToast } from 'primevue/usetoast'
-import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ACCESS_TOKEN, authExpired, setAuthExpiredSuppressed } from '@/api'
 import API from '@/api/core'
+import AppSidebar from '@/components/AppSidebar.vue'
 import BackendDebugDialog from '@/components/BackendDebugDialog.vue'
 import BackendErrorDialog from '@/components/BackendErrorDialog.vue'
-import Live2dModel from '@/components/Live2dModel.vue'
+import CommandPalette from '@/components/CommandPalette.vue'
 import LoginDialog from '@/components/LoginDialog.vue'
 import SplashScreen from '@/components/SplashScreen.vue'
 import TitleBar from '@/components/TitleBar.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import WindowResizeHandles from '@/components/WindowResizeHandles.vue'
 import { playBgm, playClickEffect, stopBgm } from '@/composables/useAudio'
-import { isLoggedIn, cloudUser, sessionRestored, useAuth } from '@/composables/useAuth'
+import { cloudUser, isLoggedIn, sessionRestored, useAuth } from '@/composables/useAuth'
 import { useBackground } from '@/composables/useBackground'
 import { useElectron } from '@/composables/useElectron'
+import { useGlobalHotkeys } from '@/composables/useGlobalHotkeys'
 import { useParallax } from '@/composables/useParallax'
 import { connectRealtimeUi, disconnectRealtimeUi } from '@/composables/useRealtimeUi'
 import { useStartupProgress } from '@/composables/useStartupProgress'
@@ -30,10 +32,22 @@ import { startToolPolling, stopToolPolling } from '@/composables/useToolStatus'
 import { checkForUpdate, showUpdateDialog, updateInfo } from '@/composables/useVersionCheck'
 import { backendConnected, CONFIG } from '@/utils/config'
 import { clearExpression, setExpression } from '@/utils/live2dController'
+import { ensureLive2dCoreLoaded } from '@/utils/live2dCoreLoader'
 import { destroyParallax, initParallax } from '@/utils/parallax'
 import { activeTabId, agentContacts, proactiveNotifier, tabs } from '@/utils/session'
 import { messageViewExpanded } from '@/utils/uiState'
 import FloatingView from '@/views/FloatingView.vue'
+
+// Live2D 链（pixi.js + pixi-live2d-display，数百 KB）改异步组件，
+// 首屏入口 chunk 不再打包 WebGL 栈，按需加载。
+// 顺序硬约束：pixi-live2d-display 在**模块顶层**就有
+// `if (!window.Live2DCubismCore) throw new Error('Could not find Cubism 4 runtime...')`，
+// 所以核心库必须在 import 之前注入，否则整个 vendor-pixi chunk 一被 import 就抛错，
+// 异步组件永远挂载不上 —— 表现就是 Live2D 主体消失（只剩背景光斑）。
+const Live2dModel = defineAsyncComponent(async () => {
+  await ensureLive2dCoreLoaded()
+  return import('@/components/Live2dModel.vue')
+})
 
 let _splashDismissed = false
 
@@ -51,8 +65,20 @@ function normalizeRuntimeLive2dSource(source?: string | null): string {
   if (!trimmed) {
     return ''
   }
-  if (!isElectron || trimmed.startsWith('lumo-char://')) {
-    return trimmed
+  if (trimmed.startsWith('lumo-char://')) {
+    if (isElectron) {
+      // Electron：由主进程自定义协议直接读本地 characters 目录
+      return trimmed
+    }
+    // 浏览器（非 Electron）：无自定义协议可解析，lumo-char:// 原样传给
+    // pixi 会加载失败（Live2D 消失的根因）。转换为后端静态挂载
+    // /characters/<角色>/<路径>（api_server.py 已挂载该目录，实测 200）。
+    const rest = trimmed.slice('lumo-char://'.length)
+    if (!rest) {
+      return ''
+    }
+    const backendOrigin = import.meta.env.DEV ? 'http://localhost:8000' : window.location.origin
+    return `${backendOrigin}/characters/${encodeURI(rest)}`
   }
   try {
     const url = new URL(trimmed)
@@ -60,6 +86,11 @@ function normalizeRuntimeLive2dSource(source?: string | null): string {
       && ['localhost', '127.0.0.1'].includes(url.hostname)
       && url.pathname.startsWith('/characters/')
     if (!isLocalCharactersUrl) {
+      return trimmed
+    }
+    // 仅 Electron 才做 http→lumo-char 归一（主进程协议读本地目录）；
+    // 浏览器下必须保留 http URL 直接走后端静态挂载，否则无法加载。
+    if (!isElectron) {
       return trimmed
     }
     const match = url.pathname.match(/^\/characters\/([^/]+)\/(.+)$/)
@@ -229,15 +260,8 @@ function onModelReady(pos: { faceX: number, faceY: number }) {
   }
 }
 
-// 【诊断】强制显示 Live2D，测试是否是显示条件问题
+// 模型加载完成后即显示（不等标题动画）
 const live2dShouldShow = computed(() => {
-  console.log('[Live2D-Visibility]', {
-    splashVisible: splashVisible.value,
-    titlePhaseDone: titlePhaseDone.value,
-    modelReady: modelReady.value,
-    shouldShow: splashVisible.value && modelReady.value,
-  })
-  // 改为：模型加载完成后就显示（不等标题动画）
   return modelReady.value
 })
 
@@ -458,6 +482,55 @@ useEventListener(window, 'keydown', (event) => {
   backendDebugVisible.value = !backendDebugVisible.value
 })
 
+// ─── 卷150：全局快捷键层 + 命令面板 + 侧边栏（配置表驱动，见 composables/useGlobalHotkeys） ───
+const router = useRouter()
+const { paletteOpen } = useGlobalHotkeys({
+  router,
+  isFloating: isFloatingMode,
+  onAction(kind) {
+    // 上下文感知动作：先路由到目标视图，再触发该视图的新建流程。
+    // 视图内部的新建函数未全局暴露，这里采用"路由 + 派发自定义事件"对接：
+    // 目标视图 onMounted 监听 'lumo:quick-action' 即可响应该一次性动作（懒对接，不强耦合）。
+    switch (kind) {
+      case 'new-eln':
+        router.push('/eln')
+        window.dispatchEvent(new CustomEvent('lumo:quick-action', { detail: { kind } }))
+        break
+      case 'doi-import':
+        router.push('/papers')
+        window.dispatchEvent(new CustomEvent('lumo:quick-action', { detail: { kind } }))
+        break
+      case 'new-chat':
+      default:
+        router.push('/chat')
+        window.dispatchEvent(new CustomEvent('lumo:quick-action', { detail: { kind } }))
+        break
+    }
+  },
+})
+
+function onPaletteNavigate(to: string) {
+  router.push(to)
+}
+
+function onPaletteAction(kind: 'new-eln' | 'new-chat' | 'doi-import') {
+  // 命令面板的动作条目与快捷键共用同一处理
+  paletteOpen.value = false
+  switch (kind) {
+    case 'new-eln':
+      router.push('/eln')
+      break
+    case 'doi-import':
+      router.push('/papers')
+      break
+    case 'new-chat':
+    default:
+      router.push('/chat')
+      break
+  }
+  window.dispatchEvent(new CustomEvent('lumo:quick-action', { detail: { kind } }))
+}
+
 // ─── 全局轮询：登录后启动，登出后停止（积分刷新 + 心跳检测）───
 watch(isLoggedIn, (loggedIn) => {
   if (loggedIn && backendConnected.value) {
@@ -553,21 +626,34 @@ onUnmounted(() => {
   <!-- 经典模式 -->
   <template v-else>
     <TitleBar />
+    <!-- 卷150：全局侧边栏（可折叠，localStorage 持久化；悬浮球模式上方 v-if 已排除） -->
+    <AppSidebar />
     <WindowResizeHandles :visible="showResizeHandles" :title-bar-height="isMac ? 28 : 32" />
     <Toast position="top-center" />
-    <div class="h-full sunflower" :style="{ paddingTop: titleBarPadding }">
+    <!-- 卷150：命令面板（Ctrl+K 唤起，Teleport 到 body） -->
+    <CommandPalette
+      v-model:open="paletteOpen"
+      data-testid="command-palette-mount"
+      @navigate="onPaletteNavigate"
+      @action="onPaletteAction"
+    />
+    <div class="h-full sunflower" :style="{ paddingTop: titleBarPadding, paddingLeft: 'var(--lumo-sidebar-w, 0px)' }">
       <!-- 自定义背景层：在向日葵边框之下 -->
       <div
         v-if="hasCustomBg"
         class="custom-bg-layer"
         :style="{ backgroundImage: `url(${customBgUrl})` }"
       />
-      <!-- Live2D 层：启动时 z-10（在 SplashScreen 遮罩之间），之后降到 -z-1；论坛页隐藏 -->
+      <!-- Live2D 层：启动时 z-10（在 SplashScreen 遮罩之间），之后降到 z:0（body 背景之上、主内容之下）；论坛页隐藏 -->
+      <!-- 不能用负 z-index：body/#app 有实色背景（--lumo-bg），负 z-index 元素会沉到根背景之下被完全遮挡 -->
+      <!-- 必须 pointer-events-none：本层 absolute + size-full，而 .grid-container 是 static，命中测试顺序上
+           画布压在所有视图内容之上，会吞掉按钮点击（如 ELN 顶栏「返回」）；模型追踪走 window 级监听，穿透不影响 -->
       <div
         v-show="!isForumRoute"
-        class="absolute top-0 left-0 size-full"
-        :class="splashVisible ? 'z-10' : '-z-1'"
+        class="absolute top-0 left-0 size-full pointer-events-none"
+        :class="splashVisible ? 'z-10' : ''"
         :style="{
+          zIndex: splashVisible ? undefined : 0,
           transform: live2dCombinedTransform || undefined,
           transformOrigin: live2dTransformOrigin || undefined,
           transition: live2dCombinedTransition,
@@ -690,7 +776,7 @@ onUnmounted(() => {
 .custom-bg-layer {
   position: absolute;
   inset: 0;
-  z-index: -2;
+  z-index: auto;
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;

@@ -25,6 +25,8 @@ from dataclasses import dataclass
 
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
+from .rlnc.peer_state import PeerState
+
 # ------------------------------ 协议常量（与 mr_proto_v7.h / config_meshradio.h 对齐）--
 PROTO_VERSION = 8
 MAGIC = b"MR"
@@ -191,6 +193,9 @@ class MeshNode:
         self.rx_drop_duplicate = 0
         self.rx_drop_auth = 0
 
+        # C-01 集成：邻居链路可靠度 EWMA 表（收包/丢包钩子 + 聚类查询）
+        self.peer_state = PeerState()
+
     # ---- 计数器 / 时钟 ----
     def next_seq(self) -> int:
         self._seq += 1
@@ -219,6 +224,15 @@ class MeshNode:
         t = self.now_ms()
         for call in [c for c, e in self.neighbors.items() if t - e.t_ms > NEIGHBOR_TIMEOUT_MS]:
             del self.neighbors[call]
+
+    # ---- C-01 集成：链路可靠度聚类对上层暴露 ----
+    def get_peer_class(self, peer: str) -> str:
+        """聚类结果暴露：邻居链路可靠度档位（high/mid/low）。"""
+        return self.peer_state.get_peer_class(peer)
+
+    def get_redundancy_factor(self, peer: str) -> float:
+        """聚类结果暴露：邻居链路对应的编码冗余率（驱动 C-02 分层 RLNC）。"""
+        return self.peer_state.get_redundancy_factor(peer)
 
     def route_update(self, dst: str, next_hop: str, seq: int, hop_count: int) -> None:
         """学习/刷新路由。seq 更新（主）或跳数更优（次）时替换 next_hop。"""
@@ -323,6 +337,8 @@ class MeshNode:
         # 任何合法帧都刷新 last_hop 邻居与「到达 src 的直达路由」
         self.neighbor_update(pkt.last_hop)
         self.route_update(pkt.src, pkt.last_hop, seq=pkt.seq, hop_count=1)
+        # C-01 集成：收包成功 → 更新该物理链路（last_hop→me）的 EWMA 可靠度
+        self.peer_state.report_success(pkt.last_hop)
 
         if pkt.flags & FLAG_BEACON:
             return
@@ -420,5 +436,7 @@ class MeshNetwork:
             dst_node = self.nodes.get(pkt.next_hop)
             if dst_node is None or not self.can_hear(src_node.callsign, pkt.next_hop):
                 self.frames_dropped.append((src_node.callsign, pkt, pkt.next_hop))
+                # C-01 集成：定向帧丢包（听不到目标）→ 更新源节点该链路的 EWMA 可靠度
+                src_node.peer_state.report_loss(pkt.next_hop)
                 return
             dst_node.receive(pkt)

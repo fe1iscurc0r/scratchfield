@@ -1,0 +1,34 @@
+{
+ "ok": true,
+ "source": "C:\\Users\\ASUS\\openems-win\\run_moxon\\s11.csv",
+ "points": 11,
+ "freq_range_hz": [
+  252900000.0,
+  309100000.0
+ ],
+ "resonance_hz": 252900000.0,
+ "resonance_mhz": 252.9,
+ "s11_min_db": -3.31,
+ "bandwidth_hz": 0.0,
+ "bandwidth_ratio": 0.0,
+ "bandwidth_note": "未达 -10dB（未匹配）",
+ "zin_at_resonance": {
+  "re": 254.45,
+  "im": -52.0
+ },
+ "freq_offset_from_target_hz": -28100000.0,
+ "synthetic": false,
+ "job_id": "",
+ "theory": {
+  "antenna_type": "moxon",
+  "theory_gain_dbi": 5.5,
+  "gain_delta_dbi": null,
+  "notes": [
+   "谐振点偏高目标 -10.00%：等效振子偏长，可尝试把辐射体长度按约 +5.00% 微调后再扫（推断值，需复算验证）",
+   "以上均为仿真推断，待实测验证"
+  ],
+  "resonance_offset_ratio": -0.1
+ },
+ "summary_path": "C:\\Users\\ASUS\\AppData\\Roaming\\lumo\\antenna-lab\\results\\adhoc\\summary.json",
+ "report_path": "C:\\Users\\ASUS\\AppData\\Roaming\\lumo\\antenna-lab\\results\\adhoc\\report.md"
+}

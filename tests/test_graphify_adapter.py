@@ -8,6 +8,11 @@
 """
 from __future__ import annotations
 
+import pytest  # noqa: E402  (卷173 分层标注；与文件既有 import pytest 重复无害)
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
+
 import asyncio
 import json
 import os
@@ -285,8 +290,8 @@ def test_registry_scan_registers_graphify(corpus: Path):
     """scan_and_register_mcp_agents 能发现 graphify manifest 并实例化 Bridge。"""
     from mcpserver.mcp_registry import (
         clear_registry,
-        get_service_instance,
         get_registered_services,
+        get_service_instance,
         scan_and_register_mcp_agents,
     )
     clear_registry()
@@ -311,8 +316,8 @@ def test_registry_scan_registers_graphify(corpus: Path):
 
 def test_unified_call_end_to_end(corpus: Path):
     """模拟 apiserver /call 全链路：mcp_manager.unified_call 分发到 graphify。"""
-    from mcpserver.mcp_registry import MCP_REGISTRY, clear_registry, scan_and_register_mcp_agents
     from mcpserver.mcp_manager import MCPManager
+    from mcpserver.mcp_registry import MCP_REGISTRY, clear_registry, scan_and_register_mcp_agents
     clear_registry()
     try:
         scan_and_register_mcp_agents("mcpserver")

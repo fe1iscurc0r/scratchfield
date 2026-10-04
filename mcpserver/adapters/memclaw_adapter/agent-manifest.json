@@ -1,0 +1,116 @@
+{
+  "name": "memclaw",
+  "displayName": "跨 Agent 共享记忆总线",
+  "version": "2.27.0",
+  "description": "多 Agent 共享记忆总线（上游 caura-memclaw，Apache-2.0）。本地实现，不需要任何云端 key：write 写入时用本地 bge-small-zh 计算向量，recall 走余弦相似度做语义召回（无向量条目退化为关键词），list/stats 查列表与统计。SQLite standalone 后端（~/.memclaw/memclaw.db）。上游 12 个工具（keystones/insights/evolve 等）依赖 core-storage-api 云端服务，vendored standalone 下不可用（诊断见 memclaw_status）。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.flat_bridges",
+    "class": "MemclawBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "memclaw_write",
+        "description": "写入一条记忆（本地计算向量，便于后续语义召回）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string",
+              "description": "记忆正文"
+            },
+            "metadata": {
+              "type": "object",
+              "description": "可选元数据（JSON 对象）"
+            },
+            "memory_type": {
+              "type": "string",
+              "description": "记忆类型标签，默认 note"
+            },
+            "weight": {
+              "type": "number",
+              "description": "权重 0-1，默认 0.5"
+            }
+          },
+          "required": [
+            "content"
+          ]
+        },
+        "example": "{\"tool_name\":\"memclaw_write\",\"content\":\"木质素 600-800°C 碳化比表面积最高\"}"
+      },
+      {
+        "command": "memclaw_recall",
+        "description": "语义召回相关记忆（本地向量余弦相似度；无向量条目退化为关键词匹配），返回内容+相似度分数",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "查询语句（自然语言即可）"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "返回条数，默认 5"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "example": "{\"tool_name\":\"memclaw_recall\",\"query\":\"交联剂对电导率的影响\",\"limit\":5}"
+      },
+      {
+        "command": "memclaw_list",
+        "description": "按时间倒序列出最近记忆（可按关键词过滤）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "description": "返回条数上限，默认 20"
+            },
+            "keyword": {
+              "type": "string",
+              "description": "关键词过滤，可空"
+            }
+          },
+          "required": []
+        },
+        "example": "{\"tool_name\":\"memclaw_list\",\"limit\":10,\"keyword\":\"木质素\"}"
+      },
+      {
+        "command": "memclaw_stats",
+        "description": "记忆总线统计：总数、含向量条数、最近一条写入",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"memclaw_stats\"}"
+      },
+      {
+        "command": "memclaw_status",
+        "description": "memclaw 可用性诊断：后端 / 工具来源 / 嵌入引擎 / 已知限制",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"memclaw_status\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "context"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "caura-memclaw",
+      "upstream_license": "Apache-2.0"
+    }
+  },
+  "capability_pairs": [["list", "memory"], ["lookup", "memory"], ["status", "memory"], ["write", "memory"]]
+}

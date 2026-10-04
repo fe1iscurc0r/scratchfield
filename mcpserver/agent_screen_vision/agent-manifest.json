@@ -17,5 +17,16 @@
         "example": "{\"tool_name\":\"look_screen\",\"query\":\"右边那个按钮是什么功能\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "verbal"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "capability_pairs": [["capture", "screen"]]
 }

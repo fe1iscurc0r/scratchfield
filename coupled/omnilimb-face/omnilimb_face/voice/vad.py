@@ -147,7 +147,7 @@ class VadSegmenter:
         self._start_ms: int = 0
         # Start timestamp of the current *continuous* silence run, or None while
         # voice activity is present.
-        self._silence_start_ms: Optional[int] = None
+        self._silence_start_ms: int | None = None
         self._last_ts_ms: int = 0
         self.reset()
 
@@ -158,7 +158,7 @@ class VadSegmenter:
         self._silence_start_ms = None
         self._last_ts_ms = 0
 
-    def feed(self, event: "VadEvent") -> Optional["VoiceSegment"]:
+    def feed(self, event: "VadEvent") -> "VoiceSegment" | None:
         """Consume one VAD event, returning a :class:`VoiceSegment` if it ends.
 
         Returns ``None`` while the current segment is still open (or when no
@@ -210,7 +210,7 @@ class VadSegmenter:
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
-    def _evaluate(self, ts: int, force_max: bool) -> Optional["VoiceSegment"]:
+    def _evaluate(self, ts: int, force_max: bool) -> "VoiceSegment" | None:
         """Decide whether the open segment ends at timestamp ``ts``.
 
         ``force_max`` is set when an explicit ``max_timeout`` event arrives,
@@ -225,7 +225,7 @@ class VadSegmenter:
 
         # Silence condition: continuous-silence duration, only while in a run.
         if self._silence_start_ms is None:
-            silence_reached_ts: Optional[float] = None
+            silence_reached_ts: float | None = None
             silence_met = False
         else:
             silence_reached_ts = self._silence_start_ms + self._silence_threshold_ms
@@ -255,7 +255,7 @@ class VadSegmenter:
         *,
         silence_met: bool,
         max_met: bool,
-        silence_reached_ts: Optional[float],
+        silence_reached_ts: float | None,
         max_reached_ts: float,
     ) -> str:
         """Pick the ``end_reason`` for the triggering condition(s).

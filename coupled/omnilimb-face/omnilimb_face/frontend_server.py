@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 try:  # pragma: no branch - exercised by the import either succeeding or not
     from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-    _SERVE_IMPORT_ERROR: Optional[BaseException] = None
+    _SERVE_IMPORT_ERROR: BaseException | None = None
 except Exception as exc:  # pragma: no cover - stdlib http.server should import
     SimpleHTTPRequestHandler = None  # type: ignore[assignment,misc]
     ThreadingHTTPServer = None  # type: ignore[assignment,misc]
@@ -107,7 +107,7 @@ class FrontendServerStatus:
 
     available: bool
     running: bool
-    base_url: Optional[str]
+    base_url: str | None
     message: str
 
 
@@ -162,8 +162,8 @@ class FrontendStaticServer:
         self,
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PROTOCOL_PORT + 1,
-        frontend_dir: Optional[Path] = None,
-        ssl_context: Optional[Any] = None,
+        frontend_dir: Path | None = None,
+        ssl_context: Any | None = None,
     ) -> None:
         self._host = host
         self._configured_port = int(port)
@@ -176,9 +176,9 @@ class FrontendStaticServer:
         self._ssl_context = ssl_context
 
         self._lock = threading.Lock()
-        self._server: Optional["ThreadingHTTPServer"] = None  # type: ignore[type-arg]
-        self._thread: Optional[threading.Thread] = None
-        self._bound_port: Optional[int] = None
+        self._server: "ThreadingHTTPServer" | None = None  # type: ignore[type-arg]
+        self._thread: threading.Thread | None = None
+        self._bound_port: int | None = None
 
     # -- Construction helpers ------------------------------------------------
 
@@ -186,8 +186,8 @@ class FrontendStaticServer:
     def from_protocol_settings(
         cls,
         settings: Any,
-        frontend_dir: Optional[Path] = None,
-        ssl_context: Optional[Any] = None,
+        frontend_dir: Path | None = None,
+        ssl_context: Any | None = None,
     ) -> "FrontendStaticServer":
         """Build a server from a :class:`ProtocolSettings`-like object.
 
@@ -212,7 +212,7 @@ class FrontendStaticServer:
         return self._host
 
     @property
-    def port(self) -> Optional[int]:
+    def port(self) -> int | None:
         """The actually-bound port when running, else the configured port.
 
         While stopped this returns the configured port (which may be ``0`` to
@@ -222,7 +222,7 @@ class FrontendStaticServer:
         return self._bound_port if self._bound_port is not None else self._configured_port
 
     @property
-    def base_url(self) -> Optional[str]:
+    def base_url(self) -> str | None:
         """The base URL assets are served from, or ``None`` when not running."""
         if self._bound_port is None:
             return None

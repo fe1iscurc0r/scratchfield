@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { usePackageManager } from './usePackageManager'
 import {
+  buildPluginCli,
+  getPluginCliPackages,
+  getPluginCliPlugins,
   installPluginPackage,
   planPluginInstall,
   type PluginCliInstallPlanResponse,
@@ -42,9 +45,11 @@ vi.mock('@/api/pluginCli', () => ({
   verifyPluginPackage: vi.fn(),
 }))
 
+const syncRegistryAndFetchSummaries = vi.hoisted(() => vi.fn(async () => ({})))
+
 vi.mock('@/stores/plugin', () => ({
   usePluginStore: () => ({
-    pluginsWithStatus: [
+    pluginSummariesWithStatus: [
       {
         id: 'demo_plugin',
         name: 'Demo Plugin',
@@ -53,7 +58,7 @@ vi.mock('@/stores/plugin', () => ({
         type: 'plugin',
       },
     ],
-    syncRegistryAndFetch: vi.fn(async () => ({})),
+    syncRegistryAndFetchSummaries,
   }),
 }))
 
@@ -105,9 +110,45 @@ const installResponse: PluginCliInstallResponse = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  syncRegistryAndFetchSummaries.mockResolvedValue({})
+  vi.mocked(getPluginCliPlugins).mockResolvedValue({
+    count: 1,
+    plugins: [],
+    plugin_refs: [pluginRef],
+  })
 })
 
 describe('usePackageManager external plugin selection', () => {
+  it.each([true, false])('builds all listed managed sources without implicit development sources (refs=%s)', async (withRefs) => {
+    vi.mocked(getPluginCliPlugins).mockResolvedValue({
+      count: 1,
+      plugins: ['demo_plugin'],
+      plugin_refs: withRefs ? [pluginRef] : [],
+    })
+    vi.mocked(buildPluginCli).mockResolvedValue({
+      built: [{
+        plugin_id: 'demo_plugin', package_type: 'plugin', plugin_ids: ['demo_plugin'],
+        package_path: '/packages/demo.neko-plugin', profile_files: [], staged_files: [],
+        payload_hash: 'hash', package_size_bytes: 1, staged_file_count: 0, profile_file_count: 0,
+      }],
+      built_count: 1, failed: [], failed_count: 0, ok: true,
+    })
+    const manager = usePackageManager()
+    await manager.refreshPluginSources()
+    manager.buildMode.value = 'all'
+    await manager.handleBuild()
+
+    expect(buildPluginCli).toHaveBeenCalledExactlyOnceWith({
+      mode: 'selected',
+      plugin_refs: withRefs ? [{ root_id: 'builtin', directory_name: 'demo_plugin' }] : undefined,
+      plugins: withRefs ? undefined : ['demo_plugin'],
+      target_dir: undefined,
+      keep_staging: false,
+    }, { timeout: 300_000 })
+    expect(manager.packageRef.value.package).toBe('/packages/demo.neko-plugin')
+    expect(manager.activeTab.value).toBe('inspect')
+  })
+
   it('maps plugin list selections to package build targets', async () => {
     const selectedFromPluginList = ref(['demo_plugin'])
     const manager = usePackageManager({
@@ -118,6 +159,31 @@ describe('usePackageManager external plugin selection', () => {
 
     expect(manager.selectedPluginIds.value).toEqual(['builtin:demo_plugin'])
     expect(manager.resolvedBuildTargets.value).toEqual(['builtin:demo_plugin'])
+  })
+})
+
+describe('usePackageManager local package filtering', () => {
+  it('recognizes an uppercase bundle suffix', async () => {
+    vi.mocked(getPluginCliPackages).mockResolvedValue({
+      packages: [
+        {
+          name: 'DEMO.NEKO-BUNDLE',
+          path: '/packages/DEMO.NEKO-BUNDLE',
+          suffix: '.NEKO-BUNDLE',
+          size_bytes: 1024,
+          modified_at: '2026-08-17T00:00:00+00:00',
+        },
+      ],
+      count: 1,
+      target_dir: '/packages',
+    })
+    const manager = usePackageManager()
+    manager.packageFilterType.value = 'bundle'
+
+    await manager.refreshPackageSources()
+
+    expect(manager.filteredLocalPackages.value).toHaveLength(1)
+    expect(manager.filteredLocalPackages.value[0]?.name).toBe('DEMO.NEKO-BUNDLE')
   })
 })
 
@@ -150,6 +216,29 @@ describe('usePackageManager safe installation flow', () => {
     )
   })
 
+  it.each([
+    ['reinstall', 'package.install.reinstallSucceeded'],
+    ['downgrade', 'package.install.downgradeSucceeded'],
+  ] as const)('reports a distinct success message for %s', async (operation, messageKey) => {
+    const manager = usePackageManager()
+    manager.installForm.value.package = 'demo.neko-plugin'
+    vi.mocked(planPluginInstall).mockResolvedValue({
+      ...upgradePlan,
+      action: operation,
+    })
+    vi.mocked(ElMessageBox.confirm).mockResolvedValue({ action: 'confirm', value: '' } as any)
+    vi.mocked(installPluginPackage).mockResolvedValue({
+      ...installResponse,
+      operation,
+    })
+
+    await manager.handleInstall()
+
+    expect(ElMessage.success).toHaveBeenCalledWith(
+      `${messageKey}{"plugin":"demo_plugin"}`,
+    )
+  })
+
   it('installs a new plugin without upgrade credentials', async () => {
     const manager = usePackageManager()
     manager.installForm.value.package = 'demo.neko-plugin'
@@ -166,6 +255,118 @@ describe('usePackageManager safe installation flow', () => {
 
     expect(installPluginPackage).toHaveBeenCalledWith(
       expect.not.objectContaining({ confirmation_token: expect.anything() }),
+    )
+  })
+
+  it('blocks a local package from overriding a builtin outside Market', async () => {
+    const manager = usePackageManager()
+    manager.installForm.value.package = 'study_companion.neko-plugin'
+    vi.mocked(planPluginInstall).mockResolvedValue({
+      ...upgradePlan,
+      action: 'override_builtin',
+      plugin_id: 'study_companion',
+      directory_name: 'study_companion',
+      current_source: 'builtin',
+      target_source: 'market',
+      current_version: '0.1.5',
+      target_version: '0.1.6',
+    })
+    await manager.handleInstall()
+
+    expect(installPluginPackage).not.toHaveBeenCalled()
+    expect(ElMessage.error).toHaveBeenCalledWith('market.autoUpgradeBlocked')
+  })
+
+  it('does not duplicate interceptor errors when refreshing plugin sources fails', async () => {
+    const manager = usePackageManager()
+    vi.mocked(getPluginCliPlugins).mockRejectedValue(new Error('offline'))
+
+    await manager.refreshPluginSources()
+
+    expect(ElMessage.warning).not.toHaveBeenCalled()
+  })
+
+  it('uses a fallback warning for refresh status errors hidden by the interceptor', async () => {
+    const manager = usePackageManager()
+    vi.mocked(getPluginCliPlugins).mockRejectedValue({ response: { status: 404 } })
+
+    await manager.refreshPluginSources()
+
+    expect(ElMessage.warning).toHaveBeenCalledWith('messages.pluginListRefreshFailed')
+  })
+
+  it('does not duplicate warnings when registry and plugin source both return 404', async () => {
+    const manager = usePackageManager()
+    syncRegistryAndFetchSummaries.mockResolvedValue({
+      registryRefreshed: false,
+      warningMessage: 'messages.resourceNotFound',
+    })
+    vi.mocked(getPluginCliPlugins).mockRejectedValue({ response: { status: 404 } })
+
+    await manager.refreshPluginSources()
+
+    expect(ElMessage.warning).toHaveBeenCalledTimes(1)
+    expect(ElMessage.warning).toHaveBeenCalledWith('messages.resourceNotFound')
+  })
+
+  it('still reports a plugin source failure after a partial registry refresh warning', async () => {
+    const manager = usePackageManager()
+    syncRegistryAndFetchSummaries.mockResolvedValue({
+      registryRefreshed: true,
+      warningMessage: 'messages.pluginListRefreshPartial',
+    })
+    vi.mocked(getPluginCliPlugins).mockRejectedValue({ response: { status: 404 } })
+
+    await manager.refreshPluginSources()
+
+    expect(ElMessage.warning).toHaveBeenCalledTimes(2)
+    expect(ElMessage.warning).toHaveBeenNthCalledWith(1, 'messages.pluginListRefreshPartial')
+    expect(ElMessage.warning).toHaveBeenNthCalledWith(2, 'messages.pluginListRefreshFailed')
+  })
+
+  it('reports install success before a registry refresh warning', async () => {
+    const manager = usePackageManager()
+    manager.installForm.value.package = 'demo.neko-plugin'
+    vi.mocked(planPluginInstall).mockResolvedValue({
+      ...upgradePlan,
+      action: 'install',
+      current_version: '',
+      target_version: '1.0.0',
+      confirmation_token: '',
+    })
+    vi.mocked(installPluginPackage).mockResolvedValue(installResponse)
+    syncRegistryAndFetchSummaries.mockResolvedValue({
+      warningMessage: '插件列表刷新存在失败项: broken_plugin',
+    })
+
+    await manager.handleInstall()
+
+    expect(ElMessage.success).toHaveBeenCalledWith('package.install.installSucceeded{"count":1}')
+    expect(ElMessage.warning).toHaveBeenCalledWith('插件列表刷新存在失败项: broken_plugin')
+    expect(vi.mocked(ElMessage.success).mock.invocationCallOrder[0]!)
+      .toBeLessThan(vi.mocked(ElMessage.warning).mock.invocationCallOrder[0]!)
+  })
+
+  it('shows a warning instead of success when the install reports source warnings', async () => {
+    const manager = usePackageManager()
+    manager.installForm.value.package = 'demo.neko-plugin'
+    vi.mocked(planPluginInstall).mockResolvedValue({
+      ...upgradePlan,
+      action: 'install',
+      current_version: '',
+      target_version: '1.0.0',
+      confirmation_token: '',
+    })
+    vi.mocked(installPluginPackage).mockResolvedValue({
+      ...installResponse,
+      install_source_warning: 'lock_write_failed; sha_mismatch',
+    })
+
+    await manager.handleInstall()
+
+    expect(ElMessage.success).not.toHaveBeenCalled()
+    expect(ElMessage.warning).toHaveBeenCalledWith(
+      'package.install.completedWithWarnings{"plugin":"demo_plugin","reasons":"lock_write_failed; sha_mismatch"}',
     )
   })
 

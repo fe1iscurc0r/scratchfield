@@ -1,0 +1,127 @@
+{
+ "generator": "tools/gen_mulfree_assets.py",
+ "train_seed": 20260829,
+ "test_seed": 20260830,
+ "golden_seed": 20260831,
+ "per_class_train": 200,
+ "per_class_test": 50,
+ "protos_per_class": 4,
+ "feature_bits": 46,
+ "prototypes": [
+  {
+   "cls": 0,
+   "bits": "0x30080000010"
+  },
+  {
+   "cls": 0,
+   "bits": "0x300ABC97CC3"
+  },
+  {
+   "cls": 0,
+   "bits": "0x300F62C78B4"
+  },
+  {
+   "cls": 0,
+   "bits": "0x3009AC6A82D"
+  },
+  {
+   "cls": 1,
+   "bits": "0x2C0FAFF9FFD9"
+  },
+  {
+   "cls": 1,
+   "bits": "0x3C3F99E9F022"
+  },
+  {
+   "cls": 1,
+   "bits": "0x2406ADFDFFE6"
+  },
+  {
+   "cls": 1,
+   "bits": "0x2C379BCBFABD"
+  },
+  {
+   "cls": 2,
+   "bits": "0xF1E91000122"
+  },
+  {
+   "cls": 2,
+   "bits": "0xFE1A1C0ED92"
+  },
+  {
+   "cls": 2,
+   "bits": "0x300AD01581B"
+  },
+  {
+   "cls": 2,
+   "bits": "0x719F55B33CD"
+  }
+ ],
+ "accuracy": {
+  "train": 0.965,
+  "test": 0.9533333333333334
+ },
+ "sign_agreement_pct": 99.74,
+ "golden": [
+  {
+   "hex": "d0cc2a2a2d2d2f3134353830313133363638393b3d40404143434546464747494c4f51515151515255585a5d5d5f",
+   "bits": "0x30080040833",
+   "cls": 0
+  },
+  {
+   "hex": "d0cc28292c2f3134373a3d3f4242443c3e3e3f3f3f40434647484a4b4e505154565757575a5b5c5e5f61",
+   "bits": "0x300821801E0",
+   "cls": 0
+  },
+  {
+   "hex": "d0cc26282b2b2d2e261e202121212426292a2a2b2e2f303336383b3e41423a3b3e3e40424343434346484b4b4b4b4d4f52544c",
+   "bits": "0x3009902802A",
+   "cls": 0
+  },
+  {
+   "hex": "d0cc30323335383b3c3e4144474a4c4f515356565758595a5d606063646667686063645c5f6265676a6c6d6e7073747477777778797b7d7f818182857d80",
+   "bits": "0x30080800100",
+   "cls": 0
+  },
+  {
+   "hex": "575fa58782dabe3c3297fb48d7e2d3",
+   "bits": "0x2C07ACFAFFAA",
+   "cls": 1
+  },
+  {
+   "hex": "fa916b9b143a06fb650049c585fcbc10c3c0a6bb7771c3",
+   "bits": "0x3C3F9DD9FD91",
+   "cls": 1
+  },
+  {
+   "hex": "f473c2f8640c4432981f8215454b905aed6cfc51f2f7ff",
+   "bits": "0x3C1F99D4FBBD",
+   "cls": 1
+  },
+  {
+   "hex": "dbde50fab71655369ab3c392a383ea0be2f5c1f2260255",
+   "bits": "0x3C3FEFDBFCEC",
+   "cls": 1
+  },
+  {
+   "hex": "d0cc35363637393b3b3c3e404343433b3c3e3e3e4041393b3d40424548494c4d4d144f52545454545455585b5e5e6163656768696b6e6e7071737376237b7e",
+   "bits": "0x7808E888160",
+   "cls": 2
+  },
+  {
+   "hex": "d0cc756a31313437393a673e404040434345474848484a4c4c4d4d50515356595b5b5c5f60616466663c3d686b6c6c6e6e717272737578207d7e",
+   "bits": "0x70783058233",
+   "cls": 2
+  },
+  {
+   "hex": "d0cc1c1c1f212222792323262626292a2a2d772e30683435353639393a60322a2a2c2e6a3030326936362e7c",
+   "bits": "0xF5ABC90512D",
+   "cls": 2
+  },
+  {
+   "hex": "d0cc3737393a3a3b3e3e40623a3b3b3c663d3d4043444444444646464648484b4d14510e5759595a5a5c5e5f6263666769696b",
+   "bits": "0xF8CA8849489",
+   "cls": 2
+  }
+ ]
+}

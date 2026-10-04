@@ -134,8 +134,8 @@ class ReplyTimeoutError(LLMBridgeError):
         self,
         message: str = "",
         *,
-        elapsed_s: Optional[float] = None,
-        timeout_s: Optional[float] = None,
+        elapsed_s: float | None = None,
+        timeout_s: float | None = None,
     ) -> None:
         super().__init__(
             message
@@ -217,13 +217,13 @@ class LLMBridge:
         cfg: "VTuberConfig",
         chunker: "SentenceChunker",
         *,
-        expression_mapper: "Optional[ExpressionMapper]" = None,
-        tts_player: Optional[Any] = None,
-        live2d_director: Optional[Any] = None,
-        sentence_sink: Optional[Callable[["ReplyChunk", List[int]], None]] = None,
-        on_playback_start: Optional[Callable[[], None]] = None,
-        on_turn_error: Optional[Callable[[Exception], None]] = None,
-        clock: Optional[Callable[[], float]] = None,
+        expression_mapper: "ExpressionMapper | None" = None,
+        tts_player: Any | None = None,
+        live2d_director: Any | None = None,
+        sentence_sink: Callable[["ReplyChunk", List[int]], None] | None = None,
+        on_playback_start: Callable[[], None] | None = None,
+        on_turn_error: Callable[[Exception], None] | None = None,
+        clock: Callable[[], float] | None = None,
         reply_timeout_s: float = DEFAULT_REPLY_TIMEOUT_S,
         first_text_deadline_s: float = DEFAULT_FIRST_TEXT_DEADLINE_S,
     ) -> None:
@@ -250,17 +250,17 @@ class LLMBridge:
         # Turn state.
         self._turn_active: bool = False
         self._turn_complete: bool = False
-        self._turn_started_at: Optional[float] = None
+        self._turn_started_at: float | None = None
         self._any_text: bool = False
-        self._first_text_at: Optional[float] = None
+        self._first_text_at: float | None = None
         self._playback_started: bool = False
         self._no_active_model: bool = False
-        self._last_error: Optional[Exception] = None
+        self._last_error: Exception | None = None
         self._driven_chunks: List[ReplyChunk] = []
 
         # Best-effort host-turn availability flag: ``None`` until the first
         # inject attempt, then mirrors the last ``inject_message`` result.
-        self._last_inject_result: Optional[bool] = None
+        self._last_inject_result: bool | None = None
 
     # ------------------------------------------------------------------
     # Public read-only state (handy for the runtime and for tests).
@@ -286,7 +286,7 @@ class LLMBridge:
         return list(self._driven_chunks)
 
     @property
-    def last_error(self) -> Optional[Exception]:
+    def last_error(self) -> Exception | None:
         """The most recent error recorded by the observer hooks, if any."""
         return self._last_error
 
@@ -367,7 +367,7 @@ class LLMBridge:
         self._last_error = None
         self._driven_chunks = []
 
-    def on_llm_output(self, text: Any = None, **kwargs: Any) -> Optional[str]:
+    def on_llm_output(self, text: Any = None, **kwargs: Any) -> str | None:
         """``transform_llm_output`` observer: capture a streamed reply fragment.
 
         Pushes the fragment into the :class:`SentenceChunker` and drives the

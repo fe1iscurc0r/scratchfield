@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>第三批 E 组 / F 组 测试报告摘要</title>
+<style>
+  :root {
+    --pass: #1a7f37; --pass-bg: #eaf6ec;
+    --warn: #9a6700; --warn-bg: #fff8c5;
+    --fail: #cf222e; --fail-bg: #ffebe9;
+    --border: #d8dee4; --muted: #59636e; --accent: #0969da;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", Helvetica, Arial, sans-serif; margin: 0; background: #f6f8fa; color: #1f2328; font-size: 14px; line-height: 1.55; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 64px; }
+  header { background: linear-gradient(135deg, #0969da, #1f6feb); color: #fff; border-radius: 10px; padding: 22px 26px; margin-bottom: 22px; }
+  header h1 { margin: 0 0 6px; font-size: 22px; }
+  header .sub { opacity: .92; font-size: 13px; }
+  header .meta { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 12.5px; }
+  header .meta b { font-weight: 600; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 20px 0; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .card .num { font-size: 28px; font-weight: 700; }
+  .card .lbl { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .card.pass .num { color: var(--pass); } .card.warn .num { color: var(--warn); } .card.fail .num { color: var(--fail); } .card.accent .num { color: var(--accent); }
+  section { background: #fff; border: 1px solid var(--border); border-radius: 8px; margin: 18px 0; overflow: hidden; }
+  section > h2 { margin: 0; padding: 12px 18px; font-size: 16px; background: #f0f4fa; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  section > h2 .badge { font-size: 12px; padding: 2px 10px; border-radius: 999px; background: var(--pass-bg); color: var(--pass); font-weight: 600; white-space: nowrap; }
+  .sec-body { padding: 14px 18px; }
+  h3 { font-size: 14.5px; margin: 18px 0 8px; color: var(--accent); border-left: 3px solid var(--accent); padding-left: 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #eef1f4; font-size: 13px; vertical-align: top; }
+  th { background: #f6f8fa; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  td:first-child { width: 46%; }
+  .pass-tag { color: var(--pass); font-weight: 700; white-space: nowrap; }
+  .pass-tag::before { content: "✔ "; }
+  .grp { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .sum-table td { font-weight: 500; }
+  .note { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
+  code { background: #f6f8fa; border: 1px solid #eef1f4; border-radius: 4px; padding: 1px 5px; font-size: 12px; font-family: "Cascadia Code", Consolas, monospace; }
+  footer { margin-top: 26px; color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>第三批工单 · E 组 / F 组 测试报告摘要</h1>
+  <div class="sub">scratchpad · 多 agent 舰队批次合入（D/E/F/G 组）· E 组 MCP 三库封装 + F 组记忆层三模块</div>
+  <div class="meta">
+    <span><b>合入 Commit</b> e019fa4f8</span>
+    <span><b>分支</b> main ← 第三批 D/E/F/G 组合并</span>
+    <span><b>构建验证</b> 本地复现 CI（ruff + pytest）</span>
+    <span><b>报告生成</b> 2026-08-24</span>
+  </div>
+</header>
+
+<div class="cards">
+  <div class="card accent"><div class="num">19</div><div class="lbl">新入库文件（第三批合入）</div></div>
+  <div class="card pass"><div class="num">161 / 161</div><div class="lbl">E组 + F组 测试全部通过</div></div>
+  <div class="card pass"><div class="num">65</div><div class="lbl">E组：三库 MCP 封装测试</div></div>
+  <div class="card pass"><div class="num">96</div><div class="lbl">F组：记忆层模块测试</div></div>
+  <div class="card pass"><div class="num">0</div><div class="lbl">失败 / 跳过用例</div></div>
+</div>
+
+<!-- ============ CI 构建状态 ============ -->
+<section>
+  <h2>CI 流水线构建状态 <span class="badge">✔ 正常</span></h2>
+  <div class="sec-body">
+    <p class="note">仓库为私有仓库（GitHub Actions API 未授权不可见），已按 ci.yml 流水线步骤（<code>ruff check .</code> + <code>pytest</code>）本地逐一复现验证，结果如下：</p>
+    <table class="sum-table">
+      <tr><th>CI 步骤（ci.yml）</th><th>作用范围</th><th>结果</th></tr>
+      <tr><td><code>ruff check .</code> Lint</td><td>mcpserver/academic · chembl · scikit_fingerprints · bofire</td><td><span class="pass-tag">All checks passed</span></td></tr>
+      <tr><td><code>ruff check .</code> Lint</td><td>NEKO/N.E.K.O/memory（F-01/02/03 新模块）</td><td><span class="pass-tag">All checks passed</span>（仅存量无效 noqa 警告）</td></tr>
+      <tr><td><code>pytest</code> E组</td><td>mcpserver/chembl · scikit_fingerprints · bofire · academic</td><td><span class="pass-tag">65 passed</span></td></tr>
+      <tr><td><code>pytest</code> F组</td><td>NEKO/N.E.K.O/memory 全量</td><td><span class="pass-tag">96 passed</span></td></tr>
+      <tr><td>合计</td><td>E组 + F组</td><td><span class="pass-tag">161 passed · 0 failed</span></td></tr>
+    </table>
+    <p class="note">说明：19 个新入库文件中，<code>docs/**</code> 与 <code>**.md</code> 命中 ci.yml 的 <code>paths-ignore</code>，不触发流水线；其余 Python/JSON 文件均通过 lint 与单测。</p>
+  </div>
+</section>
+
+<!-- ============ E组 ============ -->
+<section>
+  <h2>E 组 · 三库 MCP 封装（chembl / scikit_fingerprints / bofire）+ academic 扩展 <span class="badge">65 passed</span></h2>
+  <div class="sec-body">
+    <p>E 线把三个科学计算库封装为 MCP agent（<code>agent.py</code> + <code>agent-manifest.json</code> + 离线测试），并扩展 <code>mcpserver/academic</code> 接口（Indigo / levels / chembl_interface）。所有外部依赖缺失时走降级路径，离线测试 100% 通过。</p>
+
+    <h3>mcpserver/chembl — ChEMBL 生物活性库（20 用例）</h3>
+    <table>
+      <tr><th>测试用例</th><th>类型</th><th>结果</th></tr>
+      <tr><td>test_search_compound_by_chembl_id / test_search_compound_by_name</td><td>化合物检索</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_target_ok / test_activity_ok / test_structure_ok / test_similarity_ok / test_batch_ok / test_batch_str_ids</td><td>功能主路径</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_invalid_params_raise_valueerror[chembl_*]（8 组参数化）</td><td>参数校验</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_unknown_command_raise_valueerror</td><td>命令白名单</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_dependency_missing_raises_academic_dependency_error / test_dependency_missing_unknown_command_still_raises</td><td>依赖缺失降级</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_network_error_raises_unavailable</td><td>网络异常</td><td><span class="pass-tag">通过</span></td></tr>
+    </table>
+
+    <h3>mcpserver/scikit_fingerprints — 分子指纹（19 用例）</h3>
+    <table>
+      <tr><th>测试用例</th><th>类型</th><th>结果</th></tr>
+      <tr><td>test_fingerprint_ok / test_fingerprint_maccs_no_radius / test_scaffold_ok / test_scaffold_smiles_string_ok</td><td>指纹/骨架主路径</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_similarity_matrix_ok / test_transform_ok</td><td>相似度/变换</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_invalid_params_raise_valueerror[skfp_*]（8 组参数化）</td><td>参数校验</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_scaffold_invalid_smiles_raise_valueerror</td><td>非法 SMILES</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_rdkit_missing_raises_academic_dependency_error / test_skfp_missing_raises_academic_dependency_error</td><td>依赖缺失降级</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_all_commands_carry_source / test_unknown_command_raise_valueerror</td><td>命令契约</td><td><span class="pass-tag">通过</span></td></tr>
+    </table>
+
+    <h3>mcpserver/bofire — 贝叶斯优化设计（26 用例）</h3>
+    <table>
+      <tr><th>测试用例</th><th>类型</th><th>结果</th></tr>
+      <tr><td>test_ask_default_n_candidates_is_five / test_ask_real_path_uses_strategy / test_ask_candidates_degraded_returns_placeholders</td><td>ask_candidates 候选推荐</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_tell_results_degraded_accepts / test_tell_results_validates_field_names_against_domain</td><td>tell_results 结果回填</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_define_domain_degraded_returns_structure / test_define_domain_real_path_not_degraded</td><td>define_domain 域定义</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_invalid_params_raise_valueerror[bofire_*]（14 组参数化）</td><td>参数校验</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_manifest_has_three_commands / test_all_commands_carry_source / test_unknown_command_raises_valueerror</td><td>命令契约</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>test_load_bofire_returns_none_when_missing</td><td>依赖缺失降级</td><td><span class="pass-tag">通过</span></td></tr>
+    </table>
+
+    <h3>mcpserver/academic — 扩展接口（0 用例，6 个文件）</h3>
+    <table>
+      <tr><th>文件</th><th>说明</th><th>结果</th></tr>
+      <tr><td>chembl_interface.py / indigo_interface.py</td><td>ChEMBL / Indigo 库接口封装</td><td><span class="pass-tag">Lint 通过</span></td></tr>
+      <tr><td>levels.py</td><td>水平/等级枚举扩展</td><td><span class="pass-tag">Lint 通过</span></td></tr>
+      <tr><td>bridge.py / __init__.py / agent-manifest.json</td><td>agent 注册与桥接</td><td><span class="pass-tag">Lint 通过</span></td></tr>
+      <tr><td>docs/academic/DATASET.md · MODEL_INTERFACE.md</td><td>文档（paths-ignore 不触发 CI）</td><td><span class="pass-tag">—</span></td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ============ F组 ============ -->
+<section>
+  <h2>F 组 · 记忆层三模块（F-01 hooks / F-02 enrichment / F-03 contradiction）<span class="badge">96 passed</span></h2>
+  <div class="sec-body">
+    <p>F 线在 <code>NEKO/N.E.K.O/memory</code> 落地三个工单：生命周期钩子注册表、caura enrichment 索引卡管线、矛盾检测与 supersedes 图谱补全，含存量测试共 96 个用例全过。</p>
+
+    <h3>test_hooks — F-01 6-hook 生命周期钩子（17 用例）</h3>
+    <table>
+      <tr><th>测试类 / 用例组</th><th>覆盖点</th><th>结果</th></tr>
+      <tr><td>TestSixEventsInOrder（2）</td><td>六事件按序触发 · 同事件内按注册序</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestOnMemoryWriteIndexCardWiring（5）</td><td>on_memory_write → 索引卡联动 · 幂等不重复触发 · 总开关</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestIdempotentAndFailSafe（4）</td><td>同名注册替换 · 单 hook 异常 fail-safe · 未知事件拒绝 · unregister</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestEnvSwitch（3）</td><td>NEKO_MEMORY_HOOKS 开关短路/关闭/开启</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestSystemPromptBlock（2）</td><td>system_prompt_block 文本按序聚合 · 空钩子为空</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestGlobalSingleton（1）</td><td>全局单例</td><td><span class="pass-tag">通过</span></td></tr>
+    </table>
+
+    <h3>test_enrichment — F-02 enrichment 索引卡管线（14 用例）</h3>
+    <table>
+      <tr><th>测试类 / 用例组</th><th>覆盖点</th><th>结果</th></tr>
+      <tr><td>TestRuleFallbackAlwaysSucceeds（5）</td><td>LLM 异常/返回 None/无配置 → 规则降级永不抛错</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestHookIntegration（4）</td><td>钩子联动建卡 · LLM 走钩子 · 幂等 · 总开关</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestLLMPathMocked（2）</td><td>LLM 六字段契约写卡 · 部分输出兜底</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestRuleEnrichUnits（3）</td><td>类型模式 · 权重钳制 · 服务抽象</td><td><span class="pass-tag">通过</span></td></tr>
+    </table>
+
+    <h3>test_contradiction — F-03 矛盾检测 + supersedes 图谱（9 用例）</h3>
+    <table>
+      <tr><th>测试类 / 用例组</th><th>覆盖点</th><th>结果</th></tr>
+      <tr><td>TestSameEntitySameAttributeDifferentValue（2）</td><td>同实体同属性异值检出 · 写 supersedes 有向边</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestNoFalsePositives（3）</td><td>同值重注册/异属性/异实体 → 不误报</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestChainAndIdempotency（4）</td><td>星形链 v3 覆盖 · 空字段拒绝 · 幂等 · 老库迁移幂等</td><td><span class="pass-tag">通过</span></td></tr>
+    </table>
+
+    <h3>index_cards/test_enrich — 索引卡 enrich 工具（21 用例）</h3>
+    <table>
+      <tr><th>测试类 / 用例组</th><th>覆盖点</th><th>结果</th></tr>
+      <tr><td>TestEnrichCard（3）</td><td>LLM 摘要建卡 · 写回 · 失败保留启发式</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestLlmEnrich（5）</td><td>LLM 错误/无配置/未配置 tier/成功/非法 JSON</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestParseJson / TestFormatTurns / TestValidate / TestLlmSummarizer（13）</td><td>解析兜底 · 轮次格式化 · 字段校验 · 摘要降级</td><td><span class="pass-tag">通过</span></td></tr>
+    </table>
+
+    <h3>test_memory_graph — 图谱核心（23 用例）</h3>
+    <table>
+      <tr><th>测试类 / 用例组</th><th>覆盖点</th><th>结果</th></tr>
+      <tr><td>TestStore / TestValidation（10）</td><td>对称/非对称存储 · 关系白名单 · 自环/空拒绝</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestFindConnected / TestShortestPath（9）</td><td>可达集 · 跳数边界 · 环预防 · 最短路</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestSubgraphAndStats / TestMetadata（4）</td><td>子图 · 统计 · 元数据</td><td><span class="pass-tag">通过</span></td></tr>
+    </table>
+
+    <h3>test_graph_ext — F-03 图谱扩展（12 用例）</h3>
+    <table>
+      <tr><th>测试类 / 用例组</th><th>覆盖点</th><th>结果</th></tr>
+      <tr><td>TestGetSubgraphMultiHop（5）</td><td>max_hops=1 保旧语义 · 多跳含内边 · supersedes 链 · 隔离点 · 有向关系</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>TestShortestPath（7）</td><td>大小写/空格归一 · 更短路径优先 · 有向链 · 双向可达</td><td><span class="pass-tag">通过</span></td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ============ 汇总 ============ -->
+<section>
+  <h2>总体汇总 <span class="badge">161 / 161 通过</span></h2>
+  <div class="sec-body">
+    <table class="sum-table">
+      <tr><th>分组</th><th>模块 / 文件</th><th>用例数</th><th>通过</th><th>失败</th><th>状态</th></tr>
+      <tr><td>E 组</td><td>mcpserver/chembl</td><td>20</td><td>20</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>E 组</td><td>mcpserver/scikit_fingerprints</td><td>19</td><td>19</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>E 组</td><td>mcpserver/bofire</td><td>26</td><td>26</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>E 组</td><td>mcpserver/academic（接口扩展）</td><td>—</td><td>Lint ✔</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>F 组</td><td>test_hooks（F-01）</td><td>17</td><td>17</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>F 组</td><td>test_enrichment（F-02）</td><td>14</td><td>14</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>F 组</td><td>test_contradiction（F-03）</td><td>9</td><td>9</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>F 组</td><td>index_cards/test_enrich</td><td>21</td><td>21</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>F 组</td><td>test_memory_graph</td><td>23</td><td>23</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr><td>F 组</td><td>test_graph_ext</td><td>12</td><td>12</td><td>0</td><td><span class="pass-tag">通过</span></td></tr>
+      <tr style="background:#f6f8fa;"><td><b>合计</b></td><td><b>E 组 + F 组</b></td><td><b>161</b></td><td><b>161</b></td><td><b>0</b></td><td><span class="pass-tag">全部通过</span></td></tr>
+    </table>
+    <p class="note">运行环境：Python 3.11.15 · pytest 9.1.1 · ruff 0.16.2（本地 .venv 复现 CI 流水线）</p>
+  </div>
+</section>
+
+<footer>scratchpad · 第三批工单测试报告摘要 · 由 CI 构建验证生成 · 2026-08-24</footer>
+</div>
+</body>
+</html>

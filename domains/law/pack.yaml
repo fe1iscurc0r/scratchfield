@@ -1,0 +1,103 @@
+# 领域包 · law（法学）
+#
+# 首个真实领域包。为广州大学法学系工作流提供：
+# - 案例笔记 ELN 字段（当事人/案由/争议焦点/裁判要旨/法条依据/关联判例）
+# - 法规/判例主键（flk_id 法规编号 / case_no 案号）
+# - 来源预设（自购商业数据库 vs 官方开放库，含版权说明）
+#
+# 详细 schema 说明见 docs/领域包指南.md
+
+name: law
+label: 法学
+description: 法学判例与法规工作流（案例笔记 + 判例/法规入库）
+
+eln:
+  # 顺序即表单展示顺序。
+  # 注：首字段 key 必须是 `topic` —— 后端 ElnRecordIn.topic 是必填（决定记录
+  # 文件名），所有领域包的表单首个字段都应落在 `topic` 上（label 可领域化）。
+  fields:
+    - key: topic
+      type: text
+      label: 案件名称 *
+      required: true
+    - key: date
+      type: date
+      label: 日期
+    - key: parties
+      type: textarea
+      label: 当事人
+      required: true
+    - key: cause_of_action
+      type: text
+      label: 案由
+      required: true
+    - key: dispute_focus
+      type: textarea
+      label: 争议焦点
+    - key: holding
+      type: textarea
+      label: 裁判要旨
+    - key: legal_basis
+      type: list
+      label: 法条依据
+    - key: related_cases
+      type: list
+      label: 关联判例
+    - key: conclusion
+      type: textarea
+      label: 结论
+    - key: references
+      type: list
+      label: 参考文献
+
+papers:
+  # 法学主键：法规编号（flk.npc.gov.cn）/ 案号
+  id_fields:
+    - flk_id
+    - case_no
+
+source_presets:
+  - key: pkulaw
+    label: 北大法宝（个人订阅）
+    license_note: 个人订阅使用，勿再分发
+  - key: wkinfo
+    label: 威科先行（个人订阅）
+    license_note: 个人订阅使用，勿再分发
+  - key: flk
+    label: 国家法律法规数据库
+    license_note: 国家法律法规数据库，官方公开
+  - key: manual
+    label: 手动录入
+    license_note: 由用户手动录入，版权归属原始权利人
+
+# 打标蓝图（卷164 消费；本卷仅提供结构）
+tagging:
+  questions:
+    - key: 案由分类
+      type: choice
+      options:
+        - 合同纠纷
+        - 侵权责任纠纷
+        - 婚姻家庭继承纠纷
+        - 物权纠纷
+        - 劳动争议
+        - 知识产权纠纷
+        - 公司证券纠纷
+        - 行政纠纷
+        - 刑事
+    - key: 审理程序
+      type: choice
+      options:
+        - 一审
+        - 二审
+        - 再审
+        - 执行
+    - key: 是否指导性案例
+      type: boolean
+    - key: 争议焦点归类
+      type: choice
+      options:
+        - 事实认定
+        - 法律适用
+        - 程序问题
+        - 证据采信

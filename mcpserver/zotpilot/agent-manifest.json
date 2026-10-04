@@ -1,0 +1,62 @@
+{
+  "name": "zotpilot",
+  "displayName": "zotpilot 文献管理",
+  "version": "0.1.0",
+  "description": "ZotPilot（Zotero）文献管理 MCP 封装：文献搜索 / 批量导入 / 方向标注 / 状态。上游 xunhe730/ZotPilot（MIT）。凭证走 ZOTERO_API_KEY + ZOTERO_USER_ID（或 ZOTERO_GROUP_ID）。",
+  "author": "沈遥",
+  "license": "MIT（封装层）；上游 ZotPilot (xunhe730/ZotPilot) MIT",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.zotpilot.bridge",
+    "class": "ZotPilotBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "zotpilot_search",
+        "description": "在 Zotero 文献库中检索文献",
+        "params": {
+          "q": "检索词（标题/作者/标签等）",
+          "item_type": "可选条目类型过滤",
+          "limit": "返回条数（默认 25）"
+        },
+        "example": "{\"tool_name\":\"zotpilot_search\",\"q\":\"lignin hydrogel\"}"
+      },
+      {
+        "command": "zotpilot_import",
+        "description": "批量导入文献条目（Zotero item JSON 数组）",
+        "params": {
+          "items": "Zotero item JSON 数组"
+        },
+        "example": "{\"tool_name\":\"zotpilot_import\",\"items\":[{\"itemType\":\"journalArticle\",\"title\":\"...\"}]}"
+      },
+      {
+        "command": "zotpilot_annotate",
+        "description": "为条目添加方向标注（子笔记 + 可选标签）",
+        "params": {
+          "item_key": "条目 key",
+          "note": "标注文本（研究方向/结论）",
+          "tags": "逗号分隔标签，如 陆墨,P0"
+        },
+        "example": "{\"tool_name\":\"zotpilot_annotate\",\"item_key\":\"ABCD1234\",\"note\":\"生物质水凝胶\",\"tags\":\"陆墨,P0\"}"
+      },
+      {
+        "command": "zotpilot_status",
+        "description": "状态与凭证检查（未配置时返回 configured=false）"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "document"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "xunhe730/ZotPilot",
+      "upstream_license": "MIT"
+    }
+  },
+  "capability_pairs": [["ingest", "papers"], ["search", "papers"], ["status", "papers"], ["write", "papers"]]
+}

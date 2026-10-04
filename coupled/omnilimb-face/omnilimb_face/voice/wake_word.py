@@ -215,7 +215,7 @@ class WakeWord:
             return False
         return self._triggered
 
-    def observe_detection(self, confidence: float, ts: Optional[int] = None) -> bool:
+    def observe_detection(self, confidence: float, ts: int | None = None) -> bool:
         """Feed one wake-word detection score; return the resulting gate state.
 
         A detection whose ``confidence`` is at least ``confidence_threshold`` is

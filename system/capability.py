@@ -43,10 +43,10 @@ class CapabilityBinding(BaseModel):
         description="存放真实密钥的环境变量名（铁律7：密钥不落盘）。"
         "空串表示该能力无需密钥（如 edge-tts）。",
     )
-    temperature: Optional[float] = Field(default=None, description="llm 温度（对应 airi llm.temperature）。")
+    temperature: float | None = Field(default=None, description="llm 温度（对应 airi llm.temperature）。")
     voice_id: str = Field(default="", description="tts 音色（对应 airi tts.voiceId）。")
-    speed: Optional[float] = Field(default=None, description="tts 语速（对应 airi tts.speed）。")
-    pitch: Optional[float] = Field(default=None, description="tts 音调（对应 airi tts.pitch）。")
+    speed: float | None = Field(default=None, description="tts 语速（对应 airi tts.speed）。")
+    pitch: float | None = Field(default=None, description="tts 音调（对应 airi tts.pitch）。")
 
     def resolve_api_key(self) -> str:
         """从环境变量解析密钥；无 api_key_env 的能力返回空串。"""
@@ -112,7 +112,7 @@ def _apply_env_overlay(binding: CapabilityBinding, profile: str, cap_type: str) 
 def resolve_capability(
     character_id: str,
     capability_type: CapabilityType,
-    profile: Optional[str] = None,
+    profile: str | None = None,
 ) -> CapabilityBinding:
     """解析某角色某端某能力的最终后端绑定。
 

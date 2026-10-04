@@ -1,0 +1,85 @@
+{
+  "name": "paper_miner",
+  "displayName": "论文实验参数提取器",
+  "version": "0.1.0",
+  "description": "从论文 PDF / Markdown 提取前驱体、KOH 比例、碳化温度等实验参数并入库 SQLite，支持条件查询。依赖本地 Ollama（默认 http://127.0.0.1:11434）；Ollama 未启动时工具会明确报错，不静默返回空。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.flat_bridges",
+    "class": "PaperMinerBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "extract_paper",
+        "description": "提取单篇论文的实验参数并写入 papers.db",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "论文 PDF 或 Markdown 的本地路径"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        "example": "{\"tool_name\":\"extract_paper\",\"path\":\"papers/input/xxx.pdf\"}"
+      },
+      {
+        "command": "query_experiments",
+        "description": "按条件查询实验库，如「木质素水凝胶里戊二醛交联、碳化温度>800、导电率>10 的」",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "precursor": {
+              "type": "string",
+              "description": "前驱体关键词，如 木质素"
+            },
+            "min_temp": {
+              "type": "number",
+              "description": "最低碳化温度（℃）"
+            },
+            "min_conductivity": {
+              "type": "number",
+              "description": "最低导电率"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "返回条数上限，默认 50"
+            }
+          },
+          "required": []
+        },
+        "example": "{\"tool_name\":\"query_experiments\",\"precursor\":\"木质素\",\"min_temp\":800}"
+      },
+      {
+        "command": "paper_miner_status",
+        "description": "paper_miner 运行状态（Ollama / 模型 / 库记录数）",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"paper_miner_status\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "document"
+    ],
+    "domains": [],
+    "tier": "local-write",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {
+    "services": [
+      "ollama@127.0.0.1:11434"
+    ]
+  },
+  "capability_pairs": [["extract", "papers"], ["search", "papers"], ["status", "papers"]]
+}

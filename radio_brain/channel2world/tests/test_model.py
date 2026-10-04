@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 import torch
 
-from radio_brain.channel2world.model.dataset import Channel2WorldDataset, DatasetConfig, FEATURE_DIM
+from radio_brain.channel2world.model.dataset import FEATURE_DIM, Channel2WorldDataset, DatasetConfig
 from radio_brain.channel2world.model.encoder import Channel2WorldModel, PerceiverEncoder
 from radio_brain.channel2world.model.losses import compute_losses, gaussian_mixture_nll, total_loss
 

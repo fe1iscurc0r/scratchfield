@@ -49,6 +49,38 @@ _EXCLUDE_DIRS = {
     'ui',
     # mcpserver 的 Python 模块由 PyInstaller 冻结导入，data 只额外收集 manifest
     'mcpserver',
+    # 临时输出（409MB，运行时零引用，2026-09-28 grep 验证）
+    'tmp',
+    # ── 架构边界：以下三项不属陆墨本体，不进发布包（用户按需自行获取）──
+    # NEKO：上游独立项目。本仓只有少量桥接改动（反向事件等），
+    #   桌宠所需资源由用户额外下载；local_apps.py 已有「未找到则提示去 clone」的降级。
+    #   注：桌宠窗口是仓库根的兄弟目录 neko-electron-shell（不在 NEKO/ 下），一并排除
+    'NEKO',
+    'neko-electron-shell',
+    # HamLog：第三方独立项目（GPL-3.0）。打进 MIT 系安装包有许可传染风险，
+    #   且它是「额外插件」形态（local_apps 提示先 clone）
+    'HamLog',
+    # coupled/*：standalone 插件（自带 plugin.yaml，kind: standalone）+
+    #   第三方作者 + COMMERCIAL-LICENSE.md —— 外挂形态，许可与边界双重理由不进包
+    'coupled',
+    # GitHub 扫货第三方仓缓存（992MB）。代码里的两处引用
+    # （liquid-dsp DLL、CLI-Anything）指向的子目录在仓库内均不存在（死引用）
+    'github_haul',
+    # VRM 模型等开发资源（82MB）。仅 config/core_config.json 被 lumo_proxy
+    # 视觉凭证 fallback 读取——该文件含真实 API key，打包进安装包属泄密，
+    # 必须排除；读不到时 fallback 返回空串，属既有设计降级
+    'carpet',
+}
+
+# 顶层目录内的排除子目录（黑名单是目录级的，这里做目录内细分）。
+# mod/sources：第三方工具源码缓存（jadx/frida/nuclei 等，1.2GB）。
+#   运行时零引用（2026-09-28 全仓 grep 验证）；且 jadx 的 Gradle 构建产物
+#   路径超长（>260 字符），COLLECT 复制时撞 Windows MAX_PATH 直接
+#   FileNotFoundError。无论哪条理由都不该进安装包。
+_EXCLUDE_SUBDIRS: dict[str, set[str]] = {
+    'mod': {'sources'},
+    # 前端构建依赖（84MB），后端不引用（grep 验证）；dist/ 才是运行时产物
+    'sitaware-ui': {'node_modules'},
 }
 
 datas = [('pyproject.toml', '.')]
@@ -59,8 +91,17 @@ for entry in os.listdir(PROJECT_ROOT):
         continue
     if entry in _EXCLUDE_DIRS or entry.startswith('.'):
         continue
-    datas.append((entry, entry))
-    safe_print(f"[spec] Include directory: {entry}/")
+    _excluded_subs = _EXCLUDE_SUBDIRS.get(entry, set())
+    if not _excluded_subs:
+        datas.append((entry, entry))
+        safe_print(f"[spec] Include directory: {entry}/")
+    else:
+        # 目录内黑名单：逐个一级子项收集，跳过排除项
+        for sub in os.listdir(full):
+            if sub.startswith('.') or sub in _excluded_subs:
+                continue
+            datas.append((os.path.join(entry, sub), os.path.join(entry, sub)))
+        safe_print(f"[spec] Include directory: {entry}/ (excluded: {', '.join(sorted(_excluded_subs))})")
 
 # mcpserver: 收集所有 agent-manifest.json（前端技能列表 + 工具 schema 扫描需要）
 import glob as _glob

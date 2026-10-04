@@ -22,8 +22,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))  # scratchpad/
 
 from mcpserver.rf_brain.sdrtrunk_bridge import (  # noqa: E402
-    SdrtrunkBridge,
     REQUIRED_FIELDS,
+    SdrtrunkBridge,
     validate_event,
     validate_required_fields,
 )
@@ -73,7 +73,7 @@ def main() -> int:
     )
     print(f"      事件 {len(records)} 条 → {out_path}")
 
-    print(f"[3/3] grep/assert 断言字段完整")
+    print("[3/3] grep/assert 断言字段完整")
     all_ok, missing = validate_required_fields(events)
     assert all_ok, f"必填字段缺失: {missing}"
     for i, ev in enumerate(events):

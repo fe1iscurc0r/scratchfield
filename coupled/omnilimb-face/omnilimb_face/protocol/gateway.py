@@ -64,8 +64,8 @@ from omnilimb_face.protocol.events import (
     MicAudioDataEvent,
     MicAudioEndEvent,
     ParseOutcome,
-    PlaybackCompleteEvent,
     PingEvent,
+    PlaybackCompleteEvent,
     PongEvent,
     ProtocolError,
     SetModelEvent,
@@ -161,7 +161,7 @@ def _check_type(value: Any, hint: Any) -> bool:
         if hint is float:
             # JSON does not distinguish int from float; accept integral numbers
             # for float fields, but never accept booleans.
-            return (isinstance(value, float) or isinstance(value, int)) and not isinstance(
+            return isinstance(value, (float, int)) and not isinstance(
                 value, bool
             )
         if hint is str:
@@ -201,7 +201,7 @@ def _check_type(value: Any, hint: Any) -> bool:
         return False
 
 
-def _reconstruct(cls: type, data: dict) -> Optional[object]:
+def _reconstruct(cls: type, data: dict) -> object | None:
     """Validate ``data`` against ``cls``'s schema and rebuild the dataclass.
 
     Returns the reconstructed (frozen) dataclass instance on success, or
@@ -314,12 +314,12 @@ class ProtocolGateway:
         # --- WebSocket server runtime state (Task 20.1) -------------------
         # All of these are populated when the server starts and cleared on stop.
         self._server: Any = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._thread: Optional[threading.Thread] = None
-        self._stop_event: Optional[asyncio.Event] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._stop_event: asyncio.Event | None = None
         self._ready = threading.Event()
-        self._bound_host: Optional[str] = None
-        self._bound_port: Optional[int] = None
+        self._bound_host: str | None = None
+        self._bound_port: int | None = None
         # client_uid -> connected WebSocket protocol. Mutated only on the
         # server's event loop thread (connect/disconnect), so no extra lock is
         # needed for the server's own use; snapshots are taken for broadcast.
@@ -538,12 +538,12 @@ class ProtocolGateway:
         return (_http.HTTPStatus.OK, headers, body)
 
     @property
-    def bound_host(self) -> Optional[str]:
+    def bound_host(self) -> str | None:
         """The host the server actually bound to (``None`` until started)."""
         return self._bound_host
 
     @property
-    def bound_port(self) -> Optional[int]:
+    def bound_port(self) -> int | None:
         """The port the server actually bound to (resolves ``port=0`` to the
         ephemeral port the OS assigned). ``None`` until the server is started.
         """
@@ -725,7 +725,7 @@ class ProtocolGateway:
         self._ready.clear()
 
     def send_threadsafe(
-        self, client_uid: str, event: Any, timeout: Optional[float] = 5.0
+        self, client_uid: str, event: Any, timeout: float | None = 5.0
     ) -> bool:
         """Thread-safe :meth:`send` for callers off the server's event loop.
 
@@ -736,7 +736,7 @@ class ProtocolGateway:
         return bool(self._run_coroutine_threadsafe(self.send(client_uid, event), timeout))
 
     def broadcast_threadsafe(
-        self, event: Any, timeout: Optional[float] = 5.0
+        self, event: Any, timeout: float | None = 5.0
     ) -> int:
         """Thread-safe :meth:`broadcast` for callers off the server's event loop.
 
@@ -771,7 +771,7 @@ class ProtocolGateway:
             finally:
                 loop.close()
 
-    def _run_coroutine_threadsafe(self, coro, timeout: Optional[float]) -> Any:
+    def _run_coroutine_threadsafe(self, coro, timeout: float | None) -> Any:
         """Run ``coro`` on the server's loop from another thread; return result.
 
         Returns ``None`` (after closing the coroutine) when the server loop is
@@ -785,7 +785,7 @@ class ProtocolGateway:
         return future.result(timeout)
 
     @staticmethod
-    def _extract_request_path(websocket: Any) -> Optional[str]:
+    def _extract_request_path(websocket: Any) -> str | None:
         """Read the request target path across websockets versions.
 
         websockets >= 13 (the new asyncio implementation, and the default in
@@ -802,7 +802,7 @@ class ProtocolGateway:
         legacy = getattr(websocket, "path", None)
         return legacy if isinstance(legacy, str) else None
 
-    def _path_matches(self, raw_path: Optional[str]) -> bool:
+    def _path_matches(self, raw_path: str | None) -> bool:
         """Return ``True`` when ``raw_path`` targets the configured ``ws_path``.
 
         Compares only the path component (query string stripped) and ignores a

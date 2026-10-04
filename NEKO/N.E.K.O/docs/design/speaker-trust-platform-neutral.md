@@ -38,7 +38,7 @@
 那段 `ensure_future` + `shield` + 二次 `CancelledError` 循环 + before/after 回滚存在的唯一原因是：它必须「持锁跨 await」（trust 与 dashboard 配置挤在同一个 `business_config.json`，写盘要走 `_persist_business_config_locked`），且必须在取消后知道盘落没落（`cancelled.speaker_trust_persisted`）。服务端版本把整段临界区塞进**一个** `asyncio.to_thread`：`to_thread` 交出去取消不掉，锁的 acquire/release 全在 worker 线程内，既不漏落盘也不泄漏锁 —— 结构性地没有「持锁跨 await」。这与 `app/memory_server/gates.py:98-113` 已论证过的口径逐字一致。
 
 **(b) 为什么落点必须是 memory_dir 根级的「文件」。**
-`utils/cloudsave_runtime/operations.py` 的 import 清理逻辑：`delete_dir_targets` 只收 `child.is_dir() and child.name not in imported_character_names` 的子项并 `shutil.rmtree`；`delete_file_targets` 只由 `memory/<角色>/<MANAGED_MEMORY_FILENAMES>` 三段构成，manifest 键非三段或叶名不在白名单直接 `raise ValueError`。因此 `memory/_trust/` 这类**子目录**会在一次云恢复后被静默清空，而**根级平铺文件**两条都躲开。先例：`app/memory_server/gates.py:128-129` 的 `idle_maintenance_state.json`（docstring 明写「本包唯一一个不分角色的进程级文件」）、`main_logic/quota/ux_state.py`（「global rather than per-character because quotas are scoped to the user」）。
+`utils/cloudsave_runtime/operations.py` 的 import 清理逻辑按快照类型分支：`delete_file_targets` 只由 `memory/<角色>/<MANAGED_MEMORY_FILENAMES>` 三段构成，manifest 键非三段或叶名不在白名单直接 `raise ValueError`；`delete_dir_targets` 仅在 `SNAPSHOT_KIND_FULL_RUNTIME` 导入时收集 `child.is_dir() and child.name not in applied_character_names` 的子项并 `shutil.rmtree`（`character_collection` 导入只删名字在 `tombstone_names` 中的子目录，migration workspace 会被 `_is_migration_workspace` 在 rmtree 前再查一次而跳过）。因此 `memory/_trust/` 这类**子目录**会在一次 full_runtime 云恢复后被静默清空（character_collection 恢复不触碰它），而**根级平铺文件**两条都躲开。先例：`app/memory_server/gates.py:128-129` 的 `idle_maintenance_state.json`（docstring 明写「本包唯一一个不分角色的进程级文件」）。
 
 **(c) 关于「trust 不进云存档」这条 tradeoff —— 三份方案都写错了。**
 已核实 `utils/cloudsave_runtime/_shared.py:133-141` 的 `MANAGED_CLOUDSAVE_PREFIXES = ("characters/","catalog/","profiles/","bindings/","memory/","overrides/","meta/")`，`plugins/` 只出现在 `LEGACY_RUNTIME_DIR_NAMES`（仅用于 `legacy_migration.py` 的本地目录搬迁，与云上传无关）。**即今天的 trust 池（插件 `business_config.json`）本来就不进云存档。** 所以本方案不是行为倒退，而是同档平移。云备份是一块独立的、今天不存在的能力（见 §9）。
@@ -801,7 +801,7 @@ def speaker_account_id(sender_id: object) -> str:
 1. **`platform` token** —— 匹配 `[A-Za-z0-9_.-]+`，会被小写化。
 2. **`speaker_id = f"{platform}:{actor}"`** —— actor 匹配 `[A-Za-z0-9_.:@-]+`，总长 ≤96。actor 必须是**平台侧稳定 id**，绝不能是昵称。
    - 警告：`bilibili_danmaku/user_profile.py` 那种 `key = str(uid) if uid > 0 else uname` 的昵称兜底会被 `stable_speaker_id` 判 None 静默丢弃，接入前必须在插件侧禁掉。
-   - 警告：`neko_live` 的 bilibili uid 是裸数字无前缀，接入时统一补 `bilibili:`。
+   - 警告：独立插件 `neko_live` 的 bilibili uid 是裸数字无前缀，接入时统一补 `bilibili:`。
 3. **base 来源，二选一**：`speaker_tier`（四档之一，有权限阶梯的平台）**或** `speaker_base_trust`（0..1，服务端夹到 0.8，无阶梯的平台如弹幕 guard_level / medal_level）。
 4. **`speaker_is_owner`** —— 只能由「基于稳定 id 的显式绑定 + tier == admin」派生；服务端会 422 掉不满足的组合。
 5. **`speaker_label` / `display_name`** —— 装饰性。
@@ -809,7 +809,7 @@ def speaker_account_id(sender_id: object) -> str:
 
 **不需要**：任何存储、任何账本、任何幂等环、任何写者锁、任何事务锁、任何事件应用逻辑、任何回传处理、任何迁移。
 
-**现实提醒**：今天没有任何现成插件能真的零成本接入 —— `bilibili_danmaku` / `neko_live` 根本没走 scoped memory；`bilibili_dm` 最接近（权限词表与 QQ 同构、uid 强制纯数字）但今天只在 admin 私信时写记忆；`wechat_integration` 把任意 `from_user_id` 无条件写进主人主记忆且无权限模型。「接入成本接近零」指的是 **trust 这一层**，不包括「先给那个平台补上 scoped memory 和权限模型」。
+**现实提醒**：今天没有任何现成插件能真的零成本接入 —— `bilibili_danmaku` / 独立插件 `neko_live` 根本没走 scoped memory；独立的 `bilibili_integration` 最接近（权限词表与 QQ 同构、uid 强制纯数字）但今天只在 admin 私信时写记忆；`wechat_integration` 把任意 `from_user_id` 无条件写进主人主记忆且无权限模型。「接入成本接近零」指的是 **trust 这一层**，不包括「先给那个平台补上 scoped memory 和权限模型」。
 
 ---
 
@@ -971,6 +971,6 @@ def speaker_account_id(sender_id: object) -> str:
 
 6. **PR6 的执行时机**：legacy `speaker_trust` 字段在 PR5 之后第 N 个版本删除。N 定多少？删除时机也决定 `test_group_memory_scopes.py:3623-3627` 那条断言什么时候能改成只测新字段。
 
-7. **第二个平台选谁做「接入成本接近零」的验证**？`bilibili_dm` 最便宜（权限词表与 QQ 完全同构、uid 强制纯数字、已有 `bili_dm:` 前缀习惯），但接 trust 的前提是**先让它走 scoped memory**。要不要在 PR5 之后立刻做一个最小接入来验证这个论断？
+7. **第二个平台选谁做「接入成本接近零」的验证**？独立的 `bilibili_integration` 最便宜（权限词表与 QQ 完全同构、uid 强制纯数字、已有 `bili_dm:` 前缀习惯），但接 trust 的前提是**先让它走 scoped memory**。要不要在 PR5 之后立刻做一个最小接入来验证这个论断？
 
 8. **trust 上云是否列为紧随其后的独立工作项**？需要动 `utils/cloudsave_runtime/_shared.py` 的 `MANAGED_CLOUDSAVE_PREFIXES`（`overrides/` / `meta/` 前缀已声明但零实现）与 `operations.py` 的三段路径校验。鉴于 §1.3(c) 的核实结论（今天也不上云），这不是本 PR 的回归修复，而是新能力。

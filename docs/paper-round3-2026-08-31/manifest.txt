@@ -1,0 +1,9 @@
+G1a	/home/ubuntu/research/papers/round3/split/G1a.jsonl	51
+G1b	/home/ubuntu/research/papers/round3/split/G1b.jsonl	51
+G2a	/home/ubuntu/research/papers/round3/split/G2a.jsonl	59
+G2b	/home/ubuntu/research/papers/round3/split/G2b.jsonl	58
+G3	/home/ubuntu/research/papers/round3/split/G3.jsonl	77
+G4	/home/ubuntu/research/papers/round3/split/G4.jsonl	71
+G5	/home/ubuntu/research/papers/round3/split/G5.jsonl	55
+G6	/home/ubuntu/research/papers/round3/split/G6.jsonl	96
+G7	/home/ubuntu/research/papers/round3/split/G7.jsonl	100

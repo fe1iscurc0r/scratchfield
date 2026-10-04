@@ -24,14 +24,30 @@ rsync -a \
   --exclude 'frontend/build/codesign.pfx' \
   --exclude 'BATCH-WORKORDERS-*.md' \
   --exclude 'TRAE_WORKORDER*.md' \
+  --exclude 'LAW_WORKORDER*' \
+  --exclude 'workorders/' \
+  --exclude 'research/' \
+  --exclude 'academic/' \
   --exclude 'wt-overwatch-v6/' \
   --exclude 'docs/archive/' \
   --exclude 'docs/SPEC-14*' \
+  --exclude 'docs/law-*' \
+  --exclude 'docs/法学*' \
+  --exclude 'docs/issue-2881*' \
+  --exclude 'docs/pollination/batches/' \
+  --exclude 'docs/dependabot*' \
+  --exclude 'docs/*判例*' \
+  --exclude 'docs/*audit*' \
+  --exclude 'docs/*审计*' \
   --exclude 'docs/2026-08-23-合并与Docker部署-操作日志.md' \
   --exclude 'docs/GOAL-TRANSITION.md' \
   --exclude 'docs/merge-report-*.md' \
+  --exclude 'github_haul/' \
+  --exclude 'tools/pcb-plays/' \
   --exclude 'README.md' \
   --exclude 'README_en.md' \
+  --exclude 'README_ja.md' \
+  --exclude 'QUICKSTART.md' \
   --exclude '**/__pycache__/' \
   --exclude '*.pyc' \
   --exclude '**/node_modules/' \

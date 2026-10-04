@@ -47,7 +47,7 @@ _CANDIDATE_DIRS = [
     _REPO_ROOT / "github_haul" / "physical" / "liquid-dsp",
 ]
 
-_lib: Optional[ctypes.CDLL] = None
+_lib: ctypes.CDLL | None = None
 _load_attempted = False
 
 
@@ -62,7 +62,7 @@ def _lib_candidates() -> list[Path]:
     return paths
 
 
-def _load_lib() -> Optional[ctypes.CDLL]:
+def _load_lib() -> ctypes.CDLL | None:
     """定位并加载 libliquid；失败返回 None（调用方降级到 numpy）。"""
     global _lib, _load_attempted
     if _load_attempted:

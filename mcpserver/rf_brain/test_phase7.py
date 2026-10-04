@@ -22,9 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # scratchpad/
 from mcpserver.rf_brain import device  # noqa: F401  顶层不依赖 pyaudio
 from mcpserver.rf_brain.amateur_bands import AMATEUR_BANDS
 from mcpserver.rf_brain.decoders import aprs, decode_all, dtmf
-from mcpserver.rf_brain.loop import run_loop
 from mcpserver.rf_brain.device.base import AudioFrame, AudioSource, iq_from_audio
 from mcpserver.rf_brain.device.registry import create_source, list_sources
+from mcpserver.rf_brain.loop import run_loop
 
 
 # ---------------------------------------------------------------- 1. 注册表 + 工厂
@@ -179,6 +179,7 @@ def test_device_package_imports_without_pyaudio(monkeypatch):
     monkeypatch.setattr("builtins.__import__", fake_import)
     # 重载验证顶层无 pyaudio import
     import importlib
+
     import mcpserver.rf_brain.device as dev
     importlib.reload(dev)
     assert set(list_sources()) == {"ic705", "wav", "sim"}
@@ -278,23 +279,23 @@ def test_sim_duration_s_governs_frame_len():
 
 def test_ic705_capture_empty_frame_raises():
     """capture_fn 返回空帧 → 明确 RuntimeError（绝不静默空返回）。"""
-    with create_source("ic705", capture_fn=lambda: np.zeros(0)) as src:
-        with pytest.raises(RuntimeError, match="空帧"):
-            src.read()
+    with create_source("ic705", capture_fn=lambda: np.zeros(0)) as src, pytest.raises(RuntimeError, match="空帧"):
+        src.read()
 
 
 def test_ic705_capture_nan_raises():
     """capture_fn 返回含 NaN 样本 → 明确 RuntimeError。"""
-    with create_source("ic705", capture_fn=lambda: np.array([0.1, np.nan])) as src:
-        with pytest.raises(RuntimeError, match="NaN"):
-            src.read()
+    with (
+        create_source("ic705", capture_fn=lambda: np.array([0.1, np.nan])) as src,
+        pytest.raises(RuntimeError, match="NaN"),
+    ):
+        src.read()
 
 
 def test_sim_gen_empty_frame_raises():
     """gen_fn 返回空帧 → 明确 RuntimeError。"""
-    with create_source("sim", gen_fn=lambda sr, n: np.zeros(0)) as src:
-        with pytest.raises(RuntimeError, match="空帧"):
-            src.read()
+    with create_source("sim", gen_fn=lambda sr, n: np.zeros(0)) as src, pytest.raises(RuntimeError, match="空帧"):
+        src.read()
 
 
 def test_sim_gen_fn_respects_requested_n():

@@ -1,0 +1,24 @@
+{
+ "ok": true,
+ "source": "C:\\Users\\ASUS\\openems-win\\run_dipole2\\s11.csv",
+ "points": 13,
+ "freq_range_hz": [
+  255000000.0,
+  345000000.0
+ ],
+ "resonance_hz": 270000000.0,
+ "resonance_mhz": 270.0,
+ "s11_min_db": -15.08,
+ "bandwidth_hz": 15000000.0,
+ "bandwidth_ratio": 0.05556,
+ "bandwidth_note": "S11≤-10dB 连续区间",
+ "zin_at_resonance": {
+  "re": 69.87,
+  "im": -7.29
+ },
+ "freq_offset_from_target_hz": -30000000.0,
+ "synthetic": false,
+ "job_id": "",
+ "summary_path": "C:\\Users\\ASUS\\AppData\\Roaming\\lumo\\antenna-lab\\results\\adhoc\\summary.json",
+ "report_path": "C:\\Users\\ASUS\\AppData\\Roaming\\lumo\\antenna-lab\\results\\adhoc\\report.md"
+}

@@ -1,13 +1,18 @@
-"""academic 16 包融合 + MODEL_INTERFACE 测试（W-09 验收）。
+"""academic 20 包融合 + MODEL_INTERFACE 测试（W-09 验收，后续批次扩至 20）。
 
 验收口径：
-1. 16 个包全标注融合层级（levels.py 单一事实源）
+1. 20 个包全标注融合层级（levels.py 单一事实源）
 2. ≥4 个封装 MODEL_INTERFACE 可调用（grep 断言：mcpserver/academic/ 下
    含 MODEL_INTERFACE 的 .py 文件数 ≥ 4；CoolProp/ChemFormula 真算）
 3. 降级契约：tespy/slices 缺依赖时明确报 AcademicDependencyError（含 pip 提示）
 4. MCP 注册：scan_and_register 发现 academic，unified_call 真算返回
 """
 from __future__ import annotations
+
+import pytest  # noqa: E402  (卷173 分层标注；与文件既有 import pytest 重复无害)
+
+# 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
+pytestmark = [pytest.mark.core]
 
 import asyncio
 import json
@@ -31,21 +36,23 @@ ACADEMIC_DIR = Path(__file__).resolve().parents[1] / "mcpserver" / "academic"
 # ---------------------------------------------------------- 16 包层级标注
 
 def test_levels_cover_all_16_packages():
-    """验收 1：16 个包全标注，层级合法，license 全记。"""
-    assert len(FUSION_LEVELS) == 16, sorted(FUSION_LEVELS)
+    """验收 1：全部包标注（初版 16，现扩至 20），层级合法，license 全记。"""
+    assert len(FUSION_LEVELS) == 20, sorted(FUSION_LEVELS)
     valid_levels = {"MCP", "Skill", "融合参考", "耦合", "基础设施"}
     for name, info in FUSION_LEVELS.items():
         assert info["level"] in valid_levels, (name, info["level"])
         assert info["license"], f"{name} 缺 license 标注"
         assert "status" in info and "notes" in info
     summary = levels_summary()
-    assert sum(summary.values()) == 16
-    expected_16 = {
+    assert sum(summary.values()) == 20
+    expected_20 = {
         "thermo", "tespy", "pycalphad", "Clapeyron.jl", "CoolProp",
         "PyXtal", "SLICES", "gemmi", "ChemFormula", "hyalite",
         "AffineGaps", "WaveBench", "rp2daq", "hololinked", "Pynite", "FEMcy",
+        # 后续批次新增 4 项（Indigo/ChEMBL 已封装，scikit-fingerprints/ODDT 候选）
+        "Indigo", "ChEMBL", "scikit-fingerprints", "ODDT",
     }
-    assert set(FUSION_LEVELS) == expected_16
+    assert set(FUSION_LEVELS) == expected_20
 
 
 # ------------------------------------------------- MODEL_INTERFACE ≥4 可调用
@@ -139,7 +146,7 @@ def test_slices_degradation_contract():
     if chk["available"]:
         pytest.skip("本环境已装 slices，降级路径跳过")
     assert "slices" in chk["missing"] or "pymatgen" in chk["missing"]
-    from mcpserver.academic.slices_interface import slices_encode, slices_decode
+    from mcpserver.academic.slices_interface import slices_decode, slices_encode
     with pytest.raises(AcademicDependencyError, match="pip install"):
         slices_encode("any.cif")
     with pytest.raises(AcademicDependencyError, match="pip install"):
@@ -176,7 +183,7 @@ def test_registry_scan_and_unified_call():
         lv = json.loads(asyncio.run(manager.unified_call(
             "academic", {"tool_name": "academic_levels"})))
         assert lv["status"] == "ok"
-        assert len(lv["result"]["packages"]) == 16
+        assert len(lv["result"]["packages"]) == 20
 
         chem = json.loads(asyncio.run(manager.unified_call(
             "academic", {"tool_name": "chem_parse", "formula": "H2O"})))

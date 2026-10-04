@@ -32,5 +32,17 @@
         "example": "{\"tool_name\":\"get_team_recommendation\",\"game_id\":\"arknights\",\"query\":\"7-18低配怎么组队\"}"
       }
     ]
-  }
+  },
+  "classification": {
+    "families": [
+      "ecology"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {},
+  "capability_pairs": [["compute", "game"], ["query", "game"], ["recommend", "game"]]
 }

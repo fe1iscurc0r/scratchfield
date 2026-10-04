@@ -5,8 +5,12 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
+import threading
+import time
 import uuid
+from collections import defaultdict, deque
 from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -312,6 +316,21 @@ class TelemetryManager:
             "sent_at": _utc_now_iso(),
             "events": events,
         }
+        # W119-01：每次 flush 附带一份总线统计摘要（不逐事件打点，防噪）
+        try:
+            from apiserver.event_bus import get_bus
+
+            snap = get_bus().snapshot()
+            body["bus"] = {
+                "uptime_s": snap.get("uptime_s"),
+                "dispatch_total": snap.get("dispatch_total"),
+                "error_total": snap.get("error_total"),
+                "waterfall_veto_total": snap.get("waterfall_veto_total"),
+                "mode_counts": snap.get("mode_counts"),
+                "top_topics": list((snap.get("topics") or {}).keys())[:10],
+            }
+        except Exception as e:  # noqa: BLE001 - 遥测不得因总线不可用而失败
+            logger.debug("[telemetry] 总线快照读取失败，跳过 bus 摘要: %s", e)
         headers = {"Content-Type": "application/json"}
         token = naga_auth.get_access_token()
         token_hash = _hash_text(token) if token else None
@@ -447,3 +466,144 @@ def emit_telemetry(
             agent_id=agent_id,
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# W120-04：关键指标计数器（内存、O(1)、不阻塞主路径）
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_metric_text(text: str, *, limit: int = 200) -> str:
+    """指标输出脱敏 + 截断：复用 apiserver.metric_sanitize（含按值特征的 token 掩码）。
+
+    单独成模块的原因：本文件原有的 _sanitize_string 只按**键名**脱敏，反查/参数里裸奔的
+    token 值会漏出指标输出（实测 sk-xxx 原样出现）。
+    """
+    from apiserver.metric_sanitize import sanitize_metric_text
+
+    return sanitize_metric_text(str(text or ""), limit=limit)
+
+
+class MetricsCounters:
+    """极简指标登记：请求量/工具调用/延迟与失败率 + 最近错误 TopN（脱敏）。
+
+    只存内存（重启清零，README 注明）；每次登记是 O(1) 的整数/浮点累加，不写盘、不阻塞。
+    """
+
+    def __init__(self, *, error_window: int = 20) -> None:
+        self._lock = threading.Lock()
+        self._counters: dict[str, int] = defaultdict(int)
+        self._latency_sum_ms: dict[str, float] = defaultdict(float)
+        self._latency_count: dict[str, int] = defaultdict(int)
+        self._errors: deque[dict[str, Any]] = deque(maxlen=max(1, int(error_window)))
+        self._started_at = time.time()
+
+    # ---- 登记 ----
+
+    def record_request(self, *, path: str, method: str, status: int, duration_ms: float, error: str = "") -> None:
+        label = f"{method} {path}"
+        with self._lock:
+            self._counters["request_total"] += 1
+            self._counters[f"request_status_{int(status) // 100}xx"] += 1
+            self._latency_sum_ms["request"] += float(duration_ms)
+            self._latency_count["request"] += 1
+            if status >= 400 and error:
+                self._errors.append(
+                    {
+                        "kind": "http",
+                        "path": _sanitize_metric_text(str(path)),
+                        "status": int(status),
+                        "error": _sanitize_metric_text(str(error)),
+                        "ts": time.time(),
+                    }
+                )
+
+    def record_tool(self, *, tool: str, ok: bool, duration_ms: float, error: str = "") -> None:
+        name = str(tool or "unknown")[:80]
+        with self._lock:
+            self._counters["tool_total"] += 1
+            self._counters["tool_ok" if ok else "tool_failed"] += 1
+            self._latency_sum_ms["tool"] += float(duration_ms)
+            self._latency_count["tool"] += 1
+            if not ok:
+                self._errors.append(
+                    {
+                        "kind": "tool",
+                        "tool": _sanitize_metric_text(name, limit=80),
+                        "error": _sanitize_metric_text(str(error)),
+                        "ts": time.time(),
+                    }
+                )
+
+    # ---- 汇总 ----
+
+    @staticmethod
+    def _rate(part: int, whole: int) -> float:
+        return round(part / whole, 4) if whole else 0.0
+
+    def snapshot(self, *, bus: dict[str, Any] | None = None) -> dict[str, Any]:
+        with self._lock:
+            counters = dict(self._counters)
+            latency_sum = dict(self._latency_sum_ms)
+            latency_count = dict(self._latency_count)
+            errors = list(self._errors)[-10:]
+        request_total = counters.get("request_total", 0)
+        tool_total = counters.get("tool_total", 0)
+        tool_failed = counters.get("tool_failed", 0)
+        return {
+            "uptime_s": round(time.time() - self._started_at, 1),
+            "requests": {
+                "total": request_total,
+                "status_2xx": counters.get("request_status_2xx", 0),
+                "status_4xx": counters.get("request_status_4xx", 0),
+                "status_5xx": counters.get("request_status_5xx", 0),
+                "avg_latency_ms": round(latency_sum.get("request", 0.0) / latency_count["request"], 2)
+                if latency_count.get("request")
+                else 0.0,
+            },
+            "tools": {
+                "total": tool_total,
+                "ok": counters.get("tool_ok", 0),
+                "failed": tool_failed,
+                "failure_rate": self._rate(tool_failed, tool_total),
+                "avg_latency_ms": round(latency_sum.get("tool", 0.0) / latency_count["tool"], 2)
+                if latency_count.get("tool")
+                else 0.0,
+            },
+            "bus": {
+                "dispatch_total": (bus or {}).get("dispatch_total", 0),
+                "error_total": (bus or {}).get("error_total", 0),
+                "waterfall_veto_total": (bus or {}).get("waterfall_veto_total", 0),
+                "mode_counts": (bus or {}).get("mode_counts", {}),
+                "top_topics": list(((bus or {}).get("topics") or {}).keys())[:10],
+            },
+            "recent_errors": [_sanitize_value(e) for e in errors],
+            "note": "计数只存内存（重启清零）；字段已脱敏，错误摘要截断 200 字符",
+        }
+
+    def reset(self) -> None:
+        with self._lock:
+            self._counters.clear()
+            self._latency_sum_ms.clear()
+            self._latency_count.clear()
+            self._errors.clear()
+            self._started_at = time.time()
+
+
+METRICS = MetricsCounters()
+
+
+def record_request_metric(*, path: str, method: str, status: int, duration_ms: float, error: str = "") -> None:
+    """供 HTTP 中间件调用（O(1)、不抛）。"""
+    try:
+        METRICS.record_request(path=path, method=method, status=status, duration_ms=duration_ms, error=error)
+    except Exception:  # noqa: BLE001 - 指标登记不得影响请求
+        logger.debug("[telemetry] 请求指标登记失败", exc_info=True)
+
+
+def record_tool_metric(*, tool: str, ok: bool, duration_ms: float, error: str = "") -> None:
+    """供工具回路调用（O(1)、不抛）。"""
+    try:
+        METRICS.record_tool(tool=tool, ok=ok, duration_ms=duration_ms, error=error)
+    except Exception:  # noqa: BLE001
+        logger.debug("[telemetry] 工具指标登记失败", exc_info=True)

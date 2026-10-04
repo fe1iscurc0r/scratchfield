@@ -1,0 +1,55 @@
+{
+  "name": "context7",
+  "displayName": "Context7 库文档查询",
+  "version": "1.0.0",
+  "description": "按需拉取第三方库的最新官方文档片段（写码前核对真实 API，防幻觉）。上游 upstash/context7（MIT）。降级语义：取不到文档时返回空文档而不抛异常。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.adapters.flat_bridges",
+    "class": "Context7Bridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "context7_query_docs",
+        "description": "查询第三方库的最新官方文档片段（Context7），写码前核对真实 API",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "lib": {
+              "type": "string",
+              "description": "库名或 Context7 库 ID，如 fastapi 或 /tiangolo/fastapi"
+            },
+            "query": {
+              "type": "string",
+              "description": "要查的具体问题，如 'dependency injection' "
+            },
+            "limit": {
+              "type": "integer",
+              "description": "返回片段数，默认 3"
+            }
+          },
+          "required": [
+            "lib",
+            "query"
+          ]
+        },
+        "example": "{\"tool_name\":\"context7_query_docs\",\"lib\":\"fastapi\",\"query\":\"dependency injection\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "document"
+    ],
+    "domains": [],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge",
+      "upstream": "upstash/context7",
+      "upstream_license": "MIT"
+    }
+  },
+  "capability_pairs": [["search", "docs"]]
+}

@@ -14,10 +14,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from litellm import acompletion
-
+# litellm 走懒加载（首次 import 约 8.9s）—— 卷191-B2
 from system.config import get_config
 from system.llm_params import build_model_name, get_llm_params
+
+from .litellm_lazy import acompletion
 
 logger = logging.getLogger("IntentRouter")
 
