@@ -1,5 +1,7 @@
 # scratchfield — The Experimental Field
 
+[中文](README.md) · [English](README_en.md)
+
 > Connection is justice; control is destruction.
 > Integration hell isn't an accident — it's a feature. We pull inspiration from others, pollinate it into our own soil, and grow it into something ours.
 > We don't slap a logo on other people's work — every component carries a fusion report: origin, license, modifications, acceptance. In black and white.
