@@ -9,7 +9,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     # ---------- 核心 / 配置 ----------
-    "charset-normalizer>=3.4.0",
+    "charset-normalizer>=3.5.2",
     "json5>=0.15.0",
     "PyYAML>=6.0.2",
     "pydantic>=2.11.0",
@@ -44,7 +44,7 @@ dependencies = [
     "numpy>=2.4.6",
     "pandas>=2.2.0",
     "pillow>=11.0.0",
-    "psutil>=7.1.0",
+    "psutil>=7.2.2",
     "emoji>=2.14.0",
     # 下限抬到 49.0.0：49.0.0 是 CVE-2026-69249 / CVE-2026-69248 的
     # first_patched_version（原 >=46.0.0 落在漏洞区间 >=45,<49 内，卷161）。

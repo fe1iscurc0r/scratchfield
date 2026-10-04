@@ -126,7 +126,7 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app_path"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NagaAgent-${{ matrix.platform }}
           path: |

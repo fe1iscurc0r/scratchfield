@@ -47,7 +47,7 @@
     "@vitejs/plugin-vue": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.11",
     "@vue/test-utils": "^2.5.0",
-    "@vue/tsconfig": "^0.8.1",
+    "@vue/tsconfig": "^0.9.1",
     "cross-env": "^10.1.0",
     "electron": "^41.10.3",
     "electron-builder": "^26.7.0",

@@ -51,7 +51,7 @@ jobs:
 
       - name: Upload junit artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: core-junit
           path: build/test-results/core-junit.xml
@@ -82,7 +82,7 @@ jobs:
 
       - name: Upload junit artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: full-junit
           path: build/test-results/full-junit.xml

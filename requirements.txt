@@ -3,7 +3,7 @@
 # 3.11 下导入即 SyntaxError）。PyPI 走 https://pypi.tuna.tsinghua.edu.cn/simple 更快。
 
 # ---------- 核心 / 配置 ----------
-charset-normalizer>=3.4.0
+charset-normalizer>=3.5.2
 json5>=0.15.0
 PyYAML>=6.0.2
 pydantic>=2.11.0
@@ -37,7 +37,7 @@ sgp4>=2.23  # 云台 TLE 轨道预报（mcpserver/ptz_service/tracking.py）。M
 h5py>=3.16.0  # channel2world HDF5 数据存储（radio_brain/channel2world）
 pandas>=2.2.0
 pillow>=11.0.0
-psutil>=7.1.0
+psutil>=7.2.2
 emoji>=2.14.0
 cryptography>=46.0.0
 setproctitle>=1.3.5
