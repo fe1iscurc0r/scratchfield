@@ -94,16 +94,11 @@ jobs:
 
       - name: Build backend and packaged runtime
         shell: bash
-        # 展示仓不含 vendor/openclaw（私有工作仓 vendor 目录），无 vendor 时
-        # 跳过 OpenClaw 运行时嵌入（2026-10-04 公开快照口径；完整嵌入构建
-        # 在私有工作仓环境执行）。
-        run: |
-          if [ -d vendor/openclaw ]; then
-            python build.py --backend-only --force-openclaw
-          else
-            echo "::notice::vendor/openclaw 不存在，走 --skip-openclaw 精简构建"
-            python build.py --backend-only --skip-openclaw
-          fi
+        # 发布构建口径（build.md）：OpenClaw 不随包分发（体积与攻击面不划算），
+        # 需要时用户全局 npm install openclaw。CI 一律 --skip-openclaw。
+        # （2026-10-04 修正：此前模板误写 --force-openclaw，与发布口径矛盾，
+        #   私有仓 Actions 常年 skipped 未暴露。）
+        run: python build.py --backend-only --skip-openclaw
 
       # ---------- Frontend: electron-builder (build only, no publish) ----------
       - name: Install frontend dependencies
