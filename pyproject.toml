@@ -18,7 +18,7 @@ dependencies = [
     # ---------- Web 服务 ----------
     "fastapi>=0.115.0",
     "uvicorn>=0.52.4",
-    "sse-starlette>=2.3.0",
+    "sse-starlette>=3.5.0",
     "httpx[socks]>=0.28.1",
     # 上限与 docling-slim[standard] (pdf2md extra) 的 websockets>=14.0,<17.0 对齐，
     # 否则根 uv.lock 无法重求解（卷161 死锁第一层）。
