@@ -3,7 +3,7 @@
 # 3.11 下导入即 SyntaxError）。PyPI 走 https://pypi.tuna.tsinghua.edu.cn/simple 更快。
 
 # ---------- 核心 / 配置 ----------
-charset-normalizer>=3.4.0
+charset-normalizer>=3.5.2
 json5>=0.15.0
 PyYAML>=6.0.2
 pydantic>=2.11.0
