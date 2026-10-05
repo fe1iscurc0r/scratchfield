@@ -1,5 +1,8 @@
 appId: com.lumo.scratchpad
 productName: 陆墨
+# 产物文件名必须 ASCII：中文前缀在 GitHub release asset 上传时会被剥掉
+# （v5.2.0 草稿实测：productName=陆墨 → asset 名变成 "-5.2.0-arm64.dmg"）
+artifactName: Lumo-${version}-${arch}.${ext}
 copyright: Copyright © 2026 陆墨
 
 directories:

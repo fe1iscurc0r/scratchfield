@@ -134,7 +134,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: NagaAgent-${{ matrix.platform }}
+          name: Lumo-${{ matrix.platform }}
           path: |
             frontend/release/*.exe
             frontend/release/*.dmg
@@ -165,6 +165,16 @@ jobs:
             echo "tag=$TAG" >> $GITHUB_OUTPUT
           fi
 
+      # 版本一致性防线（v5.2.4 翻车根因）：本地 build-win.py 有校验，CI 路径没有。
+      # tag 与 package.json 不一致直接失败，不再产出错误版本的安装包。
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VER=$(node -p "require('./frontend/package.json').version")
+          if [ "${{ steps.ver.outputs.version }}" != "$PKG_VER" ]; then
+            echo "::error::tag 版本 ${{ steps.ver.outputs.version }} 与 frontend/package.json 的 $PKG_VER 不一致（打 tag 前先 bump 版本）"
+            exit 1
+          fi
+
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
@@ -175,7 +185,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: NagaAgent ${{ steps.ver.outputs.version }}
+          name: 陆墨 Lumo ${{ steps.ver.outputs.version }}
           # 卷166 约束：release 权限回归人工。CI 只能落草稿，
           # 正式发布由本地 scripts/release-win.py 或人工在 Release 页面点「Publish」。
           draft: true
