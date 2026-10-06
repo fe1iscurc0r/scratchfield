@@ -41,7 +41,7 @@ dependencies = [
     "aiofiles>=25.1.0",
     "APScheduler>=3.11.0",
     # ---------- 系统 / 工具 ----------
-    "numpy>=2.4.6",
+    "numpy>=2.5.3",
     "pandas>=2.2.0",
     "pillow>=11.0.0",
     "psutil>=7.2.2",
