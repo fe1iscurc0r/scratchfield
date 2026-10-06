@@ -39,7 +39,7 @@ dependencies = [
     # ---------- 异步 / 任务 ----------
     "aiohttp>=3.14.3",
     "aiofiles>=25.1.0",
-    "APScheduler>=3.11.0",
+    "APScheduler>=3.11.3",
     # ---------- 系统 / 工具 ----------
     "numpy>=2.5.3",
     "pandas>=2.2.0",
