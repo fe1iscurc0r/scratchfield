@@ -67,7 +67,7 @@ dependencies = [
     # 注：工单原文写作 ">=49.0.0"，但 authlib 版本体系为 1.x（最新 1.8.0），
     # 49.0.0 在 PyPI 上不存在（49.0.0 实为 cryptography 的修复阈值）。
     # 此处按工单「退到能解的最高版」授权，取 1.6.9（该 CVE 的 first_patched）。
-    "authlib>=1.6.9",
+    "authlib>=1.8.0",
     # 数据工具路由 routes/data_tools.py 在模块级硬 import（科研风 PNG 图表）。
     # 2026-09-29 补录：此前代码 import 了但依赖未声明（venv 能跑只是因为本地装过）。
     "matplotlib>=3.8.0",
