@@ -26,11 +26,11 @@ dependencies = [
     # ping_interval（openai_adapter.py:122、openclaw/ws_client.py:64、qqbot.py:132）。
     "websockets>=14.0,<17.0",
     # ---------- LLM / 对话 ----------
-    "openai>=3.8.0",
+    "openai>=3.24.0",
     "anthropic>=0.42.0",
     # ⚠️ litellm 不可移除：apiserver/llm_service.py:19、intent_router.py:17、
     # context_compressor.py:23 模块级 import（聊天主链路）。
-    # 与 openai>=3.8.0 死锁（litellm 全线要求 openai<3.0）→ 3 critical + 14 high 告警
+    # 与 openai>=3.24.0 死锁（litellm 全线要求 openai<3.0）→ 3 critical + 14 high 告警
     # 挂账中，待卷193迁移到 openai SDK 后拔除。
     "litellm>=1.80.0",
     "tiktoken>=0.11.0",
