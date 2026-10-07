@@ -87,7 +87,7 @@ radio rtl scan ──▶ 逐频点 power 测量 → ASCII 频谱条
 
 ---
 
-## 四、安全注意（供实验田维护者参考，非本工单施工项）
+## 四、安全注意（供沈遥参考，非本工单施工项）
 
 1. **自动 `pip install`（grid_radio.py L31-46）**：运行时代码在 ImportError 时自动 `subprocess.run([sys.executable, "-m", "pip", "install", pkg])`。虽参数化无注入，但**自动联网装包**在加固场景应禁用。
 2. **懒加载依赖**：`pyrtlsdr`/`websocket-client` 仅调用时安装，未进 `requirements.txt` 主清单，部署环境需显式声明。
@@ -99,4 +99,4 @@ radio rtl scan ──▶ 逐频点 power 测量 → ASCII 频谱条
 
 GRID 的 radio/satellite 层是**高质量的"网络 SDR 收听 + 卫星追踪"工具**，卫星模块尤其完整可直接复用。但它**不是**电台控制工具——与 IC-705 的 Mailslot/CI-V 控制路径零交集。陆墨控制 IC-705 不受 GRID 影响，GRID 可作为**辅助频谱情报/卫星追踪**层并入 SDR 交叉栈数据源清单。
 
-*报告生成时间：2026-08-12 | 分析：Trae IDE（执行侧）*
+*报告生成时间：2026-08-12 | 分析：Trae IDE（林楠）*

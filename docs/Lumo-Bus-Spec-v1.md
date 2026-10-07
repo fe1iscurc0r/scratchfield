@@ -96,7 +96,7 @@ AgentBus Core
 | **Sequential** | A→B→C 管道 | 文档审查链 | ❌ 不需要 |
 | **Handoff** | A 决定交给 B | LLM 判断后用哪个 agent | ✅ lumo_proxy 做 LLM 交接 |
 | **Concurrent** | A+B+C 并行 | 同时调多个源 | ⚠️ 待建（多数据源并行检索） |
-| **Group Chat** | 多 agent 自主对话 | 多智能体讨论 | ⚠️ 你已有铁锚/杜赞/Hermes/实验田维护者模式 |
+| **Group Chat** | 多 agent 自主对话 | 多智能体讨论 | ⚠️ 你已有铁锚/杜赞/Hermes/沈遥模式 |
 | **Magnetic** | 动态路由到最合适的 agent | 意图识别后分发 | ⚠️ 需要总线支持 |
 
 ---
@@ -310,6 +310,6 @@ lumo_proxy + lumo_event + require_proxy_token
 
 ---
 
-*整合: 实验田维护者 (deepseek-v4-pro)*
+*整合: 沈遥 (deepseek-v4-pro)*
 *数据来源: 2026-08 网络调研 + scratchpad M1-M4 实战*
 *本规范为 Lumo Bus v1 草案，随下一个新库接入实战验证后升级为 v1.0*

@@ -1,6 +1,6 @@
 # 语义网补层融合 SPEC · v1
 
-> 制定：实验田维护者（Hermes）｜施工：Trae
+> 制定：沈遥（Hermes）｜施工：Trae
 > 战略锚点：陆墨知识底座缺"确定性语义推理"——现有 GRAG（summer_memory）能**查**知识（关键词/实体召回），不能**推理**知识（基于本体的规则推导）。语义网补层用 RDF/SPARQL/OWL 补这条线，让陆墨回答"木质素纳米颗粒是不是纳米材料"靠规则推、不靠 LLM 猜。
 > 依据：`INTEGRATION_PLAN.md` 阶段一（语义网补层）+ knowledge 库 rdflib/oxigraph 选型
 > 日期：2026-08-14
@@ -142,4 +142,4 @@ scratchpad/mcpserver/adapters/semantic_web/   ← 新增（照 rf_brain 模板�
 
 ---
 
-*v1 由实验田维护者制定，照射频大脑 SPEC（RF-BRAIN-SPEC-v1.md）同款"先接口后实现"骨架。*
+*v1 由沈遥制定，照射频大脑 SPEC（RF-BRAIN-SPEC-v1.md）同款"先接口后实现"骨架。*

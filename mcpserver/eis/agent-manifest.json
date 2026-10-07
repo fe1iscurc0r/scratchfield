@@ -1,0 +1,83 @@
+{
+  "name": "eis",
+  "displayName": "电化学阻抗谱",
+  "version": "1.0.0",
+  "description": "电化学阻抗谱（EIS）工具组：KK 合法性验证（linkk）/ DRT 松弛时间分布反演（drt）/ 等效电路拟合（ecm）。核心抽象为可换核谱反卷积——与 DLS 粒度反演、SDR 频谱提纯共用同一病态逆问题+正则化数学内核，接口留换核位",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.eis.agent",
+    "class": "EisAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "linkk",
+        "description": "Kramers-Kronig 合法性验证（Lin-KK 风格）：RK 近似残差 ≤ 阈值判定 pass；装 impedance.py 时附带交叉验证",
+        "params": {
+          "freqs": "频率数组 Hz",
+          "z_real": "阻抗实部数组 Ω",
+          "z_imag": "阻抗虚部数组 Ω（电化学惯例为负，正号自动探测）",
+          "threshold": "残差阈值（默认 0.01）",
+          "n_tau": "RK 近似 τ 网格数（默认 40）"
+        },
+        "example": "{\"tool_name\":\"linkk\",\"freqs\":[0.01,1,100000],\"z_real\":[210,150,10.5],\"z_imag\":[-8,-60,-3]}"
+      },
+      {
+        "command": "drt",
+        "description": "DRT 反演：由阻抗谱求松弛时间分布 γ(τ)，返回 τ 网格/γ/峰位（峰位=特征时间常数）；kernel 参数走换核位",
+        "params": {
+          "freqs": "频率数组 Hz",
+          "z_real": "阻抗实部数组 Ω",
+          "z_imag": "阻抗虚部数组 Ω",
+          "kernel": "反演核：tikhonov（默认）/ hierarchical_bayes",
+          "n_tau": "τ 网格数（默认 60）",
+          "lam": "正则强度（可省=自适应）"
+        },
+        "example": "{\"tool_name\":\"drt\",\"freqs\":[0.01,1,100000],\"z_real\":[210,150,10.5],\"z_imag\":[-8,-60,-3],\"kernel\":\"hierarchical_bayes\"}"
+      },
+      {
+        "command": "ecm",
+        "description": "等效电路拟合：R0 + Σ R||CPE（ZARC 串联），返回参数与拟合曲线",
+        "params": {
+          "freqs": "频率数组 Hz",
+          "z_real": "阻抗实部数组 Ω",
+          "z_imag": "阻抗虚部数组 Ω",
+          "num_elements": "R||CPE 元件数（默认 2）"
+        },
+        "example": "{\"tool_name\":\"ecm\",\"freqs\":[0.01,1,100000],\"z_real\":[210,150,10.5],\"z_imag\":[-8,-60,-3],\"num_elements\":2}"
+      },
+      {
+        "command": "kernels",
+        "description": "列出可用的谱反卷积核与默认核（换核位清单）",
+        "params": {},
+        "example": "{\"tool_name\":\"kernels\"}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "compute"
+    ],
+    "domains": [
+      "materials"
+    ],
+    "tier": "read-only",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "capability_pairs": [
+    ["validate", "eis_spectrum"],
+    ["invert", "eis_spectrum"],
+    ["fit", "equivalent_circuit"],
+    ["list", "inversion_kernel"]
+  ],
+  "requires": {
+    "python_packages": [
+      "numpy",
+      "scipy",
+      "impedance"
+    ]
+  }
+}

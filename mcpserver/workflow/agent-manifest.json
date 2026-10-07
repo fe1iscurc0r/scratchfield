@@ -3,7 +3,7 @@
   "displayName": "工单编排（状态机+单赢家认领）",
   "version": "0.1.0",
   "description": "GOLF 线工单状态机（task/board/claim/event_bus）的 MCP 桥：board_create/board_claim/board_status/board_list/board_done/board_blocked/event_log 七工具，封装不重写；数据库取 WORKFLOW_DB 环境变量或默认 workflow.db，与 CLI 同源；事件经进程内环形缓冲留痕。",
-  "author": "实验田维护者",
+  "author": "沈遥",
   "license": "AGPL-3.0",
   "agentType": "mcp",
   "entryPoint": {

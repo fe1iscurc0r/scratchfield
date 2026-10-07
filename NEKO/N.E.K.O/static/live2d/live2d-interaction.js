@@ -160,10 +160,16 @@ function isLive2DPointInRect(point, rect, padding = 0) {
 }
 
 const LIVE2D_EDGE_CONTACT_TOLERANCE_PX = 8;
+const LIVE2D_PEEK_EDGE_RELEASE_ZONE_PX = 48;
+const LIVE2D_PEEK_DIRECTIONAL_INTENT_MIN_PX = 10;
 const LIVE2D_PEEK_VISIBLE_RATIO = 0.22;
 const LIVE2D_PEEK_VISIBLE_MIN_PX = 96;
 const LIVE2D_PEEK_VISIBLE_MAX_PX = 180;
 const LIVE2D_PEEK_SIDE_ROTATION_DEGREES = 60;
+const LIVE2D_PEEK_SIDE_ROTATION_MAX_DEGREES = 55;
+const LIVE2D_PEEK_SIDE_ROTATION_MIN_DEGREES = 28;
+const LIVE2D_PEEK_SIDE_ROTATION_RATIO_START = 0.20;
+const LIVE2D_PEEK_SIDE_ROTATION_RATIO_END = 0.80;
 const LIVE2D_PEEK_CORNER_ROTATION_DEGREES = 45;
 // live2d-core.js performs its final cross-display renderer resize after 120ms.
 // Restore the semantic edge anchor only after that pass can no longer clear it.
@@ -484,7 +490,42 @@ function getLive2DModelGeometryBounds(manager, model) {
     };
 }
 
-function getLive2DPeekEdgeContact(manager, model, viewport = null) {
+function getLive2DPeekDragEdgeIntent(options, workArea) {
+    const startScreenPoint = normalizeLive2DPoint(options && options.startScreenPoint);
+    const releaseScreenPoint = normalizeLive2DPoint(options && options.releaseScreenPoint);
+    if (!startScreenPoint || !releaseScreenPoint || !workArea) {
+        return { horizontal: '', vertical: '' };
+    }
+
+    if (!live2DPeekDisplayContext ||
+            !Number.isFinite(Number(live2DPeekDisplayContext.screenX)) ||
+            !Number.isFinite(Number(live2DPeekDisplayContext.screenY))) {
+        return { horizontal: '', vertical: '' };
+    }
+    const screenX = Number(live2DPeekDisplayContext.screenX);
+    const screenY = Number(live2DPeekDisplayContext.screenY);
+    const releaseX = releaseScreenPoint.x - screenX;
+    const releaseY = releaseScreenPoint.y - screenY;
+    const deltaX = releaseScreenPoint.x - startScreenPoint.x;
+    const deltaY = releaseScreenPoint.y - startScreenPoint.y;
+    const zone = LIVE2D_PEEK_EDGE_RELEASE_ZONE_PX;
+    const minimumIntent = LIVE2D_PEEK_DIRECTIONAL_INTENT_MIN_PX;
+    const nearLeftRelease = releaseX >= workArea.left - zone && releaseX <= workArea.left + zone;
+    const nearRightRelease = releaseX >= workArea.right - zone && releaseX <= workArea.right + zone;
+    const nearTopRelease = releaseY >= workArea.top - zone && releaseY <= workArea.top + zone;
+    const nearBottomRelease = releaseY >= workArea.bottom - zone && releaseY <= workArea.bottom + zone;
+
+    return {
+        horizontal: nearLeftRelease && deltaX <= -minimumIntent
+            ? 'left'
+            : (nearRightRelease && deltaX >= minimumIntent ? 'right' : ''),
+        vertical: nearTopRelease && deltaY <= -minimumIntent
+            ? 'top'
+            : (nearBottomRelease && deltaY >= minimumIntent ? 'bottom' : '')
+    };
+}
+
+function getLive2DPeekEdgeContact(manager, model, viewport = null, options = null) {
     const geometry = getLive2DModelGeometryBounds(manager, model);
     const fullViewport = getLive2DPeekViewport(geometry, manager);
     const workArea = viewport || getLive2DPeekTriggerViewport(fullViewport);
@@ -498,16 +539,30 @@ function getLive2DPeekEdgeContact(manager, model, viewport = null) {
         geometry.left <= workArea.right && geometry.right >= workArea.right - tolerance;
     if (!nearLeft && !nearRight) return null;
 
-    const side = nearLeft && nearRight
-        ? (Math.abs(geometry.left - workArea.left) <= Math.abs(workArea.right - geometry.right)
-            ? 'left'
-            : 'right')
-        : (nearLeft ? 'left' : 'right');
+    const intent = getLive2DPeekDragEdgeIntent(options, workArea);
+    let side = nearLeft ? 'left' : 'right';
+    if (nearLeft && nearRight) {
+        const exactlyLeft = Math.abs(geometry.left - workArea.left) <= tolerance;
+        const exactlyRight = Math.abs(geometry.right - workArea.right) <= tolerance;
+        if (exactlyLeft !== exactlyRight) {
+            side = exactlyLeft ? 'left' : 'right';
+        } else if (intent.horizontal) {
+            side = intent.horizontal;
+        } else {
+            return null;
+        }
+    }
     const nearTop = geometry.bottom >= workArea.top && geometry.top <= workArea.top + tolerance;
     const nearBottom = geometry.top <= workArea.bottom && geometry.bottom >= workArea.bottom - tolerance;
     let verticalEdge = '';
     if (nearTop && nearBottom) {
-        verticalEdge = geometry.centerY <= workArea.top + workArea.height / 2 ? 'top' : 'bottom';
+        const exactlyTop = Math.abs(geometry.top - workArea.top) <= tolerance;
+        const exactlyBottom = Math.abs(geometry.bottom - workArea.bottom) <= tolerance;
+        if (exactlyTop !== exactlyBottom) {
+            verticalEdge = exactlyTop ? 'top' : 'bottom';
+        } else {
+            verticalEdge = intent.vertical;
+        }
     } else if (nearTop) {
         verticalEdge = 'top';
     } else if (nearBottom) {
@@ -516,6 +571,38 @@ function getLive2DPeekEdgeContact(manager, model, viewport = null) {
     return {
         edge: verticalEdge ? `${verticalEdge}-${side}` : side,
         side,
+        verticalEdge,
+        geometry,
+        workArea,
+        displayRevision: live2DPeekDisplayContext ? live2DPeekDisplayContext.revision : 0,
+        cropRevision: live2DPeekDisplayContext ? live2DPeekDisplayContext.cropRevision : 0
+    };
+}
+
+function validateLive2DPeekEdgeContact(manager, model, initialContact) {
+    if (!initialContact || !initialContact.side || !initialContact.workArea) return null;
+    const geometry = getLive2DModelGeometryBounds(manager, model);
+    const workArea = initialContact.workArea;
+    if (!geometry) return null;
+
+    const tolerance = LIVE2D_EDGE_CONTACT_TOLERANCE_PX;
+    const overlapsVertically = geometry.bottom >= workArea.top && geometry.top <= workArea.bottom;
+    const sideStillTouches = initialContact.side === 'left'
+        ? overlapsVertically && geometry.right >= workArea.left && geometry.left <= workArea.left + tolerance
+        : overlapsVertically && geometry.left <= workArea.right && geometry.right >= workArea.right - tolerance;
+    if (!sideStillTouches) return null;
+
+    const verticalEdge = initialContact.verticalEdge || '';
+    if (verticalEdge === 'top' && !(
+        geometry.bottom >= workArea.top && geometry.top <= workArea.top + tolerance
+    )) return null;
+    if (verticalEdge === 'bottom' && !(
+        geometry.top <= workArea.bottom && geometry.bottom >= workArea.bottom - tolerance
+    )) return null;
+
+    return {
+        edge: verticalEdge ? `${verticalEdge}-${initialContact.side}` : initialContact.side,
+        side: initialContact.side,
         verticalEdge,
         geometry,
         workArea,
@@ -536,10 +623,12 @@ function settleLive2DBaseAtEdgeContact(model, contact) {
         dy = workArea.top - geometry.top;
     } else if (contact.verticalEdge === 'bottom') {
         dy = workArea.bottom - geometry.bottom;
-    } else if (geometry.top < workArea.top) {
-        dy = workArea.top - geometry.top;
-    } else if (geometry.bottom > workArea.bottom) {
-        dy = workArea.bottom - geometry.bottom;
+    } else if (geometry.height <= workArea.height) {
+        if (geometry.top < workArea.top) {
+            dy = workArea.top - geometry.top;
+        } else if (geometry.bottom > workArea.bottom) {
+            dy = workArea.bottom - geometry.bottom;
+        }
     }
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return false;
     model.x += dx;
@@ -547,12 +636,34 @@ function settleLive2DBaseAtEdgeContact(model, contact) {
     return true;
 }
 
-function getLive2DPeekRotationDegrees(anchor) {
+function getLive2DPeekSideRotationMagnitude(headAnchorRatio) {
+    if (headAnchorRatio === null || headAnchorRatio === undefined || headAnchorRatio === '') {
+        return LIVE2D_PEEK_SIDE_ROTATION_DEGREES;
+    }
+    const ratio = Number(headAnchorRatio);
+    if (!Number.isFinite(ratio)) return LIVE2D_PEEK_SIDE_ROTATION_DEGREES;
+    const progress = clampLive2DPeekCoordinate(
+        (ratio - LIVE2D_PEEK_SIDE_ROTATION_RATIO_START) /
+            (LIVE2D_PEEK_SIDE_ROTATION_RATIO_END - LIVE2D_PEEK_SIDE_ROTATION_RATIO_START),
+        0,
+        1
+    );
+    const smoothProgress = progress * progress * (3 - 2 * progress);
+    return LIVE2D_PEEK_SIDE_ROTATION_MAX_DEGREES +
+        (LIVE2D_PEEK_SIDE_ROTATION_MIN_DEGREES - LIVE2D_PEEK_SIDE_ROTATION_MAX_DEGREES) *
+            smoothProgress;
+}
+
+function getLive2DPeekRotationDegrees(anchor, headAnchorRatio = undefined) {
     if (!anchor || !anchor.side) return 0;
     if (!anchor.verticalEdge) {
+        const sideHeadAnchorRatio = headAnchorRatio === undefined
+            ? anchor.headAnchorRatio
+            : headAnchorRatio;
+        const rotationMagnitude = getLive2DPeekSideRotationMagnitude(sideHeadAnchorRatio);
         return anchor.side === 'left'
-            ? LIVE2D_PEEK_SIDE_ROTATION_DEGREES
-            : -LIVE2D_PEEK_SIDE_ROTATION_DEGREES;
+            ? rotationMagnitude
+            : -rotationMagnitude;
     }
     if (anchor.verticalEdge === 'top') {
         return anchor.side === 'left'
@@ -578,6 +689,25 @@ function getLive2DPeekHeadAnchor(manager) {
     if (!manager || typeof manager.getHeadScreenAnchor !== 'function') return null;
     try {
         const anchor = manager.getHeadScreenAnchor();
+        if (!anchor) return null;
+        const x = Number(anchor && anchor.x);
+        const y = Number(anchor && anchor.y);
+        return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function getLive2DPeekReliableHeadAnchor(manager) {
+    if (!manager || typeof manager.getHeadDetectionGeometryInfo !== 'function') return null;
+    try {
+        const info = manager.getHeadDetectionGeometryInfo();
+        if (!info || !info.reliableHeadRect) return null;
+        let anchor = info.headAnchor || info.rawHeadAnchor;
+        if (!anchor && typeof manager.getHeadScreenAnchor === 'function') {
+            anchor = manager.getHeadScreenAnchor();
+        }
+        if (!anchor) return null;
         const x = Number(anchor && anchor.x);
         const y = Number(anchor && anchor.y);
         return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
@@ -658,19 +788,43 @@ function getLive2DPeekPlacement(model, bounds, manager = null, anchor = null) {
     const baseY = Number(model.y) || 0;
     const baseRotation = Number.isFinite(Number(model.rotation)) ? Number(model.rotation) : 0;
     const baseScaleX = model.scale && Number.isFinite(Number(model.scale.x)) ? Number(model.scale.x) : 1;
-    const targetRotationDegrees = getLive2DPeekRotationDegrees(anchor);
-    const targetRotation = targetRotationDegrees * Math.PI / 180;
     let targetScaleX = getLive2DPeekInwardScaleX(model, side);
     if (side === 'right') {
         targetScaleX = Math.abs(targetScaleX);
     }
     const baseHeadAnchor = getLive2DPeekHeadAnchor(manager);
+    const baseReliableHeadAnchor = getLive2DPeekReliableHeadAnchor(manager);
     const fallbackHeadLocalPoint = baseHeadAnchor
         ? null
         : getLive2DPeekFallbackHeadLocalPoint(model, bounds);
     const fallbackBaseHeadAnchor = getLive2DPeekGlobalPoint(model, fallbackHeadLocalPoint);
     const effectiveBaseHeadAnchor = baseHeadAnchor || fallbackBaseHeadAnchor;
     const baseBodyRect = getLive2DPeekBodyRect(manager);
+    const baseRevealWidth = getLive2DPeekRevealWidth(bounds);
+    const sideHeadInsetY = clampLive2DPeekCoordinate(baseRevealWidth * 0.32, 36, 64);
+    const restoredHeadAnchorRatio = anchor.headAnchorRatio !== null &&
+            anchor.headAnchorRatio !== undefined &&
+            anchor.headAnchorRatio !== '' &&
+            Number.isFinite(Number(anchor.headAnchorRatio))
+        ? clampLive2DPeekCoordinate(Number(anchor.headAnchorRatio), 0, 1)
+        : null;
+    const rawSideHeadAnchorRatio = !verticalEdge && baseReliableHeadAnchor && viewport.height > 0
+        ? (restoredHeadAnchorRatio !== null
+            ? restoredHeadAnchorRatio
+            : clampLive2DPeekCoordinate((baseReliableHeadAnchor.y - viewport.top) / viewport.height, 0, 1))
+        : null;
+    const desiredSideHeadY = rawSideHeadAnchorRatio !== null
+        ? clampLive2DPeekCoordinate(
+            viewport.top + viewport.height * rawSideHeadAnchorRatio,
+            viewport.top + sideHeadInsetY,
+            viewport.bottom - sideHeadInsetY
+        )
+        : null;
+    const headAnchorRatio = desiredSideHeadY !== null && viewport.height > 0
+        ? clampLive2DPeekCoordinate((desiredSideHeadY - viewport.top) / viewport.height, 0, 1)
+        : null;
+    const targetRotationDegrees = getLive2DPeekRotationDegrees(anchor, headAnchorRatio);
+    const targetRotation = targetRotationDegrees * Math.PI / 180;
     const baseHeadY = effectiveBaseHeadAnchor
         ? effectiveBaseHeadAnchor.y
         : bounds.top + bounds.height * LIVE2D_PEEK_HEAD_Y_RATIO;
@@ -682,6 +836,7 @@ function getLive2DPeekPlacement(model, bounds, manager = null, anchor = null) {
 
     let transformedBounds = null;
     let transformedHeadAnchor = null;
+    let transformedReliableHeadAnchor = null;
     let transformedHeadAnchorSource = '';
     let transformedBodyRect = null;
     try {
@@ -691,6 +846,7 @@ function getLive2DPeekPlacement(model, bounds, manager = null, anchor = null) {
         if (model.scale) model.scale.x = targetScaleX;
         transformedBounds = getLive2DPeekBounds(model);
         transformedHeadAnchor = getLive2DPeekHeadAnchor(manager);
+        transformedReliableHeadAnchor = getLive2DPeekReliableHeadAnchor(manager);
         if (transformedHeadAnchor) {
             transformedHeadAnchorSource = 'manager';
         } else {
@@ -713,29 +869,50 @@ function getLive2DPeekPlacement(model, bounds, manager = null, anchor = null) {
     const desiredHeadX = side === 'left'
         ? viewport.left + headInset
         : viewport.right - headInset;
-    const useHeadAnchor = !!verticalEdge && !!transformedHeadAnchor;
-    const useWaistAnchor = !verticalEdge && !!(baseBodyRect && transformedBodyRect);
+    const useCornerHeadAnchor = !!verticalEdge && !!transformedHeadAnchor;
+    const useSideHeadAnchor = !verticalEdge &&
+        !!transformedReliableHeadAnchor &&
+        headAnchorRatio !== null;
+    const useWaistFallback = !verticalEdge &&
+        !useSideHeadAnchor &&
+        !!(baseBodyRect && transformedBodyRect);
     const desiredWaistX = side === 'left' ? viewport.left - 8 : viewport.right + 8;
-    let offsetX = useHeadAnchor
-        ? desiredHeadX - transformedHeadAnchor.x
-        : (useWaistAnchor
+    const placementHeadAnchor = useSideHeadAnchor
+        ? transformedReliableHeadAnchor
+        : transformedHeadAnchor;
+    let offsetX = useCornerHeadAnchor || useSideHeadAnchor
+        ? desiredHeadX - placementHeadAnchor.x
+        : (useWaistFallback
         ? desiredWaistX - transformedBodyRect.centerX
         : (transformedHeadAnchor
             ? desiredHeadX - transformedHeadAnchor.x
             : (side === 'left'
             ? viewport.left + revealWidth - transformedBounds.right
             : viewport.right - revealWidth - transformedBounds.left)));
+    if (useSideHeadAnchor && transformedBodyRect) {
+        const waistOffsetX = desiredWaistX - transformedBodyRect.centerX;
+        const minimumHeadInset = 36;
+        if (side === 'left') {
+            const minimumHeadOffsetX = viewport.left + minimumHeadInset - placementHeadAnchor.x;
+            offsetX = Math.max(Math.min(offsetX, waistOffsetX), minimumHeadOffsetX);
+        } else {
+            const maximumHeadOffsetX = viewport.right - minimumHeadInset - placementHeadAnchor.x;
+            offsetX = Math.min(Math.max(offsetX, waistOffsetX), maximumHeadOffsetX);
+        }
+    }
     const targetHeadY = transformedHeadAnchor
         ? transformedHeadAnchor.y
         : transformedBounds.top + transformedBounds.height * LIVE2D_PEEK_HEAD_Y_RATIO;
     let offsetY;
-    if (useHeadAnchor) {
+    if (useCornerHeadAnchor) {
         const desiredHeadInsetY = clampLive2DPeekCoordinate(revealWidth * 0.32, 36, 64);
         const desiredHeadYAtEdge = verticalEdge === 'bottom'
             ? viewport.bottom - desiredHeadInsetY
             : viewport.top + desiredHeadInsetY;
         offsetY = desiredHeadYAtEdge - transformedHeadAnchor.y;
-    } else if (useWaistAnchor) {
+    } else if (useSideHeadAnchor) {
+        offsetY = desiredSideHeadY - placementHeadAnchor.y;
+    } else if (useWaistFallback) {
         offsetY = baseBodyRect.bottom - transformedBodyRect.bottom;
     } else if (verticalEdge === 'top') {
         offsetY = viewport.top + revealWidth - transformedBounds.bottom;
@@ -784,6 +961,13 @@ function getLive2DPeekPlacement(model, bounds, manager = null, anchor = null) {
         0,
         1
     );
+    const resolvedHeadAnchorRatio = useSideHeadAnchor && viewport.height > 0
+        ? clampLive2DPeekCoordinate(
+            (placementHeadAnchor.y + offsetY - viewport.top) / viewport.height,
+            0,
+            1
+        )
+        : null;
     const hiddenOffsetX = side === 'left'
         ? viewport.left - targetBounds.right - LIVE2D_PEEK_HIDDEN_MARGIN_PX
         : viewport.right - targetBounds.left + LIVE2D_PEEK_HIDDEN_MARGIN_PX;
@@ -796,11 +980,12 @@ function getLive2DPeekPlacement(model, bounds, manager = null, anchor = null) {
         rotation: targetRotation,
         rotationDegrees: targetRotationDegrees,
         scaleX: targetScaleX,
-        headAnchored: useHeadAnchor || !!transformedHeadAnchor,
-        headAnchorSource: transformedHeadAnchorSource,
-        waistAnchored: useWaistAnchor,
+        headAnchored: useCornerHeadAnchor || useSideHeadAnchor,
+        headAnchorSource: useSideHeadAnchor ? 'manager' : transformedHeadAnchorSource,
+        waistAnchored: useWaistFallback,
         revealWidth,
         edgeAnchorRatio,
+        headAnchorRatio: resolvedHeadAnchorRatio,
         visibleBounds,
         hiddenX: baseX + offsetX + hiddenOffsetX,
         hiddenY: baseY + offsetY
@@ -885,6 +1070,72 @@ Live2DManager.prototype.isLive2DPeekActive = function () {
     return !!(state && state.active && state.model && !state.model.destroyed);
 };
 
+Live2DManager.prototype.isLive2DEffectiveLocked = function () {
+    const state = this._live2DPeekState;
+    const edgeLocked = window.edgePeekLockEnabled === true
+        && !!state && state.active === true && state.phase === 'peeking'
+        && (!state.model || (state.model === this.currentModel
+            && !state.model.destroyed && state.model.visible !== false));
+    return this.isLocked === true || edgeLocked;
+};
+
+Live2DManager.prototype.syncLive2DEffectiveInputLock = function () {
+    if (!this._edgePeekLockChangedListener) {
+        this._edgePeekLockChangedListener = () => {
+            const state = this._live2DPeekState;
+            if (state && state.active && state.phase === 'revealing'
+                && state.model && state.model === this.currentModel && !state.model.destroyed) {
+                state.model.interactive = window.edgePeekLockEnabled !== true
+                    ? state.baseInteractive : false;
+            }
+            this.syncLive2DEffectiveInputLock();
+        };
+        window.addEventListener('neko-edge-peek-lock-changed', this._edgePeekLockChangedListener);
+    }
+    const rendererView = this.pixi_app && this.pixi_app.renderer && this.pixi_app.renderer.view;
+    const canvas = rendererView || document.getElementById('live2d-canvas');
+    const container = (canvas && canvas.closest && canvas.closest('#live2d-container'))
+        || (canvas && canvas.parentElement)
+        || document.getElementById('live2d-container');
+    if (!canvas || !canvas.style) {
+        if (!this.isLive2DEffectiveLocked() && container && container.classList) {
+            typeof container.classList.toggle === 'function' ? container.classList.toggle('locked-hover-fade', false) : container.classList.remove('locked-hover-fade');
+        }
+        return;
+    }
+    const key = '_edgePeekInputSnapshot';
+    const effectiveLocked = this.isLive2DEffectiveLocked();
+    if (!effectiveLocked) {
+        if (typeof this._resetStationaryHoverFade === 'function') {
+            this._resetStationaryHoverFade();
+        } else if (typeof this._clearStationaryFadeTimer === 'function') {
+            this._clearStationaryFadeTimer();
+            this._hasEnteredHoverRange = false;
+        }
+    }
+    if (effectiveLocked) {
+        if (!this[key]) this[key] = {
+            pointerEvents: canvas.style.pointerEvents || canvas.style.getPropertyValue('pointer-events'),
+            cursor: canvas.style.cursor || canvas.style.getPropertyValue('cursor')
+        };
+        canvas.style.pointerEvents = 'none';
+        canvas.style.cursor = 'default';
+        return;
+    }
+    const snapshot = this[key];
+    if (!snapshot) {
+        if (container && container.classList) typeof container.classList.toggle === 'function' ? container.classList.toggle('locked-hover-fade', false) : container.classList.remove('locked-hover-fade');
+        return;
+    }
+    if (canvas.style.pointerEvents === 'none') canvas.style.pointerEvents = snapshot.pointerEvents || '';
+    if ((canvas.style.cursor || canvas.style.getPropertyValue('cursor')) === 'default') {
+        if ('cursor' in canvas.style) canvas.style.cursor = snapshot.cursor || '';
+        else canvas.style.setProperty('cursor', snapshot.cursor || '');
+    }
+    if (container && container.classList) typeof container.classList.toggle === 'function' ? container.classList.toggle('locked-hover-fade', false) : container.classList.remove('locked-hover-fade');
+    this[key] = null;
+};
+
 Live2DManager.prototype._setLive2DPeekControlsSuppressed = function (active) {
     const ids = ['live2d-floating-buttons', 'live2d-lock-icon'];
     ids.forEach((id) => {
@@ -965,6 +1216,7 @@ Live2DManager.prototype.clearLive2DPeek = function (reason = 'manual', options =
         model.interactive = state.baseInteractive;
     }
     this._live2DPeekState = null;
+    this.syncLive2DEffectiveInputLock();
     if (document.body) {
         document.body.classList.remove('neko-live2d-peek');
     }
@@ -984,6 +1236,7 @@ Live2DManager.prototype.restoreLive2DPeek = async function (reason = 'manual-res
     this._live2DPeekTransitionId = transitionId;
     state.transitionId = transitionId;
     state.phase = 'hiding';
+    this.syncLive2DEffectiveInputLock();
     model.interactive = false;
     const stillCurrent = () => {
         const activeState = this._live2DPeekState;
@@ -1016,7 +1269,11 @@ Live2DManager.prototype._setLive2DPeekVisibility = async function (visible, reas
     this._live2DPeekTransitionId = transitionId;
     state.transitionId = transitionId;
     state.phase = shouldReveal ? 'revealing' : 'hiding';
-    model.interactive = shouldReveal ? state.baseInteractive : false;
+    this.syncLive2DEffectiveInputLock();
+    // The reveal animation owns the transform until it settles. Keep input
+    // disabled during that transition when Edge Peek lock is enabled.
+    model.interactive = shouldReveal && window.edgePeekLockEnabled !== true
+        ? state.baseInteractive : false;
 
     const target = shouldReveal
         ? {
@@ -1054,6 +1311,7 @@ Live2DManager.prototype._setLive2DPeekVisibility = async function (visible, reas
     model.rotation = target.rotation;
     if (model.scale) model.scale.x = target.scaleX;
     state.phase = shouldReveal ? 'peeking' : 'hidden';
+    this.syncLive2DEffectiveInputLock();
     model.interactive = shouldReveal ? state.baseInteractive : false;
     try {
         window.dispatchEvent(new CustomEvent('neko:live2d-peek-changed', {
@@ -1070,7 +1328,11 @@ Live2DManager.prototype._setLive2DPeekVisibility = async function (visible, reas
     return true;
 };
 
-Live2DManager.prototype._tryApplyLive2DPeek = async function (model, edgeContact = null) {
+Live2DManager.prototype._tryApplyLive2DPeek = async function (model, edgeContact = null, options = {}) {
+    const isCurrentSettlement = typeof options.isCurrentSettlement === 'function'
+        ? options.isCurrentSettlement
+        : () => true;
+    if (!isCurrentSettlement()) return false;
     if (!isLive2DPeekEnabled()) {
         this.clearLive2DPeek('widget-mode-disabled');
         return false;
@@ -1079,6 +1341,7 @@ Live2DManager.prototype._tryApplyLive2DPeek = async function (model, edgeContact
             typeof window.electronScreen.getDesktopCoordinateSnapshot === 'function') {
         await refreshLive2DPeekDisplayContext();
     }
+    if (!isCurrentSettlement()) return false;
     if (!isLive2DPeekEnabled() || !model || model.destroyed) {
         this.clearLive2DPeek('widget-mode-disabled-after-display-check');
         return false;
@@ -1119,6 +1382,7 @@ Live2DManager.prototype._tryApplyLive2DPeek = async function (model, edgeContact
         headAnchorSource: target.headAnchorSource,
         waistAnchored: target.waistAnchored,
         edgeAnchorRatio: target.edgeAnchorRatio,
+        headAnchorRatio: target.headAnchorRatio,
         visibleBounds: target.visibleBounds
     };
     if (document.body) {
@@ -1202,7 +1466,7 @@ function captureLive2DPeekRestoreAnchor() {
     const visibleBounds = state.visibleBounds || getLive2DPeekViewportIntersection(bounds, viewport);
     if (!viewport || !visibleBounds || viewport.height <= 0) return null;
     const storedEdgeAnchorRatio = Number(state.edgeAnchorRatio);
-    return {
+    const restoreAnchor = {
         kind: 'live2d-edge-peek',
         edge,
         side: state.side,
@@ -1221,6 +1485,15 @@ function captureLive2DPeekRestoreAnchor() {
             scaleFactor: Number(window.devicePixelRatio) || 1
         }
     };
+    const storedHeadAnchorRatio = state.headAnchorRatio !== null &&
+            state.headAnchorRatio !== undefined &&
+            state.headAnchorRatio !== ''
+        ? Number(state.headAnchorRatio)
+        : NaN;
+    if ((edge === 'left' || edge === 'right') && Number.isFinite(storedHeadAnchorRatio)) {
+        restoreAnchor.headAnchorRatio = clampLive2DPeekCoordinate(storedHeadAnchorRatio, 0, 1);
+    }
+    return restoreAnchor;
 }
 
 async function restoreLive2DPeekAnchor(anchor) {
@@ -1259,10 +1532,18 @@ async function restoreLive2DPeekAnchor(anchor) {
     const verticalEdge = edge.startsWith('top-')
         ? 'top'
         : (edge.startsWith('bottom-') ? 'bottom' : '');
+    const restoredHeadAnchorRatio = !verticalEdge &&
+            anchor.headAnchorRatio !== null &&
+            anchor.headAnchorRatio !== undefined &&
+            anchor.headAnchorRatio !== '' &&
+            Number.isFinite(Number(anchor.headAnchorRatio))
+        ? clampLive2DPeekCoordinate(Number(anchor.headAnchorRatio), 0, 1)
+        : null;
     return await manager._tryApplyLive2DPeek(model, {
         edge,
         side,
         verticalEdge,
+        headAnchorRatio: restoredHeadAnchorRatio,
         geometry: getLive2DModelGeometryBounds(manager, model),
         workArea: viewport
     });
@@ -1465,13 +1746,24 @@ Live2DManager.prototype._checkSnapRequired = async function (model, options = {}
     }
 };
 
+// 排一帧吸附动画：Electron Pet 里渲染后端切到定时器驱动时走同周期定时器
+// （frame-pacing.requestPacedFrame），否则 rAF；裸 rAF 会在动画期间把 Blink 主帧顶回刷新率
+function scheduleLive2DSnapFrame(callback) {
+    const pacing = window.nekoFramePacing;
+    if (pacing && typeof pacing.requestPacedFrame === 'function') {
+        return pacing.requestPacedFrame(callback);
+    }
+    const id = requestAnimationFrame(callback);
+    return () => cancelAnimationFrame(id);
+}
+
 /**
  * 执行平滑吸附动画
  * @param {PIXI.DisplayObject} model - Live2D 模型对象
  * @param {Object} snapInfo - 吸附信息（由 _checkSnapRequired 返回）
  * @returns {Promise<boolean>} 动画完成后返回 true
  */
-Live2DManager.prototype._performSnapAnimation = function (model, snapInfo) {
+Live2DManager.prototype._performSnapAnimation = function (model, snapInfo, options = {}) {
     return new Promise((resolve) => {
         if (!model || !snapInfo) {
             resolve(false);
@@ -1481,17 +1773,30 @@ Live2DManager.prototype._performSnapAnimation = function (model, snapInfo) {
         const { startX, startY, targetX, targetY } = snapInfo;
         const duration = SNAP_CONFIG.animationDuration;
         const easingFn = EasingFunctions[SNAP_CONFIG.easingType] || EasingFunctions.easeOutCubic;
+        const isCurrentSettlement = typeof options.isCurrentSettlement === 'function'
+            ? options.isCurrentSettlement
+            : () => true;
 
         const startTime = performance.now();
+        const animationToken = {};
 
         // 标记正在执行吸附动画，防止其他操作干扰
         this._isSnapping = true;
+        this._live2DActiveSnapAnimation = animationToken;
+        const finish = (result) => {
+            if (this._live2DActiveSnapAnimation === animationToken) {
+                this._live2DActiveSnapAnimation = null;
+                this._isSnapping = false;
+            }
+            resolve(result);
+        };
 
         const animate = (currentTime) => {
             // 检查模型是否仍然有效
-            if (!model || model.destroyed) {
-                this._isSnapping = false;
-                resolve(false);
+            if (!model || model.destroyed ||
+                    this._live2DActiveSnapAnimation !== animationToken ||
+                    !isCurrentSettlement()) {
+                finish(false);
                 return;
             }
 
@@ -1504,20 +1809,19 @@ Live2DManager.prototype._performSnapAnimation = function (model, snapInfo) {
             model.y = startY + (targetY - startY) * easedProgress;
 
             if (progress < 1) {
-                requestAnimationFrame(animate);
+                scheduleLive2DSnapFrame(animate);
             } else {
                 // 确保最终位置精确
                 model.x = targetX;
                 model.y = targetY;
-                this._isSnapping = false;
 
                 console.debug('[Live2D] 吸附动画完成，最终位置:', targetX, targetY);
-                resolve(true);
+                finish(true);
             }
         };
 
         console.debug('[Live2D] 开始吸附动画:', { from: { x: startX, y: startY }, to: { x: targetX, y: targetY } });
-        requestAnimationFrame(animate);
+        scheduleLive2DSnapFrame(animate);
     });
 };
 
@@ -1529,6 +1833,10 @@ Live2DManager.prototype._performSnapAnimation = function (model, snapInfo) {
  * @returns {Promise<boolean>} 是否执行了吸附
  */
 Live2DManager.prototype._checkAndPerformSnap = async function (model, options = {}) {
+    const isCurrentSettlement = typeof options.isCurrentSettlement === 'function'
+        ? options.isCurrentSettlement
+        : () => true;
+    if (!isCurrentSettlement()) return false;
     if (!this._isModelReadyForInteraction && !options.allowWhenNotReady) {
         return false;
     }
@@ -1543,6 +1851,7 @@ Live2DManager.prototype._checkAndPerformSnap = async function (model, options = 
     }
 
     const snapInfo = await this._checkSnapRequired(model, options);
+    if (!isCurrentSettlement()) return false;
 
     if (!snapInfo) {
         return false;
@@ -1551,11 +1860,12 @@ Live2DManager.prototype._checkAndPerformSnap = async function (model, options = 
     console.log('[Live2D] 检测到模型超出屏幕边界，执行自动吸附');
     console.debug('[Live2D] 超出信息:', snapInfo.overflow);
 
-    const animated = await this._performSnapAnimation(model, snapInfo);
+    const animated = await this._performSnapAnimation(model, snapInfo, { isCurrentSettlement });
 
-    if (animated) {
+    if (animated && isCurrentSettlement()) {
         // 吸附完成后保存位置
-        await this._savePositionAfterInteraction();
+        await this._savePositionAfterInteraction({ isCurrentSettlement });
+        if (!isCurrentSettlement()) return false;
     }
 
     return animated;
@@ -1620,12 +1930,30 @@ function placeLive2DGrabPointAtPointer(model, localGrabPoint, pointer) {
     }
 }
 
-Live2DManager.prototype._settleLive2DDragTerminal = async function (model) {
+Live2DManager.prototype._settleLive2DDragTerminal = async function (model, options = {}) {
     if (!model || model.destroyed || !this._isModelReadyForInteraction) return false;
+    const expectedGeneration = Number.isFinite(Number(options.dragGeneration))
+        ? Number(options.dragGeneration)
+        : (Number(this._live2DDragGeneration) || 0);
+    const isCurrentSettlement = () =>
+        (Number(this._live2DDragGeneration) || 0) === expectedGeneration &&
+        !model.destroyed &&
+        this.currentModel === model;
+    if (!isCurrentSettlement()) return false;
 
-    await this._checkAndSwitchDisplay(model);
+    await this._checkAndSwitchDisplay(model, {
+        releaseScreenPoint: options.releaseScreenPoint,
+        isCurrentSettlement
+    });
+    if (!isCurrentSettlement()) return false;
+    const displaySwitchIdle = this._live2DDisplaySwitchIdlePromise;
+    if (displaySwitchIdle && typeof displaySwitchIdle.then === 'function') {
+        await displaySwitchIdle;
+        if (!isCurrentSettlement()) return false;
+    }
     if (isLive2DPeekDesktopRuntime() && window.electronScreen) {
         const settledContext = await waitForLive2DDesktopCoordinateSettlement();
+        if (!isCurrentSettlement()) return false;
         if (!settledContext) {
             console.warn('[Live2D] 桌面坐标尚未落稳，停止本次拖拽结算');
             return false;
@@ -1633,20 +1961,30 @@ Live2DManager.prototype._settleLive2DDragTerminal = async function (model) {
     }
 
     const edgeContact = isLive2DPeekEnabled()
-        ? getLive2DPeekEdgeContact(this, model)
+        ? getLive2DPeekEdgeContact(this, model, null, options)
         : null;
+    const originalPosition = { x: model.x, y: model.y };
     if (edgeContact && settleLive2DBaseAtEdgeContact(model, edgeContact)) {
-        const settledContact = getLive2DPeekEdgeContact(this, model, edgeContact.workArea);
+        const settledContact = validateLive2DPeekEdgeContact(this, model, edgeContact);
         if (settledContact) {
-            await this._savePositionAfterInteraction();
-            await this._tryApplyLive2DPeek(model, settledContact);
+            if (!isCurrentSettlement()) return false;
+            await this._savePositionAfterInteraction({ isCurrentSettlement });
+            if (!isCurrentSettlement()) return false;
+            await this._tryApplyLive2DPeek(model, settledContact, { isCurrentSettlement });
+            if (!isCurrentSettlement()) return false;
             return true;
         }
+        if (!isCurrentSettlement()) return false;
+        model.x = originalPosition.x;
+        model.y = originalPosition.y;
     }
 
-    const snapped = await this._checkAndPerformSnap(model);
+    if (!isCurrentSettlement()) return false;
+    const snapped = await this._checkAndPerformSnap(model, { isCurrentSettlement });
+    if (!isCurrentSettlement()) return false;
     if (!snapped) {
-        await this._savePositionAfterInteraction();
+        await this._savePositionAfterInteraction({ isCurrentSettlement });
+        if (!isCurrentSettlement()) return false;
     }
     return true;
 };
@@ -1754,9 +2092,31 @@ Live2DManager.prototype.setupDragAndDrop = function (model) {
 
    
 
-    model.on('pointerdown', (event) => {
+    const onDragStart = (event) => {
         if (!this._isModelReadyForInteraction) return;
-        if (this.isLocked) return;
+        // Edge Peek lock is renderer-local and must block the model canvas
+        // drag before _isDraggingModel is set. This intentionally does not
+        // mutate the manager's ordinary blue-lock state.
+        const edgePeekBlocked = this.isLive2DEffectiveLocked();
+        if (window.NekoEdgePeekController && typeof window.NekoEdgePeekController.record === 'function') {
+            window.NekoEdgePeekController.record('live2d-pointerdown', {
+                edgePeekLockEnabled: window.edgePeekLockEnabled === true,
+                edgePeekBlocked,
+                peekActive: typeof this.isLive2DPeekActive === 'function' && this.isLive2DPeekActive(),
+                managerLocked: this.isLocked === true
+            });
+        }
+        if (edgePeekBlocked) return;
+        const edgeContainer = this._returnButtonContainer;
+        const edgeButton = edgeContainer && edgeContainer.classList
+            && edgeContainer.classList.contains('neko-idle-return-btn')
+            ? edgeContainer
+            : (edgeContainer && edgeContainer.querySelector
+                ? edgeContainer.querySelector('.neko-idle-return-btn')
+                : null);
+        if (window.NekoEdgePeekController && edgeContainer
+            && (window.NekoEdgePeekController.shouldBlockReturnBallDrag(edgeButton, edgeContainer)
+                || (this === window.live2dManager && window.NekoEdgePeekController.isAnyLocked()))) return;
         if (isYuiGuideDragLocked()) return;
 
         // 检测是否为触摸事件，且是多点触摸（双指缩放）
@@ -1787,7 +2147,6 @@ Live2DManager.prototype.setupDragAndDrop = function (model) {
             this._isDraggingModel = false;
             return;
         }
-
         // 记录点击开始信息
         clickStartTime = Date.now();
         clickStartX = globalPos.x;
@@ -1811,9 +2170,14 @@ Live2DManager.prototype.setupDragAndDrop = function (model) {
 
         // 开始拖动时，临时禁用按钮的 pointer-events
         disableButtonPointerEvents();
+    };
+    model.on('pointerdown', (event) => {
+        if (this._touchGestures?.active) return;
+        onDragStart(event);
     });
 
     const onDragEnd = async (event) => {
+        if (this._touchGestures?.active) return;
         // A physical-crop host owns its drag from the primed pointerdown through
         // final snap/save settlement. The legacy client-coordinate writer must
         // not settle coordinates, but local pointer/UI state still needs its
@@ -1861,8 +2225,18 @@ Live2DManager.prototype.setupDragAndDrop = function (model) {
             // 长按但没有发生真实移动，不得被当作拖拽结算或重新触发 Peek。
             if (!hasMoved) return;
 
+            const settlementOptions = {
+                startScreenPoint: dragHintStartPointer
+                    ? { x: dragHintStartPointer.screenX, y: dragHintStartPointer.screenY }
+                    : null,
+                releaseScreenPoint: dragHintLastPointer
+                    ? { x: dragHintLastPointer.screenX, y: dragHintLastPointer.screenY }
+                    : null,
+                startedFromPeek: edgePeekStartedDrag,
+                dragGeneration: Number(this._live2DDragGeneration) || 0
+            };
             await recordDragHintPointerEdgeRelease();
-            await this._settleLive2DDragTerminal(model);
+            await this._settleLive2DDragTerminal(model, settlementOptions);
         }
     };
 
@@ -1870,9 +2244,9 @@ Live2DManager.prototype.setupDragAndDrop = function (model) {
         cancelLocalDragSession();
     };
 
-    const onDragMove = (event) => {
+    const onDragMove = (event, fromTouchGesture = false) => {
+        if (this._touchGestures?.active && !fromTouchGesture) return;
         if (!this._isModelReadyForInteraction) return;
-        if (isLive2DHostModelDragActive()) return;
         if (this._isDraggingModel) {
             if (typeof this.boostLinuxX11InteractiveFPS === 'function') {
                 this.boostLinuxX11InteractiveFPS(1400);
@@ -1880,17 +2254,6 @@ Live2DManager.prototype.setupDragAndDrop = function (model) {
             if (isYuiGuideDragLocked()) {
                 this._isDraggingModel = false;
                 document.getElementById('live2d-canvas').style.cursor = '';
-                restoreButtonPointerEvents();
-                return;
-            }
-
-            // 再次检查是否变成多点触摸
-            if (event.touches && event.touches.length > 1) {
-                // 如果变成多点触摸，停止拖拽
-                this._isDraggingModel = false;
-                document.getElementById('live2d-canvas').style.cursor = '';
-                // 【维护注意】所有退出拖拽的路径都必须调用 restoreButtonPointerEvents，
-                //  否则 body 上的 neko-model-dragging class 不会被移除，按钮将永久失效。
                 restoreButtonPointerEvents();
                 return;
             }
@@ -1906,12 +2269,23 @@ Live2DManager.prototype.setupDragAndDrop = function (model) {
             const moveDistance = Math.sqrt(
                 Math.pow(x - clickStartX, 2) + Math.pow(y - clickStartY, 2)
             );
-            if (moveDistance > CLICK_THRESHOLD_DISTANCE) {
+            if (!hasMoved && moveDistance > CLICK_THRESHOLD_DISTANCE) {
                 hasMoved = true;
+                this._live2DDragGeneration = (Number(this._live2DDragGeneration) || 0) + 1;
+                // A superseded snap would otherwise keep _isSnapping until its next RAF and
+                // could make this drag's terminal snap incorrectly short-circuit. Its own
+                // generation guard prevents the stale RAF from writing model coordinates.
+                if (this._live2DActiveSnapAnimation) {
+                    this._live2DActiveSnapAnimation = null;
+                    this._isSnapping = false;
+                }
             }
             if (!hasMoved) return;
+            // The physical-crop host owns coordinate writes, but the local interaction still
+            // commits the drag generation above when the shared pointer crosses the threshold.
+            if (isLive2DHostModelDragActive()) return;
 
-            if (edgePeekStartedDrag && !edgePeekDragCleared) {
+            if ((edgePeekStartedDrag || this.isLive2DPeekActive()) && !edgePeekDragCleared) {
                 // 先恢复 base 姿态，再用原始模型局部抓取点反解平移；旋转/镜像
                 // 解除后鼠标下仍是用户按住的同一点。
                 clearLive2DPeek('drag-start');
@@ -1919,6 +2293,26 @@ Live2DManager.prototype.setupDragAndDrop = function (model) {
             }
             placeLive2DGrabPointAtPointer(model, dragGrabLocalPoint, pointer);
         }
+    };
+
+    this._touchDragHandlers = {
+        model,
+        start: event => {
+            onDragStart({ data: { originalEvent: event, global: getLive2DRendererPointer(event, this) } });
+            const point = getLive2DRendererPointer(event, this);
+            if (point && typeof model.hitTest === 'function') {
+                this._lastTouchHitAreas = model.hitTest(point.x, point.y) || [];
+                this._lastTouchHitSeq = this._touchSetPointerSeq;
+            }
+        },
+        move: event => onDragMove(event, true),
+        end: (event, pinched) => {
+            // A pinch followed by a stationary remaining finger is never a tap.
+            // Use the normal terminal path for snapping, cross-display moves and saving.
+            if (pinched) hasMoved = true;
+            return onDragEnd(event);
+        },
+        cancel: cancelLocalDragSession
     };
 
     // 清理旧的监听器
@@ -2008,12 +2402,13 @@ Live2DManager.prototype.setupWheelZoom = function (model) {
     };
 
     const onWheelScroll = (event) => {
-        if (this.isLocked || !this.currentModel) return;
-        if (this.isLive2DPeekActive()) {
-            if (isWheelPointOnCurrentModel(event)) {
-                event.preventDefault();
+        if (!this.currentModel) return;
+        if ((typeof this.isLive2DEffectiveLocked === 'function' ? this.isLive2DEffectiveLocked() : this.isLocked === true) || this.isLive2DPeekActive()) {
+            if (this.isLive2DPeekActive()) {
+                if (isWheelPointOnCurrentModel(event)) event.preventDefault();
+                return; // edge peek ignores wheel zoom
             }
-            return; // edge peek ignores wheel zoom
+            return;
         }
         if (!isWheelPointOnCurrentModel(event)) return;
         event.preventDefault();
@@ -2045,97 +2440,66 @@ Live2DManager.prototype.setupWheelZoom = function (model) {
     view.lastWheelListener = onWheelScroll;
 };
 
-// 设置触摸缩放（双指捏合）
+// Touch pointers share one drag/pinch owner; a PointerEvent has no touches list.
 Live2DManager.prototype.setupTouchZoom = function (model) {
+    if (this._touchGestures) this._touchGestures.dispose();
     const view = this.pixi_app.view;
-    let initialDistance = 0;
-    let initialScale = 1;
-    let isTouchZooming = false;
-
-    const getTouchDistance = (touch1, touch2) => {
-        const dx = touch2.clientX - touch1.clientX;
-        const dy = touch2.clientY - touch1.clientY;
-        return Math.sqrt(dx * dx + dy * dy);
-    };
-
-    const onTouchStart = (event) => {
-        if (this.isLocked || !this.currentModel) return;
-        if (this.isLive2DPeekActive()) {
-            if (event.touches && event.touches.length === 2) {
-                event.preventDefault();
+    const drag = this._touchDragHandlers?.model === model ? this._touchDragHandlers : null;
+    let pinch = null;
+    this._touchGestures = window.NekoModelTouchGestures.install(view, {
+        // Edge Peek lock also blocks touch; turning it on mid-gesture cancels without saving.
+        enabled: () => !this.isLive2DEffectiveLocked() && this._isModelReadyForInteraction
+            && this.currentModel === model
+            && !document.body?.classList.contains('yui-guide-home-ui-suppressed')
+            && !document.body?.classList.contains('yui-taking-over'),
+        hitTest: event => {
+            const point = getLive2DRendererPointer(event, this);
+            return !!point && model.containsPoint(point);
+        },
+        begin: points => {
+            if (drag) drag.cancel();
+            pinch = null;
+            if (points.length === 1) {
+                if (drag) drag.start(points[0]);
+            } else {
+                if (this.isLive2DPeekActive()) return;
+                // A pinch supersedes pending drag settlement just like a pan.
+                // Invalidate the old snap before capturing the new anchor.
+                this._live2DDragGeneration = (Number(this._live2DDragGeneration) || 0) + 1;
+                if (this._live2DActiveSnapAnimation) {
+                    this._live2DActiveSnapAnimation = null;
+                    this._isSnapping = false;
+                }
+                const center = window.NekoModelTouchGestures.midpoint(points);
+                const point = getLive2DRendererPointer(center, this);
+                pinch = { scale: model.scale.x, local: getLive2DModelLocalGrabPoint(model, point) };
+                window.DragHelpers?.disableButtonPointerEvents();
             }
-            isTouchZooming = false;
-            return; // edge peek ignores touch zoom start
-        }
-
-        // 检测双指触摸
-        if (event.touches.length === 2) {
-            event.preventDefault();
-            isTouchZooming = true;
-            initialDistance = getTouchDistance(event.touches[0], event.touches[1]);
-            initialScale = this.currentModel.scale.x;
-        }
-    };
-
-    const onTouchMove = (event) => {
-        if (this.isLocked || !this.currentModel || !isTouchZooming) return;
-        if (this.isLive2DPeekActive()) {
-            if (event.touches && event.touches.length === 2) {
-                event.preventDefault();
+        },
+        move: (points, gesture) => {
+            if (points.length === 1) {
+                if (drag) drag.move(points[0]);
+            } else if (pinch?.local) {
+                if (this.isLive2DPeekActive()) { pinch = null; return; }
+                model.scale.set(Math.max(SCALE_LIMITS.MIN, Math.min(SCALE_LIMITS.MAX, pinch.scale * gesture.ratio)));
+                // Host ownership excludes local position writes, not scaling.
+                if (!isLive2DHostModelDragActive()) {
+                    placeLive2DGrabPointAtPointer(model, pinch.local, getLive2DRendererPointer(gesture.center, this));
+                }
+                this.boostLinuxX11InteractiveFPS?.(1400);
             }
-            isTouchZooming = false;
-            return; // edge peek ignores touch zoom move
-        }
-
-        // 双指缩放
-        if (event.touches.length === 2) {
-            event.preventDefault();
-            const currentDistance = getTouchDistance(event.touches[0], event.touches[1]);
-            const scaleChange = currentDistance / initialDistance;
-            let newScale = initialScale * scaleChange;
-
-            // 限制缩放范围，与滚轮缩放保持一致
-            newScale = Math.max(SCALE_LIMITS.MIN, Math.min(SCALE_LIMITS.MAX, newScale));
-
-            this.currentModel.scale.set(newScale);
-        }
-    };
-
-    const onTouchEnd = async (event) => {
-        // 当手指数量小于2时，停止缩放
-        if (event.touches.length < 2) {
-            if (this.isLive2DPeekActive()) {
-                isTouchZooming = false;
-                return; // edge peek ignores touch zoom end without saving peek state
+        },
+        end: (event, state) => {
+            pinch = null;
+            if (!state.cancelled && drag && event && (!state.pinched || !this.isLive2DPeekActive())) {
+                void drag.end(event, state.pinched);
+            } else {
+                if (drag) drag.cancel();
+                window.DragHelpers?.restoreButtonPointerEvents();
+                if (!state.cancelled && state.moved && !this.isLive2DPeekActive()) void this._savePositionAfterInteraction();
             }
-            if (isTouchZooming) {
-                // 触摸缩放结束后自动保存位置和缩放
-                await this._savePositionAfterInteraction();
-            }
-            isTouchZooming = false;
         }
-    };
-
-    // 移除旧的监听器（如果存在）
-    if (view.lastTouchStartListener) {
-        view.removeEventListener('touchstart', view.lastTouchStartListener);
-    }
-    if (view.lastTouchMoveListener) {
-        view.removeEventListener('touchmove', view.lastTouchMoveListener);
-    }
-    if (view.lastTouchEndListener) {
-        view.removeEventListener('touchend', view.lastTouchEndListener);
-    }
-
-    // 添加新的监听器
-    view.addEventListener('touchstart', onTouchStart, { passive: false });
-    view.addEventListener('touchmove', onTouchMove, { passive: false });
-    view.addEventListener('touchend', onTouchEnd, { passive: false });
-
-    // 保存监听器引用，便于清理
-    view.lastTouchStartListener = onTouchStart;
-    view.lastTouchMoveListener = onTouchMove;
-    view.lastTouchEndListener = onTouchEnd;
+    });
 };
 
 // 启用鼠标跟踪以检测与模型的接近度
@@ -2210,14 +2574,14 @@ Live2DManager.prototype.enableMouseTracking = function (model, options = {}) {
         if (this._goodbyeClicked) return;
 
         // 引导模式下不隐藏浮动按钮
-        if (window.isInTutorial === true) return;
+        if (window.isInTutorial === true || floatingButtons?.dataset.inTutorial === 'true') return;
 
         // 如果已有定时器，不重复创建
         if (this._hideButtonsTimer) return;
 
         this._hideButtonsTimer = setTimeout(() => {
             // 引导模式下不隐藏
-            if (window.isInTutorial === true) {
+            if (window.isInTutorial === true || floatingButtons?.dataset.inTutorial === 'true') {
                 this._hideButtonsTimer = null;
                 return;
             }
@@ -2239,10 +2603,16 @@ Live2DManager.prototype.enableMouseTracking = function (model, options = {}) {
         }, delay);
     };
 
-    const live2dContainer = document.getElementById('live2d-container');
+    const getLive2DContainer = () => {
+        const view = this.pixi_app && this.pixi_app.renderer && this.pixi_app.renderer.view;
+        return (view && view.closest && view.closest('#live2d-container'))
+            || (view && view.parentElement)
+            || document.getElementById('live2d-container');
+    };
     let ctrlFadeActive = false;      // Ctrl 按住淡化
     let stationaryFadeActive = false; // 静止1秒淡化
     const applyFade = () => {
+        const live2dContainer = getLive2DContainer();
         if (!live2dContainer) return;
         const shouldFade = (ctrlFadeActive || stationaryFadeActive) && window.lockedHoverFadeEnabled !== false;
         live2dContainer.classList.toggle('locked-hover-fade', shouldFade);
@@ -2275,6 +2645,12 @@ Live2DManager.prototype.enableMouseTracking = function (model, options = {}) {
             clearTimeout(this._stationaryFadeTimer);
             this._stationaryFadeTimer = null;
         }
+    };
+    this._resetStationaryHoverFade = () => {
+        clearStationaryFadeTimer();
+        stationaryFadeActive = false;
+        this._hasEnteredHoverRange = false;
+        applyFade();
     };
     this._clearStationaryFadeTimer = clearStationaryFadeTimer;
 
@@ -2385,6 +2761,12 @@ Live2DManager.prototype.enableMouseTracking = function (model, options = {}) {
         const pointerCoords = getLive2DNiriPetPointerCoordinates(event);
         const pointer = pointerCoords.virtual;
         const localPointer = pointerCoords.local;
+        // 只有坐标真的变了才算「交互活动」去升帧。Electron Pet 的 preload 轮询会在光标
+        // 静止时也周期性派发合成 pointermove，不加这道闸它会把升帧的 hold 窗口无限续命，
+        // 空闲低频 tick 永远进不去。其余悬停/淡化状态逻辑照常执行，不受影响。
+        const pointerMoved = pointer.x !== this._lastMouseX || pointer.y !== this._lastMouseY;
+        // 供 live2d-core 的活动判定：isFocusing 只在光标最近真的动过时才算活动
+        if (pointerMoved) this._lastPointerMoveAt = performance.now();
         this._lastMouseX = pointer.x;
         this._lastMouseY = pointer.y;
         this._lastMouseLocalX = localPointer.x;
@@ -2491,12 +2873,18 @@ Live2DManager.prototype.enableMouseTracking = function (model, options = {}) {
 
             // 静止时启动定时器，移出范围时清除（移动端无鼠标悬停，跳过）
             const isMobileDevice = (window.appUtils && typeof window.appUtils.isMobile === 'function' && window.appUtils.isMobile()) || /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-            if (!isMobileDevice && this.isLocked && isNearModel && !isOverUi) {
+            if (!isMobileDevice && this.isLive2DEffectiveLocked() && isNearModel && !isOverUi) {
                 // 首次进入范围：设置标志并启动定时器
                 if (!this._hasEnteredHoverRange) {
                     this._hasEnteredHoverRange = true;
                     if (this._stationaryFadeTimer === null && !stationaryFadeActive) {
                         this._stationaryFadeTimer = setTimeout(() => {
+                            this._stationaryFadeTimer = null;
+                            if (!this.isLive2DEffectiveLocked() || !this._hasEnteredHoverRange) {
+                                stationaryFadeActive = false;
+                                applyFade();
+                                return;
+                            }
                             stationaryFadeActive = true;
                             applyFade();
                         }, STATIONARY_FADE_DELAY);
@@ -2514,7 +2902,7 @@ Live2DManager.prototype.enableMouseTracking = function (model, options = {}) {
             }
 
             // Ctrl 淡化：锁定 + Ctrl + 在模型范围内（独立于静止淡化，移动端跳过，UI 上时跳过）
-            ctrlFadeActive = !isMobileDevice && this.isLocked && ctrlKeyPressed && isNearModel && !isOverUi;
+            ctrlFadeActive = !isMobileDevice && this.isLive2DEffectiveLocked() && ctrlKeyPressed && isNearModel && !isOverUi;
             applyFade();
 
             const canvasEl = document.getElementById('live2d-canvas');
@@ -2540,11 +2928,11 @@ Live2DManager.prototype.enableMouseTracking = function (model, options = {}) {
             };
 
             if (distance < threshold) {
-                if (typeof this.boostLinuxX11InteractiveFPS === 'function') {
+                if (pointerMoved && typeof this.boostLinuxX11InteractiveFPS === 'function') {
                     this.boostLinuxX11InteractiveFPS();
                 }
                 showButtons();
-                if (canvasEl && !this.isLocked && !(model.interactive && model.dragging)) {
+                if (canvasEl && !this.isLive2DEffectiveLocked() && !(model.interactive && model.dragging)) {
                     // hitTest + 椭圆内部判定（0.3w × 0.45h），不外扩
                     let isOnModel = false;
                     try {
@@ -2569,10 +2957,10 @@ Live2DManager.prototype.enableMouseTracking = function (model, options = {}) {
                     }
                 }
             } else if (isFullscreenTracking) {
-                if (typeof this.boostLinuxX11InteractiveFPS === 'function') {
+                if (pointerMoved && typeof this.boostLinuxX11InteractiveFPS === 'function') {
                     this.boostLinuxX11InteractiveFPS();
                 }
-                if (canvasEl && !this.isLocked && !(model.interactive && model.dragging)) {
+                if (canvasEl && !this.isLive2DEffectiveLocked() && !(model.interactive && model.dragging)) {
                     canvasEl.style.cursor = 'grab';
                 }
                 const isMouseTrackingEnabled = this.isMouseTrackingEnabled ? this.isMouseTrackingEnabled() : (window.mouseTrackingEnabled !== false);
@@ -3038,10 +3426,14 @@ Live2DManager.prototype._playTemporaryClickEffect = async function(emotion, dura
 };
 
 // 交互后保存位置和缩放的辅助函数
-Live2DManager.prototype._savePositionAfterInteraction = async function () {
+Live2DManager.prototype._savePositionAfterInteraction = async function (options = {}) {
+    const isCurrentSettlement = typeof options.isCurrentSettlement === 'function'
+        ? options.isCurrentSettlement
+        : () => true;
+    if (!isCurrentSettlement()) return false;
     if (!this.currentModel || !this._lastLoadedModelPath) {
         console.debug('无法保存位置：模型或路径未设置');
-        return;
+        return false;
     }
 
     if (typeof this.recoverRendererFromReturnBallViewport === 'function') {
@@ -3096,6 +3488,7 @@ Live2DManager.prototype._savePositionAfterInteraction = async function () {
             console.warn('获取显示器信息失败:', error);
         }
     }
+    if (!isCurrentSettlement()) return false;
 
     // 使用渲染器逻辑尺寸作为归一化基准（renderer 不再自动 resize，尺寸与稳定屏幕分辨率等价）
     let viewportInfo = null;
@@ -3118,6 +3511,7 @@ Live2DManager.prototype._savePositionAfterInteraction = async function () {
         .catch(error => {
             console.error('自动保存位置时出错:', error);
         });
+    return true;
 };
 
 // 防抖动保存位置的辅助函数（用于滚轮缩放等连续操作）
@@ -3160,13 +3554,32 @@ Live2DManager.prototype._debouncedSnapCheck = function () {
 // 多屏幕支持：检测模型是否移出当前屏幕并切换到新屏幕
 // Returns true after a display switch has settled. Final edge/snap/save
 // settlement belongs exclusively to the drag terminal caller.
-Live2DManager.prototype._checkAndSwitchDisplay = async function (model) {
+Live2DManager.prototype._checkAndSwitchDisplay = async function (model, options = {}) {
     // 仅在 Electron 环境下执行
     if (!window.electronScreen || !window.electronScreen.moveWindowToDisplay) {
         return false;
     }
 
+    const isCurrentSettlement = typeof options.isCurrentSettlement === 'function'
+        ? options.isCurrentSettlement
+        : () => true;
+    if (!isCurrentSettlement()) return false;
+    const previousDisplaySwitchQueue = this._live2DDisplaySwitchQueue || Promise.resolve();
+    let releaseDisplaySwitchQueue;
+    const currentDisplaySwitchGate = new Promise((resolve) => {
+        releaseDisplaySwitchQueue = resolve;
+    });
+    const currentDisplaySwitchQueue = Promise.resolve(previousDisplaySwitchQueue)
+        .then(() => currentDisplaySwitchGate);
+    this._live2DDisplaySwitchQueue = currentDisplaySwitchQueue;
+    let displaySwitchToken = null;
+
     try {
+        // Serialize the whole selection + move transaction. A newer release must inspect the
+        // display that an older in-flight IPC actually left behind before choosing its target.
+        await previousDisplaySwitchQueue;
+        if (!isCurrentSettlement()) return false;
+
         // 获取模型中心点的窗口坐标
         const bounds = getLive2DModelGeometryBounds(this, model);
         if (!bounds) return false;
@@ -3174,27 +3587,34 @@ Live2DManager.prototype._checkAndSwitchDisplay = async function (model) {
         const modelCenterY = bounds.centerY;
 
         // 获取所有屏幕信息
-        const displays = await window.electronScreen.getAllDisplays();
+        const rawDisplays = await window.electronScreen.getAllDisplays();
+        if (!isCurrentSettlement()) return false;
+        const displays = Array.isArray(rawDisplays)
+            ? rawDisplays.map((display) => {
+                const displayBounds = normalizeLive2DPeekRect(display && display.bounds) ||
+                    normalizeLive2DPeekRect(display && {
+                        x: display.screenX,
+                        y: display.screenY,
+                        width: display.width,
+                        height: display.height
+                    });
+                return displayBounds ? {
+                    ...display,
+                    screenX: displayBounds.x,
+                    screenY: displayBounds.y,
+                    width: displayBounds.width,
+                    height: displayBounds.height
+                } : null;
+            }).filter(Boolean)
+            : [];
         if (!displays || displays.length <= 1) {
             // 只有一个屏幕，不需要切换
             return false;
         }
 
-        // 检查模型是否在当前窗口范围内
-        const windowWidth = window.innerWidth;
-        const windowHeight = window.innerHeight;
-
-        // 如果模型大部分还在当前窗口内，不切换
-        if (modelCenterX >= 0 && modelCenterX < windowWidth &&
-            modelCenterY >= 0 && modelCenterY < windowHeight) {
-            return false;
-        }
-
-        // 模型移出了当前窗口，查找目标屏幕
-        // 需要转换为屏幕坐标（相对于屏幕的绝对坐标）
-
         // 首先获取当前窗口所在的显示器
         const currentContext = await refreshLive2DPeekDisplayContext(true);
+        if (!isCurrentSettlement()) return false;
         if (!currentContext) {
             console.warn('[Live2D] 无法获取当前显示器信息');
             return false;
@@ -3208,27 +3628,59 @@ Live2DManager.prototype._checkAndSwitchDisplay = async function (model) {
         const modelScreenX = windowScreenX + modelCenterX;
         const modelScreenY = windowScreenY + modelCenterY;
 
-        // 遍历所有显示器，找到包含模型中心点的显示器
+        const releaseScreenPoint = normalizeLive2DPoint(options.releaseScreenPoint);
+        const pointInDisplay = (point, display) => point &&
+            point.x >= display.screenX &&
+            point.x < display.screenX + display.width &&
+            point.y >= display.screenY &&
+            point.y < display.screenY + display.height;
+        const releaseDisplay = releaseScreenPoint
+            ? displays.find((display) => pointInDisplay(releaseScreenPoint, display))
+            : null;
+        if (!releaseDisplay &&
+                modelCenterX >= 0 && modelCenterX < window.innerWidth &&
+                modelCenterY >= 0 && modelCenterY < window.innerHeight) {
+            return false;
+        }
+
+        const displaySelectionPoint = releaseDisplay
+            ? releaseScreenPoint
+            : { x: modelScreenX, y: modelScreenY };
         let targetDisplay = null;
-        for (const display of displays) {
-            // 检查模型中心点是否在这个显示器内
-            if (modelScreenX >= display.screenX &&
-                modelScreenX < display.screenX + display.width &&
-                modelScreenY >= display.screenY &&
-                modelScreenY < display.screenY + display.height) {
-                targetDisplay = display;
-                break;
-            }
+        targetDisplay = releaseDisplay || displays.find((display) => pointInDisplay(displaySelectionPoint, display));
+        if (targetDisplay && String(targetDisplay.id) === String(currentContext.displayId)) {
+            return false;
         }
 
         if (targetDisplay) {
             console.log('[Live2D] 检测到模型移出当前屏幕，准备切换到屏幕:', targetDisplay.id);
 
             // 切换期间屏蔽常规吸附，防止中间态用旧窗口尺寸做 clamp 导致误吸附
+            if (!this._pendingDisplaySwitch) {
+                this._live2DModelCoordinateScreenOrigin = {
+                    x: windowScreenX,
+                    y: windowScreenY
+                };
+            }
+            displaySwitchToken = {};
+            this._live2DPendingDisplaySwitchToken = displaySwitchToken;
+            const previousDisplaySwitches = Math.max(
+                0,
+                Number(this._live2DDisplaySwitchInFlightCount) || 0
+            );
+            if (previousDisplaySwitches === 0) {
+                this._live2DDisplaySwitchIdlePromise = new Promise((resolve) => {
+                    this._resolveLive2DDisplaySwitchIdle = resolve;
+                });
+            }
+            this._live2DDisplaySwitchInFlightCount = previousDisplaySwitches + 1;
             this._pendingDisplaySwitch = true;
             try {
-                // 使用之前已经计算好的模型屏幕绝对坐标调用切换屏幕
-                const result = await window.electronScreen.moveWindowToDisplay(modelScreenX, modelScreenY);
+                if (!isCurrentSettlement()) return false;
+                const result = await window.electronScreen.moveWindowToDisplay(
+                    displaySelectionPoint.x,
+                    displaySelectionPoint.y
+                );
 
                 if (result && result.success && !result.sameDisplay) {
                     console.log('[Live2D] 屏幕切换成功:', result);
@@ -3240,8 +3692,21 @@ Live2DManager.prototype._checkAndSwitchDisplay = async function (model) {
                     const targetOriginY = resultWindowBounds
                         ? resultWindowBounds.y
                         : targetDisplay.screenY;
-                    const newModelCenterX = modelScreenX - targetOriginX;
-                    const newModelCenterY = modelScreenY - targetOriginY;
+                    // moveWindowToDisplay is an external side effect: once it succeeds, the model's
+                    // renderer-local coordinates must follow the new window origin even if a newer
+                    // drag has invalidated this settlement. Overlapping successful moves share the
+                    // last applied origin so the same A -> B transition cannot be applied twice.
+                    const appliedOrigin = normalizeLive2DPoint(this._live2DModelCoordinateScreenOrigin) || {
+                        x: windowScreenX,
+                        y: windowScreenY
+                    };
+                    model.x += appliedOrigin.x - targetOriginX;
+                    model.y += appliedOrigin.y - targetOriginY;
+                    this._live2DModelCoordinateScreenOrigin = {
+                        x: targetOriginX,
+                        y: targetOriginY
+                    };
+                    if (!isCurrentSettlement()) return false;
 
                     // 考虑缩放因子变化
                     if (result.scaleRatio && result.scaleRatio !== 1) {
@@ -3251,15 +3716,13 @@ Live2DManager.prototype._checkAndSwitchDisplay = async function (model) {
                     }
 
                     // 以真实 drawable 中心保持全局位置，不再用模型整体尺寸和 anchor 猜偏移。
-                    model.x += newModelCenterX - modelCenterX;
-                    model.y += newModelCenterY - modelCenterY;
-
                     console.log('[Live2D] 模型新位置:', model.x, model.y);
 
                     const settledContext = await waitForLive2DDesktopCoordinateSettlement(
                         20,
                         targetDisplay.id
                     );
+                    if (!isCurrentSettlement()) return false;
                     const settledGeometry = getLive2DModelGeometryBounds(this, model);
                     if (settledContext && settledGeometry) {
                         const settledCenterX = modelScreenX - settledContext.screenX;
@@ -3274,15 +3737,44 @@ Live2DManager.prototype._checkAndSwitchDisplay = async function (model) {
 
                     return true;  // Display switch occurred
                 }
+                if (!isCurrentSettlement()) return false;
             } finally {
-                this._pendingDisplaySwitch = false;
+                const remainingDisplaySwitches = Math.max(
+                    0,
+                    (Number(this._live2DDisplaySwitchInFlightCount) || 0) - 1
+                );
+                this._live2DDisplaySwitchInFlightCount = remainingDisplaySwitches;
+                if (this._live2DPendingDisplaySwitchToken === displaySwitchToken) {
+                    this._live2DPendingDisplaySwitchToken = null;
+                }
+                this._pendingDisplaySwitch = remainingDisplaySwitches > 0;
+                if (remainingDisplaySwitches === 0) {
+                    const resolveDisplaySwitchIdle = this._resolveLive2DDisplaySwitchIdle;
+                    this._resolveLive2DDisplaySwitchIdle = null;
+                    this._live2DDisplaySwitchIdlePromise = null;
+                    if (typeof resolveDisplaySwitchIdle === 'function') {
+                        resolveDisplaySwitchIdle();
+                    }
+                }
             }
         }
         return false;  // No display switch occurred
     } catch (error) {
-        this._pendingDisplaySwitch = false;
+        if (displaySwitchToken &&
+                this._live2DDisplaySwitchInFlightCount === 0 &&
+                this._live2DPendingDisplaySwitchToken === displaySwitchToken) {
+            this._live2DPendingDisplaySwitchToken = null;
+            this._pendingDisplaySwitch = false;
+        }
         console.error('[Live2D] 检测/切换屏幕时出错:', error);
         return false;
+    } finally {
+        if (typeof releaseDisplaySwitchQueue === 'function') {
+            releaseDisplaySwitchQueue();
+        }
+        if (this._live2DDisplaySwitchQueue === currentDisplaySwitchQueue) {
+            this._live2DDisplaySwitchQueue = null;
+        }
     }
 };
 
@@ -3386,32 +3878,42 @@ Live2DManager.prototype.cleanupEventListeners = function () {
         this._lockedHoverFadeChangedListener = null;
     }
 
+    this.syncLive2DEffectiveInputLock();
+    if (this._edgePeekInputSnapshot && this.isLocked !== true) {
+        const edgeCanvas = document.getElementById('live2d-canvas');
+        if (edgeCanvas && edgeCanvas.style) {
+            if (edgeCanvas.style.pointerEvents === 'none') edgeCanvas.style.pointerEvents = this._edgePeekInputSnapshot.pointerEvents || '';
+            if (edgeCanvas.style.cursor === 'default') edgeCanvas.style.cursor = this._edgePeekInputSnapshot.cursor || '';
+        }
+        this._edgePeekInputSnapshot = null;
+    }
+    if (this._edgePeekLockChangedListener) {
+        window.removeEventListener('neko-edge-peek-lock-changed', this._edgePeekLockChangedListener);
+        this._edgePeekLockChangedListener = null;
+    }
+
     // 清理静止淡化定时器
-    if (this._clearStationaryFadeTimer) {
+    if (this._resetStationaryHoverFade) {
+        this._resetStationaryHoverFade();
+        this._resetStationaryHoverFade = null;
+        this._clearStationaryFadeTimer = null;
+    } else if (this._clearStationaryFadeTimer) {
         this._clearStationaryFadeTimer();
         this._clearStationaryFadeTimer = null;
     }
 
     // resize 吸附监听器已移除（setupResizeSnapDetection 不再存在）
 
-    // 清理 canvas 上的滚轮和触摸监听器
+    if (this._touchGestures) {
+        this._touchGestures.dispose();
+        this._touchGestures = null;
+    }
+    this._touchDragHandlers = null;
     if (this.pixi_app && this.pixi_app.view) {
         const view = this.pixi_app.view;
         if (view.lastWheelListener) {
             view.removeEventListener('wheel', view.lastWheelListener);
             view.lastWheelListener = null;
-        }
-        if (view.lastTouchStartListener) {
-            view.removeEventListener('touchstart', view.lastTouchStartListener);
-            view.lastTouchStartListener = null;
-        }
-        if (view.lastTouchMoveListener) {
-            view.removeEventListener('touchmove', view.lastTouchMoveListener);
-            view.lastTouchMoveListener = null;
-        }
-        if (view.lastTouchEndListener) {
-            view.removeEventListener('touchend', view.lastTouchEndListener);
-            view.lastTouchEndListener = null;
         }
     }
 
@@ -3444,6 +3946,10 @@ Live2DManager.prototype.cleanupEventListeners = function () {
     }
     this._clickEffectAction = null;
     this._currentClickEffectId = null;
+
+    if (typeof this._cancelTouchSetExpressionRestore === 'function') {
+        this._cancelTouchSetExpressionRestore();
+    }
 
     // 清理页面卸载监听器（如果存在）
     if (this._unloadListener) {
@@ -4005,6 +4511,26 @@ Live2DManager.prototype.setupHitAreaInteraction = function(model) {
     console.log(`[HitArea] HitArea 交互已设置 : ${window.live2dManager.modelName}`);
 };
 
+Live2DManager.prototype._cancelTouchSetExpressionRestore = function() {
+    this._touchSetExpressionRestoreGeneration = (this._touchSetExpressionRestoreGeneration || 0) + 1;
+    const restoreState = this._touchSetExpressionRestoreState;
+    if (restoreState?.timer) {
+        clearTimeout(restoreState.timer);
+    }
+    this._touchSetExpressionRestoreState = null;
+    return this._touchSetExpressionRestoreGeneration;
+};
+
+Live2DManager.prototype._isTouchSetExpressionRestoreCurrent = function() {
+    const restoreState = this._touchSetExpressionRestoreState;
+    return !!(
+        restoreState
+        && restoreState.generation === this._touchSetExpressionRestoreGeneration
+        && restoreState.model === this.currentModel
+        && restoreState.expressionGeneration === this._transientExpressionGeneration
+    );
+};
+
 /**
  * 根据 touchSet 配置播放 HitArea 对应的动画
  * @param {string} hitAreaId - HitArea ID
@@ -4224,7 +4750,10 @@ Live2DManager.prototype._playTouchSetAnimation = async function(hitAreaId, optio
             } else {
                 console.log(`[TouchSet] 尝试播放表情: ${faceInfo.File}`);
                 try {
-                    const expressionResult = await this.playExpression(randomExpressionName, faceInfo.File);
+                    const touchExpressionModel = this.currentModel;
+                    const expressionTask = this.playExpression(randomExpressionName, faceInfo.File);
+                    const touchExpressionGeneration = this._transientExpressionGeneration;
+                    const expressionResult = await expressionTask;
                     if (expressionResult !== false) {
                         triggerLog.expressions.push({
                             name: randomExpressionName,
@@ -4242,16 +4771,38 @@ Live2DManager.prototype._playTouchSetAnimation = async function(hitAreaId, optio
                         console.warn(`[TouchSet] 表情播放返回失败: ${randomExpressionName}`);
                     }
 
-                    clearTimeout(this.expressionTimer);
-                    const holdingTime = Number.isFinite(faceHoldingTime) && faceHoldingTime > 0 ? faceHoldingTime : 3000;
-                    this.expressionTimer = setTimeout(async () => {
-                        if (typeof this.clearExpression === 'function') {
-                            try {
-                                await this.clearExpression();
-                                console.log(`[TouchSet] 临时表情清除，准备恢复常驻状态`);
-                            } catch (_) {}
-                        }
-                    }, holdingTime);
+                    if (
+                        expressionResult !== false
+                        && this.currentModel === touchExpressionModel
+                        && this._transientExpressionGeneration === touchExpressionGeneration
+                    ) {
+                        const holdingTime = Number.isFinite(faceHoldingTime) && faceHoldingTime > 0 ? faceHoldingTime : 3000;
+                        const restoreGeneration = this._cancelTouchSetExpressionRestore();
+                        const restoreState = {
+                            generation: restoreGeneration,
+                            model: touchExpressionModel,
+                            expressionGeneration: touchExpressionGeneration,
+                            timer: null
+                        };
+                        this._touchSetExpressionRestoreState = restoreState;
+                        restoreState.timer = setTimeout(async () => {
+                            if (this._touchSetExpressionRestoreState !== restoreState) {
+                                return;
+                            }
+                            const shouldRestore = this._isTouchSetExpressionRestoreCurrent();
+                            this._touchSetExpressionRestoreState = null;
+                            if (!shouldRestore) {
+                                console.log('[TouchSet] 临时表情已被新的表情接管，跳过恢复');
+                                return;
+                            }
+                            if (typeof this.clearExpression === 'function') {
+                                try {
+                                    await this.clearExpression();
+                                    console.log(`[TouchSet] 临时表情清除，准备恢复常驻状态`);
+                                } catch (_) {}
+                            }
+                        }, holdingTime);
+                    }
                 } catch (e) {
                     triggerLog.failedExpressions.push({
                         name: randomExpressionName,

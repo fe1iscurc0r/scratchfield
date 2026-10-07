@@ -109,6 +109,8 @@ GLOBAL_CONVERSATION_KEY = "__global_conversation__"
 
 MANAGED_MEMORY_FILENAMES = (
     "recent.json",
+    # Theater session numbers survive hot-memory eviction and cloud restores.
+    "theater_runs.json",
     "settings.json",
     "facts.json",
     "facts_archive.json",
@@ -132,6 +134,59 @@ MANAGED_MEMORY_FILENAMES = (
 )
 
 
+# Local bookkeeping of keyed scoped_history writes (app/memory_server/idempotency.py
+# owns the names). It never travels with a cloud snapshot, but whenever a
+# download / snapshot import rewrites a character's memory it is reset too:
+# kept, it would treat writes the restore rolled back as done / staged and
+# never redo them (maintainer decision of 2026-10-05). The key records and
+# staging files are deleted; the forget tombstones keep their fences (a
+# pre-forget request must stay blocked) and lose only their "erased"
+# completion markers, so a replayed forget erases the restored data again.
+KEYED_WRITE_BOOKKEEPING_FILENAMES = ("idempotency_keys.json",)
+KEYED_WRITE_STAGING_DIRNAME = "idempotency_staging"
+KEYED_WRITE_TOMBSTONES_FILENAME = "scoped_tombstones.json"
+
+
+def keyed_write_bookkeeping_paths(character_dir) -> set:
+    """Existing keyed-write bookkeeping files of one character directory (staging files included)."""
+    from pathlib import Path
+
+    character_dir = Path(character_dir)
+    found = {character_dir / name for name in KEYED_WRITE_BOOKKEEPING_FILENAMES if (character_dir / name).is_file()}
+    staging = character_dir / KEYED_WRITE_STAGING_DIRNAME
+    if staging.is_dir():
+        found |= {entry for entry in staging.iterdir() if entry.is_file()}
+    return found
+
+
+def keyed_tombstones_without_completion(character_dir):
+    """The character's forget tombstones with every ``erased_epoch`` dropped, or None to leave the file alone.
+
+    None when there is no tombstone file, it cannot be parsed or it is not an
+    object (left as it is: the memory server reads a damaged file as
+    "fence unknown" and fails closed), or nothing would change.
+    """
+    import json
+    from pathlib import Path
+
+    path = Path(character_dir) / KEYED_WRITE_TOMBSTONES_FILENAME
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError, RecursionError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    changed = False
+    stripped = {}
+    for key, row in data.items():
+        if isinstance(row, dict) and "erased_epoch" in row:
+            row = {name: value for name, value in row.items() if name != "erased_epoch"}
+            changed = True
+        stripped[key] = row
+    return stripped if changed else None
+
+
 MANAGED_CLOUDSAVE_PREFIXES = (
     "characters/",
     "catalog/",
@@ -151,12 +206,34 @@ LEGACY_RUNTIME_DIR_NAMES = (
     "vrm",
     "mmd",
     "workshop",
+    "theater",
     "character_cards",
     "card_faces",
+    "avatar_tools",
     "cloudsave",
     "cloudsave_backups",
     ".cloudsave_staging",
 )
+
+
+# 这些运行时目录用点开头的暂存目录做原子更新（如 avatar_tools 的
+# ``.<tool-id>.backup`` / ``.<tool-id>.updating``）。更新被打断时，它们可能是
+# 某个道具仅存的副本，所以扫描「有没有用户内容」时不能因为点开头就跳过 ——
+# 那会让 bootstrap 判定目标根为空，进而不备份就整根替换掉。
+#
+# 模式必须和各模块自己的事务命名逐字一致，两个方向都会出事：放宽了会把无关的
+# 隐藏条目（``.cache.backup`` 之类）当成用户内容，拦下本该发生的迁移；收紧了
+# 会漏掉真正的仅存副本，重新变成静默删除。还要识别 ``.deleting.unverified``：
+# 它说明删除实际移动的对象尚未确认，旁边的 ``.deleting`` 可能保存着并发新版本。
+# ``.uploading`` 和不带未确认授权的普通 ``.deleting`` 仍不算内容。
+_AVATAR_TOOL_ID_PATTERN_SOURCE = (
+    r"local-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
+TRANSACTIONAL_RUNTIME_ENTRY_PATTERNS = {
+    "avatar_tools": re.compile(
+        rf"^\.{_AVATAR_TOOL_ID_PATTERN_SOURCE}\.(?:backup|updating|deleting\.unverified)$"
+    ),
+}
 
 
 NON_RUNTIME_CONTENT_DIR_NAMES = {
@@ -193,6 +270,7 @@ RUNTIME_ASSET_DIR_NAMES = (
     "workshop",
     "character_cards",
     "card_faces",
+    "avatar_tools",
 )
 
 

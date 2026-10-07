@@ -33,6 +33,10 @@ rsync -a \
   --exclude 'docs/SPEC-14*' \
   --exclude 'docs/law-*' \
   --exclude 'docs/法学*' \
+  --exclude 'docs/*工单*' \
+  --exclude 'docs/卷*' \
+  --exclude 'docs/exec-reports/' \
+  --exclude 'docs/授粉-轮*' \
   --exclude 'docs/issue-2881*' \
   --exclude 'docs/pollination/batches/' \
   --exclude 'docs/dependabot*' \
@@ -44,6 +48,8 @@ rsync -a \
   --exclude 'docs/merge-report-*.md' \
   --exclude 'github_haul/' \
   --exclude 'tools/pcb-plays/' \
+  --exclude '**/_queue/' \
+  --exclude '.venv/' \
   --exclude 'README.md' \
   --exclude 'README_en.md' \
   --exclude 'README_ja.md' \

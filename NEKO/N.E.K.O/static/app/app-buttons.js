@@ -95,6 +95,29 @@
         }
     }
 
+    // 小剧场演绎期间普通文字、拖放和头像互动都不能开启普通回合（否则普通 TTS 与剧场对白混播，
+    // 并写进被隐藏的普通历史）。与普通语音守卫同一判定：本窗口演绎中，或其他窗口的剧场正在抑制
+    // （Electron 下剧场在聊天窗口、拖放与头像工具在 Pet 窗口；抑制随心跳传播并按 TTL 失效）。
+    function isOrdinaryChatBlockedByTheater() {
+        var theaterRuntime = window.nekoTheaterRuntime;
+        try {
+            return !!(theaterRuntime
+                && typeof theaterRuntime.blocksOrdinaryChat === 'function'
+                && theaterRuntime.blocksOrdinaryChat() === true);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function showTheaterChatUnavailableToast() {
+        if (typeof window.showStatusToast === 'function') {
+            window.showStatusToast(
+                window.t ? window.t('theater.chatUnavailable') : '小剧场演绎期间暂不支持普通对话',
+                3500
+            );
+        }
+    }
+
     function shouldSuppressCompactHistoryDropSendForVoiceMode() {
         try {
             if (typeof window.shouldKeepVoiceComposerHidden === 'function'
@@ -1232,6 +1255,9 @@
             })
         })
     });
+    var LOCAL_AVATAR_TOOL_ID_PATTERN = /^local-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    var LOCAL_AVATAR_TOOL_REVISION_PATTERN = /^[0-9]+-[0-9]+$/;
+    var LOCAL_AVATAR_TOOL_IMAGE_ID_PATTERN = /^img-[a-z0-9]+(?:-[a-z0-9]+)*$/;
     // The backend sends the final ack only after prompt_ephemeral has completed
     // the visible assistant turn. Keep separate fail-safes for no reply signal
     // and a started turn whose end event is lost, then allow a short grace period
@@ -1599,6 +1625,15 @@
         var toolId = String(payload.tool_id || payload.toolId || '').trim().toLowerCase();
         var actionId = String(payload.action_id || payload.actionId || '').trim().toLowerCase();
         var toolContract = AVATAR_INTERACTION_CONTRACT.tools[toolId];
+        var localTool = LOCAL_AVATAR_TOOL_ID_PATTERN.test(toolId);
+        if (!toolContract && localTool) {
+            toolContract = {
+                actions: { interact: ['normal', 'rapid'] },
+                acceptsTouchZone: true,
+                booleanField: { input: 'specialTriggered', output: 'special_triggered' },
+                roundChoice: false
+            };
+        }
         if (!toolContract) {
             console.warn('[AvatarInteraction] ignored unsupported tool:', toolId);
             return null;
@@ -1629,6 +1664,24 @@
             target: 'avatar',
             timestamp: timestamp
         };
+
+        if (localTool) {
+            var allowedLocalFields = [
+                'action', 'interaction_id', 'interactionId', 'tool_id', 'toolId',
+                'action_id', 'actionId', 'target', 'pointer', 'timestamp',
+                'text_context', 'textContext', 'intensity', 'touch_zone', 'touchZone',
+                'change_index', 'changeIndex',
+                'image_id', 'imageId',
+                'tool_revision', 'toolRevision',
+                'special_triggered', 'specialTriggered'
+            ];
+            if (Object.keys(payload).some(function (field) {
+                return allowedLocalFields.indexOf(field) === -1;
+            })) {
+                console.warn('[AvatarInteraction] ignored undeclared local tool facts');
+                return null;
+            }
+        }
 
         if (payload.pointer && typeof payload.pointer === 'object') {
             var rawClientX = getAvatarInteractionPayloadValue(
@@ -1716,6 +1769,51 @@
         }
         normalized.intensity = intensity;
 
+        if (localTool) {
+            var toolRevision = String(getAvatarInteractionPayloadValue(
+                payload, 'tool_revision', 'toolRevision', ''
+            ) || '').trim();
+            if (toolRevision.length > 128 || !LOCAL_AVATAR_TOOL_REVISION_PATTERN.test(toolRevision)) {
+                console.warn('[AvatarInteraction] ignored invalid local tool revision');
+                return null;
+            }
+            normalized.tool_revision = toolRevision;
+            if (toolRevision.indexOf('3-') === 0) {
+                var hasImageId = Object.prototype.hasOwnProperty.call(payload, 'image_id');
+                var hasCamelImageId = Object.prototype.hasOwnProperty.call(payload, 'imageId');
+                if (hasImageId === hasCamelImageId
+                        || Object.prototype.hasOwnProperty.call(payload, 'change_index')
+                        || Object.prototype.hasOwnProperty.call(payload, 'changeIndex')) {
+                    console.warn('[AvatarInteraction] ignored mixed local image facts');
+                    return null;
+                }
+                var imageId = getAvatarInteractionPayloadValue(payload, 'image_id', 'imageId', null);
+                if (typeof imageId !== 'string' || imageId.length > 80
+                        || !LOCAL_AVATAR_TOOL_IMAGE_ID_PATTERN.test(imageId)) {
+                    console.warn('[AvatarInteraction] ignored invalid local image ID');
+                    return null;
+                }
+                normalized.image_id = imageId;
+            } else if (toolRevision.indexOf('2-') === 0) {
+                if (Object.prototype.hasOwnProperty.call(payload, 'image_id')
+                        || Object.prototype.hasOwnProperty.call(payload, 'imageId')) {
+                    console.warn('[AvatarInteraction] ignored mixed local image facts');
+                    return null;
+                }
+                var rawChangeIndex = getAvatarInteractionPayloadValue(
+                    payload, 'change_index', 'changeIndex', null
+                );
+                if (!Number.isSafeInteger(rawChangeIndex) || rawChangeIndex < 0) {
+                    console.warn('[AvatarInteraction] ignored invalid local change index');
+                    return null;
+                }
+                normalized.change_index = rawChangeIndex;
+            } else {
+                console.warn('[AvatarInteraction] ignored unsupported local tool revision');
+                return null;
+            }
+        }
+
         var textContext = sanitizeAvatarInteractionTextContext(getAvatarInteractionPayloadValue(
             payload, 'text_context', 'textContext', ''
         ));
@@ -1728,15 +1826,23 @@
             var carriesBooleanField = Object.prototype.hasOwnProperty.call(payload, booleanField.output)
                 || Object.prototype.hasOwnProperty.call(payload, booleanField.input);
             if (carriesBooleanField) {
-                var parsedBoolean = parseAvatarInteractionBool(getAvatarInteractionPayloadValue(
+                if (localTool && normalized.image_id
+                        && Object.prototype.hasOwnProperty.call(payload, booleanField.output)
+                        && Object.prototype.hasOwnProperty.call(payload, booleanField.input)) {
+                    return null;
+                }
+                var rawBoolean = getAvatarInteractionPayloadValue(
                     payload, booleanField.output, booleanField.input, null
-                ));
+                );
+                var parsedBoolean = localTool && normalized.image_id
+                    ? (typeof rawBoolean === 'boolean' ? rawBoolean : null)
+                    : parseAvatarInteractionBool(rawBoolean);
                 if (parsedBoolean === null) {
                     console.warn('[AvatarInteraction] ignored invalid boolean field:', booleanField.output);
                     return null;
                 }
-                if (parsedBoolean) {
-                    normalized[booleanField.output] = true;
+                if (parsedBoolean || localTool) {
+                    normalized[booleanField.output] = parsedBoolean;
                 }
             }
         }
@@ -1753,6 +1859,10 @@
     async function sendAvatarInteractionPayload(payload) {
         var normalized = normalizeAvatarInteractionPayload(payload);
         if (!normalized) {
+            return false;
+        }
+        if (isOrdinaryChatBlockedByTheater()) {
+            showTheaterChatUnavailableToast();
             return false;
         }
 
@@ -1831,7 +1941,8 @@
         host.setOnComposerSubmit(function (detail) {
             return mod.sendTextPayload(detail && detail.text, {
                 source: 'react-chat-window',
-                requestId: detail && detail.requestId
+                requestId: detail && detail.requestId,
+                submitMethod: detail && detail.submitMethod
             });
         });
         if (typeof host.setOnCompactHistoryDrop === 'function') {
@@ -2052,6 +2163,17 @@
         // ----------------------------------------------------------------
         micButton.addEventListener('click', async function () {
             if (micButton.disabled || S.isRecording) return;
+            // 浮动麦克风仍可能位于胶囊之外（Electron 下在 Pet 窗口，剧场在聊天窗口）；
+            // 在任何语音 Session 状态写入前阻止任一窗口剧场期间启动。
+            if (window.nekoTheaterRuntime
+                    && typeof window.nekoTheaterRuntime.blocksOrdinaryVoice === 'function'
+                    && window.nekoTheaterRuntime.blocksOrdinaryVoice()) {
+                window.showStatusToast(
+                    window.t ? window.t('theater.voiceUnavailable') : '小剧场演绎期间暂不支持语音对话',
+                    3500
+                );
+                return;
+            }
             if (mod._textSessionStartPromise) {
                 window.showStatusToast(
                     window.t ? window.t('app.initializingText') : '\u6B63\u5728\u521D\u59CB\u5316\u6587\u672C\u5BF9\u8BDD...',
@@ -2433,7 +2555,7 @@
                 if (micStartMustStandDown()) return;
 
                 // Success — hide preparing toast, show ready
-                window.hideVoicePreparingToast();
+                window.hideVoicePreparingToast({ keepLocalAsrNotice: true });
 
                 setTimeout(function () {
                     window.showReadyToSpeakToast();
@@ -2598,8 +2720,8 @@
                 display: live2dContainer ? getComputedStyle(live2dContainer).display : 'undefined'
             });
 
-            if (typeof window.stopScreening === 'function') {
-                window.stopScreening();
+            if (typeof window.teardownScreenSharing === 'function') {
+                window.teardownScreenSharing();
             }
 
             if (S.socket && S.socket.readyState === WebSocket.OPEN) {
@@ -2894,6 +3016,22 @@
             }
         }
 
+        function requestChatAutoCollapseAfterAcceptedEnter(options, requestId) {
+            if (
+                !options
+                || options.submitMethod !== 'enter'
+                || !window.nekoChatWindow
+                || typeof window.nekoChatWindow.requestAutoCollapseAfterEnter !== 'function'
+            ) return false;
+            try {
+                window.nekoChatWindow.requestAutoCollapseAfterEnter({ requestId: requestId });
+                return true;
+            } catch (error) {
+                console.warn('[Chat] 请求回车发送后自动收起失败:', error);
+                return false;
+            }
+        }
+
         async function sendTextPayloadInternal(rawText, options) {
             options = options || {};
             var text = String(typeof rawText === 'string' ? rawText : '').trim();
@@ -2982,6 +3120,12 @@
                     text: displayText,
                     imageUrls: optimisticImageUrls
                 });
+            }
+
+            // Enter 已通过空内容、教程锁和附件预处理校验，即视为发送请求已被聊天逻辑接受。
+            // 必须在首轮 start_session 的异步等待前收起，否则第一次聊天会等初始化完成才响应。
+            if (options.autoCollapseAfterEnterRequested !== true) {
+                requestChatAutoCollapseAfterAcceptedEnter(options, requestId);
             }
 
             function shouldAppendLegacyUserMessage() {
@@ -3262,7 +3406,8 @@
                             detail: {
                                 requestId: requestId,
                                 text: text,
-                                source: messageSource || 'text'
+                                source: messageSource || 'text',
+                                submitMethod: options.submitMethod === 'enter' ? 'enter' : 'button'
                             }
                         }));
                         // 标记"WS 已发、还没收到首 chunk"窗口，给 isAssistantTextResponseInFlight 用。
@@ -3306,6 +3451,24 @@
             var hasExtraImages = extraImageDataUrls.length > 0;
             var hasScreenshots = options.ignoreComposerAttachments === true ? false : screenshotsList.children.length > 0;
 
+            var theaterRuntime = window.nekoTheaterRuntime;
+            if (theaterRuntime && typeof theaterRuntime.isActive === 'function' && theaterRuntime.isActive()) {
+                if (options.source !== 'react-chat-window' && options.source !== 'legacy-text-button') return false;
+                if (!text) return false;
+                // 剧场启动前遗留的普通附件在界面中已隐藏，不属于本次演绎输入；仅拒绝显式附带的新图片。
+                if (hasExtraImages) {
+                    window.showStatusToast(
+                        window.t ? window.t('theater.imagesUnavailable') : '小剧场演绎暂不支持图片输入',
+                        3500
+                    );
+                    return false;
+                }
+                return theaterRuntime.handleComposerSubmit(text);
+            }
+            if (isOrdinaryChatBlockedByTheater()) {
+                showTheaterChatUnavailableToast();
+                return false;
+            }
             if (!text && !hasScreenshots && !hasExtraImages) return;
             if (isHomeTutorialInteractionLocked()) {
                 showHomeTutorialLockedToast();
@@ -3317,7 +3480,12 @@
                     && !hasScreenshots
                     && !hasExtraImages
                     && hasPendingAvatarInteractionContinuation()) {
-                queueDeferredTextSubmission(text, options);
+                var deferredOptions = Object.assign({}, options);
+                if (deferredOptions.autoCollapseAfterEnterRequested !== true
+                        && requestChatAutoCollapseAfterAcceptedEnter(deferredOptions, deferredOptions.requestId)) {
+                    deferredOptions.autoCollapseAfterEnterRequested = true;
+                }
+                queueDeferredTextSubmission(text, deferredOptions);
                 textInputBox.value = '';
                 textInputComposing = false;
                 lastTextCompositionEndAt = 0;
@@ -3336,6 +3504,11 @@
             var items = getAvatarDropItems(payload);
             var rejected = getAvatarDropRejected(payload);
             if (!items.length && !rejected.length) return false;
+            // 必须在切换文字模式之前拦截：拖放入口不经剧场输入框，不能先停掉语音再被拒绝。
+            if (isOrdinaryChatBlockedByTheater()) {
+                showTheaterChatUnavailableToast();
+                return false;
+            }
             var gameRouteBlocksImages = !!(S && S.gameRouteActive);
             if (gameRouteBlocksImages) {
                 var blockedImages = items.filter(function (item) { return item.type === 'image'; });
@@ -3613,7 +3786,16 @@
             };
         }
 
-        async function recaptureWithoutNeko() {
+        async function recaptureWithoutNeko(rememberedWindowCapture) {
+            function rememberedWindowCaptureIsCurrent() {
+                return !(rememberedWindowCapture && rememberedWindowCapture.required)
+                    || (rememberedWindowCapture.allowed !== false
+                        && (typeof rememberedWindowCapture.isCurrent !== 'function'
+                            || rememberedWindowCapture.isCurrent()));
+            }
+
+            if (!rememberedWindowCaptureIsCurrent()) return null;
+
             // Priority 0 (Electron PC): 主进程原子化路径 — 一次 IPC 完成
             //   隐藏所有 NEKO 窗口 → 等合成 → desktopCapturer 抓图 → 恢复窗口。
             //   把 hide/等待/抓图/show 全放主进程是因为渲染器端 setTimeout 在 Pet 窗口
@@ -3633,6 +3815,7 @@
                         'captureSourceWithoutNeko',
                         selectedSourceId || null
                     );
+                    if (!rememberedWindowCaptureIsCurrent()) return null;
                     if (atomic && atomic.success && atomic.dataUrl) {
                         return atomic.dataUrl;
                     } else if (atomic && atomic.error) {
@@ -3665,19 +3848,20 @@
             // MediaStream 抓帧（getDisplayMedia）会把卫星窗口也拍进去，CSS 隐藏覆盖不到它们。
             var saved = hideNekoUI();
             var fallbackHiddenIds = null;
-            if (desktopProvider
-                && typeof desktopProvider.hideNekoWindows === 'function') {
-                try {
-                    var hideRes = await desktopProvider.hideNekoWindows();
-                    if (hideRes && Array.isArray(hideRes.hiddenIds)) {
-                        fallbackHiddenIds = hideRes.hiddenIds;
-                    }
-                } catch (e) {
-                    console.warn('[隐藏NEKO][fallback] hide 卫星窗口失败:', e);
-                }
-            }
-            await new Promise(function (r) { setTimeout(r, 300); });
             try {
+                if (desktopProvider
+                    && typeof desktopProvider.hideNekoWindows === 'function') {
+                    try {
+                        var hideRes = await desktopProvider.hideNekoWindows();
+                        if (hideRes && Array.isArray(hideRes.hiddenIds)) {
+                            fallbackHiddenIds = hideRes.hiddenIds;
+                        }
+                    } catch (e) {
+                        console.warn('[隐藏NEKO][fallback] hide 卫星窗口失败:', e);
+                    }
+                }
+                await new Promise(function (r) { setTimeout(r, 300); });
+                if (!rememberedWindowCaptureIsCurrent()) return null;
                 // Priority 1: Electron direct capture (不隐藏卫星窗口版本，仅为向后兼容兜底)
                 // 读当前的 S.selectedScreenSourceId —— Priority 0 若刚命中 'Source not found'
                 // 已经通过 maybeClearSourceOnNotFound 把它清空，此时 selectedSourceId 这个本地
@@ -3692,6 +3876,7 @@
                             'captureSourceAsDataUrl',
                             currentSourceId
                         );
+                        if (!rememberedWindowCaptureIsCurrent()) return null;
                         if (direct && direct.success && direct.dataUrl) {
                             return direct.dataUrl;
                         } else if (typeof window.maybeClearSourceOnNotFound === 'function') {
@@ -3704,14 +3889,17 @@
                 if (typeof window.acquireOrReuseCachedStream === 'function') {
                     try {
                         var acqStream = await window.acquireOrReuseCachedStream({ allowPrompt: false });
+                        if (!rememberedWindowCaptureIsCurrent()) return null;
                         if (acqStream) {
                             var isCached = (acqStream === S.screenCaptureStream);
                             try {
                                 var frame = await window.captureFrameFromStream(acqStream, 0.8, true);
+                                if (!rememberedWindowCaptureIsCurrent()) return null;
                                 if (!frame) {
                                     // 全分辨率编码可能在超大/虚拟显示器上失败；用同一条流退回 720p 再试，
                                     // 保住正确的窗口内容（优于后端 pyautogui 抓整屏）。
                                     frame = await window.captureFrameFromStream(acqStream, 0.8, false);
+                                    if (!rememberedWindowCaptureIsCurrent()) return null;
                                 }
                                 if (frame && frame.dataUrl) return frame.dataUrl;
                             } finally {
@@ -3727,9 +3915,11 @@
                             var tracks = S.screenCaptureStream.getVideoTracks();
                             if (tracks.length > 0 && tracks.some(function (t) { return t.readyState === 'live'; })) {
                                 var cachedFrame = await window.captureFrameFromStream(S.screenCaptureStream, 0.8, true);
+                                if (!rememberedWindowCaptureIsCurrent()) return null;
                                 if (!cachedFrame) {
                                     // 同上：全分辨率失败时用同一条流退回 720p，保住正确窗口内容
                                     cachedFrame = await window.captureFrameFromStream(S.screenCaptureStream, 0.8, false);
+                                    if (!rememberedWindowCaptureIsCurrent()) return null;
                                 }
                                 if (cachedFrame && cachedFrame.dataUrl) return cachedFrame.dataUrl;
                             }
@@ -3737,7 +3927,11 @@
                     } catch (e) { /* fallback below */ }
                 }
 
-                // Priority 3: backend pyautogui
+                // Priority 3: backend pyautogui. A remembered-window recapture
+                // must not widen a failed window grab to the whole desktop.
+                if (rememberedWindowCapture && rememberedWindowCapture.required) {
+                    return null;
+                }
                 var result = await window.fetchBackendScreenshot();
                 if (result && result.dataUrl) {
                     return result.dataUrl || null;
@@ -3783,6 +3977,17 @@
             var isCachedStream = false;
             var captureType = null;
             var screenshotCaptureSessionActive = false;
+            var rememberedWindowCapture = { required: false, allowed: true };
+
+            function rememberedWindowUnavailableResult() {
+                return { rememberedWindowUnavailable: true };
+            }
+
+            function rememberedWindowCaptureIsCurrent() {
+                return !(rememberedWindowCapture && rememberedWindowCapture.required)
+                    || typeof rememberedWindowCapture.isCurrent !== 'function'
+                    || rememberedWindowCapture.isCurrent();
+            }
 
             if (!U.isMobile()) {
                 screenshotCaptureSessionActive = true;
@@ -3814,9 +4019,22 @@
                         }
                     }
                 } else {
+                    if (typeof window.prepareRememberedWindowCapture === 'function') {
+                        rememberedWindowCapture = await window.prepareRememberedWindowCapture();
+                        if (rememberedWindowCapture && rememberedWindowCapture.required
+                            && !rememberedWindowCapture.allowed) {
+                            console.warn('[截图] 记忆窗口无法唯一确认，停止本次截图');
+                            return rememberedWindowUnavailableResult();
+                        }
+                    }
+
                     // Electron 桌面端优先交给 PC 壳的独立截图编辑窗口。它覆盖当前显示器，
                     // 不改变聊天框/Pet 窗口尺寸，也不会把冻结画面塞进聊天窗口内裁剪。
                     var desktopRegionResult = await captureDesktopRegionDirectly();
+                    if (!rememberedWindowCaptureIsCurrent()) {
+                        console.warn('[截图] 记忆窗口已在桌面框选期间变化，丢弃旧帧');
+                        return rememberedWindowUnavailableResult();
+                    }
                     if (desktopRegionResult) {
                         if (desktopRegionResult.canceled) {
                             return null;
@@ -3835,7 +4053,8 @@
                     }
 
                     // 浏览器/旧版 PC 壳没有独立编辑窗口时，macOS 仍可退回系统交互截图。
-                    if (typeof window.fetchBackendInteractiveScreenshot === 'function') {
+                    if (!(rememberedWindowCapture && rememberedWindowCapture.required)
+                        && typeof window.fetchBackendInteractiveScreenshot === 'function') {
                         var interactiveBackendResult = await window.fetchBackendInteractiveScreenshot();
                         if (interactiveBackendResult && interactiveBackendResult.canceled) {
                             return null;
@@ -3859,6 +4078,10 @@
                                 'captureSourceAsDataUrl',
                                 selectedSourceId
                             );
+                            if (!rememberedWindowCaptureIsCurrent()) {
+                                console.warn('[截图] 记忆窗口已在直接捕获期间变化，丢弃旧帧');
+                                return rememberedWindowUnavailableResult();
+                            }
                             if (direct && direct.success && direct.dataUrl) {
                                 dataUrl = direct.dataUrl;
                                 width = direct.width || 0;
@@ -3887,13 +4110,27 @@
                             acquiredStream = null;
                         }
 
+                        isCachedStream = !!acquiredStream && (acquiredStream === S.screenCaptureStream);
+
+                        if (!rememberedWindowCaptureIsCurrent()) {
+                            console.warn('[截图] 记忆窗口已在流获取期间变化，丢弃旧流');
+                            return rememberedWindowUnavailableResult();
+                        }
+
                         if (acquiredStream) {
-                            isCachedStream = (acquiredStream === S.screenCaptureStream);
                             var frame = await window.captureFrameFromStream(acquiredStream, 0.8, true);
+                            if (!rememberedWindowCaptureIsCurrent()) {
+                                console.warn('[截图] 记忆窗口已在流抓帧期间变化，丢弃旧帧');
+                                return rememberedWindowUnavailableResult();
+                            }
                             if (!frame) {
                                 // 全分辨率编码可能在超大/虚拟显示器上失败；用同一条流退回 720p 再试，
                                 // 保住正确的窗口内容（优于后端 pyautogui 抓整屏的兜底）。
                                 frame = await window.captureFrameFromStream(acquiredStream, 0.8, false);
+                                if (!rememberedWindowCaptureIsCurrent()) {
+                                    console.warn('[截图] 记忆窗口已在降级抓帧期间变化，丢弃旧帧');
+                                    return rememberedWindowUnavailableResult();
+                                }
                             }
                             if (frame) {
                                 dataUrl = frame.dataUrl;
@@ -3910,7 +4147,7 @@
                         }
                     }
 
-                    if (!dataUrl) {
+                    if (!dataUrl && !(rememberedWindowCapture && rememberedWindowCapture.required)) {
                         try {
                             var backendResult = await window.fetchBackendScreenshot();
                             if (backendResult && backendResult.dataUrl) {
@@ -3922,6 +4159,10 @@
                             console.warn('[截图] 后端兜底失败:', beErr);
                         }
                     }
+                }
+
+                if (!dataUrl && rememberedWindowCapture && rememberedWindowCapture.required) {
+                    return rememberedWindowUnavailableResult();
                 }
 
                 if (!dataUrl) {
@@ -3961,7 +4202,9 @@
                 try {
                     if (window.appCrop && typeof window.appCrop.cropImage === 'function') {
                         var croppedUrl = await window.appCrop.cropImage(dataUrl, {
-                            recaptureFn: function () { return recaptureWithoutNeko(); }
+                            recaptureFn: function () {
+                                return recaptureWithoutNeko(rememberedWindowCapture);
+                            }
                         });
                         if (!croppedUrl) {
                             return null;
@@ -4007,6 +4250,15 @@
                 window.showStatusToast(window.t ? window.t('app.capturing') : '\u6B63\u5728\u622A\u56FE...', 2000);
 
                 var result = await mod.captureScreenshotDataUrl();
+                if (result && result.rememberedWindowUnavailable) {
+                    window.showStatusToast(
+                        window.t
+                            ? window.t('app.screenSource.rememberedWindowUnavailable')
+                            : '\u65E0\u6CD5\u552F\u4E00\u627E\u5230\u8BB0\u4F4F\u7684\u7A97\u53E3\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9\u5C4F\u5E55\u6765\u6E90',
+                        4000
+                    );
+                    return;
+                }
                 if (result && result.pinned) {
                     return;
                 }

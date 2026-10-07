@@ -3,7 +3,7 @@
   "displayName": "轻量 KG 记忆（三表 + 递归 CTE）",
   "version": "0.1.0",
   "description": "对话记忆级知识图谱：实体/关系/别名三表 + 一条 recursive CTE 多跳检索，零外部依赖、无模型调用。实体 ID 用 uuid5(type+归一名) 确定性生成，同名实体跨轮次自动归一。边携带 source_doc 可回溯来源，条件类信息（金额/日期/时间窗）挂在实体 description 上。数据落 knowledge-base/graph_memory/graph_memory.db（LUMO_GRAPH_MEMORY_DB 可覆盖）。设计借鉴 Glitch-Cat-Club/graph-memory-starter（MIT，227★），只取设计不复制代码。与 graphify 适配器分工：graphify 管语料级批量建图，本件管对话级增量记忆。",
-  "author": "实验田维护者",
+  "author": "沈遥",
   "license": "MIT",
   "agentType": "mcp",
   "entryPoint": {

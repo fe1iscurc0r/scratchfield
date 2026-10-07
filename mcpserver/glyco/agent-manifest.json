@@ -1,0 +1,69 @@
+{
+  "name": "glyco",
+  "displayName": "糖链信息学",
+  "version": "1.0.0",
+  "description": "糖链（glycan）结构信息学工具组：结构解析（parse_glycan）/ 层次树（to_tree）/ GlyTouCan 查询（glytoucan_lookup）/ 功能注释（annotate_glycan）。底座 glypy（Apache-2.0）+ glycowork（MIT）——实测两者均**不依赖 torch**，安装体积为 glypy 2 包 + glycowork 7 包。用途锚点：材料知识图谱的碳水单元建模（纤维素/半纤维素 → 糖链 → 木质素 LCC 复合体）。",
+  "author": "砚",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.glyco.agent",
+    "class": "GlycoAgent"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "parse_glycan",
+        "description": "解析糖链结构 → 摘要（残基表 / 总数 / 总质量 / 组成统计）。⚠️ 实测：glypy 的 iupac 方言不接受 CFG 简写（如 Man9GlcNAc2），可用路径是 GlycoCT（RES/LIN 段）；方言不匹配时返回结构化错误并给出提示，不静默降级",
+        "params": {
+          "text": "结构文本（GlycoCT 的 RES/LIN 段，或 glypy 支持的 condensed IUPAC）",
+          "fmt": "auto | glycoct | iupac（默认 auto：先 GlycoCT 再 IUPAC）"
+        },
+        "example": "{\"tool\":\"parse_glycan\",\"params\":{\"text\":\"RES\\n1b:x-dglc-HEX-1:5\\n2b:b-dman-HEX-1:5\\nLIN\\n1:1o(4+1)2d\\n\"}}"
+      },
+      {
+        "command": "to_tree",
+        "description": "结构 → 层次树（root 起逐层 children），返回 nodes（含 depth/name/superclass/mass），容错：取不到 children 时降级为扁平残基表",
+        "params": {
+          "text": "结构文本",
+          "fmt": "auto | glycoct | iupac"
+        },
+        "example": "{\"tool\":\"to_tree\",\"params\":{\"text\":\"<GlycoCT>\"}}"
+      },
+      {
+        "command": "glytoucan_lookup",
+        "description": "按 GlyTouCan accession 查询结构（官方 API；网络不可用时返回 degraded + 原因）",
+        "params": {
+          "accession": "GlyTouCan 编号（如 G00054MO）"
+        },
+        "example": "{\"tool\":\"glytoucan_lookup\",\"params\":{\"accession\":\"G00054MO\"}}"
+      },
+      {
+        "command": "annotate_glycan",
+        "description": "glycan → 功能注释（glycowork / SweetNet 路线）。glycowork 未装或权重未配置时返回 degraded（含安装指引），不静默降级",
+        "params": {
+          "text": "结构文本",
+          "fmt": "auto | glycoct | iupac"
+        },
+        "example": "{\"tool\":\"annotate_glycan\",\"params\":{\"text\":\"<GlycoCT>\"}}"
+      }
+    ]
+  },
+  "classification": {
+    "families": [
+      "semantic"
+    ],
+    "domains": [
+      "material"
+    ],
+    "tier": "read-only",
+    "origin": "vendor"
+  },
+  "requires": {
+    "python_packages": [
+      "glypy",
+      "glycowork"
+    ],
+    "external_cli": [],
+    "services": []
+  }
+}

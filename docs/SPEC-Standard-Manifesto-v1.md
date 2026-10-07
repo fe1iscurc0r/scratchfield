@@ -51,7 +51,7 @@
 
 | 仓库 | 放什么 | 谁维护 |
 |------|--------|--------|
-| `scratchpad`（主干） | NEKO 身体 + 陆墨大脑 + 自有核心代码 + 全部规范文档（含本文） | 实验田维护者（Hermes）/ Trae |
+| `scratchpad`（主干） | NEKO 身体 + 陆墨大脑 + 自有核心代码 + 全部规范文档（含本文） | 沈遥（Hermes）/ Trae |
 | **新仓库（WorkBuddy 开）** | **新代码**：融合产出、新 adapter、新 MCP server、新模块 | WorkBuddy（Kimi K3） |
 
 **新代码落新仓库**，成熟稳定、要并入主干时，再走「新仓库 → scratchpad」的同步（那时 scratchpad 已瘦身或 Gitee 已扩容）。
@@ -75,6 +75,6 @@
 
 ---
 
-*制定：实验田维护者（Hermes）*
+*制定：沈遥（Hermes）*
 *配套：SPEC-Writing-Standard-v1.md（规则）· Lumo-Bus-Spec-v1.md（运行时）*
 *状态：v1 草案，随实战滚动升级*

@@ -69,11 +69,11 @@ async def require_proxy_token(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="missing credentials")
 
     if not hmac.compare_digest(token.encode("utf-8"), _LUMO_PROXY_TOKEN.encode("utf-8")):
-        # 实验田维护者 R5：与 lumo_inject_router.py 一致，用 bytes 比较避免非 ASCII token 触发 TypeError
+        # 沈遥 R5：与 lumo_inject_router.py 一致，用 bytes 比较避免非 ASCII token 触发 TypeError
         # 不区分 token 不存在 vs 错误，防信息泄露
         raise HTTPException(status_code=401, detail="invalid credentials")
 
-    # 实验田维护者 R4：返回值不含 token，防日志/异常链泄露密钥（与 inject 侧对齐）
+    # 沈遥 R4：返回值不含 token，防日志/异常链泄露密钥（与 inject 侧对齐）
     return {"auth": "proxy"}
 
 
@@ -96,7 +96,7 @@ class ChatCompletionRequest(BaseModel):
     session_id: str | None = None
     skill: str | None = None
     temporary: bool = False
-    # [local-patch] 实验田维护者 R2：任务类型分流，避免 summary/correction 污染对话历史
+    # [local-patch] 沈遥 R2：任务类型分流，避免 summary/correction 污染对话历史
     # NEKO 侧需在请求 body 中带 task_type（如 "summary"/"correction"/"vision"/"agent"）
     # 不带则默认 "conversation"，走完整人格注入+RAG+历史写入
     task_type: str | None = "conversation"
@@ -123,7 +123,7 @@ async def _query_rag_standalone(question: str) -> str:
     降级链：任一路径失败不影响其他路径，全部失败返回 ""。
     铁律5：scratchpad 任一组件挂了，文字对话仍可跑。
     """
-    # 实验田维护者终审③修复：使用 asyncio.gather 真正并行召回
+    # 沈遥终审③修复：使用 asyncio.gather 真正并行召回
     grag_result, vector_result, semantic_result, chem_result = await asyncio.gather(
         _query_grag(question),
         _query_local_rag(question),
@@ -515,7 +515,7 @@ async def persona_chat_completions(
         merge_context_supplement,
     )
 
-    # [local-patch] 实验田维护者 R2：task_type 分流
+    # [local-patch] 沈遥 R2：task_type 分流
     # conversation 走完整人格注入+RAG+历史写入；其他类型（summary/correction/vision/agent）
     # 走轻量路径，不注入人格、不查 RAG、不写历史，避免污染对话上下文
     is_conversation = (request.task_type or "conversation") == "conversation"

@@ -58,19 +58,19 @@
 | 编号 | 工作包 | 动作 | 落点 | 依赖 | 模式 |
 |------|--------|------|------|------|------|
 | W-01 | sdrtrunk sidecar | JVM 独立进程桥，多协议解码（P25/DMR） | rf_brain P6 | 无 | Trae 工单 |
-| W-02 | cozo 记忆 sidecar | 独立进程 + HTTP/API，记忆三套分家 → 单库试点 | 端口挂载（不动 NEKO） | 无 | 实验田维护者自做 |
+| W-02 | cozo 记忆 sidecar | 独立进程 + HTTP/API，记忆三套分家 → 单库试点 | 端口挂载（不动 NEKO） | 无 | 沈遥自做 |
 | W-03 | graphify GraphRAG | 代码库/文献 → 知识图谱 + 向量检索 | Lumo P2 | 已装 | Trae 工单 |
-| W-04 | skills 规范体检 | 扫描 186 skills frontmatter → 批量修复 | skills/ | 无 | 实验田维护者脚本 |
-| W-05 | Context7 MCP | 接入防 API 幻觉 | mcpserver | 无 | 实验田维护者自做 |
+| W-04 | skills 规范体检 | 扫描 186 skills frontmatter → 批量修复 | skills/ | 无 | 沈遥脚本 |
+| W-05 | Context7 MCP | 接入防 API 幻觉 | mcpserver | 无 | 沈遥自做 |
 | W-06 | 记忆 MaaS API | sidecar 暴露 会话血统+混合检索 → MCP 工具注册 | 端口挂载（不动 NEKO） | W-02 | Trae 工单 |
-| W-07 | gstack 编排参考 | 读 23 代理编排 → 优化 delegate_task 用法 | Hermes agent | 无 | 实验田维护者自做 |
+| W-07 | gstack 编排参考 | 读 23 代理编排 → 优化 delegate_task 用法 | Hermes agent | 无 | 沈遥自做 |
 | W-08 | meshtastic 协议参考 | 对照 MeshRadio 设计（路由/加密） | HW-01 | 无 | 文档级 |
 | W-09 | academic 16 融合 | MODEL_INTERFACE×16 → knowledge-base | Lumo P1 | 545M 已核 | Trae 工单 |
 
 ## 五、执行策略（三线并行）
 
 1. **Trae 工单线**（走 GitHub）：W-01 sdrtrunk 桥 / W-03 graphify / W-06 记忆 MaaS / W-09 academic 16 —— 给 SPEC 拆解 + 验收标准，Trae 写码
-2. **实验田维护者自做线**：W-02 cozo 评估 / W-04 skills 体检 / W-05 Context7 / W-07 gstack —— 轻量、快、不占工单
+2. **沈遥自做线**：W-02 cozo 评估 / W-04 skills 体检 / W-05 Context7 / W-07 gstack —— 轻量、快、不占工单
 3. **NEKO 意见线**：MaaS 打通后 NEKO 可对工单提意见（评审角色）——token 不给图像，全砸代码/调研
 
 **顺序**：先 W-04（30 分钟见效）→ W-05（防幻觉立即提升写码质量）→ 再 Trae 重工单（W-01/W-03/W-06/W-09 并行下发）
@@ -99,6 +99,6 @@
 
 ## 八、结论
 
-候选已满仓，地图已画好，铁律已立（NEKO 冻结、端口挂载）。下一轮动作：W-04 + W-05 先落地（实验田维护者线），W-01/W-03/W-06/W-09 拆 SPEC 下发 Trae。
+候选已满仓，地图已画好，铁律已立（NEKO 冻结、端口挂载）。下一轮动作：W-04 + W-05 先落地（沈遥线），W-01/W-03/W-06/W-09 拆 SPEC 下发 Trae。
 
 

@@ -40,6 +40,15 @@ from ._streaming import _StreamingMixin
 from ._media import _MediaMixin
 from ._lifecycle import _LifecycleMixin
 
+from utils.http.url import same_endpoint
+
+
+# 端点同源判据收口到 utils.http.url：视觉槽的凭证继承与配置层「管理簿 Key 只能
+# 配该服务商自己的端点」问的是同一个问题。这里曾经手搓过一份，前后被评审挑出
+# 尾斜杠 / path 大小写 / userinfo / 畸形端口 / 默认端口 / 畸形 IPv6 六类边界；
+# 配置层后来又独立搓了第二份、把同样的坑重踩一遍。共用一份才是解法。
+_same_endpoint = same_endpoint
+
 
 class OmniOfflineClient(_ToolingMixin, _GenaiMixin, _StreamingMixin, _MediaMixin, _LifecycleMixin):
     """
@@ -75,6 +84,10 @@ class OmniOfflineClient(_ToolingMixin, _GenaiMixin, _StreamingMixin, _MediaMixin
         on_response_done (Callable[[], Awaitable[None]]):
             Callback when a response is complete.
     """
+
+    # 连续高重复时清空对话历史（只留系统指令）。历史由调用方按序维护的会话关掉它：
+    # 清空会抹掉其中每一条发言，调用方按条目打的标记也随之丢失
+    repetition_reset_enabled: bool = True
 
     def __init__(
         self,
@@ -115,12 +128,27 @@ class OmniOfflineClient(_ToolingMixin, _GenaiMixin, _StreamingMixin, _MediaMixin
         self.api_key = api_key if api_key and api_key != '' else None
         self.model = model
         self.vision_model = vision_model  # Store vision model for temporary switching
-        # 视觉模型独立配置（如果未指定则回退到主配置）
-        self.vision_base_url = vision_base_url if vision_base_url else base_url
-        self.vision_api_key = vision_api_key if vision_api_key else api_key
+        # 视觉模型独立配置：URL 与 Key 必须**成对**回退。
+        #
+        # 这两行原本各自独立判空，于是「视觉槽填了自己的 URL、Key 留空」时
+        # URL 停在视觉那一家的域名、Key 却继承了对话 provider 的凭证 —— 把用户
+        # 的付费 Key 发给了另一个厂商，既是路由错误也是凭证越界。留空 Key 让请求
+        # 不带 Authorization：本地无鉴权端点本就该如此，付费端点则会直接 401
+        # 报错，比静默把凭证送出去可诊断得多。
+        # 同源判定按归一化后的 URL 比：两个槽都指向同一家时，配置里常见的尾斜杠 /
+        # 大小写差异不该被当成「换了一家」而把继承掐掉（那会让原本能用的配置开始 401）。
+        _vision_url = vision_base_url or base_url
+        self.vision_base_url = _vision_url
+        # 「无凭证」统一表示成 None，与上面 self.api_key 的归一化对齐——
+        # 否则视觉侧会出现 '' 而主侧是 None，同一个状态两种写法。
+        if _same_endpoint(_vision_url, base_url):
+            self.vision_api_key = (vision_api_key or None) or self.api_key
+        else:
+            self.vision_api_key = vision_api_key or None
         self.provider_type = provider_type
         self.vision_provider_type = vision_provider_type or provider_type
         self._model_switch_lock = asyncio.Lock()
+        self._multimodal_submit_lock = asyncio.Lock()
         self.on_text_delta = on_text_delta
         # Called with True the first time a stream emits a reasoning / thinking
         # chunk (the text itself is filtered out before it reaches text/TTS —
@@ -217,13 +245,43 @@ class OmniOfflineClient(_ToolingMixin, _GenaiMixin, _StreamingMixin, _MediaMixin
         self._use_genai_sdk = _should_use_genai_sdk(self.model, self.base_url)
         self._genai_client = None  # initialized lazily inside _stream_text_genai
         self._genai_tools_unsupported = False  # set True if genai path falls back at runtime
+        # OpenAI-compat 端点明确拒收 ``tools``（例如 Ollama 上的 llava 返回
+        # 400 "does not support tools"）后置 True，本会话后续轮次不再带工具，
+        # 省掉每轮一次必然失败的请求。这是模型能力，只在换模型 / 关闭时清掉。
+        self._openai_tools_unsupported = False
+        # 端点只在请求带图时拒收 tools（"tool use is not supported with images"）。
+        self._openai_tools_unsupported_with_images = False
 
         # State management
         self._is_responding = False
+        self._response_generation = 0
+        self._interrupter_owned_generations: set[int] = set()
+        self._active_response_generation: int | None = None
+        self._completion_pending_generation: int | None = None
+        # stream_text / prompt_ephemeral calls still running (see is_idle).
+        self._reply_calls_in_flight = 0
+        # Closes of clients switch_model replaced while a reply call was in
+        # flight; the last call to return runs them (_retire_replaced_clients).
+        self._retired_client_closers: list = []
+        # Both sync and optional. on_response_displaced(kind): a user reply
+        # began over this one without an interruption and took its close over
+        # (the owner closes it). on_idle(): the last reply call returned and
+        # nothing is left in progress.
+        self.on_response_displaced: Optional[Callable[[str], Any]] = None
+        # What on_response_displaced handed back to send before this reply's
+        # first output (see _run_displaced_followup).
+        self._displaced_followup = None
+        self.on_idle: Optional[Callable[[], None]] = None
         self._conversation_history = []
         self._instructions = ""
         self._stream_task = None
         self._pending_images = []  # Store pending images to send with next text
+        # 插件 read 图片的独立暂存位。刻意不与 _pending_images 共用：两者共用时
+        # 任何淘汰策略都会伤到用户——丢最旧会丢掉用户刚暂存的帧，拒新会让插件占
+        # 满后挡住用户自己的图（两种都在 review 中试过并被正确驳回）。分开计额后
+        # 谁也花不了对方的预算，超额时裁的永远是自己那一侧最旧的一张。
+        # 与 _proactive_image_to_inject 同为「独立拥有的视觉暂存」模式。
+        self._pending_plugin_images = []
         # 主动搭话以「屏幕」为素材投递后遗留的那张截图，待下一条用户 text 回复
         # 时作为前导视觉背景注入（让对话模型「看到」刚才搭话评论的屏幕）。刻意
         # 与 _pending_images（用户自己的下一帧）隔离：共用会偷走用户的待发帧，

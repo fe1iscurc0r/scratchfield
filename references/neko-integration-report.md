@@ -139,7 +139,7 @@ NEKO/
 ## 六、操作记录
 
 1. 解压 `NEKO-windows-src.zip` → `N.E.K.O/`
-2. 多智能体（铁锚/实验田维护者/杜赞）并行审视 → `NEKO-逻辑理解报告.md`
+2. 多智能体（铁锚/沈遥/杜赞）并行审视 → `NEKO-逻辑理解报告.md`
 3. 移动 `NEKO/` 到 `scratchpad/NEKO/`
 4. 创建 `NOTICE` 文件（标注 Apache 2.0 归属）
 5. 更新 `.gitignore`（排除大二进制资源）

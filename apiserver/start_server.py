@@ -15,20 +15,17 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import uvicorn
+from apiserver.config import settings
 
 
 async def start_api_server():
     """启动API服务器"""
     
     # 从环境变量获取配置，回退到config
-    host = os.getenv("API_SERVER_HOST", "127.0.0.1")
-    try:
-        from system.config import get_server_port
-        default_port = get_server_port("api_server")
-    except ImportError:
-        default_port = 8000
-    port = int(os.getenv("API_SERVER_PORT", str(default_port)))
-    reload = os.getenv("API_SERVER_RELOAD", "False").lower() == "true"
+    # 工单204 任务四：配置收口（原三处散读改为统一 config）
+    host = settings.api_server_host()
+    port = settings.api_server_port()
+    reload = settings.api_server_reload()
     
     print("启动陆墨 API服务器...")
     print(f"地址: http://{host}:{port}")
@@ -50,14 +47,9 @@ async def start_llm_service():
     """启动LLM服务"""
     
     # 从环境变量获取配置，回退到config
-    host = os.getenv("LLM_SERVICE_HOST", "127.0.0.1")
-    try:
-        from system.config import get_server_port
-        default_port = get_server_port("agent_server")
-    except ImportError:
-        default_port = 8001
-    port = int(os.getenv("LLM_SERVICE_PORT", str(default_port)))
-    reload = os.getenv("LLM_SERVICE_RELOAD", "False").lower() == "true"
+    host = settings.llm_service_host()
+    port = settings.llm_service_port()
+    reload = settings.llm_service_reload()
     
     print("启动LLM服务...")
     print(f"地址: http://{host}:{port}")

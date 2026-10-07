@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -32,6 +33,62 @@ def test_templates_install_desktop_capture_provider_before_consumers() -> None:
     assert chat_html.index(provider_script) < chat_html.index(
         "/static/app/app-websocket.js"
     )
+
+
+def test_avatar_screen_source_manager_delegates_to_shared_filtered_renderer() -> None:
+    node_executable = shutil.which("node")
+    if node_executable is None:
+        pytest.skip("Node.js is required for the avatar screen-source contract")
+
+    avatar_source = json.dumps(read_text("static/avatar/avatar-ui-popup.js"))
+    node_harness = f"""
+global.window = {{
+  screen: {{ availWidth: 1920, availHeight: 1080 }},
+  addEventListener() {{}},
+}};
+const popup = {{
+  id: 'avatar-popup',
+  isConnected: true,
+  style: {{ display: 'flex', opacity: '1' }},
+  innerHTML: '',
+  appendChild() {{}},
+}};
+global.document = {{
+  head: {{ appendChild() {{}} }},
+  getElementById(id) {{ return id === popup.id ? popup : null; }},
+  createElement() {{ return {{ style: {{}}, dataset: {{}}, classList: {{ add() {{}}, contains() {{ return false; }} }}, appendChild() {{}}, addEventListener() {{}} }}; }},
+}};
+eval({avatar_source});
+
+(async () => {{
+  const manager = {{}};
+  window.AvatarPopupMixin.apply(manager, 'test', {{}});
+  let sharedCalls = 0;
+  window.renderFloatingScreenSourceList = async (candidate) => {{
+    sharedCalls += 1;
+    return candidate === popup;
+  }};
+  const result = await manager.renderScreenSourceList(popup);
+  console.log(JSON.stringify({{ sharedCalls, result }}));
+}})();
+"""
+
+    completed = run_node_stdin(
+        node_executable,
+        node_harness,
+        capture_output=True,
+        check=True,
+        timeout=10,
+    )
+    result = json.loads(completed.stdout)
+    assert result == {"sharedCalls": 1, "result": True}
+
+    for relative_path in (
+        "static/vrm/vrm-ui-buttons.js",
+        "static/mmd/mmd-ui-buttons.js",
+        "static/pngtuber-core.js",
+    ):
+        assert "this.renderScreenSourceList(popup)" in read_text(relative_path)
 
 
 def test_provider_prefers_tauri_and_preserves_electron_fallback() -> None:
@@ -86,6 +143,28 @@ eval({provider_source});
       || result.shell !== 'electron'
       || result.options.quality !== 80) {{
     throw new Error('Electron capture call contract changed');
+  }}
+
+  let getSourcesArgs = null;
+  const sourceOptions = {{
+    types: ['window', 'screen'],
+    thumbnailSize: {{ width: 160, height: 100 }}
+  }};
+  const sources = await window.invokeDesktopCaptureWithTimeout(
+    {{
+      getSources(options) {{
+        getSourcesArgs = Array.from(arguments);
+        return Promise.resolve([{{ id: 'screen:1', options }}]);
+      }}
+    }},
+    'getSources',
+    [sourceOptions],
+    50
+  );
+  if (getSourcesArgs.length !== 1
+      || getSourcesArgs[0] !== sourceOptions
+      || sources[0].options !== sourceOptions) {{
+    throw new Error('Generic timeout changed the getSources(options) contract');
   }}
 
   const tauriProvider = {{ captureSourceAsDataUrl() {{ return Promise.resolve(null); }} }};
@@ -197,10 +276,61 @@ def test_native_frame_stream_lifecycle_preserves_source_and_cancels_stale_frames
     assert "data:image/jpeg;base64," in screen
     assert "(S.screenCaptureStream || activeNativeCaptureSourceId)" in screen
     assert "var isNativeCaptureActive = activeNativeCaptureSourceId !== null;" in select_source
-    assert (
-        "var isScreenSharingActive = isNativeCaptureActive || "
-        "!!(stopBtn && !stopBtn.disabled);"
-    ) in select_source
+    # Whitespace-insensitive: a native start, a switch restart or any start in
+    # flight also counts as sharing, so switching sources restarts it.
+    assert "var isScreenSharingRunning = isScreenShareRunning();" in select_source
+    running = screen.split("function isScreenShareRunning()", 1)[1][:400]
+    assert "activeNativeCaptureSourceId !== null" in running
+    assert re.search(r"!!\(stop && !stop\.disabled\)", running)
+    assert "sourceSwitchRestart !== null" in running
+    assert re.search(
+        r"var isScreenSharingActive = isScreenSharingRunning\s*\|\|"
+        r"\s*isScreenSharingStartPending\(\);",
+        select_source,
+    )
+
+
+def test_screening_callers_pick_pause_or_teardown_explicitly() -> None:
+    # window.stopScreening keeps its original meaning (pause the frame sender).
+    # Real teardowns (session end, backend error, goodbye) call
+    # window.teardownScreenSharing, which also cancels a source-switch restart
+    # and any start in flight. Pausing callers must not tear down, or the new
+    # source never resumes.
+    screen = read_text("static/app/app-screen.js")
+    audio = read_text("static/app/app-audio-capture.js")
+    settings = read_text("static/app/app-settings.js")
+    buttons = read_text("static/app/app-buttons.js")
+    websocket = read_text("static/app/app-websocket.js")
+    assert "window.stopScreening = pauseScreenFrameSender;" in screen
+    pause = screen.split("function pauseScreenFrameSender()", 1)[1][:600]
+    # A start still in flight (native first frame) must survive the pause.
+    assert "if (isScreenSharingStartPending()) {" in pause
+    assert "window.teardownScreenSharing = teardownScreenSharing;" in screen
+    teardown = screen.split("function teardownScreenSharing()", 1)[1][:1200]
+    assert "cancelPendingScreenSharingStart();" in teardown
+    assert "sourceSwitchRestart = null;" in teardown
+    # isRecording may still be on during stopRecording: only clear indicators.
+    assert "clearScreenSharingIndicators()" in teardown
+    assert "finishScreenSharingStopped" not in teardown
+
+    mic_switch = audio.split("const shouldRestartScreening", 1)[1][:1500]
+    assert "window.stopScreening();" in mic_switch
+    assert "window.teardownScreenSharing(" not in mic_switch
+
+    stop_recording = audio.split("function stopRecording(options)", 1)[1][:3000]
+    assert "window.teardownScreenSharing();" in stop_recording
+    assert "window.stopScreening(" not in stop_recording
+    assert "window.teardownScreenSharing();" in buttons
+    assert "window.stopScreening(" not in buttons
+    assert websocket.count("window.teardownScreenSharing();") == 3
+    assert "window.stopScreening(" not in websocket
+
+    privacy = settings.split("function stopVisionAfterPrivacyEnabled()", 1)[1][:1500]
+    assert "window.stopScreening();" in privacy
+    assert "window.teardownScreenSharing(" not in privacy
+    # A manual start still waiting on its permission request is manual
+    # sharing too: privacy mode must leave its stream alone.
+    assert re.search(r"window\.isScreenSharingStartPending\(\)\)\s*return;", privacy)
 
 
 def test_capture_consumers_handle_late_bridges_and_native_failures() -> None:
@@ -231,3 +361,17 @@ def test_capture_failure_copy_exists_in_all_supported_locales() -> None:
 
         assert screen_source["notAvailable"]
         assert screen_source["captureFailed"]
+
+
+def test_avatar_source_picker_passes_screen_index_to_selection() -> None:
+    # The settings row names a screen from its index; without it the row
+    # falls back to the generic "Screens" label.
+    avatar_popup = read_text("static/avatar/avatar-ui-popup.js")
+    assert (
+        "window.selectScreenSource(\n"
+        "                                    source.id,\n"
+        "                                    source.name,\n"
+        "                                    displayName,\n"
+        "                                    source.id.startsWith('screen:') ? index : null\n"
+        "                                );"
+    ) in avatar_popup

@@ -4,7 +4,7 @@
 **指导书**: docs/NEKO-Lumo-Fusion-Blueprint-v1.0.md
 **参与智能体**:
 - 铁锚 (kimi2.7code) — 代码可行性审查
-- 实验田维护者 (deepseekv4pro) — 架构与安全审视
+- 沈遥 (deepseekv4pro) — 架构与安全审视
 - 杜赞 (GLM5.2) — 决策与路线图审查
 - Hermes (千问3.7plus) — 协调与汇总
 
@@ -85,7 +85,7 @@ exec(code, exec_env)                              # RCE 直通车
 - vision_model（视觉理解）— 属"身体感知"
 - summary/correction（摘要/纠错）— 内部管线优化
 
-**铁锚/实验田维护者**: 未对此表态，但铁锚确认 NEKO 有 6 个独立 model 角色（conversation/emotion/vision/agent/summary/correction）。
+**铁锚/沈遥**: 未对此表态，但铁锚确认 NEKO 有 6 个独立 model 角色（conversation/emotion/vision/agent/summary/correction）。
 
 **Hermes 建议**: 采纳杜赞的细化方案。emotion 执行在 NEKO，emotion 记忆在陆墨；vision 留 NEKO；conversation/agent/人格/记忆归陆墨。
 
@@ -115,7 +115,7 @@ exec(code, exec_env)                              # RCE 直通车
 
 ## 四、各里程碑可行性汇总
 
-| 里程碑 | 铁锚评估 | 实验田维护者评估 | 杜赞评估 | 综合结论 |
+| 里程碑 | 铁锚评估 | 沈遥评估 | 杜赞评估 | 综合结论 |
 |--------|----------|----------|----------|----------|
 | **M1 文本打通** | ⚠️ 需适配（proxy 不带人格） | — | ⚠️ 隐藏阻塞（鉴权+人格） | **需新建 persona-aware 端点 + 定义鉴权** |
 | **M2 语音打通** | ✅ 可直接实施 | ⚠️ openai_proxy 伪流式延迟 | ⚠️ 缺 emotion 归属决策 | **基本可行，需先拍板 emotion + 评估流式延迟** |
@@ -157,14 +157,14 @@ exec(code, exec_env)                              # RCE 直通车
 |------|------|------|------|------|
 | 1 | CUA 沙箱路径错，没真收紧就接 Agent | 高 | 致命 | 三方共识 |
 | 2 | M1 proxy 不带人格，"陆墨脑子"是假的 | 高 | 高 | 铁锚+杜赞 |
-| 3 | 鉴权链路未定义，NEKO 调不动 scratchpad | 高 | 高 | 杜赞+实验田维护者 |
-| 4 | M3 ws 推送协议错配，卡住 | 高 | 中 | 铁锚+实验田维护者 |
+| 3 | 鉴权链路未定义，NEKO 调不动 scratchpad | 高 | 高 | 杜赞+沈遥 |
+| 4 | M3 ws 推送协议错配，卡住 | 高 | 中 | 铁锚+沈遥 |
 | 5 | emotion 归属矛盾，M2 嘴型无 label | 中 | 中 | 杜赞 |
 | 6 | api_providers.json 被上游更新冲掉 | 中 | 中 | 杜赞 |
-| 7 | 多实例记忆不一致（笔记本关机场景） | 中 | 中 | 实验田维护者 |
-| 8 | monitor_server 0.0.0.0 对话泄露 | 中 | 高 | 实验田维护者 |
+| 7 | 多实例记忆不一致（笔记本关机场景） | 中 | 中 | 沈遥 |
+| 8 | monitor_server 0.0.0.0 对话泄露 | 中 | 高 | 沈遥 |
 | 9 | M5 无验证标准，永久延期 | 中 | 低 | 杜赞 |
-| 10 | openai_proxy 伪流式延迟影响 TTS | 中 | 中 | 实验田维护者 |
+| 10 | openai_proxy 伪流式延迟影响 TTS | 中 | 中 | 沈遥 |
 
 ---
 
@@ -180,4 +180,4 @@ exec(code, exec_env)                              # RCE 直通车
 
 ---
 
-*纪要由 Hermes (千问3.7plus) 协调生成，铁锚 (kimi2.7code) / 实验田维护者 (deepseekv4pro) / 杜赞 (GLM5.2) 并行审查。*
+*纪要由 Hermes (千问3.7plus) 协调生成，铁锚 (kimi2.7code) / 沈遥 (deepseekv4pro) / 杜赞 (GLM5.2) 并行审查。*

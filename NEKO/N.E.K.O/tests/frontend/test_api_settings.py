@@ -57,20 +57,143 @@ def test_api_key_settings(mock_page: Page, running_server: str):
     # The JS shows status in #status div; message may be i18n-translated
     # Wait for the status div to become visible (it's hidden by default)
     expect(mock_page.locator("#status")).to_be_visible(timeout=5000)
-    
+
+    # The immediate post-save refresh receives only the server-side secret
+    # sentinel.  Keep this page's just-entered key as a partial mask instead
+    # of degrading it to the generic all-dot placeholder.
+    expect(mock_page.locator("#apiKeyInput")).to_have_value(
+        "sk-************890", timeout=5000
+    )
+
     # Reload page to verify persistence
     mock_page.reload()
     expect(mock_page.locator("#loading-overlay")).to_be_hidden(timeout=10000)
-    
-    # Verify value
-    # 当前页面会把明文 key 掩码显示，真实值挂在 data-real-key 上。
-    expect(mock_page.locator("#apiKeyInput")).to_have_attribute("data-real-key", test_key, timeout=5000)
+
+    # A full page reload keeps the server-provided partial mask, never plaintext.
+    expect(mock_page.locator("#apiKeyInput")).to_have_value("sk-************890", timeout=5000)
     expect(mock_page.locator("#coreApiSelect")).to_have_value("qwen", timeout=5000)
+
+
+@pytest.mark.frontend
+def test_api_help_tooltips_follow_neko_theme_and_fit_viewport(
+    mock_page: Page, running_server: str
+):
+    """API explanations use the N.E.K.O card language in both themes."""
+    mock_page.set_viewport_size({"width": 1280, "height": 720})
+    mock_page.add_init_script("window.localStorage.setItem('neko_tutorial_settings', 'seen')")
+    mock_page.goto(f"{running_server}/api_key")
+
+    expect(mock_page.locator("#loading-overlay")).to_be_hidden(timeout=10000)
+    icon = mock_page.locator(".tooltip-icon").first
+    tooltip = mock_page.locator(".tooltip-content").first
+    icon.hover()
+    expect(tooltip).to_be_visible()
+
+    light = tooltip.evaluate("""
+        element => {
+            const style = getComputedStyle(element);
+            const decoration = getComputedStyle(element, '::before');
+            const rect = element.getBoundingClientRect();
+            return {
+                background: style.backgroundImage,
+                borderLeftColor: style.borderLeftColor,
+                color: style.color,
+                radius: style.borderRadius,
+                paw: decoration.backgroundImage,
+                left: rect.left,
+                right: rect.right,
+                width: rect.width,
+            };
+        }
+    """)
+    assert "linear-gradient" in light["background"]
+    assert light["borderLeftColor"] == "rgb(64, 197, 241)"
+    assert light["color"] == "rgb(54, 92, 112)"
+    assert light["radius"] == "16px"
+    assert "paw_ui.png" in light["paw"]
+    paw_response = mock_page.request.get(f"{running_server}/static/icons/paw_ui.png")
+    assert paw_response.ok
+    assert paw_response.headers["content-type"].startswith("image/png")
+    assert paw_response.body().startswith(b"\x89PNG\r\n\x1a\n")
+    assert light["left"] >= 20
+    assert light["right"] <= 1260
+    assert light["width"] <= 1240
+
+    mock_page.evaluate("document.documentElement.setAttribute('data-theme', 'dark')")
+    dark = tooltip.evaluate("""
+        element => {
+            const style = getComputedStyle(element);
+            const title = getComputedStyle(element.querySelector('strong'));
+            return {
+                background: style.backgroundImage,
+                color: style.color,
+                titleColor: title.color,
+            };
+        }
+    """)
+    assert "linear-gradient" in dark["background"]
+    assert dark["color"] == "rgb(217, 239, 248)"
+    assert dark["titleColor"] == "rgb(117, 220, 255)"
+
+    mock_page.set_viewport_size({"width": 390, "height": 720})
+    icon.hover()
+    narrow = tooltip.evaluate("""
+        element => {
+            const rect = element.getBoundingClientRect();
+            return { left: rect.left, right: rect.right, width: rect.width };
+        }
+    """)
+    assert narrow["left"] >= 20
+    assert narrow["right"] <= 370
+    assert narrow["width"] <= 350
+
+    mock_page.evaluate("window.changeLanguage('es')")
+    assist_icon = mock_page.locator(".tooltip-icon").nth(1)
+    assist_tooltip = mock_page.locator(".tooltip-content").nth(1)
+    assist_icon.scroll_into_view_if_needed()
+    assist_icon.hover()
+    expect(assist_tooltip).to_be_visible()
+    vertical = assist_tooltip.evaluate("""
+        element => {
+            const rect = element.getBoundingClientRect();
+            const scrollRegion = element.querySelector('.tooltip-scroll-content') || element;
+            return {
+                top: rect.top,
+                bottom: rect.bottom,
+                overflowY: getComputedStyle(scrollRegion).overflowY,
+                clientHeight: scrollRegion.clientHeight,
+                scrollHeight: scrollRegion.scrollHeight,
+            };
+        }
+    """)
+    assert vertical["top"] >= 20
+    assert vertical["bottom"] <= 700
+    assert vertical["overflowY"] == "auto"
+    assert vertical["scrollHeight"] > vertical["clientHeight"]
+
+    assist_tooltip.hover()
+    mock_page.wait_for_timeout(250)
+    expect(assist_tooltip).to_be_visible()
+    scroll_state = assist_tooltip.evaluate("""
+        element => {
+            const scrollRegion = element.querySelector('.tooltip-scroll-content');
+            scrollRegion.scrollTop = scrollRegion.scrollHeight;
+            return {
+                opacity: getComputedStyle(element).opacity,
+                pointerEvents: getComputedStyle(element).pointerEvents,
+                scrollTop: scrollRegion.scrollTop,
+            };
+        }
+    """)
+    assert scroll_state["opacity"] == "1"
+    assert scroll_state["pointerEvents"] == "auto"
+    assert scroll_state["scrollTop"] > 0
 
 
 @pytest.mark.frontend
 def test_custom_model_headers_own_their_capsule_shape(mock_page: Page, running_server: str):
     """Collapsed custom-model headers must not borrow rounded corners from a wrapper."""
+    mock_page.set_viewport_size({"width": 1280, "height": 1200})
     mock_page.add_init_script("window.localStorage.setItem('neko_tutorial_settings', 'seen')")
     mock_page.goto(f"{running_server}/api_key")
 
@@ -105,7 +228,15 @@ def test_custom_model_headers_own_their_capsule_shape(mock_page: Page, running_s
         "headerWidth": styles["headerWidth"],
     }
 
-    mock_page.evaluate("toggleModelConfig('conversation')")
+    transition_overflow = mock_page.evaluate("""
+        () => {
+            toggleModelConfig('conversation');
+            return getComputedStyle(
+                document.getElementById('conversation-model-content')
+            ).overflow;
+        }
+    """)
+    assert transition_overflow == "hidden"
     mock_page.wait_for_timeout(350)
 
     expanded_styles = mock_page.evaluate("""
@@ -117,6 +248,7 @@ def test_custom_model_headers_own_their_capsule_shape(mock_page: Page, running_s
                 borderWidth: style.borderTopWidth,
                 borderRadius: style.borderTopLeftRadius,
                 marginTop: style.marginTop,
+                overflow: style.overflow,
             };
         }
     """)
@@ -125,7 +257,65 @@ def test_custom_model_headers_own_their_capsule_shape(mock_page: Page, running_s
         "borderWidth": "3px",
         "borderRadius": "24px",
         "marginTop": "8px",
+        "overflow": "hidden",
     }
+
+    mock_page.wait_for_selector(
+        "#conversationModelProvider-menu "
+        ".api-provider-dropdown-option[data-value='qwen']",
+        state="attached",
+        timeout=10000,
+    )
+    mock_page.evaluate("""
+        () => {
+            document.getElementById('custom-api-options').style.display = 'block';
+            document.getElementById('custom-api-container').style.display = 'grid';
+            document.getElementById('conversation-model-content')
+                .closest('.model-config-container').style.display = 'block';
+        }
+    """)
+    provider_trigger = mock_page.locator("#conversationModelProvider-dropdown-trigger")
+    provider_menu = mock_page.locator("#conversationModelProvider-menu")
+    provider_trigger.click()
+    expect(provider_menu).to_be_visible()
+
+    dropdown_geometry = mock_page.evaluate("""
+        () => {
+            const content = document.getElementById('conversation-model-content');
+            const menu = document.getElementById('conversationModelProvider-menu');
+            const contentRect = content.getBoundingClientRect();
+            const menuRect = menu.getBoundingClientRect();
+            const probeXs = [
+                menuRect.left + (menuRect.width / 2),
+                menuRect.right - 4,
+            ];
+            const exposedHeight = menuRect.bottom - contentRect.bottom;
+            const probeY = contentRect.bottom + (Math.min(4, exposedHeight) / 2);
+            const hits = exposedHeight > 0
+                ? probeXs.map((probeX) => document.elementFromPoint(probeX, probeY))
+                : [];
+
+            return {
+                contentBottom: contentRect.bottom,
+                menuBottom: menuRect.bottom,
+                contentOverflow: getComputedStyle(content).overflow,
+                menuExtendsPastContent: exposedHeight > 0,
+                exposedMenuCenterIsVisible: !!(hits[0] && menu.contains(hits[0])),
+                exposedMenuRightEdgeIsVisible: !!(hits[1] && menu.contains(hits[1])),
+            };
+        }
+    """)
+
+    assert dropdown_geometry["contentOverflow"] == "visible"
+    assert dropdown_geometry["menuExtendsPastContent"] is True
+    assert dropdown_geometry["exposedMenuCenterIsVisible"] is True
+    assert dropdown_geometry["exposedMenuRightEdgeIsVisible"] is True
+
+    provider_trigger.click()
+    expect(provider_menu).to_be_hidden()
+    expect(mock_page.locator("#conversation-model-content")).to_have_css(
+        "overflow", "hidden"
+    )
 
 
 @pytest.mark.frontend
@@ -176,6 +366,7 @@ def test_custom_model_grid_uses_two_columns_and_full_width_expansion(
             agent: rect(cards[6]),
             tts: rect(cards[7]),
             game: rect(cards[8]),
+            image: rect(cards[9]),
         };
     }""")
 
@@ -191,6 +382,7 @@ def test_custom_model_grid_uses_two_columns_and_full_width_expansion(
         "agent-model-content",
         "tts-model-content",
         "game-model-content",
+        "image-model-content",
     ]
     assert desktop["titleKeys"] == [
         "api.conversationModelConfig",
@@ -202,6 +394,7 @@ def test_custom_model_grid_uses_two_columns_and_full_width_expansion(
         "api.agentApiConfigTitle",
         "api.ttsModelConfig",
         "api.gameModelsConfig",
+        "api.imageModelConfig",
     ]
     assert desktop["summaryTypes"] == [
         "conversation",
@@ -224,6 +417,8 @@ def test_custom_model_grid_uses_two_columns_and_full_width_expansion(
         "omni": "emotion",
         "agent": "tts",
         "tts": "agent",
+        "game": "image",
+        "image": "game",
     }
     assert desktop["conversation"]["top"] == desktop["vision"]["top"]
     assert desktop["conversation"]["left"] < desktop["vision"]["left"]
@@ -234,6 +429,8 @@ def test_custom_model_grid_uses_two_columns_and_full_width_expansion(
     assert desktop["emotion"]["top"] == desktop["omni"]["top"]
     assert desktop["agent"]["top"] == desktop["tts"]["top"]
     assert desktop["game"]["top"] > desktop["agent"]["top"]
+    assert desktop["game"]["top"] == desktop["image"]["top"]
+    assert desktop["game"]["left"] < desktop["image"]["left"]
 
     mock_page.evaluate("toggleModelConfig('conversation')")
     mock_page.wait_for_timeout(350)
@@ -1671,3 +1868,275 @@ def test_switching_tts_provider_away_from_vllm_clears_fallback_voice(mock_page: 
     """)
 
     assert values == {"vllmVoice": "default", "followVoice": ""}
+
+
+@pytest.mark.frontend
+def test_capability_dropdowns_hide_providers_with_no_implementation(
+    mock_page: Page, running_server: str
+):
+    """TTS / realtime dropdowns must only offer providers the backend implements.
+
+    Both dropdowns used to be filled from the assist (text-LLM) table, so they
+    listed providers that own no TTS worker / no realtime endpoint at all.
+    Picking one was silently ignored downstream while its auto-filled URL and
+    key polluted that slot's credentials.
+    """
+    mock_page.add_init_script("window.localStorage.setItem('neko_tutorial_settings', 'seen')")
+    mock_page.goto(f"{running_server}/api_key")
+    expect(mock_page.locator("#loading-overlay")).to_be_hidden(timeout=15000)
+    mock_page.wait_for_selector("#ttsModelProvider option[value='vllm_omni']", state="attached", timeout=10000)
+
+    options = mock_page.evaluate("""
+        () => {
+            const read = id => Array.from(
+                document.getElementById(id).options
+            ).map(o => o.value);
+            return { tts: read('ttsModelProvider'), omni: read('omniModelProvider') };
+        }
+    """)
+
+    # 纯文本 LLM 厂商没有任何 TTS worker，不该出现在 TTS 下拉里
+    for pk in ('deepseek', 'kimi', 'kimi_code', 'claude', 'openrouter', 'silicon'):
+        assert pk not in options['tts'], f"TTS 下拉仍暴露无 TTS 能力的 {pk}"
+
+    # 实时全模态下拉不提供**任何**具名服务商。这个槽的取值会变成进程级的
+    # core api type，而那个身份同时决定 TTS worker / 原生音色 / 音频凭证——
+    # 它们都跟着核心 API 走。选一个与核心不同的厂商会把音频链路撕成两半
+    # （Qwen TTS worker 拿着 OpenAI 的 key），所以连真正有 realtime 端点的
+    # qwen / glm 也不摆出来。
+    for pk in ('deepseek', 'kimi', 'claude', 'minimax', 'elevenlabs', 'openrouter',
+               'gemini', 'qwen', 'glm', 'step', 'grok', 'openai'):
+        assert pk not in options['omni'], f"实时全模态下拉不该暴露具名服务商 {pk}"
+
+    # 反向断言：真正有能力的项必须还在，避免"全都过滤掉"也能让上面的断言通过
+    assert 'gptsovits' in options['tts'], "GPT-SoVITS 被误过滤"
+    assert 'vllm_omni' in options['tts'], "vLLM-Omni 被误过滤"
+    assert 'custom' in options['tts'], "自定义 TTS 被误过滤"
+    assert 'custom' in options['omni'], "自定义实时端点被误过滤"
+    for sel in ('tts', 'omni'):
+        assert 'follow_core' in options[sel] and 'follow_assist' in options[sel], (
+            f"{sel} 下拉丢了跟随项"
+        )
+
+
+@pytest.mark.frontend
+def test_saved_incapable_provider_falls_back_and_clears_stale_credentials(
+    mock_page: Page, running_server: str
+):
+    """A saved pick the backend never honoured must not survive as 'custom'.
+
+    The dropdowns used to offer providers with no TTS / realtime implementation.
+    Those picks did nothing downstream, but the URL and key the page auto-filled
+    for them polluted the slot. On load they now fall back to the slot default —
+    NOT to 'custom', which would promote an LLM chat endpoint into a real
+    self-hosted TTS endpoint and start actually calling it.
+    """
+    mock_page.add_init_script("window.localStorage.setItem('neko_tutorial_settings', 'seen')")
+
+    def _seed(route):
+        response = route.fetch()
+        data = response.json()
+        data['enableCustomApi'] = True
+        # 存量：TTS / omni 槽各选了一个后端根本没有实现的服务商，
+        # 连带被自动填进去的是该厂商的 LLM 端点与凭证
+        data['ttsModelProvider'] = 'deepseek'
+        data['ttsModelUrl'] = 'https://api.deepseek.com/v1'
+        data['ttsModelApiKey'] = 'sk-stale-deepseek'
+        data['omniModelProvider'] = 'claude'
+        data['omniModelUrl'] = 'https://api.anthropic.com/v1'
+        data['omniModelApiKey'] = 'sk-stale-claude'
+        route.fulfill(response=response, json=data)
+
+    mock_page.route("**/api/config/core_api", _seed)
+    mock_page.goto(f"{running_server}/api_key")
+    expect(mock_page.locator("#loading-overlay")).to_be_hidden(timeout=15000)
+    mock_page.wait_for_selector("#ttsModelProvider option[value='vllm_omni']", state="attached", timeout=10000)
+
+    state = mock_page.evaluate("""
+        () => {
+            const read = id => {
+                const el = document.getElementById(id);
+                return el ? (el.dataset.realKey ?? el.value) : null;
+            };
+            return {
+                ttsProvider: document.getElementById('ttsModelProvider').value,
+                omniProvider: document.getElementById('omniModelProvider').value,
+                ttsUrl: read('ttsModelUrl'),
+                ttsKey: read('ttsModelApiKey'),
+                omniUrl: read('omniModelUrl'),
+                omniKey: read('omniModelApiKey'),
+            };
+        }
+    """)
+
+    assert state['ttsProvider'] == 'follow_assist', (
+        f"无能力的 TTS 选择应回落该槽默认值，实际={state['ttsProvider']!r}"
+    )
+    assert state['omniProvider'] == 'follow_core', (
+        f"无能力的 omni 选择应回落该槽默认值，实际={state['omniProvider']!r}"
+    )
+    # 关键：绝不能落到 'custom' —— 那会把一个 LLM 端点坐实成自配 TTS/实时端点
+    assert state['ttsProvider'] != 'custom' and state['omniProvider'] != 'custom'
+    assert 'deepseek' not in (state['ttsUrl'] or ''), (
+        f"残留的 LLM 端点应被跟随方的值覆盖，实际 ttsUrl={state['ttsUrl']!r}"
+    )
+    assert 'sk-stale-deepseek' not in (state['ttsKey'] or ''), (
+        f"残留凭证应被覆盖，实际 ttsKey={state['ttsKey']!r}"
+    )
+    assert 'anthropic' not in (state['omniUrl'] or ''), (
+        f"残留的 Anthropic 端点应被覆盖，实际 omniUrl={state['omniUrl']!r}"
+    )
+    assert 'sk-stale-claude' not in (state['omniKey'] or ''), (
+        f"残留凭证应被覆盖，实际 omniKey={state['omniKey']!r}"
+    )
+
+
+@pytest.mark.frontend
+def test_model_id_picker_named_provider_switch_clears_only_user_switches(mock_page: Page, running_server: str):
+    mock_page.add_init_script("window.localStorage.setItem('neko_tutorial_settings', 'true')")
+    mock_page.goto(f'{running_server}/api_key')
+    expect(mock_page.locator('#loading-overlay')).to_be_hidden(timeout=15000)
+    mock_page.wait_for_selector('#conversationModelProvider option[value="openai"]', state='attached')
+    mock_page.evaluate("""() => {
+        document.getElementById('enableCustomApi').checked = true;
+        toggleCustomApi();
+        document.getElementById('custom-api-options').style.display = 'block';
+        toggleModelConfig('conversation');
+    }""")
+    model = mock_page.locator('#conversationModelId')
+    mock_page.select_option('#conversationModelProvider', 'openai')
+    model.fill('gpt-user-choice')
+    mock_page.evaluate("onCustomModelProviderChange('conversation')")
+    expect(model).to_have_value('gpt-user-choice')
+    mock_page.select_option('#conversationModelProvider', 'deepseek')
+    expect(model).to_have_value('')
+    expect(model).not_to_have_attribute('placeholder', 'gpt-user-choice')
+    model.fill('deepseek-user-choice')
+    mock_page.select_option('#conversationModelProvider', 'custom')
+    expect(model).to_have_value('')
+    mock_page.select_option('#conversationModelProvider', 'kimi_code')
+    mock_page.select_option('#conversationModelProvider', 'custom')
+    expect(model).to_have_value('')
+
+    mock_page.select_option('#conversationModelProvider', 'follow_assist')
+    mock_page.select_option('#conversationModelProvider', 'openai')
+    expect(model).to_have_value('')
+    for follow_mode in ['follow_core', 'follow_assist']:
+        model.fill('gpt-user-choice')
+        mock_page.select_option('#conversationModelProvider', follow_mode)
+        expect(model).to_have_value('')
+        mock_page.select_option('#conversationModelProvider', 'openai')
+    mock_page.evaluate("""() => {
+        for (const type of ['tts']) {
+            const select = document.getElementById(`${type}ModelProvider`);
+            const target = Array.from(select.options).find(option =>
+                option.value === 'minimax');
+            select.dataset.currentProvider = 'follow_core';
+            select.value = target.value;
+            document.getElementById(`${type}ModelId`).value = 'user-runtime-model';
+            onCustomModelProviderChange(type, true);
+        }
+    }""")
+    expect(mock_page.locator('#ttsModelId')).to_have_value('user-runtime-model')
+    model.fill('deepseek-user-choice')
+    mock_page.evaluate("""() => {
+        _isLoadingSavedConfig = true;
+        const select = document.getElementById('conversationModelProvider');
+        select.dataset.currentProvider = 'openai';
+        select.value = 'deepseek';
+        onCustomModelProviderChange('conversation', true);
+        _isLoadingSavedConfig = false;
+    }""")
+    expect(model).to_have_value('deepseek-user-choice')
+
+
+@pytest.mark.frontend
+@pytest.mark.parametrize('api_select,follow_mode', [
+    ('assistApiSelect', 'follow_assist'), ('coreApiSelect', 'follow_core'),
+])
+def test_model_id_picker_api_switch_clears_followed_models(mock_page: Page, running_server: str, api_select, follow_mode):
+    mock_page.add_init_script("window.localStorage.setItem('neko_tutorial_settings', 'true')")
+    mock_page.goto(f'{running_server}/api_key')
+    expect(mock_page.locator('#loading-overlay')).to_be_hidden(timeout=15000)
+    mock_page.wait_for_selector(f'#{api_select} option[value="openai"]', state='attached')
+    mock_page.evaluate("""() => {
+        document.getElementById('enableCustomApi').checked = true;
+        toggleCustomApi();
+        document.getElementById('custom-api-options').style.display = 'block';
+        toggleModelConfig('conversation');
+    }""")
+    mock_page.select_option(f'#{api_select}', 'qwen')
+    mock_page.select_option('#conversationModelProvider', follow_mode)
+    model = mock_page.locator('#conversationModelId')
+    mock_page.evaluate("document.getElementById('conversationModelId').value = 'qwen-user-model'")
+    mock_page.select_option(f'#{api_select}', 'openai')
+    expect(model).to_have_value('')
+    mock_page.evaluate("document.getElementById('conversationModelId').value = 'gpt-user-model'")
+    mock_page.dispatch_event(f'#{api_select}', 'change')
+    expect(model).to_have_value('gpt-user-model')
+    mock_page.evaluate("onCustomModelProviderChange('conversation')")
+    expect(model).to_have_value('gpt-user-model')
+    mock_page.select_option(f'#{api_select}', 'qwen')
+    expect(model).to_have_value('')
+
+
+@pytest.mark.frontend
+def test_model_id_picker_filters_keywords_typed_while_loading(mock_page: Page, running_server: str):
+    """Keywords typed before the upstream model list arrives still filter it."""
+    mock_page.add_init_script("window.localStorage.setItem('neko_tutorial_settings', 'true')")
+    pending = []
+    mock_page.route("**/api/config/list_models", lambda route: pending.append(route))
+    mock_page.goto(f"{running_server}/api_key")
+    expect(mock_page.locator("#loading-overlay")).to_be_hidden(timeout=15000)
+    mock_page.wait_for_selector("#assistApiSelect option[value='qwen']", state="attached", timeout=10000)
+    mock_page.select_option("#assistApiSelect", "qwen")
+    mock_page.evaluate("""() => {
+        const enableCustomApi = document.getElementById('enableCustomApi');
+        enableCustomApi.checked = true;
+        toggleCustomApi();
+        document.getElementById('custom-api-options').style.display = 'block';
+        toggleModelConfig('conversation');
+    }""")
+
+    menu = mock_page.locator("#conversationModelId-model-menu")
+    mock_page.locator("#conversationModelId ~ button").click()
+    expect(menu.locator(".api-provider-dropdown-empty")).to_be_visible()
+    mock_page.fill("#conversationModelId", "qwen3.8")
+    assert len(pending) == 1
+    assert pending[0].request.post_data_json["provider_key"] == "qwen"
+
+    pending[0].fulfill(json={"success": True, "models": [
+        {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash"},
+        {"id": "qwen3.8-flash", "name": "Qwen3.8 Flash"},
+        {"id": "qwen3.8-plus", "name": "Qwen3.8 Plus"},
+    ]})
+    options = menu.locator(".api-provider-dropdown-option")
+    expect(options).to_have_count(2)
+    expect(options.nth(0)).to_have_attribute("data-value", "qwen3.8-flash")
+    expect(options.nth(1)).to_have_attribute("data-value", "qwen3.8-plus")
+
+
+@pytest.mark.frontend
+def test_model_id_picker_closes_when_another_picker_input_is_clicked(mock_page: Page, running_server: str):
+    """Clicking another picker input closes the previous menu."""
+    mock_page.add_init_script("window.localStorage.setItem('neko_tutorial_settings', 'true')")
+    mock_page.route('**/api/config/list_models', lambda route: route.fulfill(
+        json={'success': True, 'models': [{'id': 'qwen-test'}]},
+    ))
+    mock_page.goto(f'{running_server}/api_key')
+    expect(mock_page.locator('#loading-overlay')).to_be_hidden(timeout=15000)
+    mock_page.wait_for_selector('#assistApiSelect option[value="qwen"]', state='attached')
+    mock_page.select_option('#assistApiSelect', 'qwen')
+    mock_page.evaluate("""() => {
+        const enableCustomApi = document.getElementById('enableCustomApi');
+        enableCustomApi.checked = true;
+        toggleCustomApi();
+        document.getElementById('custom-api-options').style.display = 'block';
+        toggleModelConfig('conversation');
+    }""")
+    mock_page.locator('#conversationModelId ~ button').click()
+    menu = mock_page.locator('#conversationModelId-model-menu')
+    expect(menu.locator('.api-provider-dropdown-option')).to_be_visible()
+    mock_page.evaluate("""() => document.getElementById('visionModelId')
+        .dispatchEvent(new MouseEvent('click', {bubbles: true}))""")
+    expect(menu).to_be_hidden()

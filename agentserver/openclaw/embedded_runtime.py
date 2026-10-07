@@ -618,7 +618,7 @@ class EmbeddedRuntime:
             if not source_register.exists():
                 logger.error(f"source_register.mjs 不存在: {source_register}")
                 return None
-            # 实验田维护者 P1：Windows 下 --import specifier 需转 file:// URL，否则 ESM loader 拒绝 d: 协议
+            # 沈遥 P1：Windows 下 --import specifier 需转 file:// URL，否则 ESM loader 拒绝 d: 协议
             src_url = source_register.as_uri()
             return [node, "--import", src_url, "--import", "tsx", str(entry)]
         return [node, str(entry)]

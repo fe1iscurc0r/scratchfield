@@ -1,4 +1,4 @@
-# academic/ — 16 项目模型弹药索引（SPEC-02 Phase 1）
+# academic/ — 16 项目模型候选索引（SPEC-02 Phase 1）
 
 > 来源：云端 545M academic 中转库（GitHub: fe1iscurc0r/scratchpad-knowledge）
 > 每项一个子目录，核心交付物为 `MODEL_INTERFACE.md`（算法定位 / 核心 API / 数据格式 / 用途）。
@@ -27,4 +27,4 @@
 （工具：`academic_status` / `academic_call`，按需在 `materialscience_agent` 注册）。
 
 ✅ = 已在当前环境实测可调用（≥5 项满足 Phase 1 验收）；
-📖 = 文档弹药就绪，依赖安装或硬件到位即可接入。
+📖 = 文档候选就绪，依赖安装或硬件到位即可接入。

@@ -492,7 +492,7 @@ def evaluate():
         ]
         for r in paper_rows:
             lines.append(f"| {r['project']} | {r['priority'] or '—'} | {r['reports'][0]} |")
-        lines += ["", "> 待实验田维护者人工补处置意见。", ""]
+        lines += ["", "> 待沈遥人工补处置意见。", ""]
         report.write_text('\n'.join(lines), encoding='utf-8')
         print(f"[evaluate] 报告骨架已落 {report}")
     return {'counts': counts, 'total': total}

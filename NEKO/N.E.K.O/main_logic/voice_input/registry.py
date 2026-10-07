@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -63,6 +64,7 @@ class VoiceInputRegistry:
         self._activation_generation = 0
         self._utterances: dict[VoiceTurnToken, _PinnedUtterance] = {}
         self._background_tasks: set[asyncio.Task[None]] = set()
+        self._wait_idle_task: asyncio.Task[None] | None = None
         self._deferred_cancellations: list[
             tuple[_PinnedUtterance, str]
         ] = []
@@ -228,9 +230,11 @@ class VoiceInputRegistry:
             self._schedule_cancel(route, "empty_final")
             return VoiceInputDispatchResult.EMPTY_CONSUMED
         try:
-            await route.record.consumer.on_final(event)
+            accepted = await route.record.consumer.on_final(event)
         except Exception:
             return VoiceInputDispatchResult.CALLBACK_FAILED
+        if accepted is False:
+            return VoiceInputDispatchResult.REJECTED
         return VoiceInputDispatchResult.DELIVERED
 
     def invalidate_utterance(
@@ -238,15 +242,30 @@ class VoiceInputRegistry:
         token: VoiceTurnToken | None = None,
         *,
         reason: str,
+        keep: Collection[VoiceTurnToken] = (),
     ) -> bool:
         if token is not None:
             return self._invalidate_route(token, reason)
-        tokens = tuple(self._utterances)
+        tokens = tuple(
+            route_token
+            for route_token in self._utterances
+            if route_token not in keep
+        )
         for route_token in tokens:
             self._invalidate_route(route_token, reason)
         return bool(tokens)
 
     async def wait_idle(self) -> None:
+        wait_task = self._wait_idle_task
+        if wait_task is None or wait_task.done():
+            wait_task = asyncio.create_task(
+                self._wait_idle_impl(),
+                name="voice-input-registry-wait-idle",
+            )
+            self._wait_idle_task = wait_task
+        await asyncio.shield(wait_task)
+
+    async def _wait_idle_impl(self) -> None:
         while True:
             deferred, self._deferred_cancellations = (
                 self._deferred_cancellations,

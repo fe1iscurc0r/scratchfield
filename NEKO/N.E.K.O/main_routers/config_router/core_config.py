@@ -34,7 +34,7 @@ CORE_CONFIG_SECRET_SENTINEL = "__NEKO_SECRET_MASKED__"
 
 CORE_CONFIG_MODEL_TYPES = (
     'conversation', 'summary', 'gameMain', 'gameSummary', 'correction', 'emotion',
-    'vision', 'agent', 'omni', 'tts',
+    'vision', 'agent', 'omni', 'tts', 'image',
 )
 
 CORE_CONFIG_ASSIST_API_KEY_FIELDS = (
@@ -45,10 +45,19 @@ CORE_CONFIG_ASSIST_API_KEY_FIELDS = (
     'assistApiKeyMinimaxIntl', 'assistApiKeyMimo',
     'assistApiKeyMimoTokenPlan', 'assistApiKeyElevenlabs', 'assistApiKeyGrok',
     'assistApiKeyClaude', 'assistApiKeyKimiCode', 'assistApiKeyOpenrouter',
+    'assistApiKeyOrcarouter',
+    'assistApiKeyRequesty',
 )
 
 CORE_CONFIG_MODEL_API_KEY_FIELDS = tuple(
     f'{model_type}ModelApiKey' for model_type in CORE_CONFIG_MODEL_TYPES
+)
+
+CORE_CONFIG_VOICE_MANAGEMENT_SECRET_FIELDS = (
+    'doubaoVoiceManagementAccessKey', 'doubaoVoiceManagementSecretKey',
+)
+CORE_CONFIG_VOICE_MANAGEMENT_CONTEXT_FIELDS = (
+    'doubaoVoiceManagementAppId', 'doubaoVoiceManagementProjectName',
 )
 
 CORE_CONFIG_PROVIDER_API_KEY_FIELDS = frozenset(
@@ -62,6 +71,7 @@ CORE_CONFIG_SECRET_FIELDS = (
     *CORE_CONFIG_ASSIST_API_KEY_FIELDS,
     'mcpToken',
     *CORE_CONFIG_MODEL_API_KEY_FIELDS,
+    *CORE_CONFIG_VOICE_MANAGEMENT_SECRET_FIELDS,
 )
 
 
@@ -80,12 +90,25 @@ def is_core_config_secret_placeholder(value) -> bool:
         return True
     if len(stripped) >= 3 and set(stripped) == {'*'}:
         return True
+    # The all-dot display (short or un-disclosable secrets) must round-trip as
+    # "keep existing" too, never be persisted as a literal bullet credential.
+    if stripped and set(stripped) == {'•'}:
+        return True
 
-    # Legacy web UI masking kept six characters at each end and replaced the
-    # middle with stars.  Require that exact shape and at least three stars.
-    if len(stripped) < 15:
+    # Display masks keep a visible prefix/suffix and star out the middle.  Both
+    # the current 3+3 shape and the legacy 6+6 shape mean "keep existing".
+    return _is_display_mask_shape(stripped, 3) or _is_display_mask_shape(stripped, 6)
+
+
+def _is_display_mask_shape(stripped: str, edge: int) -> bool:
+    """Whether *stripped* is ``edge`` visible chars + >=3 stars + ``edge`` chars."""
+    if len(stripped) < edge * 2 + 3:
         return False
-    prefix, masked, suffix = stripped[:6], stripped[6:-6], stripped[-6:]
+    prefix, masked, suffix = (
+        stripped[:edge],
+        stripped[edge:-edge],
+        stripped[-edge:],
+    )
     return (
         '*' not in prefix
         and '*' not in suffix
@@ -101,6 +124,24 @@ def redact_core_config_secret(value, *, preserve_free_access: bool = False) -> s
     if preserve_free_access and value == 'free-access':
         return 'free-access'
     return CORE_CONFIG_SECRET_SENTINEL
+
+
+def mask_core_config_secret_for_display(value) -> str:
+    """Return a safe, non-reversible partial display for a stored secret.
+
+    Only the first and last three characters are exposed, and only when the
+    secret is long enough that those fragments cannot disclose it in full.
+    """
+    if value is None or value == '' or value == 'free-access':
+        return ''
+    value = str(value)
+    # A three-character prefix/suffix would disclose a short credential in full.
+    if len(value) < 9:
+        return '••••••••••••'
+    prefix, suffix = value[:3], value[-3:]
+    if '*' in prefix or '*' in suffix:
+        return '••••••••••••'
+    return f'{prefix}{"*" * (len(value) - 6)}{suffix}'
 
 
 def apply_core_config_secret_update(target: dict, source: dict, field: str) -> bool:
@@ -172,10 +213,19 @@ async def get_core_config_api():
             or runtime_core_config.get('CORE_API_TYPE')
             or _core_api_provider
         ).strip().lower()
-        from main_logic.asr_client import get_asr_core_capabilities
+        from main_logic.asr_client import (
+            get_asr_core_capabilities,
+            is_local_asr_available,
+        )
         _core_asr_capabilities = get_asr_core_capabilities(
             _effective_core_api_provider
         )
+        try:
+            # find_spec walks sys.path finders; keep it off the event loop.
+            _local_asr_available = await asyncio.to_thread(is_local_asr_available)
+        except Exception:
+            logger.warning('Unable to probe local ASR availability', exc_info=True)
+            _local_asr_available = False
         _fallback_providers = {_core_api_provider, _assist_api_provider}
         _doubao_tts_shared_key = ''
         if str(core_cfg.get('ttsModelProvider') or '').strip() == 'doubao_tts':
@@ -194,6 +244,9 @@ async def get_core_config_api():
                 if _core_asr_capabilities is None
                 else _core_asr_capabilities.supports_independent_asr
             ),
+            # Whether the optional local ASR dependency is installed. Packaged
+            # builds do not ship it, so the settings UI hides the option.
+            "localAsrAvailable": _local_asr_available,
             "assistApi": _assist_api_provider,
             "assistApiKeyQwen": core_cfg.get('assistApiKeyQwen', '') or _fb('qwen'),
             "assistApiKeyQwenIntl": core_cfg.get('assistApiKeyQwenIntl', '') or _fb('qwen_intl'),
@@ -218,6 +271,8 @@ async def get_core_config_api():
             "assistApiKeyGrok": core_cfg.get('assistApiKeyGrok', '') or _fb('grok'),
             "assistApiKeyClaude": core_cfg.get('assistApiKeyClaude', '') or _fb('claude'),
             "assistApiKeyOpenrouter": core_cfg.get('assistApiKeyOpenrouter', '') or _fb('openrouter'),
+            "assistApiKeyOrcarouter": core_cfg.get('assistApiKeyOrcarouter', '') or _fb('orcarouter'),
+            "assistApiKeyRequesty": core_cfg.get('assistApiKeyRequesty', ''),
             "mcpToken": core_cfg.get('mcpToken', ''),
             "openclawUrl": core_cfg.get('openclawUrl'),
             "openclawTimeout": core_cfg.get('openclawTimeout'),
@@ -236,10 +291,42 @@ async def get_core_config_api():
             "disableTts": core_cfg.get('disableTts', False) is True or str(core_cfg.get('disableTts', False)).lower() in ('true', '1', 'yes', 'on'),
             "success": True
         }
+        for field in CORE_CONFIG_VOICE_MANAGEMENT_CONTEXT_FIELDS:
+            response[field] = core_cfg.get(field, '')
+        for field in CORE_CONFIG_VOICE_MANAGEMENT_SECRET_FIELDS:
+            value = core_cfg.get(field, '')
+            response[field] = redact_core_config_secret(value)
+            response[f'{field}_display'] = mask_core_config_secret_for_display(value)
         response['api_key'] = redact_core_config_secret(
             response['api_key'],
             preserve_free_access=True,
         )
+        # Keep the POST contract as a sentinel while offering a separate,
+        # non-reversible value for settings-page display.
+        response['api_key_display'] = mask_core_config_secret_for_display(api_key)
+        # The assist input needs only its currently selected provider's mask.
+        # Resolve through the canonical registry instead of exposing a display
+        # fragment for every Key Book entry.
+        response['assist_api_key_display'] = ''
+        try:
+            from utils.api_config_loader import get_config
+
+            provider_config = await asyncio.to_thread(get_config)
+            api_key_registry = (
+                provider_config.get('api_key_registry', {})
+                if isinstance(provider_config, dict)
+                else {}
+            )
+            assist_key_field = get_core_config_provider_api_key_field(
+                _assist_api_provider,
+                api_key_registry,
+            )
+            if assist_key_field:
+                response['assist_api_key_display'] = mask_core_config_secret_for_display(
+                    response.get(assist_key_field, '')
+                )
+        except Exception:
+            logger.warning('Unable to build assist API key display mask', exc_info=True)
         for field in (
             *CORE_CONFIG_ASSIST_API_KEY_FIELDS,
             'mcpToken',
@@ -453,8 +540,19 @@ async def update_core_config(request: Request):
                 if normalized_key and normalized_value:
                     sanitized_resolved_urls[normalized_key] = normalized_value
             core_cfg['resolvedProviderUrls'] = sanitized_resolved_urls
-        for field in (*CORE_CONFIG_ASSIST_API_KEY_FIELDS, 'mcpToken'):
+        for field in (
+            *CORE_CONFIG_ASSIST_API_KEY_FIELDS, 'mcpToken',
+            *CORE_CONFIG_VOICE_MANAGEMENT_SECRET_FIELDS,
+        ):
+            if field in CORE_CONFIG_VOICE_MANAGEMENT_SECRET_FIELDS and field in data:
+                if not isinstance(data[field], str) or len(data[field]) > 2048:
+                    return {"success": False, "error": "INVALID_MANAGEMENT_CONFIG"}
             apply_core_config_secret_update(core_cfg, data, field)
+        for field in CORE_CONFIG_VOICE_MANAGEMENT_CONTEXT_FIELDS:
+            if field in data:
+                if not isinstance(data[field], str) or len(data[field]) > 200:
+                    return {"success": False, "error": "INVALID_MANAGEMENT_CONFIG"}
+                core_cfg[field] = data[field].strip()
         if 'openclawUrl' in data:
             # 前端表单回填的是文件里的原始值。若启动期迁移曾写盘失败（Windows 上
             # os.replace 可能被杀软占用），这里收到的就还是旧的 8089，原样落盘等于把
@@ -502,6 +600,50 @@ async def update_core_config(request: Request):
             'ttsModelApiKey' in data
             and not is_core_config_secret_placeholder(data['ttsModelApiKey'])
         )
+
+        # A retained custom credential must never follow an endpoint change.
+        if any(field in data for field in (
+            "imageModelProvider", "imageModelUrl", "imageModelId", "imageModelApiKey"
+        )):
+            from utils.image_generation.config import PROVIDERS, resolve_image_config
+            if any(not isinstance(data[field], str) for field in (
+                "imageModelProvider", "imageModelUrl", "imageModelId", "imageModelApiKey"
+            ) if field in data):
+                return {"success": False, "error": "Image settings must be strings"}
+            candidate = {**core_cfg, **{
+                field: data[field] for field in (
+                    "imageModelProvider", "imageModelUrl", "imageModelId"
+                ) if field in data
+            }}
+            apply_core_config_secret_update(candidate, data, "imageModelApiKey")
+            stored_image_provider = core_cfg.get("imageModelProvider")
+            preserve_unknown_image = (
+                isinstance(stored_image_provider, str)
+                and stored_image_provider not in ("", "disabled")
+                and stored_image_provider not in PROVIDERS
+                and all(candidate.get(field, "") == core_cfg.get(field, "") for field in (
+                    "imageModelProvider", "imageModelUrl", "imageModelId", "imageModelApiKey"
+                ))
+            )
+            # Older builds may retain a future provider, but must not create or edit it.
+            if not preserve_unknown_image:
+                if core_cfg.get("imageModelApiKey"):
+                    old_url = core_cfg.get("imageModelUrl", "")
+                    new_url = candidate.get("imageModelUrl", "")
+                    from utils.http.url import same_endpoint
+                    equivalent_url = (
+                        isinstance(old_url, str) and isinstance(new_url, str)
+                        and same_endpoint(old_url.strip(), new_url.strip())
+                    )
+                    if not equivalent_url and core_cfg.get("imageModelApiKey") and (
+                        "imageModelApiKey" not in data
+                        or is_core_config_secret_placeholder(data["imageModelApiKey"])
+                    ):
+                        return {"success": False, "error": "Changing image endpoint requires replacing or clearing its API key"}
+                try:
+                    resolve_image_config(candidate)
+                except ValueError as exc:
+                    return {"success": False, "error": str(exc)}
 
         # 自定义API配置（Provider / Url / Id / ApiKey per model type）
         for mt in CORE_CONFIG_MODEL_TYPES:
@@ -654,6 +796,7 @@ async def get_api_providers_config():
             get_config,
             get_core_api_providers_for_frontend,
             get_assist_api_providers_for_frontend,
+            get_assist_api_profiles,
         )
 
         full_config = get_config(force_reload=True)
@@ -674,12 +817,22 @@ async def get_api_providers_config():
             logger.warning(f"加载 TTS provider 元数据失败: {e}")
             tts_providers = []
 
+        from utils.image_generation.config import PROVIDERS as image_providers
+
         return {
+            "image_providers": image_providers,
             "success": True,
             "core_api_providers": core_providers,
             "assist_api_providers": assist_providers,
             "api_key_registry": full_config.get("api_key_registry", {}),
             "assist_api_providers_full": full_config.get("assist_api_providers", {}),
+            "assist_model_defaults": {
+                key: {field: profile.get(field, '') for field in (
+                    'CONVERSATION_MODEL', 'VISION_MODEL', 'SUMMARY_MODEL',
+                    'CORRECTION_MODEL', 'EMOTION_MODEL', 'AGENT_MODEL',
+                )}
+                for key, profile in get_assist_api_profiles().items()
+            },
             "core_api_providers_full": full_config.get("core_api_providers", {}),
             "keybook_api_providers_full": full_config.get("keybook_api_providers", {}),
             "tts_providers": tts_providers,

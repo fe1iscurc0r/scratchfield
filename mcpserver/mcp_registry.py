@@ -64,7 +64,11 @@ def ensure_hot(service_name: str) -> Any | None:
         return None
     manifest = cold.get("manifest") or MANIFEST_CACHE.get(service_name) or {}
     try:
-        agent_instance = create_agent_instance(manifest, cold.get("agent_dir", ""))
+        if cold.get("kind") == "mcporter":
+            # 外部 MCP 服务（懒加载冷项）：存的是 mcporter service config
+            agent_instance = ExternalMCPAgent(service_name, cold.get("service_config") or {})
+        else:
+            agent_instance = create_agent_instance(manifest, cold.get("agent_dir", ""))
     except Exception as e:  # 依赖缺失/入口异常 → 记因不抛
         _COLD_HOT_FAILED[service_name] = f"{type(e).__name__}: {e}"
         logger.warning("[MCP Registry] 冷表转热异常 %s: %s", service_name, e)
@@ -432,8 +436,17 @@ def scan_and_register_mcp_agents(mcp_dir: str = "mcpserver", *,
 
 
 def register_external_mcp_agents() -> list[str]:
-    """注册通过 mcporter 配置的外部 MCP 服务。"""
+    """注册通过 mcporter 配置的外部 MCP 服务。
+
+    懒加载（`MCP_LAZY_REGISTRY` 默认开）下**只登记冷表占位、不实例化**
+    `ExternalMCPAgent` —— 与 manifest 路径口径一致，避免启动期逐个拉起外部服务；
+    关闭懒加载时保持旧行为（扫到即实例化写入热表）。
+
+    冷表项以 ``kind="mcporter"`` 标记（与 manifest 型冷项区分），
+    ``ensure_hot`` 据此走 `ExternalMCPAgent` 分支。
+    """
     registered_agents = []
+    lazy = _lazy_enabled()
     for service in load_external_mcp_services(enabled_only=True):
         if service.name in MANIFEST_CACHE or service.name in MCP_REGISTRY:
             logger.warning("[MCP Registry] 外部MCP名称冲突，跳过注册: %s", service.name)
@@ -445,11 +458,21 @@ def register_external_mcp_agents() -> list[str]:
                 "[MCP Registry] 外部MCP %s 登记被 CONFLICT_STRICT=1 拒绝，跳过注册", service.name)
             continue
         try:
-            agent_instance = ExternalMCPAgent(service.name, service.config)
-            # 实例创建成功才写入缓存，避免半挂载状态（与 scan 路径保持一致）
-            MANIFEST_CACHE[service.name] = service.manifest
-            MCP_REGISTRY[service.name] = agent_instance
-            registered_agents.append(service.name)
+            if lazy:
+                _COLD_TABLE[service.name] = {
+                    "kind": "mcporter",
+                    "service_config": service.config,
+                    "manifest": service.manifest,
+                }
+                MANIFEST_CACHE[service.name] = service.manifest
+                registered_agents.append(service.name)
+                logger.debug("[MCP Registry] 外部MCP 冷登记（懒加载）: %s", service.name)
+            else:
+                agent_instance = ExternalMCPAgent(service.name, service.config)
+                # 实例创建成功才写入缓存，避免半挂载状态（与 scan 路径保持一致）
+                MANIFEST_CACHE[service.name] = service.manifest
+                MCP_REGISTRY[service.name] = agent_instance
+                registered_agents.append(service.name)
         except Exception as e:
             logger.error("[MCP Registry] 外部MCP实例化失败 %s: %s", service.name, e)
             continue
@@ -783,4 +806,131 @@ __all__ = [
     "create_agent_instance",
     # 测试
     "clear_registry",
+    # 域分组（工单204 任务二）
+    "DOMAINS",
+    "DEFAULT_DOMAIN",
+    "register_service_domain",
+    "get_service_domain",
+    "list_services_by_domain",
+    "get_domain_statistics",
+    "RISK_LEVELS",
+    "register_service_risk",
+    "get_service_risk",
+    "get_risk_statistics",
 ]
+
+
+# === 域分组（工单204 任务二）===
+#: 域的规范取值（工单指定四域 + 兜底 general）
+DOMAINS: tuple[str, ...] = ("radio", "material", "agent", "memory", "general")
+DEFAULT_DOMAIN = "general"
+
+#: 服务名 → 域 的规则（顺序敏感：先匹配先生效；前缀命中或子串命中都算）
+_DOMAIN_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("radio", ("rf_brain", "antenna_sim", "antenna_rotator", "ptz_service",
+               "sentinel", "sdr", "hamlog")),
+    ("material", ("material_science", "bio_adapter", "biopred", "eis", "retrosynthesis",
+                  "scikit_fingerprints", "bofire", "porous", "glyco")),
+    ("agent", ("agent_",)),
+    ("memory", ("graph_memory", "memory_maas", "summer_memory", "memclaw", "hindsight")),
+)
+
+#: 显式登记覆盖（规则覆盖不到的服务名走这里；不登记则纯规则推导）
+_DOMAIN_OVERRIDES: dict[str, str] = {}
+
+
+def register_service_domain(service_name: str, domain: str) -> None:
+    """显式登记某服务的域（覆盖规则推导）。domain 必须是 ``DOMAINS`` 之一。"""
+    name = str(service_name or "").strip()
+    dom = str(domain or "").strip().lower()
+    if not name:
+        raise ValueError("service_name 不能为空")
+    if dom not in DOMAINS:
+        raise ValueError(f"未知域 {domain!r}，可选：{DOMAINS}")
+    _DOMAIN_OVERRIDES[name] = dom
+
+
+def get_service_domain(service_name: str) -> str:
+    """服务 → 域。优先级：显式登记 > 名字规则 > ``general``。"""
+    name = str(service_name or "").strip()
+    if name in _DOMAIN_OVERRIDES:
+        return _DOMAIN_OVERRIDES[name]
+    lowered = name.lower()
+    for domain, prefixes in _DOMAIN_RULES:
+        if any(lowered.startswith(p) or p in lowered for p in prefixes):
+            return domain
+    return DEFAULT_DOMAIN
+
+
+def list_services_by_domain() -> dict[str, list[str]]:
+    """按域分组输出全部服务（热表 ∪ 冷表，sorted）；空域不出现在结果里。"""
+    out: dict[str, list[str]] = {}
+    for name in all_service_names():
+        out.setdefault(get_service_domain(name), []).append(name)
+    return {d: sorted(v) for d, v in sorted(out.items())}
+
+
+def get_domain_statistics() -> dict[str, int]:
+    """各域服务数（**含 0 的域**，便于前端稳定渲染分组）。"""
+    grouped = list_services_by_domain()
+    return {d: len(grouped.get(d, [])) for d in DOMAINS}
+
+
+# === 风险等级注解（工单205 任务一）===
+#: 风险等级取值
+RISK_LEVELS: tuple[str, ...] = ("low", "medium", "high")
+
+#: **主判据复用既有分类**：manifest 的 classification.tier → 风险等级（不发明新维度）
+_RISK_BY_TIER: dict[str, str] = {
+    "read-only": "low",
+    "local-write": "medium",
+    "process-control": "high",   # 控制外部进程/设备
+    "offensive": "high",         # 默认关闭，需 *_ENABLE_INVOKE=1
+}
+
+#: 名字兜底规则（无 classification 的服务，如 mcporter 外部件）
+_RISK_NAME_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("high", ("agent_decompile", "webapp-testing", "browseskill", "openclaw")),
+)
+
+#: 显式覆盖（优先级最高）
+_RISK_OVERRIDES: dict[str, str] = {}
+
+
+def register_service_risk(service_name: str, risk: str) -> None:
+    """显式登记风险等级（覆盖 tier 判据）。risk 必须是 RISK_LEVELS 之一。"""
+    name = str(service_name or "").strip()
+    lvl = str(risk or "").strip().lower()
+    if not name:
+        raise ValueError("service_name 不能为空")
+    if lvl not in RISK_LEVELS:
+        raise ValueError(f"未知风险等级 {risk!r}，可选：{RISK_LEVELS}")
+    _RISK_OVERRIDES[name] = lvl
+
+
+def get_service_risk(service_name: str) -> str:
+    """服务 → 风险等级。优先级：显式登记 > manifest.classification.tier > 名字规则 > low。
+
+    只读注解：**不改变任何装配/调用行为**（与 classification 同款口径，缺省不限制）。
+    """
+    name = str(service_name or "").strip()
+    if name in _RISK_OVERRIDES:
+        return _RISK_OVERRIDES[name]
+    manifest = MANIFEST_CACHE.get(name)
+    if isinstance(manifest, dict):
+        tier = str((manifest.get("classification") or {}).get("tier") or "").strip().lower()
+        if tier in _RISK_BY_TIER:
+            return _RISK_BY_TIER[tier]
+    lowered = name.lower()
+    for lvl, prefixes in _RISK_NAME_RULES:
+        if any(p in lowered for p in prefixes):
+            return lvl
+    return "low"
+
+
+def get_risk_statistics() -> dict[str, int]:
+    """各风险等级的服务数（含 0 档）。"""
+    stats = {lvl: 0 for lvl in RISK_LEVELS}
+    for n in all_service_names():
+        stats[get_service_risk(n)] += 1
+    return stats

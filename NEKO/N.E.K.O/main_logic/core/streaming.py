@@ -22,17 +22,20 @@ Method-only mixin: every instance attribute is assigned in
 import asyncio
 import json
 import time
+from .session_records import INPUT_DISPATCH_DEFERRED
 from websockets import exceptions as web_exceptions
 from utils.screenshot_utils import overlay_avatar_annotation
 from main_logic.omni_realtime_client import OmniRealtimeClient
 from main_logic.omni_offline_client import OmniOfflineClient
 from main_logic.session_state import SessionEvent
+from utils.external_route_registry import RouteClaim
 from utils.language_utils import get_global_language_full
 from uuid import uuid4
 from ._shared import (
     _TEXT_SESSION_INPUT_TYPES,
     _IMAGE_INPUT_TYPES,
     _LIVE_VISION_STREAM_INPUT_TYPES,
+    FRONTEND_START_SESSION_TIMEOUT_SECONDS,
     logger,
 )
 
@@ -100,49 +103,132 @@ class StreamingMixin:
     
     async def _flush_pending_input_data(self):
         """Send the cached input data to the session"""
+        # A realtime -> offline attachment handoff must stage the attachment
+        # before inputs that arrived while the replacement session was
+        # starting. ``start_session`` normally flushes as soon as the session
+        # becomes ready; defer that nested flush until the owning attachment
+        # finishes its one-shot ``stream_image`` call.
+        if getattr(self, "_deferred_pending_input_flush_count", 0) > 0:
+            return
         async with self.input_cache_lock:
+            if getattr(self, "_pending_input_flush_active", False):
+                return
             if not self.pending_input_data:
                 return
+            self._pending_input_flush_active = True
+            idle_event = asyncio.Event()
+            self._pending_input_flush_idle_event = idle_event
 
-            if self.session and self.is_active:
-                # 缓存阶段（_stream_data_now）不知道 session 最终是 voice 还是
-                # text。如果最终启好的是 voice session，缓存里的 text 输入若
-                # 直接 flush 进 _process_stream_data_internal，会触发 4977-4995
-                # 的"硬撕 voice → 重建 text"自动切换路径，把刚 ready 的 voice
-                # session 撕成 CHARACTER_LEFT / "角色离开"——这是用户在切音色
-                # 后开语音、麦启动期打字的典型 race。这里只防御 text → voice
-                # 这一条不对偶的路径；screen / camera 等 vision 输入会在
-                # _process_stream_data_internal 里路由到
-                # OmniRealtimeClient.stream_image（5262-5278），是 voice session
-                # 的合法路径，不能误丢。audio 在 _stream_data_now 缓存阶段已经
-                # 直接 return 不缓存，pending_input_data 不会出现 audio。
-                is_voice_session = isinstance(self.session, OmniRealtimeClient)
-                dropped_text_for_voice = 0
-                for message in self.pending_input_data:
-                    msg_input_type = message.get("input_type")
-                    try:
-                        # 重新调用stream_data处理缓存的数据
-                        # 注意：这里直接处理，不再缓存（因为session_ready已设为True）
-                        if msg_input_type == "audio":
-                            await self._enqueue_audio_stream_data(message)
-                        else:
-                            if is_voice_session and msg_input_type in _TEXT_SESSION_INPUT_TYPES:
-                                self.note_stream_input_ingress(message)
-                                dropped_text_for_voice += 1
-                                continue
-                            await self._process_stream_data_internal(message)
-                    except Exception as e:
-                        logger.error(f"💥 发送缓存的输入数据失败: {e}")
-                        break
-                if dropped_text_for_voice:
-                    logger.info(
-                        "[%s] _flush_pending_input_data: dropped %d cached text "
-                        "message(s) because final session is voice mode",
-                        self.lanlan_name, dropped_text_for_voice,
-                    )
+        def release_gate():
+            if getattr(self, "_pending_input_flush_idle_event", None) is idle_event:
+                self._pending_input_flush_active = False
+                self._pending_input_flush_idle_event = None
+            # Rollback precedes this signal, including on cancellation.
+            idle_event.set()
 
-            # 清空缓存
-            self.pending_input_data.clear()
+        try:
+            while True:
+                async with self.input_cache_lock:
+                    if not self.pending_input_data:
+                        release_gate()
+                        return
+                    # Drain atomically, then process outside this lock. One-shot
+                    # image attachments may need _ensure_offline_session_for_text_input(),
+                    # whose handoff reacquires input_cache_lock; awaiting that
+                    # path while still holding the lock would deadlock.
+                    pending_messages = list(self.pending_input_data)
+                    self.pending_input_data.clear()
+                    self._pending_input_flush_batch = tuple(pending_messages)
+
+                # Once detached from ``pending_input_data``, this local batch
+                # owns every message until each item reaches a terminal handling
+                # point. Cancellation/session teardown must put the untouched
+                # suffix back ahead of live inputs queued while the flush was
+                # active; otherwise startup cancellation silently loses input.
+                next_unprocessed = 0
+                try:
+                    if not self.session or not self.is_active:
+                        return
+
+                    # 缓存阶段（_stream_data_now）不知道 session 最终是 voice 还是
+                    # text。如果最终启好的是 voice session，缓存里的纯 text 输入若
+                    # 直接 flush 进 _process_stream_data_internal，会把刚 ready 的 voice
+                    # session 撕成 text；继续丢弃纯文本。但 avatar_drop_image/user_image
+                    # 是明确的一次性附件，必须保留其既有 offline vision 合同。screen /
+                    # camera 也继续走 realtime 合法路径。audio 在缓存阶段不会出现。
+                    dropped_text_for_voice = 0
+                    for index, message in enumerate(pending_messages):
+                        msg_input_type = message.get("input_type")
+                        # Keep the current item in the rollback window until
+                        # the provider dispatch boundary is reached. Several
+                        # text/image paths await preparation first (for
+                        # example Focus scoring), so advancing this cursor at
+                        # loop entry would lose an item when that await is
+                        # cancelled.
+                        def mark_dispatch_attempted() -> None:
+                            nonlocal next_unprocessed
+                            next_unprocessed = index + 1
+
+                        try:
+                            if msg_input_type == "audio":
+                                # Queue admission is the audio dispatch
+                                # boundary; the queue worker owns the later
+                                # provider handoff.
+                                mark_dispatch_attempted()
+                                await self._enqueue_audio_stream_data(message)
+                            else:
+                                if (
+                                    isinstance(self.session, OmniRealtimeClient)
+                                    and msg_input_type == "text"
+                                ):
+                                    self.note_stream_input_ingress(message)
+                                    dropped_text_for_voice += 1
+                                    next_unprocessed = index + 1
+                                    continue
+                                result = await self._process_stream_input(
+                                    message,
+                                    on_dispatch_attempted=mark_dispatch_attempted,
+                                )
+                                if result is INPUT_DISPATCH_DEFERRED:
+                                    return  # finally restores this item and its suffix.
+                                # A normal early return (validation failure or
+                                # an intentional drop) is terminal handling,
+                                # even though it never reaches a provider.
+                                next_unprocessed = index + 1
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            # The message was attempted and is now terminally
+                            # failed. Retrying it at the queue head would block
+                            # every later cached/live input indefinitely; drop
+                            # only this item and preserve batch ordering.
+                            next_unprocessed = index + 1
+                            logger.error(
+                                "💥 发送缓存的输入数据失败，丢弃当前消息: %s",
+                                e,
+                            )
+                            continue
+                    if dropped_text_for_voice:
+                        logger.info(
+                            "[%s] _flush_pending_input_data: dropped %d cached text "
+                            "message(s) because final session is voice mode",
+                            self.lanlan_name,
+                            dropped_text_for_voice,
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.error(f"💥 发送缓存的输入数据失败: {e}")
+                    return
+                finally:
+                    unprocessed = pending_messages[next_unprocessed:]
+                    if unprocessed:
+                        async with self.input_cache_lock:
+                            self.pending_input_data[0:0] = unprocessed
+                    self._pending_input_flush_batch = ()
+        finally:
+            async with self.input_cache_lock:
+                release_gate()
     
     def _should_drop_live_vision_stream(self, input_type: str | None) -> bool:
         """Deliberately checked at each stream boundary; callers may enter below stream_data."""
@@ -175,8 +261,35 @@ class StreamingMixin:
             # circuit breaker, failed startup, or final voice-mode flush drops
             # it before the normal text/image processing branches are reached.
             self.note_stream_input_ingress(message)
+        elif input_type in _LIVE_VISION_STREAM_INPUT_TYPES:
+            # Preserve router ingress ordering across the independent screen /
+            # camera tasks and their threaded validation. Direct/internal
+            # callers receive a monotonic fallback sampled before any await.
+            captured_at = message.get("_visual_input_ingress_time")
+            message = {
+                **message,
+                "_visual_input_ingress_time": (
+                    float(captured_at)
+                    if isinstance(captured_at, (int, float))
+                    else time.monotonic()
+                ),
+            }
+        # 斜杠小游戏快捷指令（/一起看、/足球 …）不需要 LLM 会话：放在会话就绪
+        # 检查、自动建会话和 realtime→offline handoff 之前处理。否则建会话失败
+        # 时指令直接失效，语音会话里打一句 /一起看 也会先把语音会话拆掉。
+        if input_type == "text" and await self._maybe_handle_mini_game_magic_command(message):
+            return
         # 检查session是否就绪
         async with self.input_cache_lock:
+            if (
+                getattr(self, "_pending_input_flush_active", False)
+                or getattr(self, "_pending_input_flush_scheduled", None) is not None
+            ):
+                # Replay owns ordering until its current batch finishes. Queue
+                # live input behind it instead of racing the same offline
+                # session's stream_text/stream_image call.
+                self.pending_input_data.append(message)
+                return
             if not self.session_ready:
                 # 检查是否正在启动session - 只有在启动过程中才缓存
                 if self._starting_session_count > 0:
@@ -195,6 +308,28 @@ class StreamingMixin:
             if not self.session or not self.is_active:
                 if input_type in _LIVE_VISION_STREAM_INPUT_TYPES:
                     return
+                # 根据输入类型确定模式
+                mode = 'text' if input_type in _TEXT_SESSION_INPUT_TYPES else 'audio'
+                # 外部路由可以认领语音自动建会话（不经 websocket_router 的
+                # start_session 分支的那条语音入口）；没有路由认领时原样建会话。
+                # 先问路由、再过下面只针对普通会话的冷却 / 熔断：认领了这次启动
+                # 的路由不建普通会话，不该被它们挡住。
+                if mode == 'audio':
+                    # A route replaced while deciding is re-asked inside the
+                    # registry; an owner that keeps changing drops this frame.
+                    claim, _route = await _core_facade.route_external_start_session(
+                        self.lanlan_name, {'input_type': 'audio'},
+                    )
+                    if claim is not RouteClaim.UNCLAIMED:
+                        return
+                    # The claim check may have suspended: another frame can
+                    # have started a session meanwhile. Audio arriving during a
+                    # start is dropped, as above; a session that came up is used.
+                    if self._starting_session_count > 0:
+                        return
+                    if self.session_ready or (self.session and self.is_active):
+                        await self._process_stream_data_internal(message)
+                        return
                 # Memory Server 专属冷却检查
                 if self._emit_cooldown_turn_end_if_needed():
                     return
@@ -203,9 +338,15 @@ class StreamingMixin:
                 if self._session_start_circuit_open:
                     return
                 logger.info(f"Session未就绪且不存在，根据输入类型 {input_type} 自动创建 session")
-                # 根据输入类型确定模式
-                mode = 'text' if input_type in _TEXT_SESSION_INPUT_TYPES else 'audio'
-                await self.start_session(self.websocket, new=False, input_mode=mode)
+                try:
+                    await self.start_session(self.websocket, new=False, input_mode=mode)
+                except asyncio.CancelledError as exc:
+                    # A concurrent end/reset revoked this auto-start. The
+                    # websocket receive loop remains owned by the caller.
+                    if not self._consume_start_retirement_cancellation(exc):
+                        raise
+                    logger.info("Session auto-start cancelled; dropping this input")
+                    return
 
                 # 检查启动是否成功
                 if not self.session or not self.is_active:
@@ -213,12 +354,160 @@ class StreamingMixin:
                     return
         
         # Session已就绪，直接处理
-        await self._process_stream_data_internal(message)
-    
-    async def _process_stream_data_internal(self, message: dict):
+        await self._process_stream_input(message)
+
+    async def _ensure_offline_session_for_text_input(
+        self,
+        input_type: str,
+    ) -> bool:
+        """Move text/attachment input onto its offline-session contract."""
+        if isinstance(self.session, OmniOfflineClient):
+            return True
+        # 与 _handoff_to_offline_vlm_and_submit 共用同一把闸。两边做的是同一件事
+        # ——把当前会话就地换成 offline 客户端——各自却都有一段 end_session +
+        # start_session 的 await 窗口。不共闸的话，两条并发 handoff 会互相拆掉对方
+        # 刚建好的 offline 会话：后进的那条 teardown 掉先进的成果，先进的那条随后
+        # 往已经退役的客户端提交。加锁顺序与 lifecycle 那条一致（handoff 闸在外、
+        # swap 闸在里），不会反向。
+        lock = getattr(self, '_multimodal_handoff_lock', None)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._multimodal_handoff_lock = lock
+        try:
+            await asyncio.wait_for(
+                lock.acquire(),
+                # 闸的持有者正在做一次会话重建，等它的预算就用会话启动的预算。
+                timeout=FRONTEND_START_SESSION_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            # 超时不能"绕过闸自己重建" —— 那正好是这把闸要防的并发。只在对方已经
+            # 把会话换成 offline 时算成功（它替我们做完了这件事）。
+            if isinstance(self.session, OmniOfflineClient):
+                return True
+            logger.error(
+                "💥 %s 等待 offline handoff 闸超时，放弃本次数据流",
+                input_type,
+            )
+            return False
+        try:
+            return await self._rebuild_offline_session_for_text_input(input_type)
+        finally:
+            lock.release()
+
+    async def _rebuild_offline_session_for_text_input(
+        self,
+        input_type: str,
+    ) -> bool:
+        """The handoff body itself; runs holding ``_multimodal_handoff_lock``."""
+        # 拿到闸之后重读：排在前面的那条 handoff 可能已经把会话换成 offline 了，
+        # 这时候再拆一次就是白白打断一个刚建好的会话。
+        if isinstance(self.session, OmniOfflineClient):
+            return True
+        if self.session_start_failure_count >= self.session_start_max_failures:
+            logger.error(
+                "💥 %s 需要文本模式，但失败次数过多，已停止自动重建",
+                input_type,
+            )
+            return False
+
+        logger.info(
+            "%s 需要 OmniOfflineClient，但当前是 %s. 自动重建 session。",
+            input_type,
+            type(self.session).__name__,
+        )
+        # Hold the startup guard across end_session's await window. Without
+        # this, concurrent microphone work can recreate an audio session before
+        # the attachment/text handoff starts its offline replacement.
+        async with self.input_cache_lock:
+            self.session_ready = False
+        self._starting_session_count += 1
+        self._starting_input_mode = "text"
+        try:
+            if self.session:
+                # preserve_pending_input：这次 teardown 是「就地换成 offline 会话」
+                # 的一步，不是会话结束。session_ready 在上面已经置 False，所以拆
+                # session 的整个 await 窗口里，并发的 text / 附件任务都会把消息缓存
+                # 进 pending_input_data；end_session 默认会把这个队列清空，那些输入
+                # 就在用户毫无察觉的情况下没了。重建完成后由
+                # _flush_pending_input_data 正常放出去。
+                await self.end_session(
+                    # by_server=True：这是内部的 Realtime → Offline 就地替换，不是
+                    # 用户会话结束。默认值会在收尾时向前端推 CHARACTER_LEFT，用户
+                    # 只是发了条文本/拖了张图，却先看到「角色离开」再看到新会话启动
+                    # ——前端可能据此清理对话界面。既有的 idle_session_reset 内部路径
+                    # 就是用 by_server=True 抑制这条推送的，判据一致。
+                    by_server=True,
+                    reset_starting_count=False,
+                    preserve_pending_input=True,
+                )
+        finally:
+            self._starting_session_count = max(0, self._starting_session_count - 1)
+            if self._starting_session_count == 0:
+                self._starting_input_mode = None
+        # Do not await between releasing the guard and entering start_session;
+        # its synchronous prologue reacquires the startup ownership.
+        try:
+            await self.start_session(
+                self.websocket,
+                new=False,
+                input_mode="text",
+            )
+        except asyncio.CancelledError as exc:
+            if not self._consume_start_retirement_cancellation(exc):
+                raise
+            return False
+        if (
+            not self.session
+            or not self.is_active
+            or not isinstance(self.session, OmniOfflineClient)
+        ):
+            logger.error("💥 文本模式Session重建失败，放弃本次数据流")
+            return False
+        return True
+
+    async def _process_stream_input(self, message: dict, *, on_dispatch_attempted=None):
+        """Process one ready input; a typed text input holds an owed wrap-up.
+
+        A typed input interrupts the offline reply and then starts its own,
+        with several awaits in between. The interrupted reply's owed wrap-up
+        is not paid in that gap (a final swap would start right before the
+        new reply, even if the interrupted task ends first): the new reply's
+        completion pays it, or, when none ran (a command, an abandoned input,
+        a failure, a reply interrupted in turn), the settle once this input
+        has been handled. An input deferred back to the pending queue
+        (``INPUT_DISPATCH_DEFERRED``) has not been handled: no settle then,
+        its replay settles. Returns what ``_process_stream_data_internal``
+        returned.
+        """
+        if message.get("input_type") != "text" or not isinstance(message.get("data"), str):
+            return await self._process_stream_data_internal(
+                message, on_dispatch_attempted=on_dispatch_attempted,
+            )
+        return await self._with_owed_wrap_up_held(
+            self._process_stream_data_internal(
+                message, on_dispatch_attempted=on_dispatch_attempted,
+            ),
+            skip_settle_if=INPUT_DISPATCH_DEFERRED,
+        )
+
+    async def _process_stream_data_internal(
+        self,
+        message: dict,
+        *,
+        on_dispatch_attempted=None,
+    ):
         """Internal method: the actual stream_data processing logic"""
         data = message.get("data")
         input_type = message.get("input_type")
+        if input_type == "audio" and any(
+            not retirement.handoff_safe.is_set()
+            for retirement in getattr(self, "_session_retirements", ())
+        ):
+            # A detached old session is inactive before its ASR and output
+            # producers finish. PCM already in flight must not treat that gap
+            # as an auto-start request. After handoff the ordinary startup and
+            # microphone lease guards decide whether new audio is admissible.
+            return
         if self._should_drop_live_vision_stream(input_type):
             return
         # 检查session是否发生致命错误（如1011错误、Response timeout）
@@ -233,8 +522,21 @@ class StreamingMixin:
         
         # 如果正在启动session，这不应该发生（因为stream_data已经检查过了）
         if self._starting_session_count > 0:
-            logger.debug("Session正在启动中，跳过...")
-            return
+            operation = self._current_start_request()
+            owns_ready_flush = (
+                operation is not None
+                and operation is getattr(self, "_start_operation", None)
+                and operation.valid
+                and self.session_ready
+                and self.is_active
+                and self.session is not None
+                and getattr(self, "_pending_input_flush_active", False)
+            )
+            if not owns_ready_flush:
+                logger.debug("Session正在启动中，跳过...")
+                if callable(on_dispatch_attempted):
+                    return INPUT_DISPATCH_DEFERRED
+                return
 
         # 如果 session 不存在或不活跃，检查是否可以自动重建
         if not self.session or not self.is_active:
@@ -270,60 +572,68 @@ class StreamingMixin:
             
             # 根据输入类型确定模式
             mode = 'text' if input_type in _TEXT_SESSION_INPUT_TYPES else 'audio'
-            await self.start_session(self.websocket, new=False, input_mode=mode)
+            try:
+                await self.start_session(self.websocket, new=False, input_mode=mode)
+            except asyncio.CancelledError as exc:
+                if not self._consume_start_retirement_cancellation(exc):
+                    raise
+                return
             
             # 检查启动是否成功
             if not self.session or not self.is_active:
                 logger.warning("⚠️ Session启动失败，放弃本次数据流")
                 return
         
+        defer_pending_flush = False
         try:
-            if input_type == 'text':
-                # 文本模式：检查 session 类型是否正确
-                if not isinstance(self.session, OmniOfflineClient):
-                    # 检查是否允许重建session
-                    if self.session_start_failure_count >= self.session_start_max_failures:
-                        logger.error("💥 Session类型不匹配，但失败次数过多，已停止自动重建")
-                        return
-                    
-                    logger.info(f"文本模式需要 OmniOfflineClient，但当前是 {type(self.session).__name__}. 自动重建 session。")
-                    # 占用 _starting_session_count guard 跨过 end_session 窗口期。
-                    # 默认 end_session(reset_starting_count=True) 会把 guard 清零；
-                    # 它内部又有多个 await 拆 session，期间另一条 _stream_data_now
-                    # （比如 audio worker 拉到下一包）看到 session=None / count=0 会
-                    # 从 4941-4953 的 auto-create 分支抢跑 start_session(audio)，
-                    # 等本路径走到 await self.start_session(text) 时命中 2776 的
-                    # "Session正在启动中" guard 被静默忽略，重建静默失败
-                    # （ERROR "💥 文本模式Session重建失败"）。
-                    #
-                    # 同时把 session_ready 提前置 False，与 start_session 2867-2868
-                    # 的初始化对偶：rebuild 期间若 session_ready 仍是 True，并发
-                    # _stream_data_now 跳过 4926-4938 的 cache 分支（条件为
-                    # not session_ready），落到 _process_stream_data_internal 后
-                    # 命中 4975 的 count>0 早退被 silent drop——用户在 rebuild
-                    # 窗口内打的字直接丢失。提前置 False 让 cache 路径接住，
-                    # rebuild 完成后 _flush_pending_input_data 会 flush 出去。
-                    async with self.input_cache_lock:
-                        self.session_ready = False
-                    self._starting_session_count += 1
-                    self._starting_input_mode = 'text'
-                    try:
-                        if self.session:
-                            await self.end_session(reset_starting_count=False)
-                    finally:
-                        self._starting_session_count = max(0, self._starting_session_count - 1)
-                        if self._starting_session_count == 0:
-                            self._starting_input_mode = None
-                    # 释放 guard 与下面的 start_session 之间禁止 await，否则窗口
-                    # 重新打开。start_session 入口的 +=1 (2781) 之前都是同步代码，
-                    # 函数调用本身不让出控制权，安全。
-                    await self.start_session(self.websocket, new=False, input_mode='text')
+            validated_one_shot_image_b64 = None
+            if input_type == "text" and not isinstance(data, str):
+                logger.error(f"💥 Stream: Invalid text data type: {type(data)}")
+                return
+            if input_type in {"avatar_drop_image", "user_image"}:
+                if self._should_drop_magic_command_image(message.get("request_id")):
+                    return
+                # Validate one-shot attachments before the destructive realtime
+                # -> offline handoff. A malformed/oversized attachment must not
+                # tear down an otherwise healthy voice session only to be
+                # rejected a few lines later.
+                try:
+                    validated_one_shot_image_b64 = (
+                        await _core_facade.process_screen_data(data)
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.error(f"💥 Stream: Error processing image data: {e}")
+                    return
+                if not validated_one_shot_image_b64:
+                    logger.error("💥 Stream: 图像数据验证失败")
+                    return
 
-                    # 检查重建是否成功
-                    if not self.session or not self.is_active or not isinstance(self.session, OmniOfflineClient):
-                        logger.error("💥 文本模式Session重建失败，放弃本次数据流")
-                        return
-                
+                if not isinstance(self.session, OmniOfflineClient):
+                    self._deferred_pending_input_flush_count = (
+                        getattr(self, "_deferred_pending_input_flush_count", 0)
+                        + 1
+                    )
+                    defer_pending_flush = True
+
+            if input_type == "text" and not isinstance(self.session, OmniOfflineClient):
+                # 纯文本同样是这次 handoff 的发起者，要拿同一把 owner-before-flush
+                # 的锁。end_session 现在会保留拆 session 期间缓存进来的输入
+                # （preserve_pending_input），而 start_session 结束前就会 flush 它们
+                # —— 这条**发起**本次 handoff 的消息却要等本函数往下走才提交。不挡
+                # 一下的话，后到的那条先进历史、先生成，随后这条更早的消息再把它打
+                # 断，用户的两句话顺序就反了。
+                self._deferred_pending_input_flush_count = (
+                    getattr(self, "_deferred_pending_input_flush_count", 0) + 1
+                )
+                defer_pending_flush = True
+
+            if input_type in _TEXT_SESSION_INPUT_TYPES:
+                if not await self._ensure_offline_session_for_text_input(input_type):
+                    return
+
+            if input_type == 'text':
                 # 文本模式：直接发送文本
                 if isinstance(data, str):
                     memory_text = self._clean_frontend_memory_text(message.get("memory_text"))
@@ -369,6 +679,32 @@ class StreamingMixin:
                     async with self.lock:
                         interrupted_speech_id = self.current_speech_id
 
+                    # 再停掉**产出方**：offline 会话可能正跑着一轮独立 ASR 的
+                    # external turn（_external_voice_submit_task），或一轮还没收完
+                    # 的普通文本响应。下面就要轮换 speech_id，不先取消的话那条流
+                    # 会继续吐 delta，全部挂到这条新消息的 sid 上；两条流还共用
+                    # _is_responding，先收尾的那条把它翻 False，另一条被截断。
+                    # 与独立 ASR 准备回合前那次 handle_interruption() 同一判据。
+                    try:
+                        await self._interrupt_offline_reply(self.session)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as _interrupt_error:
+                        # 打断是尽力而为：一个坏掉的会话不该把用户刚打的这句话
+                        # 一起吞掉。失败时旧流可能继续吐 delta（就是这段要修的
+                        # 问题），但比丢消息轻。
+                        logger.warning(
+                            "[%s] text input could not interrupt the session: %s",
+                            self.lanlan_name,
+                            _interrupt_error,
+                        )
+                    # 被打断的回复不再走 turn end（取消的 generation 跳过
+                    # on_response_done）：_interrupt_offline_reply 在确实打断了
+                    # 什么时替它收尾（记 AI 轮 + 同步 turn end），它欠下的续期检查
+                    # 与回调投递记为欠账：这条输入处理期间不付（_process_stream_input），
+                    # 由新回复的 _finalize_turn_after_emit 付清；没有新回复时，输入处理完、
+                    # 会话空闲后再付。
+
                     self.audio_resampler.clear()
                     await self._clear_tts_pipeline()
                     await self.send_user_activity(interrupted_speech_id)
@@ -411,6 +747,14 @@ class StreamingMixin:
                         is_voice_source=False,
                     )
 
+                    # 上面那次 dispatch 会同步跑完 ban-topic 抽取 + 落盘；若本
+                    # 轮真抽到了新指令，把禁令块写进 next-session 缓存，赶上正在
+                    # 预热的那次热切换（预热已定稿 prompt、swap 还要等下一个
+                    # turn-end，中间落盘的指令否则整个错过）。当前会话不写：原话
+                    # 还在 _conversation_history 里，模型看得见。语音路径在
+                    # handle_input_transcript 有对偶的一处。
+                    await self._inject_pending_user_directives()
+
                     # Mini-game 邀请的关键词文本兜底（PR #1141 follow-up E2）。
                     # 用户在 pending 邀请期间自己打字（没点 ChoicePrompt 三按钮）
                     # → 扫关键词命中就触发对应 state 转换。与语音转写路径
@@ -440,6 +784,10 @@ class StreamingMixin:
                             request_id=message.get("request_id"),
                         )
                         await self._emit_agent_callback_turn_end(message.get("request_id"))
+                        # An owed wrap-up is not settled here: typed input only
+                        # reaches this through _process_stream_input, whose hold
+                        # (_with_owed_wrap_up_held) pays it once this input has
+                        # been handled; a settle here would return at once.
                         self._fire_task(self._publish_openclaw_magic_command(openclaw_magic_command))
                         logger.info("[%s] text input sent explicit openclaw magic command", self.lanlan_name)
                         return
@@ -459,94 +807,203 @@ class StreamingMixin:
                     # 废，passive callback 跟用户输入一起留在 history 让 AI
                     # 后续仍能 reference）。
                     #
-                    # best-effort 注入：drain 的 ``finally clear`` 是 PR #1032
-                    # 的设计决定（passive=单次软通知），即便 drain 或 stream_text
-                    # 失败也不回填——延续到这条路径仍是这样，不在 caller 加
-                    # snapshot 回滚。
+                    # Drain also removes hot-swap mirrors. Keep every drained
+                    # callback retryable until this turn reaches history.
                     _agent_cb_ctx = ""
+                    _agent_cb_images = []
+                    _agent_cb_drained = []
+                    _agent_cb_extra_snapshot = []
+                    # ⚠️ 必须在外层 try **之前**绑定：回滚发生在 drain 之后的任意
+                    # 一个 await 上，包括早于下面赋值点的那些。定义在 try 内部的话，
+                    # 早期取消会让 finally 里读到未绑定的名字，回滚静默失效。
+                    _cb_turn_committed = False
                     if self.pending_agent_callbacks:
+                        callbacks_snapshot = self._claim_agent_callbacks_for_llm()
                         try:
-                            _agent_cb_ctx = self.drain_agent_callbacks_for_llm() or ""
+                            _passive_media_outcome = await self._stage_passive_callback_media(
+                                callbacks_snapshot,
+                                self.session,
+                            )
+                            _agent_cb_extra_snapshot = list(
+                                getattr(self, "pending_extra_replies", None) or []
+                            )
+                            # Taken after the media await and before the
+                            # synchronous drain: a callback another path
+                            # dequeued during that await is not this drain's.
+                            _queued_before_drain = {
+                                id(cb) for cb in self.pending_agent_callbacks
+                            }
+                            _agent_cb_ctx = (
+                                self.drain_agent_callbacks_for_llm(
+                                    callbacks_snapshot
+                                )
+                                or ""
+                            )
+                            if _agent_cb_ctx:
+                                _agent_cb_images = list(
+                                    _passive_media_outcome.get(
+                                        "system_prefix_images",
+                                        [],
+                                    )
+                                )
+                                # Track only callbacks this drain consumed;
+                                # deferred entries must retain their queue order.
+                                _still_queued = {
+                                    id(cb) for cb in self.pending_agent_callbacks
+                                }
+                                _agent_cb_drained = [
+                                    cb
+                                    for cb in callbacks_snapshot
+                                    if isinstance(cb, dict)
+                                    and id(cb) in _queued_before_drain
+                                    and id(cb) not in _still_queued
+                                ]
                         except Exception as _cb_err:
                             logger.warning(f"⚠️ Agent callback drain failed: {_cb_err}")
                             _agent_cb_ctx = ""
-
-                    text_request_id = message.get("request_id")
-                    self._active_text_request_id = text_request_id
-                    # Path A (inline) Focus 凝神：score this user message and, if
-                    # over the bar, run THIS reply thinking-on. Scored on
-                    # ``record_data`` (= memory_text or data) — the user-VISIBLE
-                    # text that also feeds the activity tracker / cadence baseline
-                    # and history replacement. Scoring raw ``data`` instead would
-                    # read a hidden scaffold prompt (e.g. avatar-drop file
-                    # contents) the user never typed, mismatching the cadence
-                    # signal and entering Focus on evidence the user didn't author.
-                    _focus_thinking = await self._focus_inline_decision(record_data)
-
-                    async def response_discarded_callback(
-                        reason: str,
-                        attempt: int,
-                        max_attempts: int,
-                        will_retry: bool,
-                        discard_message: str | None = None,
-                        *,
-                        _request_id=text_request_id,
-                    ) -> None:
-                        await self.handle_response_discarded(
-                            reason,
-                            attempt,
-                            max_attempts,
-                            will_retry,
-                            discard_message,
-                            request_id=_request_id,
-                        )
-
-                    input_transcript_callback = None
-                    if memory_text:
-                        transcript_metadata = {"source": message_source} if message_source else None
-
-                        async def input_transcript_callback(
-                            _transcript: str,
-                            *,
-                            _memory_text: str = memory_text,
-                            _message_source: str = message_source,
-                            _transcript_metadata: dict | None = transcript_metadata,
-                        ) -> None:
-                            await self.handle_input_transcript(
-                                _memory_text,
-                                is_voice_source=False,
-                                source=_message_source,
-                                metadata=_transcript_metadata,
+                        finally:
+                            self._release_agent_callback_prompt_claims(
+                                callbacks_snapshot
                             )
 
-                    stream_text_kwargs = {
-                        "system_prefix": _agent_cb_ctx or None,
-                        "thinking_on": _focus_thinking,
-                        "response_discarded_callback": response_discarded_callback,
-                    }
-                    if input_transcript_callback:
-                        stream_text_kwargs["input_transcript_callback"] = input_transcript_callback
-                    if memory_text:
-                        stream_text_kwargs["history_replacement_text"] = memory_text
-                    if _focus_thinking:
-                        # 凝神 turn runs thinking-on: pre-pulse the frontend so the
-                        # bubble shows up the instant the turn starts (immediate
-                        # feedback), before any reasoning chunk arrives. Idempotent
-                        # and harmless — a non-Focus turn instead pulses lazily from
-                        # OmniOfflineClient.on_thinking_active on its first reasoning
-                        # chunk (handle_thinking_active). Either way the bubble clears
-                        # on the first visible token (send_lanlan_response) or in the
-                        # unconditional finally below.
-                        await self._push_focus_thinking(True)
+                    # 同 _cb_turn_committed：在 try 之前绑定，finally 才读得到。
+                    reply_turn = None
                     try:
-                        await self.session.stream_text(data, **stream_text_kwargs)
+                        text_request_id = message.get("request_id")
+                        self._active_text_request_id = text_request_id
+                        # 本回复的快照：它的丢弃 / 完成回调可能在很久之后才跑
+                        # （close() 截断的回复要等停住的工具或退避返回才收尾），
+                        # 那时共享的 request id / meta 可能已属于新一轮。
+                        reply_turn = self._begin_reply_turn(
+                            speech_id=new_user_sid,
+                            request_id=text_request_id,
+                        )
+                        # Path A (inline) Focus 凝神：score this user message and, if
+                        # over the bar, run THIS reply thinking-on. Scored on
+                        # ``record_data`` (= memory_text or data) — the user-VISIBLE
+                        # text that also feeds the activity tracker / cadence baseline
+                        # and history replacement. Scoring raw ``data`` instead would
+                        # read a hidden scaffold prompt (e.g. avatar-drop file
+                        # contents) the user never typed, mismatching the cadence
+                        # signal and entering Focus on evidence the user didn't author.
+                        _focus_thinking = await self._focus_inline_decision(record_data)
+
+                        async def response_discarded_callback(
+                            reason: str,
+                            attempt: int,
+                            max_attempts: int,
+                            will_retry: bool,
+                            discard_message: str | None = None,
+                            *,
+                            _request_id=text_request_id,
+                            _reply_turn=reply_turn,
+                        ) -> None:
+                            await self.handle_response_discarded(
+                                reason,
+                                attempt,
+                                max_attempts,
+                                will_retry,
+                                discard_message,
+                                request_id=_request_id,
+                                reply_turn=_reply_turn,
+                            )
+
+                        async def response_done_callback(
+                            *,
+                            _reply_turn=reply_turn,
+                        ) -> None:
+                            await self.handle_response_complete(reply_turn=_reply_turn)
+
+                        input_transcript_callback = None
+                        if memory_text:
+                            transcript_metadata = {"source": message_source} if message_source else None
+
+                            async def input_transcript_callback(
+                                _transcript: str,
+                                *,
+                                _memory_text: str = memory_text,
+                                _message_source: str = message_source,
+                                _transcript_metadata: dict | None = transcript_metadata,
+                            ) -> None:
+                                await self.handle_input_transcript(
+                                    _memory_text,
+                                    is_voice_source=False,
+                                    source=_message_source,
+                                    metadata=_transcript_metadata,
+                                )
+
+                        stream_text_kwargs = {
+                            "system_prefix": _agent_cb_ctx or None,
+                            "thinking_on": _focus_thinking,
+                            "response_discarded_callback": response_discarded_callback,
+                            "response_done_callback": response_done_callback,
+                            "reply_owner": reply_turn,
+                        }
+                        def _mark_cb_turn_committed() -> None:
+                            nonlocal _cb_turn_committed
+                            _cb_turn_committed = True
+
+                        if _agent_cb_images:
+                            stream_text_kwargs["system_prefix_images"] = _agent_cb_images
+                        if _agent_cb_drained:
+                            # Use this request's commit notification for both
+                            # text-only and image callbacks. Another request's
+                            # history growth cannot establish this one's delivery.
+                            stream_text_kwargs["on_turn_committed"] = (
+                                _mark_cb_turn_committed
+                            )
+                        if input_transcript_callback:
+                            stream_text_kwargs["input_transcript_callback"] = input_transcript_callback
+                        if memory_text:
+                            stream_text_kwargs["history_replacement_text"] = memory_text
+                        try:
+                            if _focus_thinking:
+                                # 凝神 turn runs thinking-on: pre-pulse the frontend so
+                                # the bubble shows up the instant the turn starts
+                                # (immediate feedback), before any reasoning chunk
+                                # arrives. Idempotent and harmless — a non-Focus turn
+                                # instead pulses lazily from
+                                # OmniOfflineClient.on_thinking_active on its first
+                                # reasoning chunk (handle_thinking_active). Either way
+                                # the bubble clears on the first visible token
+                                # (send_lanlan_response) or in the finally below.
+                                #
+                                # ⚠️ 这个 True 必须在 try **之内**：它自己就会等
+                                # websocket 锁 / send_json，拆除时正好卡在这里被取消
+                                # 的话，_focus_thinking_active 已经置上、通知已经入队，
+                                # 而清理永远不会执行，气泡就一直亮到下一轮偶然把它关掉。
+                                await self._push_focus_thinking(True)
+                            if callable(on_dispatch_attempted):
+                                on_dispatch_attempted()
+                            # 与下面的调用之间没有 await：记下的就是真正接这轮的 client。
+                            reply_turn.session = self.session
+                            await self.session.stream_text(data, **stream_text_kwargs)
+                        finally:
+                            # stream_text claims the staged attachments (or puts them
+                            # back on failure); release ledger entries for claimed ones.
+                            self._prune_request_staged_images()
+                            # Clear unconditionally: a non-Focus turn may have pulsed the
+                            # bubble True via the reasoning callback, so gating the clear
+                            # on _focus_thinking would leave it stuck on tool-only / empty
+                            # / error turns. _push_focus_thinking is idempotent, so a no-op
+                            # clear when nothing pulsed costs nothing.
+                            await self._push_focus_thinking(False)
                     finally:
-                        # Clear unconditionally: a non-Focus turn may have pulsed the
-                        # bubble True via the reasoning callback, so gating the clear
-                        # on _focus_thinking would leave it stuck on tool-only / empty
-                        # / error turns. _push_focus_thinking is idempotent, so a no-op
-                        # clear when nothing pulsed costs nothing.
-                        await self._push_focus_thinking(False)
+                        # drain 之后到本轮进 history 之间的**每一个** await 都要
+                        # 覆盖，不只是 stream_text：会话拆除时这条输入任务可能在
+                        # _focus_inline_decision / _push_focus_thinking(True) 里就
+                        # 被取消，那时 callback 已经摘队并报告投递成功，文本和图会
+                        # 一起永久消失。
+                        #
+                        # 仍然只在**这一轮没进 history** 时回滚：已提交之后的失败
+                        # 属于既有的 best-effort 契约（内容已经在模型眼前了），
+                        # 回滚反而会重复投递。
+                        if _agent_cb_drained and not _cb_turn_committed:
+                            self._requeue_undelivered_callbacks(
+                                _agent_cb_drained, _agent_cb_extra_snapshot
+                            )
+                        if reply_turn is not None:
+                            self._end_reply_turn(reply_turn)
                 else:
                     logger.error(f"💥 Stream: Invalid text data type: {type(data)}")
                 return
@@ -555,13 +1012,18 @@ class StreamingMixin:
                 try:
                     if self._should_drop_magic_command_image(message.get("request_id")):
                         return
+                    target_session = self.session
                     image_arrival_time = (
                         self._user_input_ingress_time(message)
                         if input_type in {"avatar_drop_image", "user_image"}
                         else None
                     )
                     # 使用统一的图像工具处理数据（只验证，不缩放）
-                    image_b64 = await _core_facade.process_screen_data(data)
+                    image_b64 = (
+                        validated_one_shot_image_b64
+                        if input_type in {"avatar_drop_image", "user_image"}
+                        else await _core_facade.process_screen_data(data)
+                    )
 
                     if image_b64:
                         image_accepted = False
@@ -580,11 +1042,68 @@ class StreamingMixin:
                                 logger.warning("[%s] avatar annotation failed, sending original: %s",
                                                self.lanlan_name, ann_err)
 
+                        if not self.is_active or self.session is not target_session:
+                            return
+
+                        independent_live_frame = (
+                            input_type in _LIVE_VISION_STREAM_INPUT_TYPES
+                            and getattr(self, "_asr_route_mode", "blocked")
+                            == "independent"
+                        )
+                        if independent_live_frame:
+                            captured_at = message.get("_visual_input_ingress_time")
+                            image_accepted = self._stage_independent_visual_frame(
+                                image_b64,
+                                source=input_type,
+                                request_id=message.get("request_id"),
+                                captured_at=captured_at,
+                            )
+                            # Keep the active Realtime adapter's provider-neutral
+                            # latest-frame cache warm for proactive observation,
+                            # without sending the image to the provider. Once a
+                            # handoff promotes Offline, Core remains the sole owner
+                            # of live frames and they never leak into its attachment
+                            # queue.
+                            stage_session_frame = getattr(
+                                self.session,
+                                "stage_multimodal_frame",
+                                None,
+                            )
+                            if image_accepted and callable(stage_session_frame):
+                                try:
+                                    stage_session_frame(
+                                        image_b64,
+                                        source=input_type,
+                                        request_id=message.get("request_id"),
+                                        captured_at=captured_at,
+                                    )
+                                except asyncio.CancelledError:
+                                    raise
+                                except Exception as stage_error:
+                                    logger.warning(
+                                        "[%s] Realtime multimodal frame cache update failed: %s",
+                                        self.lanlan_name,
+                                        stage_error,
+                                    )
+
                         # 如果是文本模式（OmniOfflineClient），只存储图片，不立即发送
-                        if isinstance(self.session, OmniOfflineClient):
+                        elif isinstance(target_session, OmniOfflineClient):
+                            # screen/camera 在后台任务里校验，期间同一请求的斜杠快捷
+                            # 指令可能已经执行完：暂存前再查一次，别把它的截图留给下一条。
+                            if self._should_drop_magic_command_image(message.get("request_id")):
+                                return
                             # 只添加到待发送队列，等待与文本一起发送
-                            await self.session.stream_image(image_b64)
+                            if callable(on_dispatch_attempted):
+                                on_dispatch_attempted()
+                            await target_session.stream_image(image_b64)
+                            if not self.is_active or self.session is not target_session:
+                                return
                             image_accepted = True
+                            # 记下这张附件属于哪个 request：随后到达的斜杠快捷指令
+                            # 只删自己这条请求已暂存的附件，不碰更早消息的图。
+                            self._record_request_staged_image(
+                                message.get("request_id"), image_b64
+                            )
                             image_data = (
                                 ""
                                 if input_type in {"avatar_drop_image", "user_image"}
@@ -607,15 +1126,45 @@ class StreamingMixin:
                             })
 
                         # 如果是语音模式（OmniRealtimeClient），检查是否支持视觉并直接发送
-                        elif isinstance(self.session, OmniRealtimeClient):
+                        elif isinstance(target_session, OmniRealtimeClient):
                             # 检查WebSocket连接
-                            if not hasattr(self.session, 'ws') or not self.session.ws:
+                            if not hasattr(target_session, 'ws') or not target_session.ws:
                                 logger.error("💥 Stream: Session websocket not available")
                                 return
 
-                            # 语音模式直接发送图片
-                            await self.session.stream_image(image_b64)
-                            image_accepted = True
+                            # screen/camera are live environmental frames. The
+                            # Realtime session owns whether they are delivered
+                            # natively or staged for external vision, and needs
+                            # their source/request identity to bind a fixed
+                            # generation to the matching independent-ASR turn.
+                            # One-shot avatar/chat attachments retain the
+                            # pre-existing text/offline contract above.
+                            if input_type in _LIVE_VISION_STREAM_INPUT_TYPES:
+                                if callable(on_dispatch_attempted):
+                                    on_dispatch_attempted()
+                                stage_result = await target_session.stream_image(
+                                    image_b64,
+                                    source=input_type,
+                                    request_id=message.get("request_id"),
+                                    captured_at=message.get(
+                                        "_visual_input_ingress_time"
+                                    ),
+                                )
+                                if (
+                                    not self.is_active
+                                    or self.session is not target_session
+                                ):
+                                    return
+                                image_accepted = bool(
+                                    getattr(stage_result, "accepted", False)
+                                )
+                            else:
+                                logger.info(
+                                    "[%s] one-shot image kept out of realtime "
+                                    "visual staging: input_type=%s",
+                                    self.lanlan_name,
+                                    input_type,
+                                )
                         if (
                             image_accepted
                             and image_arrival_time is not None
@@ -642,3 +1191,23 @@ class StreamingMixin:
             error_message = f"Stream: Error sending data to session: {e}"
             logger.error(f"💥 {error_message}")
             await self.send_status(json.dumps({"code": "API_UNKNOWN_ERROR", "details": {"msg": error_message}}))
+        finally:
+            if defer_pending_flush:
+                self._deferred_pending_input_flush_count = max(
+                    0,
+                    getattr(self, "_deferred_pending_input_flush_count", 1) - 1,
+                )
+                if (
+                    self._deferred_pending_input_flush_count == 0
+                    and self.is_active
+                    and isinstance(self.session, OmniOfflineClient)
+                ):
+                    try:
+                        await self._flush_pending_input_data()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as flush_error:
+                        logger.error(
+                            "💥 deferred attachment input flush failed: %s",
+                            flush_error,
+                        )

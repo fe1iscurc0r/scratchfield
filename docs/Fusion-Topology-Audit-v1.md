@@ -206,6 +206,6 @@ DEBUG_PORT_DEBT = {
 
 ---
 
-*审查人: 实验田维护者 (deepseek-v4-pro)*
+*审查人: 沈遥 (deepseek-v4-pro)*
 *数据来源: scratchpad commit 27cda9f (M4 smoke test 修复后)*
 *铁锚修正: 2026-08-02（行号/状态/端点路径核准）*

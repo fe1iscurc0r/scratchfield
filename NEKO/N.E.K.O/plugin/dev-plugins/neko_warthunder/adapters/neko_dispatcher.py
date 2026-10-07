@@ -178,8 +178,8 @@ _INTENT: dict[str, str] = {
     "ground_crew_loss": "陆战乘员损失，提醒 {MASTER_NAME} 车组受损，短促说一句收住、找掩体或别贪",
     "ground_gunner_disabled": "陆战炮手失能，提醒 {MASTER_NAME} 暂时别硬拼输出，短促说一句先缩回去",
     "ground_driver_disabled": "陆战驾驶员失能，提醒 {MASTER_NAME} 机动受限，短促说一句先找掩体",
-    "ground_ammo_empty": "陆战一级弹药打空，提醒 {MASTER_NAME} 装填会变慢，短促说一句别硬拼",
-    "ground_ammo_low": "陆战一级弹药偏少，提醒 {MASTER_NAME} 后续装填会慢，短促说一句规划节奏",
+    "ground_ammo_empty": "陆战一级候选打空，提醒 {MASTER_NAME} 装填会变慢，短促说一句别硬拼",
+    "ground_ammo_low": "陆战一级候选偏少，提醒 {MASTER_NAME} 后续装填会慢，短促说一句规划节奏",
     "ground_target_nearby": "报任务目标点接近，提醒 {MASTER_NAME} 看方位",
     "enemy_nearby": "报附近接触，提醒 {MASTER_NAME} 保持观察",
     "air_threat_nearby": "报可信的水平钟点方位，提醒 {MASTER_NAME} 确认空中威胁；没有高度差数据，不提供垂直方向指令",
@@ -536,7 +536,7 @@ def _recommended_reply_line(event: BattleEvent) -> str:
     if event.event_id == "ground_driver_disabled":
         return "驾驶没了，找掩体！"
     if event.event_id == "ground_ammo_empty":
-        return "一级弹药空了，别硬拼！"
+        return "一级候选空了，别硬拼！"
     if event.event_id == "ground_ammo_low":
         return "待发弹不多了，控节奏！"
     if event.event_id == "enemy_on_six":
@@ -875,9 +875,9 @@ def _ground_vehicle_fact(event_id: str, payload: dict[str, Any]) -> str:
     if event_id == "ground_driver_disabled":
         return "陆战驾驶员失能"
     if event_id == "ground_ammo_empty":
-        return "一级弹药打空"
+        return "一级候选打空"
     if event_id == "ground_ammo_low":
-        return "一级弹药偏少"
+        return "一级候选偏少"
     return ""
 
 

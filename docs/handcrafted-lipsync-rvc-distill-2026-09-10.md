@@ -1,7 +1,7 @@
 # handcrafted-persona-engine · Live2D 唇形同步 & RVC 蒸馏
 
 > 来源: elevenyellow/handcrafted-persona-engine（1363⭐，无 LICENSE，仅蒸馏不融合）
-> 蒸馏日期: 2026-09-10 · 蒸馏人: 实验田维护者
+> 蒸馏日期: 2026-09-10 · 蒸馏人: 沈遥
 > 代码路径: PersonaEngine.Lib/Live2D/Behaviour/LipSync/ + PersonaEngine.Lib/TTS/RVC/
 > 性质: 设计思想提炼，非代码搬运。无 LICENSE 项目，仅做理解参考，禁止复制进仓。
 

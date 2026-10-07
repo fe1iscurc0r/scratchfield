@@ -1,6 +1,6 @@
 # WO-03: ECC 性能优化提取报告
 
-> 日期：2026-08-22 晚 | 委托：实验田维护者自做 | 状态：✅ 完成
+> 日期：2026-08-22 晚 | 委托：沈遥自做 | 状态：✅ 完成
 > 输入：affaan-m/ECC（MIT，241k★）| 模式：API 直读（硬约束：不整包 clone）
 > 结构：.agents/skills（43 个 agent）+ .claude/homunculus/instincts + agents/ + commands/
 

@@ -1,6 +1,6 @@
 # UPGRADE-PROJECTS-10 · 2026-09-02（第十四期 · 授粉专项批 108 项）
 
-> 组装：实验田维护者（Hermes）2026-09-02
+> 组装：沈遥（Hermes）2026-09-02
 > 依据：round4 digest 授粉点 49 + 日报 weekly_pollination 授粉点 22 + round3 digest 授粉点 3 + 日报趋势 34 = 108 条
 > 性质：授粉落地批——把论文机制/趋势迁移到 scratchpad 技术栈（SDR/ESP32/材料/Agent/NEKO）
 > 去重：源论文已在已交付 1610 项的标'授粉深化'，未交付的标'独立新立'

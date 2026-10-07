@@ -43,6 +43,7 @@ import {
 } from './protocol';
 import {
   buildAvatarToolVisualModel,
+  createAvatarToolImageFrameState,
   createAvatarToolVariantState,
   deriveAvatarToolPresentation,
   getAvatarToolOverlayTransform,
@@ -62,10 +63,19 @@ import {
   type AvatarToolRoundChoiceConfirmation,
 } from './interaction';
 import {
-  getAvatarToolEffectRecipe,
-  getAvatarToolRegistration,
+  type AvatarToolImageId,
   type AvatarToolVariantId,
 } from './catalog';
+import {
+  createCustomGraphRuntime,
+  getCustomGraphImageFrameIndex,
+  resolveCustomGraphLocalFeedback,
+  type CustomGraphRuntime,
+} from './customGraphRuntime';
+import {
+  BUILT_IN_AVATAR_TOOL_REGISTRY,
+  type AvatarToolRegistrySnapshot,
+} from './registry';
 import {
   AVATAR_TOOL_RANGE_EXIT_PADDING,
   AVATAR_TOOL_RANGE_PADDING,
@@ -113,6 +123,7 @@ type RuntimeSession = {
   press: RuntimePress | null;
   pressFeedbackActive: boolean;
   roundChoice: RuntimeRoundChoiceCycle | null;
+  customGraph: CustomGraphRuntime | null;
 };
 
 type RuntimePress = {
@@ -124,6 +135,8 @@ type RuntimePress = {
   startY: number;
   moved: boolean;
   frozenVariant: AvatarToolVariantId;
+  customGraphClickStarted?: boolean;
+  capturedImageId?: AvatarToolImageId;
 };
 
 type RuntimeRoundChoiceCycle = {
@@ -217,6 +230,7 @@ type UseAvatarToolRuntimeOptions = {
   onDeactivate?: () => void;
   avatarName?: string;
   providers?: AvatarToolRuntimeProviders;
+  registry?: AvatarToolRegistrySnapshot;
 };
 
 export function useAvatarToolRuntime({
@@ -230,18 +244,21 @@ export function useAvatarToolRuntime({
   onDeactivate,
   avatarName = '',
   providers,
+  registry = BUILT_IN_AVATAR_TOOL_REGISTRY,
 }: UseAvatarToolRuntimeOptions) {
   const collectBounds = providers?.collectBounds ?? collectAvatarToolBounds;
   const isUiExcluded = providers?.isUiExcluded ?? isAvatarToolUiExcluded;
   const now = providers?.now ?? Date.now;
   const monotonicNow = providers?.monotonicNow ?? getMonotonicNow;
   const random = providers?.random ?? Math.random;
-  const prepareVisuals = providers?.prepareVisuals ?? prepareAvatarToolVisuals;
+  const prepareVisuals = providers?.prepareVisuals
+    ?? ((toolId: AvatarToolId) => prepareAvatarToolVisuals(toolId, registry));
   const getHeadAnchor = providers?.getHeadAnchor ?? getActiveAvatarToolHeadAnchor;
   const ownsLocalPointerRuntime = !isElectronMultiWindow();
   const [activeToolId, setActiveToolId] = useState<AvatarToolId | null>(null);
-  const [rangeVariants, setRangeVariants] = useState(createAvatarToolVariantState);
-  const [outsideVariants, setOutsideVariants] = useState(createAvatarToolVariantState);
+  const [rangeVariants, setRangeVariants] = useState(() => createAvatarToolVariantState(registry.definitions));
+  const [outsideVariants, setOutsideVariants] = useState(() => createAvatarToolVariantState(registry.definitions));
+  const [imageFrameIndices, setImageFrameIndices] = useState(() => createAvatarToolImageFrameState(registry.definitions));
   const [overAvatarRange, setOverAvatarRange] = useState(false);
   const [overCompactZone, setOverCompactZone] = useState(false);
   const [insideHostWindow, setInsideHostWindow] = useState(true);
@@ -251,6 +268,10 @@ export function useAvatarToolRuntime({
   const [roundChoiceAvatarGestureState, setRoundChoiceAvatarGestureState] =
     useState<AvatarToolRoundChoiceAvatarGestureState | null>(null);
   const [localeRevision, setLocaleRevision] = useState(0);
+  const activeDefinitionSignature = useMemo(() => {
+    if (!activeToolId || !registry.has(activeToolId)) return '';
+    return JSON.stringify(registry.getRegistration(activeToolId).definition);
+  }, [activeToolId, registry]);
 
   const generationRef = useRef(0);
   const sessionRef = useRef<RuntimeSession | null>(null);
@@ -262,6 +283,7 @@ export function useAvatarToolRuntime({
   const activeToolIdRef = useRef<AvatarToolId | null>(null);
   const rangeVariantsRef = useRef(rangeVariants);
   const outsideVariantsRef = useRef(outsideVariants);
+  const imageFrameIndicesRef = useRef(imageFrameIndices);
   const presentedVariantRef = useRef<AvatarToolVariantId>('primary');
   const overlayEffectExecutionRef = useRef<ActiveAvatarToolEffectExecution | null>(null);
   const interactionLockRef = useRef(false);
@@ -269,8 +291,14 @@ export function useAvatarToolRuntime({
   const stateCallbackRef = useRef(onStateChange);
   const deactivateCallbackRef = useRef(onDeactivate);
   const toolLabelCallbackRef = useRef(getToolLabel);
+  const publishStateCallbackRef = useRef<() => void>(() => {});
+  const publishInactiveStateCallbackRef = useRef<() => void>(() => {});
   const lastStateKeyRef = useRef('');
   const lastDeactivationKeyRef = useRef('');
+  const selectedDefinitionRef = useRef<{ toolId: AvatarToolId | null; signature: string }>({
+    toolId: null,
+    signature: '',
+  });
   const boundsCacheRef = useRef<{ expiresAt: number; lastAvailableAt: number; bounds: AvatarToolBounds[] }>({
     expiresAt: 0,
     lastAvailableAt: 0,
@@ -290,18 +318,22 @@ export function useAvatarToolRuntime({
     activeToolId,
     rangeVariants,
     outsideVariants,
+    imageFrameIndices,
     overAvatarRange,
     overCompactZone,
     insideHostWindow,
     effectActive: overlayEffectActive,
+    registry,
   }), [
     activeToolId,
     overlayEffectActive,
     insideHostWindow,
     outsideVariants,
+    imageFrameIndices,
     overAvatarRange,
     overCompactZone,
     rangeVariants,
+    registry,
   ]);
   const {
     activeTool,
@@ -408,33 +440,36 @@ export function useAvatarToolRuntime({
   ), [getBounds]);
 
   const updateOverlayPosition = useCallback((pointer = latestPointerRef.current) => {
-    const tool = getAvatarTool(activeToolIdRef.current);
+    const tool = getAvatarTool(activeToolIdRef.current, registry);
     if (!tool) return;
     const current = deriveAvatarToolPresentation({
       activeToolId: tool.id,
       rangeVariants: rangeVariantsRef.current,
       outsideVariants: outsideVariantsRef.current,
+      imageFrameIndices: imageFrameIndicesRef.current,
       overAvatarRange: rangeRef.current,
       overCompactZone: compactZoneRef.current,
       insideHostWindow: insideHostRef.current,
       effectActive: overlayEffectExecutionRef.current !== null,
+      registry,
     });
     const compact = current.imageKind === 'pointer';
     const node = overlayRef.current;
-    if (node) node.style.transform = getAvatarToolOverlayTransform(tool, compact, pointer);
-  }, []);
+    if (node) node.style.transform = getAvatarToolOverlayTransform(tool, compact, pointer, registry);
+  }, [registry]);
 
   const publishState = useCallback(() => {
     const callback = stateCallbackRef.current;
     if (!callback) return;
     const toolId = activeToolIdRef.current;
     if (!ownsLocalPointerRuntime) {
-      const currentTool = getAvatarTool(toolId);
+      const currentTool = getAvatarTool(toolId, registry);
       const payload = buildAvatarToolSelectionStatePayload({
         activeTool: currentTool,
         avatarRangeVariant: currentTool ? rangeVariantsRef.current[currentTool.id] : undefined,
         outsideRangeVariant: currentTool ? outsideVariantsRef.current[currentTool.id] : undefined,
         roundChoiceResultLabels: roundChoiceResultLabels ?? undefined,
+        definition: currentTool ? registry.getRegistration(currentTool.id).definition : null,
       });
       const key = getAvatarToolStatePayloadKey(payload);
       if (key === lastStateKeyRef.current) return;
@@ -446,10 +481,12 @@ export function useAvatarToolRuntime({
       activeToolId: toolId,
       rangeVariants: rangeVariantsRef.current,
       outsideVariants: outsideVariantsRef.current,
+      imageFrameIndices: imageFrameIndicesRef.current,
       overAvatarRange: rangeRef.current,
       overCompactZone: compactZoneRef.current,
       insideHostWindow: insideHostRef.current,
       effectActive: overlayEffectExecutionRef.current !== null,
+      registry,
     });
     const payload = buildAvatarToolPointerStatePayload({
       activeTool: current.activeTool,
@@ -468,7 +505,7 @@ export function useAvatarToolRuntime({
     if (key === lastStateKeyRef.current) return;
     lastStateKeyRef.current = key;
     callback(payload);
-  }, [ownsLocalPointerRuntime, roundChoiceResultLabels]);
+  }, [ownsLocalPointerRuntime, registry, roundChoiceResultLabels]);
 
   const publishInactiveState = useCallback(() => {
     const callback = stateCallbackRef.current;
@@ -485,6 +522,7 @@ export function useAvatarToolRuntime({
       pointer: latestPointerRef.current,
     }) : buildAvatarToolSelectionStatePayload({
       activeTool: null,
+      definition: null,
     });
     const key = getAvatarToolStatePayloadKey(payload);
     if (key === lastStateKeyRef.current) return;
@@ -492,8 +530,14 @@ export function useAvatarToolRuntime({
     callback(payload);
   }, [ownsLocalPointerRuntime]);
 
+  useLayoutEffect(() => {
+    publishStateCallbackRef.current = publishState;
+    publishInactiveStateCallbackRef.current = publishInactiveState;
+  }, [publishInactiveState, publishState]);
+
   const disposeSession = useCallback(() => {
     generationRef.current += 1;
+    sessionRef.current?.customGraph?.destroy();
     sessionRef.current?.disposer.destroy();
     sessionRef.current = null;
     clearRangeHold();
@@ -508,10 +552,13 @@ export function useAvatarToolRuntime({
     setRoundChoiceAvatarGestureState(null);
     const nextRangeVariants = createAvatarToolVariantState();
     const nextOutsideVariants = createAvatarToolVariantState();
+    const nextImageFrameIndices = createAvatarToolImageFrameState();
     setRangeVariants(nextRangeVariants);
     setOutsideVariants(nextOutsideVariants);
+    setImageFrameIndices(nextImageFrameIndices);
     rangeVariantsRef.current = nextRangeVariants;
     outsideVariantsRef.current = nextOutsideVariants;
+    imageFrameIndicesRef.current = nextImageFrameIndices;
   }, [disposeSession]);
 
   const setRoundChoiceVariants = useCallback((session: RuntimeSession, variant: AvatarToolVariantId) => {
@@ -646,7 +693,7 @@ export function useAvatarToolRuntime({
     const cycle = session.roundChoice;
     const round = cycle?.round;
     if (!cycle || !round || !session.disposer.isCurrent()) return;
-    const recipe = getAvatarToolEffectRecipe(session.toolId, effectId);
+    const recipe = registry.getEffect(session.toolId, effectId);
     if (recipe.kind !== 'round-reveal') return;
     const anchor = getHeadAnchor(cycle.rawHitBounds);
     if (!anchor) return;
@@ -673,7 +720,7 @@ export function useAvatarToolRuntime({
       const timeoutId = session.disposer.setTimeout(() => {
         cycle.revealTimeoutIds = cycle.revealTimeoutIds.filter(id => id !== timeoutId);
         if (phase === 'result') {
-          cycle.roundAudioStops.push(playAvatarToolSound(resultSound, session.disposer));
+          cycle.roundAudioStops.push(playAvatarToolSound(session.toolId, resultSound, session.disposer, registry));
         }
         if (phase === 'idle') {
           clearRoundChoiceReveal(session);
@@ -727,7 +774,7 @@ export function useAvatarToolRuntime({
     destroySession();
     const generation = generationRef.current;
     const disposer = createAvatarToolDisposer(generation, value => value === generationRef.current);
-    const profile = getAvatarToolRegistration(toolId).definition.interaction;
+    const profile = registry.getRegistration(toolId).definition.interaction;
     const session: RuntimeSession = {
       toolId,
       generation,
@@ -736,6 +783,7 @@ export function useAvatarToolRuntime({
       outsideVariantResetTimeoutId: null,
       press: null,
       pressFeedbackActive: false,
+      customGraph: null,
       roundChoice: profile.kind === 'round-choice' ? {
         variants: profile.choices.map(choice => choice.variant),
         outsideIntervalMs: profile.cycle.outsideIntervalMs,
@@ -752,10 +800,39 @@ export function useAvatarToolRuntime({
       } : null,
     };
     sessionRef.current = session;
-    prewarmAvatarToolSounds(toolId, disposer);
+    if (profile.kind === 'custom-graph') {
+      const setSessionFrame = (frameIndex: number) => {
+        if (sessionRef.current !== session || !session.disposer.isCurrent()) return;
+        const currentFrameIndex = imageFrameIndicesRef.current[session.toolId] ?? 0;
+        if (currentFrameIndex === frameIndex) return;
+        const next = { ...imageFrameIndicesRef.current, [session.toolId]: frameIndex };
+        imageFrameIndicesRef.current = next;
+        setImageFrameIndices(next);
+        publishState();
+      };
+      session.customGraph = createCustomGraphRuntime(profile, {
+        scheduler: {
+          now: monotonicNow,
+          setTimeout: (callback, delayMs) => session.disposer.setTimeout(callback, delayMs),
+          clearTimeout: timeoutId => session.disposer.clearTimeout(timeoutId),
+        },
+        onImageChange: (_imageId, frameIndex) => setSessionFrame(frameIndex),
+      });
+      setSessionFrame(getCustomGraphImageFrameIndex(profile, profile.initialImageId));
+    }
+    prewarmAvatarToolSounds(toolId, disposer, registry);
+    let readiness: void | Promise<void>;
+    try {
+      readiness = prepareVisuals(toolId);
+    } catch {
+      if (session.roundChoice) {
+        resumeRoundChoiceCycle(session);
+        if (session.roundChoice.rawHitActive) startRoundChoiceAvatarGesture(session);
+      }
+      return;
+    }
     if (!session.roundChoice) return;
     try {
-      const readiness = prepareVisuals(toolId);
       if (!readiness) {
         resumeRoundChoiceCycle(session);
         return;
@@ -771,7 +848,15 @@ export function useAvatarToolRuntime({
       resumeRoundChoiceCycle(session);
       if (session.roundChoice.rawHitActive) startRoundChoiceAvatarGesture(session);
     }
-  }, [destroySession, prepareVisuals, resumeRoundChoiceCycle, startRoundChoiceAvatarGesture]);
+  }, [
+    destroySession,
+    monotonicNow,
+    prepareVisuals,
+    publishState,
+    registry,
+    resumeRoundChoiceCycle,
+    startRoundChoiceAvatarGesture,
+  ]);
 
   const clearTool = useCallback((options?: { insideHostWindow?: boolean }) => {
     destroySession();
@@ -794,6 +879,10 @@ export function useAvatarToolRuntime({
       clearTool();
       return;
     }
+    if (!registry.has(item.id)) {
+      clearTool();
+      return;
+    }
     if (!ownsLocalPointerRuntime) {
       if (activeToolIdRef.current === item.id) {
         clearTool();
@@ -802,7 +891,7 @@ export function useAvatarToolRuntime({
       destroySession();
       activeToolIdRef.current = item.id;
       setActiveToolId(item.id);
-      const initialVariant = getAvatarToolRegistration(item.id).definition.visual.initialVariant;
+      const initialVariant = registry.getRegistration(item.id).definition.visual.initialVariant;
       const nextRange = { ...rangeVariantsRef.current, [item.id]: initialVariant };
       const nextOutside = { ...outsideVariantsRef.current, [item.id]: initialVariant };
       rangeVariantsRef.current = nextRange;
@@ -826,7 +915,7 @@ export function useAvatarToolRuntime({
     createSession(item.id);
     activeToolIdRef.current = item.id;
     setActiveToolId(item.id);
-    const initialVariant = getAvatarToolRegistration(item.id).definition.visual.initialVariant;
+    const initialVariant = registry.getRegistration(item.id).definition.visual.initialVariant;
     const nextRange = { ...rangeVariantsRef.current, [item.id]: initialVariant };
     const nextOutside = { ...outsideVariantsRef.current, [item.id]: initialVariant };
     rangeVariantsRef.current = nextRange;
@@ -850,6 +939,46 @@ export function useAvatarToolRuntime({
     updateOverlayPosition,
   ]);
 
+  useEffect(() => {
+    const previous = selectedDefinitionRef.current;
+    selectedDefinitionRef.current = {
+      toolId: activeToolId,
+      signature: activeDefinitionSignature,
+    };
+    if (!activeToolId) return;
+    if (!activeDefinitionSignature) {
+      clearTool();
+      return;
+    }
+    if (previous.toolId !== activeToolId || !previous.signature) return;
+    if (previous.signature === activeDefinitionSignature) return;
+
+    if (ownsLocalPointerRuntime) createSession(activeToolId);
+    else destroySession();
+    const initialVariant = registry.getRegistration(activeToolId).definition.visual.initialVariant;
+    const nextRange = { ...rangeVariantsRef.current, [activeToolId]: initialVariant };
+    const nextOutside = { ...outsideVariantsRef.current, [activeToolId]: initialVariant };
+    rangeVariantsRef.current = nextRange;
+    outsideVariantsRef.current = nextOutside;
+    setRangeVariants(nextRange);
+    setOutsideVariants(nextOutside);
+    lastStateKeyRef.current = '';
+    window.queueMicrotask(() => {
+      updateOverlayPosition();
+      publishState();
+    });
+  }, [
+    activeDefinitionSignature,
+    activeToolId,
+    clearTool,
+    createSession,
+    destroySession,
+    ownsLocalPointerRuntime,
+    publishState,
+    registry,
+    updateOverlayPosition,
+  ]);
+
   const recordBurst = useCallback((key: string, windowMs: number): number => {
     const session = sessionRef.current;
     if (!session) return 0;
@@ -868,7 +997,7 @@ export function useAvatarToolRuntime({
   ) => {
     const session = sessionRef.current;
     if (!session) return;
-    const recipe = getAvatarToolEffectRecipe(session.toolId, effectId);
+    const recipe = registry.getEffect(session.toolId, effectId);
     const execution = createAvatarToolEffectExecution(recipe, {
       clientX,
       clientY,
@@ -910,12 +1039,12 @@ export function useAvatarToolRuntime({
 
   const emit = useCallback((commit: Parameters<typeof buildAvatarInteractionPayload>[0]) => {
     const callback = interactionCallbackRef.current;
-    if (!callback) return;
+    if (!callback || !registry.has(commit.toolId)) return;
     callback(buildAvatarInteractionPayload({
       ...commit,
       timestamp: commit.timestamp ?? now(),
-    }));
-  }, [now]);
+    }, registry.getRegistration(commit.toolId).definition));
+  }, [now, registry]);
 
   const applyCommand = useCallback((command: AvatarToolCommand, clientX: number, clientY: number) => {
     const session = sessionRef.current;
@@ -929,6 +1058,15 @@ export function useAvatarToolRuntime({
       const next = { ...outsideVariantsRef.current, [session.toolId]: command.outsideVariant };
       outsideVariantsRef.current = next;
       setOutsideVariants(next);
+    }
+    if (command.imageFrameIndex !== undefined) {
+      const frameCount = registry.getRegistration(session.toolId).definition.visual.frames?.length ?? 1;
+      const nextIndex = Number.isSafeInteger(command.imageFrameIndex)
+        ? Math.min(Math.max(0, command.imageFrameIndex), frameCount - 1)
+        : 0;
+      const next = { ...imageFrameIndicesRef.current, [session.toolId]: nextIndex };
+      imageFrameIndicesRef.current = next;
+      setImageFrameIndices(next);
     }
     if (command.commit) emit(command.commit);
     if (command.pressFeedback === 'until-pointer-release') session.pressFeedbackActive = true;
@@ -954,7 +1092,7 @@ export function useAvatarToolRuntime({
       }
     }
     if (command.sound) {
-      const stopSound = playAvatarToolSound(command.sound, session.disposer);
+      const stopSound = playAvatarToolSound(session.toolId, command.sound, session.disposer, registry);
       if (command.roundChoiceConfirmation && session.roundChoice) {
         session.roundChoice.roundAudioStops.push(stopSound);
       }
@@ -966,7 +1104,7 @@ export function useAvatarToolRuntime({
       }
       session.outsideVariantResetTimeoutId = session.disposer.setTimeout(() => {
         session.outsideVariantResetTimeoutId = null;
-        const initialVariant = getAvatarToolRegistration(session.toolId).definition.visual.initialVariant;
+        const initialVariant = registry.getRegistration(session.toolId).definition.visual.initialVariant;
         const next = { ...outsideVariantsRef.current, [session.toolId]: initialVariant };
         outsideVariantsRef.current = next;
         setOutsideVariants(next);
@@ -987,18 +1125,19 @@ export function useAvatarToolRuntime({
     const session = sessionRef.current;
     if (!session) return;
     const shouldRelease = session.press !== null || session.pressFeedbackActive;
+    session.customGraph?.cancelClick();
     session.press = null;
     session.pressFeedbackActive = false;
     if (session.roundChoice?.status === 'pressed') resumeRoundChoiceCycle(session);
     if (cancelOutsideFeedback && session.outsideVariantResetTimeoutId !== null) {
       session.disposer.clearTimeout(session.outsideVariantResetTimeoutId);
       session.outsideVariantResetTimeoutId = null;
-      const initialVariant = getAvatarToolRegistration(session.toolId).definition.visual.initialVariant;
+      const initialVariant = registry.getRegistration(session.toolId).definition.visual.initialVariant;
       applyCommand({ outsideVariant: initialVariant }, latestPointerRef.current.x, latestPointerRef.current.y);
     }
-    if (shouldRelease) {
+    if (shouldRelease && !session.customGraph) {
       applyCommand(
-        resolveAvatarToolPointerRelease(session.toolId),
+        resolveAvatarToolPointerRelease(session.toolId, registry),
         latestPointerRef.current.x,
         latestPointerRef.current.y,
       );
@@ -1033,6 +1172,28 @@ export function useAvatarToolRuntime({
       const toolId = session.toolId;
       const interactionLocked = interactionLockRef.current;
       const visibleVariant = presentedVariantRef.current;
+      const profile = registry.getRegistration(toolId).definition.interaction;
+      if (profile.kind === 'custom-graph') {
+        if (hit && !interactionLocked && session.customGraph) {
+          const customGraphClickStarted = session.customGraph.beginClick();
+          const graphSnapshot = session.customGraph.getSnapshot();
+          session.press = {
+            toolId,
+            generation: session.generation,
+            pointerId: event.pointerId,
+            button: event.button,
+            startX: event.clientX,
+            startY: event.clientY,
+            moved: false,
+            frozenVariant: visibleVariant,
+            customGraphClickStarted,
+            capturedImageId: customGraphClickStarted
+              ? graphSnapshot.activeClick?.capturedImageId
+              : graphSnapshot.currentImageId,
+          };
+        }
+        return;
+      }
       applyCommand(resolveAvatarToolPointerDown({
         toolId,
         clientX: event.clientX,
@@ -1041,10 +1202,12 @@ export function useAvatarToolRuntime({
         rangeVariant: rangeVariantsRef.current[toolId],
         outsideVariant: outsideVariantsRef.current[toolId],
         visibleVariant,
+        imageFrameIndex: imageFrameIndicesRef.current[toolId] ?? 0,
+        imageFrameCount: registry.getRegistration(toolId).definition.visual.frames?.length ?? 1,
         interactionLocked,
         recordBurst,
         random,
-      }), event.clientX, event.clientY);
+      }, registry), event.clientX, event.clientY);
       if (hit && !interactionLocked) {
         session.press = {
           toolId,
@@ -1084,7 +1247,7 @@ export function useAvatarToolRuntime({
         setRange(!!getVisualHit(event.clientX, event.clientY));
       }
       const commitHit = RELEASE_TOUCH_ZONE_USES_FRESH_HIT ? releaseHit : null;
-      if (
+      const validCommit = !!(
         press
         && (!RELEASE_REQUIRES_SAME_POINTER || press.pointerId === event.pointerId)
         && (!RELEASE_REQUIRES_SAME_BUTTON || press.button === event.button)
@@ -1092,7 +1255,38 @@ export function useAvatarToolRuntime({
         && press.toolId === session.toolId
         && !press.moved
         && commitHit
-      ) {
+      );
+      const profile = registry.getRegistration(session.toolId).definition.interaction;
+      if (profile.kind === 'custom-graph') {
+        const completion = validCommit && press?.customGraphClickStarted
+          ? session.customGraph?.completeClick()
+          : null;
+        const capturedImageId = completion?.capturedImageId ?? press?.capturedImageId;
+        if (validCommit && capturedImageId && commitHit) {
+          const tapCount = recordBurst(profile.burst.key, profile.burst.windowMs);
+          const feedback = resolveCustomGraphLocalFeedback(profile, random);
+          const capturedImage = profile.images.find(image => image.id === capturedImageId);
+          applyCommand({
+            ...((feedback.specialTriggered || capturedImage?.hasMeaning) ? { commit: {
+              toolId: session.toolId as `local-${string}`,
+              toolRevision: profile.revision,
+              actionId: 'interact' as const,
+              intensity: tapCount >= profile.burst.rapidThreshold
+                ? profile.burst.rapidIntensity
+                : profile.burst.normalIntensity,
+              touchZone: commitHit.touchZone,
+              imageId: capturedImageId,
+              ...(profile.chance ? { specialTriggered: feedback.specialTriggered } : {}),
+              clientX: event.clientX,
+              clientY: event.clientY,
+            } } : {}),
+            ...(feedback.sound ? { sound: feedback.sound } : {}),
+            ...(feedback.effect ? { effect: feedback.effect } : {}),
+          }, event.clientX, event.clientY);
+        } else {
+          session.customGraph?.cancelClick();
+        }
+      } else if (validCommit) {
         applyCommand(resolveAvatarToolCommit({
           toolId: session.toolId,
           clientX: event.clientX,
@@ -1101,17 +1295,21 @@ export function useAvatarToolRuntime({
           rangeVariant: rangeVariantsRef.current[session.toolId],
           outsideVariant: outsideVariantsRef.current[session.toolId],
           visibleVariant: press.frozenVariant,
+          imageFrameIndex: imageFrameIndicesRef.current[session.toolId] ?? 0,
+          imageFrameCount: registry.getRegistration(session.toolId).definition.visual.frames?.length ?? 1,
           interactionLocked: interactionLockRef.current,
           recordBurst,
           random,
-        }), event.clientX, event.clientY);
+        }, registry), event.clientX, event.clientY);
       }
       releasePressFeedback(false);
     };
     const handlePointerCancel = (event: PointerEvent) => {
       const session = sessionRef.current;
       const press = session?.press;
-      if (!session || !press || press.pointerId !== event.pointerId) return;
+      if (!session) return;
+      if (press && press.pointerId !== event.pointerId) return;
+      if (!press && !session.pressFeedbackActive) return;
       cancelRoundChoiceState(session);
       releasePressFeedback(true);
     };
@@ -1252,6 +1450,7 @@ export function useAvatarToolRuntime({
     activeToolIdRef.current = activeToolId;
     rangeVariantsRef.current = rangeVariants;
     outsideVariantsRef.current = outsideVariants;
+    imageFrameIndicesRef.current = imageFrameIndices;
     rangeRef.current = overAvatarRange;
     compactZoneRef.current = overCompactZone;
     insideHostRef.current = insideHostWindow;
@@ -1261,6 +1460,7 @@ export function useAvatarToolRuntime({
     activeToolId,
     overlayEffectExecution,
     insideHostWindow,
+    imageFrameIndices,
     outsideVariants,
     overAvatarRange,
     overCompactZone,
@@ -1308,10 +1508,20 @@ export function useAvatarToolRuntime({
   }, [clearTool]);
 
   useEffect(() => {
-    const publishInactive = () => publishInactiveState();
-    const republishCurrent = () => {
+    if (ownsLocalPointerRuntime) return undefined;
+    const republish = () => {
       lastStateKeyRef.current = '';
       publishState();
+    };
+    window.addEventListener('neko:republish-avatar-tool-state', republish);
+    return () => window.removeEventListener('neko:republish-avatar-tool-state', republish);
+  }, [ownsLocalPointerRuntime, publishState]);
+
+  useEffect(() => {
+    const publishInactive = () => publishInactiveStateCallbackRef.current();
+    const republishCurrent = () => {
+      lastStateKeyRef.current = '';
+      publishStateCallbackRef.current();
     };
     window.addEventListener('beforeunload', publishInactive);
     window.addEventListener('pagehide', publishInactive);
@@ -1320,15 +1530,16 @@ export function useAvatarToolRuntime({
       window.removeEventListener('beforeunload', publishInactive);
       window.removeEventListener('pagehide', publishInactive);
       window.removeEventListener('pageshow', republishCurrent);
-      publishInactiveState();
+      publishInactiveStateCallbackRef.current();
       disposeSession();
     };
-  }, [disposeSession, publishInactiveState, publishState]);
+  }, [disposeSession]);
 
   const visualModel = buildAvatarToolVisualModel({
     activeTool,
     activeToolId,
     effectiveVariant,
+    imageFrameIndex: presentation.imageFrameIndex,
     avatarRangeVariant,
     withinAvatarRange,
     overlayRef,
@@ -1337,6 +1548,7 @@ export function useAvatarToolRuntime({
     overlayEffectExecution,
     roundChoiceAvatarGestureState,
     transientEffects,
+    registry,
   });
 
   return {

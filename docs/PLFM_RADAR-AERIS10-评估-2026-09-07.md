@@ -1,6 +1,6 @@
 # PLFM_RADAR（AERIS-10）评估 · 2026-09-07
 
-> 2026-09-07 · 评估汇编 · 来源 · 来源：GitHub 仓库实查（gh api + Licence 文件实读）+ Hackaday/iFixit/starlog 交叉验证
+> 沈遥 2026-09-07 · 用户点名查看 · 来源：GitHub 仓库实查（gh api + Licence 文件实读）+ Hackaday/iFixit/starlog 交叉验证
 
 ---
 
@@ -58,4 +58,4 @@
 3. 中文版（AllenXu-weihao/PLFM_RADAR-CN，170★）留作文档对照，不重复搬运
 
 ---
-*本评估 2026-09-07 汇编 · 已 gh api 实查 + Licence 实读 + 三方交叉验证*
+*本评估由沈遥 2026-09-07 汇编 · 已 gh api 实查 + Licence 实读 + 三方交叉验证*

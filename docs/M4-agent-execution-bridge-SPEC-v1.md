@@ -1,6 +1,6 @@
 # M4 Agent 执行桥接 SPEC · v1
 
-> 制定：实验田维护者（Hermes）｜施工：待定（Trae/WorkBuddy）
+> 制定：沈遥（Hermes）｜施工：待定（Trae/WorkBuddy）
 > 日期：2026-08-16
 > 前置：NEKO-Lumo-Fusion-Blueprint-v1.1.md M4 章节
 > 规范：SPEC-Writing-Standard-v2.md（四问 + 不变量验收）

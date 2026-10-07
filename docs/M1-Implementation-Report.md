@@ -4,7 +4,7 @@
 **阶段**: M1 文本打通前置补齐（4 项全部完成）
 **参与智能体**:
 - 铁锚 (kimi2.7code) — 代码起点确认 + 验证审查
-- 实验田维护者 (deepseekv4pro) — 架构设计 + 编码 + 验证审查
+- 沈遥 (deepseekv4pro) — 架构设计 + 编码 + 验证审查
 - 杜赞 (GLM5.2) — 实施方案决策
 - Hermes (千问3.7plus) — 协调 + 编码 + bug 修复 + 补齐3 + 铁律8
 
@@ -16,8 +16,8 @@
 
 | # | 补齐项 | 实施方 | 状态 |
 |---|--------|--------|------|
-| 1 | neko_launcher_wrapper.py | 实验田维护者 + Hermes | ✅ 完成（含铁律8 overlay） |
-| 4 | persona 只读化 | 实验田维护者 | ✅ 完成 |
+| 1 | neko_launcher_wrapper.py | 沈遥 + Hermes | ✅ 完成（含铁律8 overlay） |
+| 4 | persona 只读化 | 沈遥 | ✅ 完成 |
 | 2 | lumo_proxy.py | Hermes | ✅ 完成（含 bug 修复） |
 | 3 | lumo_inject_router.py | Hermes | ✅ 完成（M3 注入端点预置） |
 
@@ -81,15 +81,15 @@
 - 确认 17 个代码起点（SERVERS 列表、monitor host、persona 路由、人格注入管线等）
 - 识别 7 个风险点（HIGH 3 / MEDIUM 3 / LOW 1）
 
-### 阶段 2: 杜赞 + 实验田维护者讨论方案
+### 阶段 2: 杜赞 + 沈遥讨论方案
 - 杜赞决策：_CRITICAL_MODULES 不碰（自然失效）、_query_rag 旁路重写、monitor 用环境变量、补齐3 推迟
-- 实验田维护者设计：wrapper monkey-patch 架构、lumo_proxy 接口契约、数据流图
+- 沈遥设计：wrapper monkey-patch 架构、lumo_proxy 接口契约、数据流图
 
-### 阶段 3: 实验田维护者 + Hermes 混合编码
-- 实验田维护者实施补齐1（wrapper）+ 补齐4（persona 只读）
+### 阶段 3: 沈遥 + Hermes 混合编码
+- 沈遥实施补齐1（wrapper）+ 补齐4（persona 只读）
 - Hermes 实施补齐2（lumo_proxy + api_server 注册）
 
-### 阶段 4: 实验田维护者 + 铁锚验证审查
+### 阶段 4: 沈遥 + 铁锚验证审查
 - 发现 1 个 CRITICAL bug：lumo_proxy.py:211 `multi_agent_context_section=None` 导致 `.strip()` 崩溃
 - 发现 3 个 MEDIUM/LOW 问题：reasoning 丢弃、chunk id 不复用、import 路径
 - Hermes 修复全部 4 个问题
@@ -120,7 +120,7 @@
 | 路径冲突检查 | ✅ 无冲突 |
 | 安全性检查 | ✅ 通过 |
 
-### 实验田维护者验证
+### 沈遥验证
 
 | 验证项 | 结果 |
 |--------|------|
@@ -188,4 +188,4 @@
 
 ---
 
-*报告由 Hermes (千问3.7plus) 协调生成，铁锚 (kimi2.7code) / 实验田维护者 (deepseekv4pro) / 杜赞 (GLM5.2) 并行工作。*
+*报告由 Hermes (千问3.7plus) 协调生成，铁锚 (kimi2.7code) / 沈遥 (deepseekv4pro) / 杜赞 (GLM5.2) 并行工作。*

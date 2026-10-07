@@ -3,7 +3,7 @@
 # 3.11 下导入即 SyntaxError）。PyPI 走 https://pypi.tuna.tsinghua.edu.cn/simple 更快。
 
 # ---------- 核心 / 配置 ----------
-charset-normalizer>=3.5.2
+charset-normalizer>=3.4.0
 json5>=0.15.0
 PyYAML>=6.0.2
 pydantic>=2.11.0
@@ -18,40 +18,40 @@ httpx[socks]>=0.28.1
 websockets>=17.0.1
 
 # ---------- LLM / 对话 ----------
-openai>=3.24.0
+openai>=3.8.0
 litellm>=1.80.0
 tiktoken>=0.11.0
-langchain-openai>=1.6.7
+langchain-openai>=1.1.0
 langchain-community>=0.3.30
 
 # ---------- 异步 / 任务 ----------
 aiohttp>=3.14.3
-aiofiles>=25.1.0
-APScheduler>=3.11.3
+aiofiles>=24.1.0
+APScheduler>=3.11.0
 
 # ---------- 系统 / 工具 ----------
-numpy>=2.5.3
+numpy>=2.4.6
 sgp4>=2.23  # 云台 TLE 轨道预报（mcpserver/ptz_service/tracking.py）。MIT 许可（© 2012-2016 Brandon Rhodes）。
             # 缺失时 tracking_source=sgp4 会在建任务阶段直接拒绝（reason=no_propagator），
             # 不会静默退化成简化圆轨道——那是 W130-03 明令禁止的行为。
 h5py>=3.16.0  # channel2world HDF5 数据存储（radio_brain/channel2world）
 pandas>=2.2.0
 pillow>=11.0.0
-psutil>=7.2.2
+psutil>=7.1.0
 emoji>=2.14.0
 cryptography>=46.0.0
 setproctitle>=1.3.5
 watchfiles>=1.2.0
 
 # ---------- 语音 / 音频 ----------
-edge-tts>=7.2.8
+edge-tts>=7.0.0
 sounddevice>=0.5.0
 
 # ---------- 知识图谱 GRAG / 兼容层 ----------
 py2neo>=2021.2.3
 neo4j>=5.0.0
-chromadb>=1.5.9
-mss>=10.2.0
+chromadb>=0.5.0
+mss>=10.1.0
 
 # ---------- RAG 向量检索 ----------
 torch>=2.14.0  # CPU 版即可，pip install torch 默认安装 CPU 版
@@ -72,10 +72,7 @@ rdflib>=7.0.0  # semantic_web MCP adapter (SPARQL/RDF)
 
 # ---------- memclaw 跨 Agent 记忆总线（mcpserver/adapters/memclaw_adapter）----------
 aiosqlite>=0.22.0  # SqliteBackend standalone 后端必需（缺则外壳工具直接跳过）
-matplotlib>=3.8.0  # pyproject声明的绘图依赖(research/plot链), requirements此前遗漏 — 2026-10-04 CI排障补
 
-# ---------- 可选数据处理/文档依赖（2026-10-04 CI 排障补：测试与工具链实际引用）----------
-duckdb>=1.1.0  # 材料数据工作台(duckdb_workbench/writing_pipeline)
-python-docx>=1.1.0  # 文档导入(law case import / academic bridge)
-openpyxl>=3.1.0  # xlsx 导入
-sse-starlette>=3.5.0  # sitaware API SSE 流
+# ---------- glyco 糖链信息学（mcpserver/glyco，工单203 任务二）----------
+glypy>=1.0.17  # 糖链结构解析/质量/树（Apache-2.0；实测仅 2 包：glypy+hjson）
+glycowork>=1.10.1  # glycan 功能注释底座（MIT；实测 7 包，**不依赖 torch**）

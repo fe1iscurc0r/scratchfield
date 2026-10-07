@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import zipfile
 from pathlib import Path
@@ -68,7 +69,45 @@ def _tamper_package(package_path: Path, target_name: str) -> None:
             dst.writestr(info, data)
 
 
-def test_cli_build_inspect_verify_and_install(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def _append_install_declaration(
+    plugin_dir: Path,
+    *,
+    ui_i18n_dir: str = "i18n/ui",
+    timeout: str = "600.0",
+) -> None:
+    (plugin_dir / "i18n" / "ui").mkdir(parents=True, exist_ok=True)
+    manifest_path = plugin_dir / "plugin.toml"
+    manifest_path.write_text(
+        manifest_path.read_text(encoding="utf-8")
+        + "\n[plugin.install]\n"
+        + "enabled = true\n"
+        + f'ui_i18n_dir = "{ui_i18n_dir}"\n'
+        + "tutorial_enabled = true\n"
+        + "\n[plugin.install.kinds.rapidocr_models]\n"
+        + 'entry_id = "cli_demo_download_rapidocr_models"\n'
+        + 'label = "RapidOCR Models"\n'
+        + 'queued_message = "RapidOCR model download queued"\n'
+        + f"entry_timeout = {timeout}\n",
+        encoding="utf-8",
+    )
+
+
+def _append_raw_install_declaration(plugin_dir: Path, declaration: str) -> None:
+    (plugin_dir / "i18n" / "ui").mkdir(parents=True, exist_ok=True)
+    manifest_path = plugin_dir / "plugin.toml"
+    manifest_path.write_text(
+        manifest_path.read_text(encoding="utf-8")
+        + "\n"
+        + declaration.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_cli_runtime_install_is_disabled_without_writing_plugin_directories(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     plugin_dir = _make_plugin_dir(tmp_path)
     target_dir = tmp_path / "target"
     plugins_root = tmp_path / "plugins"
@@ -80,12 +119,6 @@ def test_cli_build_inspect_verify_and_install(tmp_path: Path, capsys: pytest.Cap
     assert exit_code == 0
     package_path = target_dir / "cli_demo.neko-plugin"
     assert package_path.is_file()
-
-    inspect_exit = neko_plugin_cli.main(["inspect", str(package_path)])
-    assert inspect_exit == 0
-
-    verify_exit = neko_plugin_cli.main(["verify", str(package_path)])
-    assert verify_exit == 0
 
     install_exit = neko_plugin_cli.main(
         [
@@ -99,13 +132,13 @@ def test_cli_build_inspect_verify_and_install(tmp_path: Path, capsys: pytest.Cap
             "fail",
         ]
     )
-    assert install_exit == 0
-    assert (plugins_root / "cli_demo" / "plugin.toml").is_file()
-    assert (profiles_root / "cli_demo" / "default.toml").is_file()
+    assert install_exit == 2
+    assert not plugins_root.exists()
+    assert not profiles_root.exists()
 
     captured = capsys.readouterr()
-    assert "[OK] cli_demo" in captured.out
-    assert "payload_hash_verified=True" in captured.out
+    assert "Plugin Center" in captured.err
+    assert "does not write plugin runtime directories" in captured.err
 
 
 def test_cli_build_profile_prefers_config_example_over_legacy_manifest_config(tmp_path: Path) -> None:
@@ -131,7 +164,7 @@ def test_cli_build_profile_prefers_config_example_over_legacy_manifest_config(tm
     assert 'token = "demo"' not in profile
 
 
-def test_cli_verify_fails_when_package_hash_is_tampered(
+def test_cli_runtime_install_is_disabled_before_reading_package_payload(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -140,14 +173,29 @@ def test_cli_verify_fails_when_package_hash_is_tampered(
     neko_plugin_cli.main(["build", str(plugin_dir), "-o", str(package_path)])
     _tamper_package(package_path, "payload/profiles/default.toml")
 
-    exit_code = neko_plugin_cli.main(["verify", str(package_path)])
+    exit_code = neko_plugin_cli.main(
+        [
+            "install",
+            str(package_path),
+            "--plugins-root",
+            str(tmp_path / "plugins"),
+            "--profiles-root",
+            str(tmp_path / "profiles"),
+        ]
+    )
 
-    assert exit_code == 1
+    assert exit_code == 2
     captured = capsys.readouterr()
-    assert "payload_hash_verified=False" in captured.out
+    assert "Plugin Center" in captured.err
+    assert "payload hash mismatch" not in captured.err
+    assert not (tmp_path / "plugins").exists()
+    assert not (tmp_path / "profiles").exists()
 
 
-def test_cli_build_bundle_and_inspect(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_build_bundle_reports_package_shape(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     first_plugin = _make_plugin_dir(tmp_path, plugin_id="bundle_cli_one")
     second_plugin = _make_plugin_dir(tmp_path, plugin_id="bundle_cli_two")
     target_dir = tmp_path / "target"
@@ -169,13 +217,9 @@ def test_cli_build_bundle_and_inspect(tmp_path: Path, capsys: pytest.CaptureFixt
     package_path = target_dir / "bundle_cli_demo.neko-bundle"
     assert package_path.is_file()
 
-    inspect_exit = neko_plugin_cli.main(["inspect", str(package_path)])
-    assert inspect_exit == 0
-
     captured = capsys.readouterr()
     assert "package_type=bundle" in captured.out
     assert "plugin_count=2" in captured.out
-    assert "type=bundle" in captured.out
 
 
 def test_cli_build_multiple_plugins_without_bundle_builds_individual_packages(
@@ -234,17 +278,93 @@ def test_cli_check_release_uses_release_check_flow(
     assert "check --release blocked by validation errors" in captured.err
 
 
-@pytest.mark.parametrize("legacy_command", ["doctor", "release-check", "validate", "pack", "unpack"])
-def test_cli_legacy_commands_are_removed(
-    legacy_command: str,
+@pytest.mark.parametrize(
+    "removed_command",
+    [
+        "add",
+        "doctor",
+        "inspect",
+        "pack",
+        "release-check",
+        "unpack",
+        "validate",
+        "verify",
+    ],
+)
+def test_cli_removed_commands_are_rejected(
+    removed_command: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exc_info:
-        neko_plugin_cli.main([legacy_command, "cli_demo"])
+        neko_plugin_cli.main([removed_command, "cli_demo"])
 
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    assert f"invalid choice: '{legacy_command}'" in captured.err
+    assert f"invalid choice: '{removed_command}'" in captured.err
+
+
+def test_cli_help_only_lists_supported_package_commands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert neko_plugin_cli.main([]) == 1
+
+    help_text = capsys.readouterr().out
+    assert "neko-plugin sync <plugin>" in help_text
+    assert "neko-plugin check -r <plugin>" in help_text
+    assert "neko-plugin add " not in help_text
+    assert "inspect" not in help_text
+    assert "verify" not in help_text
+
+
+def test_check_warns_when_builtin_source_directory_does_not_match_plugin_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plugin_root = tmp_path / "plugin"
+    plugins_root = plugin_root / "plugins"
+    plugin_dir = _make_plugin_dir(plugins_root, "right_id")
+    wrong_dir = plugins_root / "wrong_dir"
+    plugin_dir.rename(wrong_dir)
+    defaults = CliDefaults(
+        plugin_root=plugin_root,
+        target_dir=plugin_root / "neko_plugin_cli" / "target",
+        plugins_root=plugins_root,
+        profiles_root=plugin_root / ".neko-package-profiles",
+    )
+    monkeypatch.setattr(neko_plugin_cli, "resolve_default_paths", lambda: defaults)
+
+    exit_code = neko_plugin_cli.main(["check", "wrong_dir"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "plugin.id 'right_id' does not match directory name 'wrong_dir'" in output
+    assert "plugin.id 'right_id' 与目录名 'wrong_dir' 不一致" in output
+    assert "plugin.id 'right_id' がディレクトリ名 'wrong_dir' と一致しません" in output
+    assert "将目录重命名为与插件 ID 相同的名称" in output
+
+
+def test_check_allows_standalone_source_directory_name_to_differ_from_plugin_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path, "right_id")
+    standalone_dir = tmp_path / "standalone_source"
+    plugin_dir.rename(standalone_dir)
+    plugin_root = tmp_path / "neko" / "plugin"
+    defaults = CliDefaults(
+        plugin_root=plugin_root,
+        target_dir=plugin_root / "neko_plugin_cli" / "target",
+        plugins_root=plugin_root / "plugins",
+        profiles_root=plugin_root / ".neko-package-profiles",
+    )
+    monkeypatch.setattr(neko_plugin_cli, "resolve_default_paths", lambda: defaults)
+
+    exit_code = neko_plugin_cli.main(["check", str(standalone_dir)])
+
+    assert exit_code == 0
+    assert "does not match directory name" not in capsys.readouterr().out
 
 
 def test_validate_plugin_dir_reports_invalid_toml_without_crashing(tmp_path: Path) -> None:
@@ -255,6 +375,299 @@ def test_validate_plugin_dir_reports_invalid_toml_without_crashing(tmp_path: Pat
     issues = validate_plugin_dir(plugin_dir)
 
     assert any(level == "error" and "plugin.toml could not be read" in message for level, message in issues)
+
+
+def test_validate_plugin_dir_skips_dependency_sync_work_dirs(tmp_path: Path) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    for name in (".vendor.backup-0a1b2c3d", ".vendor.staging-0a1b2c3d"):
+        work_dir = plugin_dir / name
+        work_dir.mkdir()
+        (work_dir / "unparsable.py").write_text("def broken(:\n", encoding="utf-8")
+    # A look-alike directory the plugin owns is still checked.
+    own = plugin_dir / ".vendor.backup-notes"
+    own.mkdir()
+    (own / "own_broken.py").write_text("def broken(:\n", encoding="utf-8")
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert not any("unparsable.py" in message for _level, message in issues)
+    assert any("own_broken.py" in message for _level, message in issues)
+
+
+def test_validate_does_not_descend_into_skipped_dirs(tmp_path: Path, monkeypatch) -> None:
+    # A retained backup (or a venv) may hold a large tree or a mount: prune
+    # it during the walk instead of enumerating it and filtering afterwards.
+    from plugin.neko_plugin_cli.commands import validate_cmd
+
+    plugin_dir = _make_plugin_dir(tmp_path)
+    for name in (".vendor.backup-0a1b2c3d", "vendor", ".venv"):
+        (plugin_dir / name / "deep").mkdir(parents=True)
+    (plugin_dir / "pkg").mkdir()
+    (plugin_dir / "pkg" / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    visited = []
+    real_walk = validate_cmd.os.walk
+
+    def walk(top, *args, **kwargs):
+        for entry in real_walk(top, *args, **kwargs):
+            visited.append(Path(entry[0]).relative_to(plugin_dir))
+            yield entry
+
+    monkeypatch.setattr(validate_cmd.os, "walk", walk)
+    files = validate_cmd._plugin_python_files(plugin_dir)
+
+    assert plugin_dir / "pkg" / "mod.py" in files
+    assert Path("pkg") in visited
+    assert not any(
+        path.parts and path.parts[0] in {".vendor.backup-0a1b2c3d", "vendor", ".venv"}
+        for path in visited
+    )
+
+
+def test_validate_plugin_dir_accepts_install_declaration_and_i18n_directory(
+    tmp_path: Path,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    _append_install_declaration(plugin_dir)
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert not any(level == "error" and "install" in message for level, message in issues)
+    assert not any("[plugin].install is not a recognized" in message for _level, message in issues)
+
+
+def test_validate_plugin_dir_accepts_missing_and_empty_disabled_install_declaration(
+    tmp_path: Path,
+) -> None:
+    without_install = _make_plugin_dir(tmp_path / "without")
+    assert not any(
+        level == "error" and "install" in message
+        for level, message in validate_plugin_dir(without_install)
+    )
+
+    disabled = _make_plugin_dir(tmp_path / "disabled")
+    _append_raw_install_declaration(
+        disabled,
+        """
+        [plugin.install]
+        enabled = false
+        """,
+    )
+    assert not any(
+        level == "error" and "install" in message
+        for level, message in validate_plugin_dir(disabled)
+    )
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        """
+        [plugin.install]
+        enabled = true
+        unknown = true
+        """,
+        """
+        [plugin.install]
+        enabled = true
+        [plugin.install.kinds.models]
+        entry_id = "demo_install_models"
+        label = "Models"
+        queued_message = "Models queued"
+        entry_timeout = 600.0
+        unknown = true
+        """,
+    ],
+)
+def test_validate_plugin_dir_rejects_unknown_install_fields(
+    tmp_path: Path,
+    declaration: str,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    _append_raw_install_declaration(plugin_dir, declaration)
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert any(
+        level == "error" and "not a recognized plugin.toml field" in message
+        for level, message in issues
+    )
+
+
+@pytest.mark.parametrize("kind", ["RapidOCR", "rapid-ocr", "1ocr"])
+def test_validate_plugin_dir_rejects_noncanonical_install_kind(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    _append_raw_install_declaration(
+        plugin_dir,
+        f"""
+        [plugin.install]
+        enabled = true
+        [plugin.install.kinds.{kind}]
+        entry_id = "demo_install_models"
+        label = "Models"
+        queued_message = "Models queued"
+        entry_timeout = 600.0
+        """,
+    )
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert any(
+        level == "error" and "must match ^[a-z][a-z0-9_]*$" in message
+        for level, message in issues
+    )
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        """
+        [plugin.install]
+        tutorial_enabled = false
+        """,
+        """
+        [plugin.install]
+        enabled = "true"
+        """,
+        """
+        [plugin.install]
+        enabled = false
+        tutorial_enabled = true
+        """,
+        """
+        [plugin.install]
+        enabled = false
+        ui_i18n_dir = "i18n/ui"
+        """,
+        """
+        [plugin.install]
+        enabled = false
+        [plugin.install.kinds.models]
+        entry_id = "demo_install_models"
+        label = "Models"
+        queued_message = "Models queued"
+        entry_timeout = 600.0
+        """,
+    ],
+)
+def test_validate_plugin_dir_rejects_invalid_or_contradictory_install_enablement(
+    tmp_path: Path,
+    declaration: str,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    _append_raw_install_declaration(plugin_dir, declaration)
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert any(level == "error" and "install" in message for level, message in issues)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("entry_id", ""),
+        ("entry_id", " padded"),
+        ("label", ""),
+        ("label", "padded "),
+        ("queued_message", ""),
+        ("queued_message", " padded "),
+    ],
+)
+def test_validate_plugin_dir_rejects_empty_or_padded_install_text(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    fields = {
+        "entry_id": "demo_install_models",
+        "label": "Models",
+        "queued_message": "Models queued",
+    }
+    fields[field] = value
+    plugin_dir = _make_plugin_dir(tmp_path)
+    _append_raw_install_declaration(
+        plugin_dir,
+        "\n".join(
+            [
+                "[plugin.install]",
+                "enabled = true",
+                "[plugin.install.kinds.models]",
+                f'entry_id = {json.dumps(fields["entry_id"])}',
+                f'label = {json.dumps(fields["label"])}',
+                f'queued_message = {json.dumps(fields["queued_message"])}',
+                "entry_timeout = 600.0",
+            ]
+        ),
+    )
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert any(level == "error" and field in message for level, message in issues)
+
+
+@pytest.mark.parametrize("ui_i18n_dir", ["../outside", "/absolute/i18n"])
+def test_validate_plugin_dir_rejects_install_i18n_escape(
+    tmp_path: Path,
+    ui_i18n_dir: str,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    _append_install_declaration(plugin_dir, ui_i18n_dir=ui_i18n_dir)
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert any(
+        level == "error" and "ui_i18n_dir" in message
+        for level, message in issues
+    )
+
+
+def test_validate_plugin_dir_rejects_missing_install_i18n_directory(tmp_path: Path) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    _append_install_declaration(plugin_dir, ui_i18n_dir="missing-i18n")
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert any(
+        level == "error" and "ui_i18n_dir" in message
+        for level, message in issues
+    )
+
+
+def test_validate_plugin_dir_rejects_install_i18n_symlink_escape(tmp_path: Path) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    outside = tmp_path / "outside-i18n"
+    outside.mkdir()
+    link = plugin_dir / "linked-i18n"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+    _append_install_declaration(plugin_dir, ui_i18n_dir="linked-i18n")
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert any(
+        level == "error" and "ui_i18n_dir" in message
+        for level, message in issues
+    )
+
+
+@pytest.mark.parametrize("timeout", ["true", "0", "-1", '"600"', "nan", "inf"])
+def test_validate_plugin_dir_rejects_invalid_install_timeout(
+    tmp_path: Path,
+    timeout: str,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    _append_install_declaration(plugin_dir, timeout=timeout)
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert any(
+        level == "error" and "entry_timeout" in message
+        for level, message in issues
+    )
 
 
 def test_validate_plugin_dir_reports_invalid_config_example_without_crashing(tmp_path: Path) -> None:
@@ -342,6 +755,31 @@ def test_validate_plugin_dir_accepts_previous_plugin_ids(tmp_path: Path) -> None
     issues = validate_plugin_dir(plugin_dir, strict=False)
 
     assert not any("previous_ids is not a recognized" in message for _level, message in issues)
+
+
+def test_validate_plugin_dir_accepts_i18n_ui_surface_title(tmp_path: Path) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    (plugin_dir / "onboarding.md").write_text("Guide\n", encoding="utf-8")
+    manifest_path = plugin_dir / "plugin.toml"
+    manifest_path.write_text(
+        manifest_path.read_text(encoding="utf-8")
+        + "\n"
+        + "[plugin.ui]\n"
+        + "enabled = true\n"
+        + "\n"
+        + "[[plugin.ui.docs]]\n"
+        + 'id = "onboarding"\n'
+        + 'title = { "$i18n" = "docs.onboarding.title", default = "Onboarding" }\n'
+        + 'entry = "onboarding.md"\n',
+        encoding="utf-8",
+    )
+
+    issues = validate_plugin_dir(plugin_dir)
+
+    assert not any(
+        level == "error" and "[plugin.ui].docs[0].title" in message
+        for level, message in issues
+    )
 
 
 @pytest.mark.parametrize("removed_type", ["script", "extension"])
@@ -580,6 +1018,7 @@ def test_generator_rejects_removed_or_deprecated_scaffold_types(
                 plugin_type=unsupported_scaffold_type,
             ),
             target_dir,
+            repo_root=tmp_path,
         )
 
     message = str(exc_info.value)
@@ -662,6 +1101,34 @@ def test_validate_plugin_dir_rejects_too_large_runtime_timeout(tmp_path: Path) -
     )
 
 
+def test_validate_accepts_nested_module_under_canonical_plugin_package(
+    tmp_path: Path,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    nested_package = plugin_dir / "runtime"
+    nested_package.mkdir()
+    (plugin_dir / "__init__.py").replace(nested_package / "__init__.py")
+    plugin_toml = plugin_dir / "plugin.toml"
+    plugin_toml.write_text(
+        plugin_toml.read_text(encoding="utf-8").replace(
+            "plugin.plugins.cli_demo:DemoPlugin",
+            "plugin.plugins.cli_demo.runtime:DemoPlugin",
+        ),
+        encoding="utf-8",
+    )
+
+    issues = validate_plugin_dir(plugin_dir, strict=True)
+
+    assert not any(
+        "plugin.entry should usually target" in message
+        for _level, message in issues
+    )
+    assert not any(
+        level == "error" and "plugin.entry" in message
+        for level, message in issues
+    )
+
+
 @pytest.mark.parametrize("timeout_literal", ["nan", "inf", "-inf"])
 def test_validate_plugin_dir_rejects_non_finite_runtime_timeout(
     tmp_path: Path,
@@ -685,19 +1152,16 @@ def test_validate_plugin_dir_rejects_non_finite_runtime_timeout(
     )
 
 
-def test_init_repo_uses_market_repository_name_and_keeps_plugin_id(
+def test_init_uses_market_repository_name_and_keeps_plugin_id(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     exit_code = neko_plugin_cli.main(
         [
-            "init-repo",
+            "init",
             "market_demo",
-            "--plugins-root",
-            str(tmp_path),
-            "--no-git",
-            "--neko-repo",
-            "Project-N-E-K-O/N.E.K.O",
+            "--output",
+            str(tmp_path / "n.e.k.o_plugin_market_demo"),
         ]
     )
 
@@ -729,59 +1193,17 @@ def test_init_repo_uses_market_repository_name_and_keeps_plugin_id(
     check_exit = neko_plugin_cli.main(["check", "market_demo", "--plugins-root", str(tmp_path)])
     assert check_exit == 0
     captured = capsys.readouterr()
-    assert "repo:   n.e.k.o_plugin_market_demo" in captured.out
+    assert "n.e.k.o_plugin_market_demo" in captured.out
     assert "[OK] market_demo: check found" in captured.out
 
 
-def test_init_repo_generates_online_vendor_build_workflow(tmp_path: Path) -> None:
+def test_init_generates_market_compatible_ruff_gate(tmp_path: Path) -> None:
     exit_code = neko_plugin_cli.main(
         [
-            "init-repo",
-            "dependency_demo",
-            "--plugins-root",
-            str(tmp_path),
-            "--no-git",
-            "--neko-repo",
-            "example/N.E.K.O-fork",
-            "--neko-ref",
-            "feature/plugin-actions",
-        ]
-    )
-
-    assert exit_code == 0
-    repo_dir = tmp_path / "n.e.k.o_plugin_dependency_demo"
-    gitignore = (repo_dir / ".gitignore").read_text(encoding="utf-8")
-    verify_workflow = (
-        repo_dir / ".github" / "workflows" / "verify.yml"
-    ).read_text(encoding="utf-8")
-    release_workflow = (
-        repo_dir / ".github" / "workflows" / "release.yml"
-    ).read_text(encoding="utf-8")
-
-    assert "vendor/" in gitignore.splitlines()
-    assert (
-        "uses: example/N.E.K.O-fork/.github/workflows/"
-        "plugin-market-verify.yml@feature/plugin-actions"
-    ) in verify_workflow
-    assert (
-        "uses: example/N.E.K.O-fork/.github/workflows/"
-        "plugin-market-release.yml@feature/plugin-actions"
-    ) in release_workflow
-    for workflow in (verify_workflow, release_workflow):
-        assert "plugin-id: dependency_demo" in workflow
-        assert "neko-repository: example/N.E.K.O-fork" in workflow
-        assert "neko-ref: feature/plugin-actions" in workflow
-        assert "Sync plugin dependencies" not in workflow
-
-
-def test_init_repo_generates_market_compatible_ruff_gate(tmp_path: Path) -> None:
-    exit_code = neko_plugin_cli.main(
-        [
-            "init-repo",
+            "init",
             "ruff_demo",
-            "--plugins-root",
-            str(tmp_path),
-            "--no-git",
+            "--output",
+            str(tmp_path / "n.e.k.o_plugin_ruff_demo"),
         ]
     )
 
@@ -794,7 +1216,6 @@ def test_init_repo_generates_market_compatible_ruff_gate(tmp_path: Path) -> None
     release_workflow = (
         repo_dir / ".github" / "workflows" / "release.yml"
     ).read_text(encoding="utf-8")
-    plugin_source = (repo_dir / "__init__.py").read_text(encoding="utf-8")
     readme = (repo_dir / "README.md").read_text(encoding="utf-8")
 
     assert ruff_config == '''# Generated by neko-plugin
@@ -817,16 +1238,6 @@ select = ["E4", "E7", "E9", "F", "I"]
 ```bash
 uvx ruff==0.12.4 check --ignore-noqa --config ruff.toml .
 ```''' in readme
-    assert '''from typing import Any
-
-from plugin.sdk.plugin import (
-    NekoPluginBase,
-    Ok,
-    lifecycle,
-    neko_plugin,
-    plugin_entry,
-)
-''' in plugin_source
 
 
 def test_generated_ruff_config_ignores_vendor_but_checks_plugin_source(
@@ -835,11 +1246,10 @@ def test_generated_ruff_config_ignores_vendor_but_checks_plugin_source(
     assert (
         neko_plugin_cli.main(
             [
-                "init-repo",
+                "init",
                 "ruff_scope_demo",
-                "--plugins-root",
-                str(tmp_path),
-                "--no-git",
+                "--output",
+                str(tmp_path / "n.e.k.o_plugin_ruff_scope_demo"),
             ]
         )
         == 0
@@ -881,39 +1291,16 @@ def test_generated_ruff_config_ignores_vendor_but_checks_plugin_source(
     assert "F401" in plugin_result.stdout
 
 
-def test_init_without_github_actions_does_not_document_ruff_config(
-    tmp_path: Path,
-) -> None:
+def test_init_adapter_scaffold_uses_ruff_clean_imports(tmp_path: Path) -> None:
     assert (
         neko_plugin_cli.main(
             [
                 "init",
-                "plain_demo",
-                "--plugins-root",
-                str(tmp_path),
-                "--no-interactive",
-            ]
-        )
-        == 0
-    )
-
-    plugin_dir = tmp_path / "plain_demo"
-    assert not (plugin_dir / "ruff.toml").exists()
-    readme = (plugin_dir / "README.md").read_text(encoding="utf-8")
-    assert "uvx ruff" not in readme
-
-
-def test_init_repo_adapter_scaffold_uses_ruff_clean_imports(tmp_path: Path) -> None:
-    assert (
-        neko_plugin_cli.main(
-            [
-                "init-repo",
                 "adapter_demo",
                 "--type",
                 "adapter",
-                "--plugins-root",
-                str(tmp_path),
-                "--no-git",
+                "--output",
+                str(tmp_path / "n.e.k.o_plugin_adapter_demo"),
             ]
         )
         == 0
@@ -929,6 +1316,51 @@ from plugin.sdk.adapter import NekoAdapterPlugin
 from plugin.sdk.plugin import Ok, lifecycle, neko_plugin, plugin_entry
 '''
     )
+
+
+def test_init_adapter_can_build_market_release_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin_dir = tmp_path / "n.e.k.o_plugin_adapter_demo"
+    assert (
+        neko_plugin_cli.main(
+            [
+                "init",
+                "adapter_demo",
+                "--type",
+                "adapter",
+                "--output",
+                str(plugin_dir),
+            ]
+        )
+        == 0
+    )
+    monkeypatch.setenv(
+        "GITHUB_REPOSITORY",
+        "alice/n.e.k.o_plugin_adapter_demo",
+    )
+    monkeypatch.setenv("GITHUB_REF_NAME", "v0.1.0")
+    target_dir = tmp_path / "target"
+
+    exit_code = neko_plugin_cli.main(
+        [
+            "check",
+            "--release",
+            "--market-release",
+            "--skip-tests",
+            "--target-dir",
+            str(target_dir),
+            str(plugin_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    with zipfile.ZipFile(target_dir / "adapter_demo.neko-plugin") as archive:
+        plugin_toml = archive.read(
+            "payload/plugins/adapter_demo/plugin.toml"
+        ).decode("utf-8")
+    assert 'type = "adapter"' in plugin_toml
 
 
 def test_setup_repo_github_actions_preserves_files_unless_overwrite(
@@ -962,6 +1394,27 @@ def test_setup_repo_github_actions_preserves_files_unless_overwrite(
     assert neko_plugin_cli.main([*setup_args, "--overwrite"]) == 0
     assert "target-version" in ruff_config.read_text(encoding="utf-8")
     assert "plugin-market-verify.yml" in verify_workflow.read_text(encoding="utf-8")
+
+
+def test_setup_repo_generates_support_templates_for_explicit_plugin_path(
+    tmp_path: Path,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path / "repo", "setup_layout")
+
+    assert neko_plugin_cli.main(["setup-repo", str(plugin_dir)]) == 0
+
+    readme = (plugin_dir / "README.md").read_text(encoding="utf-8")
+    settings = (plugin_dir / ".vscode" / "settings.json").read_text(
+        encoding="utf-8"
+    )
+    tasks = (plugin_dir / ".vscode" / "tasks.json").read_text(encoding="utf-8")
+    assert "From this plugin repository root" in readme
+    assert "uv run --project" in readme
+    assert "neko-plugin check ." in readme
+    assert "neko-plugin publish ." in readme
+    assert '"nekoPlugin.repoRoot":' in settings
+    assert '"cwd": "${config:nekoPlugin.repoRoot}"' in tasks
+    assert "${workspaceFolder}" in tasks
 
 
 def test_setup_repo_upgrade_github_actions_adds_only_managed_action_files(
@@ -1232,6 +1685,7 @@ def test_advanced_scaffold_with_github_actions_uses_ruff_clean_imports(
             create_github_actions=True,
         ),
         target_dir,
+        repo_root=tmp_path,
     )
 
     plugin_source = (target_dir / "__init__.py").read_text(encoding="utf-8")
@@ -1254,14 +1708,13 @@ from plugin.sdk.plugin import (
     assert "    class Settings(PluginSettings):\n        pass\n" in plugin_source
 
 
-def test_init_repo_documents_and_exposes_dependency_sync(tmp_path: Path) -> None:
+def test_init_documents_and_exposes_dependency_sync(tmp_path: Path) -> None:
     exit_code = neko_plugin_cli.main(
         [
-            "init-repo",
+            "init",
             "dependency_demo",
-            "--plugins-root",
-            str(tmp_path),
-            "--no-git",
+            "--output",
+            str(tmp_path / "n.e.k.o_plugin_dependency_demo"),
         ]
     )
 
@@ -1270,15 +1723,23 @@ def test_init_repo_documents_and_exposes_dependency_sync(tmp_path: Path) -> None
     readme = (repo_dir / "README.md").read_text(encoding="utf-8")
     tasks = (repo_dir / ".vscode" / "tasks.json").read_text(encoding="utf-8")
 
-    sync_command = (
-        "uv run --with pip python -m plugin.neko_plugin_cli.cli "
-        "sync dependency_demo --clean"
-    )
+    sync_command = "uv run --project"
     assert sync_command in readme
+    assert "neko-plugin sync . --clean" in readme
     assert "`vendor/`" in readme
     assert "not committed" in readme
+    assert "neko-plugin publish ." in readme
+    assert "neko-plugin publish github ." in readme
+    assert (
+        "neko-plugin publish market "
+        "https://github.com/owner/repo/releases/tag/v0.1.0"
+    ) in readme
+    assert "Use that GitHub Release URL when publishing" not in readme
     assert "N.E.K.O: sync dependency_demo" in tasks
-    assert sync_command in tasks
+    assert (
+        'uv run neko-plugin sync \\"${workspaceFolder}\\" --clean'
+        in tasks
+    )
 
 
 def test_sync_without_pyproject_is_successful_noop(
@@ -1306,13 +1767,10 @@ def test_market_release_check_enforces_repo_and_tag_conventions(
     assert (
         neko_plugin_cli.main(
             [
-                "init-repo",
+                "init",
                 "market_demo",
-                "--plugins-root",
-                str(tmp_path),
-                "--no-git",
-                "--neko-repo",
-                "Project-N-E-K-O/N.E.K.O",
+                "--output",
+                str(tmp_path / "n.e.k.o_plugin_market_demo"),
             ]
         )
         == 0
@@ -1324,9 +1782,7 @@ def test_market_release_check_enforces_repo_and_tag_conventions(
         neko_plugin_cli.main(
             [
                 "check",
-                "market_demo",
-                "--plugins-root",
-                str(tmp_path),
+                str(tmp_path / "n.e.k.o_plugin_market_demo"),
                 "--release",
                 "--market-release",
                 "--skip-tests",
@@ -1342,9 +1798,7 @@ def test_market_release_check_enforces_repo_and_tag_conventions(
         neko_plugin_cli.main(
             [
                 "check",
-                "market_demo",
-                "--plugins-root",
-                str(tmp_path),
+                str(tmp_path / "n.e.k.o_plugin_market_demo"),
                 "--release",
                 "--market-release",
                 "--skip-tests",
@@ -1358,19 +1812,44 @@ def test_market_release_check_enforces_repo_and_tag_conventions(
     assert "release tag v9.9.9 does not match plugin.toml version 0.1.0" in captured.err
 
 
-def test_init_repo_rejects_uppercase_market_plugin_id(tmp_path: Path) -> None:
+def test_market_release_check_rejects_legacy_non_market_plugin_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plugin_dir = tmp_path / "n.e.k.o_plugin_market_demo"
+    assert (
+        neko_plugin_cli.main(
+            ["init", "market_demo", "--output", str(plugin_dir)]
+        )
+        == 0
+    )
+    plugin_toml = plugin_dir / "plugin.toml"
+    plugin_toml.write_text(
+        plugin_toml.read_text(encoding="utf-8").replace(
+            'id = "market_demo"',
+            'id = "Demo"',
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GITHUB_REPOSITORY", "alice/n.e.k.o_plugin_Demo")
+    monkeypatch.setenv("GITHUB_REF_NAME", "v0.1.0")
+
     exit_code = neko_plugin_cli.main(
         [
-            "init-repo",
-            "MarketDemo",
-            "--plugins-root",
-            str(tmp_path),
-            "--no-git",
+            "check",
+            str(plugin_dir),
+            "--release",
+            "--market-release",
+            "--skip-tests",
+            "--target-dir",
+            str(tmp_path / "target"),
         ]
     )
 
     assert exit_code == 1
-    assert not (tmp_path / "n.e.k.o_plugin_MarketDemo").exists()
+    error = capsys.readouterr().err
+    assert "Market plugin ID must match ^[a-z][a-z0-9_]*$" in error
 
 
 def test_setup_repo_git_skips_when_inside_existing_repo(
@@ -1424,34 +1903,21 @@ def test_git_preflight_skips_git_binary_check_inside_existing_repo(
     init_cmd._preflight_git_request(target_dir, initialize_git=True)
 
 
-def test_interactive_handler_rejects_removed_extension_when_called_directly(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    defaults = CliDefaults(
-        plugin_root=tmp_path / "plugin",
-        target_dir=tmp_path / "target",
-        plugins_root=tmp_path / "plugins",
-        profiles_root=tmp_path / "profiles",
-    )
-    args = argparse.Namespace(
-        plugin_id="demo_ext",
-        plugin_type="extension",
-        name="Demo Extension",
-        plugins_root=None,
-        git=False,
-        remote=None,
-        github_actions=False,
-        neko_repo="owner/N.E.K.O",
-        neko_ref="main",
-        no_readme=True,
-        no_tests=True,
-        no_gitignore=True,
-        no_vscode=True,
-    )
+def test_validate_walk_raises_on_an_unreadable_subtree(tmp_path: Path, monkeypatch) -> None:
+    # A check must not pass while skipping files it could not list.
+    import os
 
-    assert init_cmd._handle_interactive(args, defaults=defaults) == 1
-    assert not (defaults.plugins_root / "demo_ext").exists()
-    error = capsys.readouterr().err
-    assert "extension" in error
-    assert "不支持" in error and "not supported" in error and "サポートされていません" in error
+    from plugin.neko_plugin_cli.commands import validate_cmd
+
+    plugin_dir = _make_plugin_dir(tmp_path)
+    (plugin_dir / "broken").mkdir()
+    real_scandir = os.scandir
+
+    def scandir(path="."):
+        if Path(path) == plugin_dir / "broken":
+            raise OSError(5, "I/O error")
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    with pytest.raises(OSError):
+        validate_cmd._plugin_python_files(plugin_dir)

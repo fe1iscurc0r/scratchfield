@@ -22,6 +22,20 @@ class VRMAnimation {
     static _animationModuleCache = null;
     static _normalizedRootWarningShown = false;
 
+    // 五元音键表。真相源是 vrm-lipsync-formant.js 的 VOWEL_KEYS
+    // （挂在 window.VRM_LIPSYNC_VOWEL_KEYS）；该脚本与本文件在 vrm-init.js 里
+    // 并行加载、执行顺序不保证，故构造期用这份本地回退，运行期优先取共享表。
+    // 两份内容必须一致，由 test_vowel_key_tables_agree 锁住。
+    static FALLBACK_VOWEL_KEYS = Object.freeze(['aa', 'ee', 'ih', 'oh', 'ou']);
+
+    /** 当前生效的五元音键表（共享表优先，回退到本地常量）。 */
+    static get VOWEL_KEYS() {
+        const shared = (typeof window !== 'undefined') ? window.VRM_LIPSYNC_VOWEL_KEYS : null;
+        return (Array.isArray(shared) && shared.length === 5)
+            ? shared
+            : VRMAnimation.FALLBACK_VOWEL_KEYS;
+    }
+
     constructor(manager) {
         this.manager = manager;
         this._disposed = false;
@@ -42,9 +56,14 @@ class VRMAnimation {
         this.isIdleAnimation = false;  // 当前播放的是否为待机动画
         this.lipSyncActive = false;
         this.analyser = null;
-        this.mouthExpressions = { 'aa': null, 'ih': null, 'ou': null, 'ee': null, 'oh': null };
+        this.mouthExpressions = {};
+        for (const vowel of VRMAnimation.FALLBACK_VOWEL_KEYS) this.mouthExpressions[vowel] = null;
         this.currentMouthWeight = 0;
         this.frequencyData = null;
+        // 五元音共振峰口型分析器（FormantLipSyncAnalyzer）。startLipSync 时按 analyser
+        // 惰性实例化；构造期不引用 window.FormantLipSyncAnalyzer，因为 vrm-init.js 的
+        // 并行模块加载顺序不保证，运行期才安全。
+        this._lipSyncAnalyzer = null;
         // _updateLipSync 每帧调 setValue，失败时用 console.warn 会刷屏。
         // 用 Set 记住已告警过的表情名，同名失败只打一次。
         this._lipSyncWarnedNames = new Set();
@@ -110,6 +129,12 @@ class VRMAnimation {
 
     _detectVRMVersion(vrm) {
         try {
+            // vrm-core 已经基于 GLTF extensionsUsed 完成可靠判定；部分 VRM 1.0
+            // 文件的 meta.version 可能是损坏字符串，不能在动画路径中再次误判。
+            const coreVersion = String(this.manager?.core?.vrmVersion || '');
+            if (coreVersion === '1.0' || coreVersion === '0.0') {
+                return coreVersion;
+            }
             if (vrm.meta) {
                 if (vrm.meta.metaVersion !== undefined && vrm.meta.metaVersion !== null) {
                     const version = String(vrm.meta.metaVersion);
@@ -164,20 +189,7 @@ class VRMAnimation {
             this._cacheSkinnedMeshes(vrm);
         }
 
-        if (vrm.humanoid) {
-            const vrmVersion = this._detectVRMVersion(vrm);
-            if (vrmVersion === '1.0' && vrm.humanoid.autoUpdateHumanBones) {
-                vrm.humanoid.update();
-            } else if (vrmVersion === '0.0') {
-                const mixerRoot = this.vrmaMixer?.getRoot?.();
-                const normalizedRoot = vrm.humanoid?._normalizedHumanBones?.root;
-                if (normalizedRoot && mixerRoot === normalizedRoot) {
-                    if (vrm.humanoid.autoUpdateHumanBones !== undefined) {
-                        vrm.humanoid.update();
-                    }
-                }
-            }
-        }
+        if (vrm.humanoid?.autoUpdateHumanBones) vrm.humanoid.update();
 
         vrm.scene.updateMatrixWorld(true);
         this._skinnedMeshes.forEach(mesh => {
@@ -363,16 +375,37 @@ class VRMAnimation {
         return clip;
     }
 
-    _processTracksForVersion(clip, vrmVersion) {
-        if (vrmVersion === '1.0') {
-            return;
-        } else {
-            clip.tracks.forEach(track => {
-                if (track.name.startsWith('Normalized_')) {
-                    const originalName = track.name.substring('Normalized_'.length);
-                    track.name = originalName;
-                }
-            });
+    _stripRootTranslationTracks(clip, vrm) {
+        if (!clip?.tracks) return;
+        const rootNames = /^(?:normalized[_ .])?(?:hips|reference|root)$/i;
+        const hipsName = vrm?.humanoid?.getNormalizedBoneNode?.('hips')?.name;
+        const before = clip.tracks.length;
+        clip.tracks = clip.tracks.filter((track) => {
+            const parts = String(track.name || '').split('.');
+            const property = parts.pop();
+            const nodeName = parts.join('.');
+            return !(property === 'position' && (nodeName === hipsName || rootNames.test(nodeName)));
+        });
+        if (clip.tracks.length !== before) {
+            console.debug('[VRM Animation] 已移除根平移轨道，避免与桌宠场景位移叠加:', before - clip.tracks.length);
+        }
+    }
+
+    _assertAnimationTrackCoverage(clip, vrm) {
+        const root = vrm?.humanoid?._normalizedHumanBones?.root || vrm?.scene;
+        if (!root || !clip?.tracks) return;
+        const names = new Set();
+        for (const track of clip.tracks) {
+            const nodeName = String(track.name || '').split('.').slice(0, -1).join('.');
+            if (!nodeName) continue;
+            const plainName = nodeName.replace(/^Normalized_/, '');
+            const candidates = [nodeName, plainName, `Normalized_${plainName}`];
+            if (candidates.some(name => root.getObjectByName?.(name))) names.add(nodeName);
+        }
+        const rotationTrackCount = clip.tracks.filter(track => /\.(quaternion|rotation)$/.test(String(track.name))).length;
+        const minimum = Math.min(8, Math.max(3, rotationTrackCount));
+        if (names.size < minimum) {
+            throw new Error(`VRMA 骨骼轨道匹配不足（${names.size}/${minimum}），跳过动作以避免 T-pose`);
         }
     }
 
@@ -390,9 +423,8 @@ class VRMAnimation {
     _alignClipToCurrentPose(clip) {
         const THREE = window.THREE;
         if (!clip?.tracks || !THREE?.QuaternionKeyframeTrack) return;
-        // 优先用正在运行的 vrmaMixer 的 root（_findBestMixerRoot 通常返回
-        // normalizedRoot——VRM 标准化骨架树），确保查到的 bone.quaternion
-        // 反映当前动画姿态。
+        // 优先使用当前 mixer 的根节点查找骨骼，确保对齐四元数读取的是当前动画姿态。
+        // mixer 通常以 vrm.scene 为根，因此这里不能假设一定是 normalizedRoot。
         // 但 `lookAtQuaternionProxy` 是挂在 vrm.scene 直下的 sibling，不在
         // normalizedRoot 树里——此时回退到 vrm.scene.getObjectByName 才能
         // 拿到 proxy.quaternion 做同半球对齐，否则 authored LookAt 轨道
@@ -482,6 +514,8 @@ class VRMAnimation {
                 const boneName = track.name.split('.')[0];
                 return !!normalizedRoot.getObjectByName(boneName);
             }).length;
+            // 只有 normalizedRoot 明确匹配更多骨骼轨道时才选它。平局保留
+            // vrm.scene，确保同一 clip 中的表情和 LookAt sibling 也能绑定。
             if (normalizedMatchCount > bestMatchCount) {
                 bestRoot = normalizedRoot;
                 bestMatchCount = normalizedMatchCount;
@@ -651,7 +685,13 @@ class VRMAnimation {
         const requestGeneration = ++this._playRequestGeneration;
         const shouldApply = typeof options.shouldApply === 'function'
             ? options.shouldApply : function () { return true; };
-        const requestIsCurrent = () => requestGeneration === this._playRequestGeneration && shouldApply();
+        // 调用方自带的最后一刻闸门（点唱机换歌会作废上一条动画请求）。它必须和
+        // generation 一起进 requestIsCurrent：只在末尾查的话，isIdleAnimation 和
+        // _createAndConfigureAction 已经先动过共享状态/mixer 了。
+        const shouldStart = typeof options.shouldStart === 'function'
+            ? options.shouldStart : function () { return true; };
+        const requestIsCurrent = () => requestGeneration === this._playRequestGeneration
+            && shouldApply() && shouldStart();
         const abortStaleRequest = () => {
             if (requestIsCurrent()) return false;
             if (requestGeneration === this._playRequestGeneration && !this.currentAction) {
@@ -679,14 +719,6 @@ class VRMAnimation {
                 this._fadeTimer = null;
             }
 
-            // 设置 autoUpdateHumanBones = false，让 vrm.update() 只更新 SpringBone 物理
-            // 不覆盖动画设置的 humanoid 骨骼位置
-            // 这样头发等物理效果可以在动画播放期间正常工作
-            const vrm = this.manager.currentModel?.vrm;
-            if (vrm?.humanoid) {
-                vrm.humanoid.autoUpdateHumanBones = false;
-            }
-
             this._cleanupOldMixer(vrm);
             const loader = await this._initLoader();
             if (abortStaleRequest()) return false;
@@ -706,23 +738,42 @@ class VRMAnimation {
             if (abortStaleRequest()) return false;
             const clip = await this._createAndValidateAnimationClip(vrmAnimation, vrm);
             if (abortStaleRequest()) return false;
-            this._processTracksForVersion(clip, vrmVersion);
+            // VRM 0/1 都保留 createVRMAnimationClip 的 Normalized_* 骨骼轨道名。
+            // 引导移动由 vrm-interaction 控制 scene.position，避免根平移叠加。
+            // 普通动画保留 authored 平移，否则坐姿/躺姿等动作会丢失髋部高度。
+            if (options.movement === true) {
+                this._stripRootTranslationTracks(clip, vrm);
+            }
+            // 普通动作不使用名称数量阈值：three-vrm 的 Normalized_* / VRM0 映射
+            // 可能让静态节点名检查产生误判；移动动作在下方额外验证绑定覆盖。
             this._normalizeQuaternionTrackSigns(clip);
             // 跨 clip 同半球对齐：必须在 _normalizeQuaternionTrackSigns 之后、
             // _createAndConfigureAction 之前。此刻 vrmaMixer 上仍是上一条 action 在跑，
             // 骨骼 quaternion 反映当前姿态；后续 _playAction 的 crossfade slerp 才能走最短路径。
             this._alignClipToCurrentPose(clip);
 
-            // 判断是否为待机动画（仅在显式传入 isIdle: true 时才视为待机）
-            this.isIdleAnimation = !!options.isIdle;
-
             const mixerRoot = this._findBestMixerRoot(vrm, clip);
+            // 移动动作必须至少绑定到一组人形旋转轨道；否则 AnimationMixer 仍可能
+            // 创建 action，但实际没有骨骼目标，后续 humanoid 同步会把模型留在 T-pose。
+            // 绑定不足时直接拒绝本次 VRMA，由交互层保留纯位置移动。
+            if (options.movement === true) {
+                this._assertAnimationTrackCoverage(clip, vrm);
+            }
+            // three-vrm 的 VRMHumanoid.update() 在内部要求
+            // autoUpdateHumanBones=true；VRM 1.0 的 normalized 骨骼必须保持自动同步，
+            // 否则 mixer 虽然有轨道，实际渲染骨骼仍会停在 T-pose。
+            if (vrm?.humanoid) {
+                vrm.humanoid.autoUpdateHumanBones = true;
+            }
             const newAction = this._createAndConfigureAction(clip, mixerRoot, options);
             if (abortStaleRequest()) {
                 this._releaseMixerAction(newAction, this.vrmaMixer);
                 return false;
             }
+            // 新 action 已验证并准备播放后才提交播放分类。
+            this.isIdleAnimation = !!options.isIdle;
             this._playAction(newAction, options, vrm);
+            if (typeof options.onStarted === 'function') options.onStarted(newAction);
             return true;
 
         } catch (error) {
@@ -733,11 +784,12 @@ class VRMAnimation {
         }
     }
 
-    stopVRMAAnimation() {
+    stopVRMAAnimation({ expectedAction = null, preservePending = false } = {}) {
+        if (expectedAction && this.currentAction !== expectedAction) return false;
         // A stop must also cancel a request that is still fetching/parsing and
         // has not created currentAction yet. Direct callers do not provide the
         // motion player's shouldApply guard, so generation is the shared gate.
-        this._playRequestGeneration += 1;
+        if (!preservePending || !expectedAction) this._playRequestGeneration += 1;
         if (this._fadeTimer) {
             clearTimeout(this._fadeTimer);
             this._fadeTimer = null;
@@ -842,6 +894,26 @@ class VRMAnimation {
         // 清空一次性告警记录：换模型或重新开始 lip sync 时，允许新会话重新告警一次。
         this._lipSyncWarnedNames.clear();
         this.updateMouthExpressionMapping();
+        // 惰性实例化共振峰分析器；类缺失（旧缓存页面未加载新脚本）时降级为 null，
+        // _updateLipSync 会回退到旧的单通道音量驱动，保证向后兼容。
+        // 构造/换绑一律包 try/catch：与 mmd-animation.startLipSync 对偶——分析器
+        // 是锦上添花，任何异常都只该让口型退回旧路径，绝不能从 startLipSync 抛出去
+        // 打断调用它的 scheduleAudioChunks（那会连带跳过本次音频块的排程记账）。
+        if (analyser && typeof window !== 'undefined' && typeof window.FormantLipSyncAnalyzer === 'function') {
+            try {
+                if (!this._lipSyncAnalyzer) {
+                    this._lipSyncAnalyzer = new window.FormantLipSyncAnalyzer(analyser);
+                } else {
+                    this._lipSyncAnalyzer.attach(analyser);
+                    this._lipSyncAnalyzer.reset();
+                }
+            } catch (e) {
+                console.warn('[VRM LipSync] FormantLipSyncAnalyzer 初始化失败，回退单通道口型', e);
+                this._lipSyncAnalyzer = null;
+            }
+        } else {
+            this._lipSyncAnalyzer = null;
+        }
         if (this.analyser) {
             this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
         } else {
@@ -852,6 +924,9 @@ class VRMAnimation {
         this.lipSyncActive = false;
         this.resetMouthExpressions();
         this.analyser = null;
+        if (this._lipSyncAnalyzer) {
+            this._lipSyncAnalyzer.reset();
+        }
         this.currentMouthWeight = 0;
     }
     updateMouthExpressionMapping() {
@@ -868,31 +943,61 @@ class VRMAnimation {
             expressionNames = Object.keys(exprs);
         }
 
-        ['aa', 'ih', 'ou', 'ee', 'oh'].forEach(vowel => {
+        // 先清空再枚举。VRMManager 只在 this.animation 为空时才 new（vrm-manager.js
+        // 的 _initModules），换模型复用同一个实例并重调本方法，而下面只在匹配成功时
+        // 落值。不清的话，新模型没匹配上的元音会留着上一个模型的表情名，
+        // _mouthExpressionName 拿到一个非空的陈旧名字就不会回退到 VRM 预设名——
+        // setValue 打在新模型不存在的表情上被静默忽略，那个元音彻底不动。
+        // 陈旧值比空值更糟，正是因为空值还能回退。
+        for (const vowel of VRMAnimation.VOWEL_KEYS) this.mouthExpressions[vowel] = null;
+
+        VRMAnimation.VOWEL_KEYS.forEach(vowel => {
             const match = expressionNames.find(name => name.toLowerCase() === vowel || name.toLowerCase().includes(vowel));
             if (match) this.mouthExpressions[vowel] = match;
         });
 
     }
+    /**
+     * 某元音本帧该写哪个表情名。
+     *
+     * updateMouthExpressionMapping 只在匹配成功时落映射，模型的 expressions
+     * 结构不被它那三个分支识别时会一个都匹配不上；这时回退到 VRM 预设名本身
+     * （'aa'/'ih'/…），与旧单通道路径的 `this.mouthExpressions.aa || 'aa'` 同源。
+     *
+     * 写入与清零必须共用这一个解析：清零侧若仍按"映射为空就跳过"处理，回退写进去
+     * 的那些表情就没人清，stopLipSync 之后嘴型会卡在最后一帧。
+     */
+    _mouthExpressionName(vowel) {
+        return this.mouthExpressions[vowel] || vowel;
+    }
+
     resetMouthExpressions() {
         const vrm = this.manager.currentModel?.vrm;
         if (!vrm?.expressionManager) return;
 
-        Object.values(this.mouthExpressions).forEach(name => {
-            if (name) {
-                try {
-                    vrm.expressionManager.setValue(name, 0);
-                } catch (e) {
-                    console.warn(`[VRM LipSync] 重置表情失败: ${name}`, e);
-                }
+        for (const vowel of VRMAnimation.VOWEL_KEYS) {
+            const name = this._mouthExpressionName(vowel);
+            try {
+                vrm.expressionManager.setValue(name, 0);
+            } catch (e) {
+                console.warn(`[VRM LipSync] 重置表情失败: ${name}`, e);
             }
-        });
-
+        }
     }
     _updateLipSync(delta) {
         if (!this.manager.currentModel?.vrm?.expressionManager) return;
         if (!this.analyser) return;
 
+        const expressionManager = this.manager.currentModel.vrm.expressionManager;
+
+        // 优先走五元音共振峰路径：分析器可用时，嘴不仅会"开多大"还会"开成什么形状"。
+        if (this._lipSyncAnalyzer) {
+            this._updateLipSyncFormant(expressionManager, delta);
+            return;
+        }
+
+        // ---- 回退路径：旧的单通道音量驱动（仅写 aa）----
+        // 当 FormantLipSyncAnalyzer 未加载（旧缓存页面）时保持原有行为，保证向后兼容。
         if (!this.frequencyData || this.frequencyData.length !== this.analyser.frequencyBinCount) {
             this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
         }
@@ -914,16 +1019,15 @@ class VRMAnimation {
 
         this.currentMouthWeight += (targetWeight - this.currentMouthWeight) * (12.0 * delta);
         const finalWeight = Math.max(0, this.currentMouthWeight);
-        const mouthOpenName = this.mouthExpressions.aa || 'aa';
-
-        const expressionManager = this.manager.currentModel.vrm.expressionManager;
+        const mouthOpenName = this._mouthExpressionName('aa');
 
         // 待机 VRMA 的 mixer.update 可能在本帧已写入 ih/ou/ee/oh 等口型轨道；
         // _updateLipSync 在 mixer 之后执行，但只覆盖 aa，剩余四个元音残留会与 aa
         // 叠加成混合口型。这里在写入 aa 之前先把其他口型表情置 0，确保语音口型同步
         // 期间嘴部完全由 lip sync 驱动，不被待机动作的口型轨道影响。
-        for (const [vowel, name] of Object.entries(this.mouthExpressions)) {
-            if (!name || vowel === 'aa') continue;
+        for (const vowel of VRMAnimation.VOWEL_KEYS) {
+            if (vowel === 'aa') continue;
+            const name = this._mouthExpressionName(vowel);
             try {
                 expressionManager.setValue(name, 0);
             } catch (e) {
@@ -940,6 +1044,32 @@ class VRMAnimation {
             if (!this._lipSyncWarnedNames.has(mouthOpenName)) {
                 this._lipSyncWarnedNames.add(mouthOpenName);
                 console.warn(`[VRM LipSync] 设置表情失败: ${mouthOpenName}`, e);
+            }
+        }
+    }
+
+    /**
+     * 五元音共振峰口型驱动。由 FormantLipSyncAnalyzer 产出限幅、平滑后的
+     * 五元音目标权重，这里负责写入对应 blendshape。
+     *
+     * 与旧单通道路径不同，这里五个元音每帧都被显式写入（含 0），因此天然
+     * 覆盖了待机 VRMA 可能残留的口型轨道，无需单独的"先清零"步骤——
+     * 未激活的元音本帧目标就是 0。
+     */
+    _updateLipSyncFormant(expressionManager, delta) {
+        const weights = this._lipSyncAnalyzer.update(delta);
+
+        for (const vowel of VRMAnimation.VOWEL_KEYS) {
+            // 与 resetMouthExpressions 共用同一个名字解析——写入集必须等于清零集。
+            const name = this._mouthExpressionName(vowel);
+            const target = weights[vowel] ?? 0;
+            try {
+                expressionManager.setValue(name, target);
+            } catch (e) {
+                if (!this._lipSyncWarnedNames.has(name)) {
+                    this._lipSyncWarnedNames.add(name);
+                    console.warn(`[VRM LipSync] 设置口型表情失败: ${name}`, e);
+                }
             }
         }
     }

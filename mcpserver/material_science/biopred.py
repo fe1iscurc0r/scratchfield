@@ -14,12 +14,20 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
+
+#: 碳化实验库默认路径（卷192 黄档 Y4 处置：绝对化，不再随 CWD 漂移）。
+#: 与 paper_miner 的 `_DEFAULT_DB` 同款口径：env 可覆盖，否则锚定仓库根。
+_DEFAULT_CARBONIZATION_DB = os.environ.get(
+    "CARBONIZATION_DB_PATH",
+    str(Path(__file__).resolve().parents[2] / "carbonization.db"),
+)
 
 try:
     import numpy as np
@@ -170,7 +178,7 @@ def _train_model(rows: list[dict[str, Any]]):
     return model, importance, resid_std
 
 
-def predict(desc: str, *, db_path: str = "carbonization.db") -> dict[str, Any]:
+def predict(desc: str, *, db_path: str = _DEFAULT_CARBONIZATION_DB) -> dict[str, Any]:
     """预测给定参数组合的导电率 + 置信区间。"""
     parsed = _parse_description(desc)
     rows = _load_dataset(db_path)
@@ -202,7 +210,7 @@ def predict(desc: str, *, db_path: str = "carbonization.db") -> dict[str, Any]:
     }
 
 
-def suggest(*, db_path: str = "carbonization.db", target: str = "conductivity") -> dict[str, Any]:
+def suggest(*, db_path: str = _DEFAULT_CARBONIZATION_DB, target: str = "conductivity") -> dict[str, Any]:
     """主动学习：在参数网格上建议下一组最有信息量的实验（不确定性最大化）。"""
     rows = _load_dataset(db_path)
     if len(rows) < 3:
@@ -243,11 +251,11 @@ def register_biopred_tools(agent) -> None:
     """往 MaterialScienceAgent 注入 biopred_predict / biopred_suggest 两个工具。"""
     def _tool_predict(params: dict[str, Any]) -> dict[str, Any]:
         desc = params.get("desc") or params.get("description") or params.get("query") or ""
-        db_path = params.get("db_path", "carbonization.db")
+        db_path = params.get("db_path") or _DEFAULT_CARBONIZATION_DB
         return predict(desc, db_path=db_path)
 
     def _tool_suggest(params: dict[str, Any]) -> dict[str, Any]:
-        db_path = params.get("db_path", "carbonization.db")
+        db_path = params.get("db_path") or _DEFAULT_CARBONIZATION_DB
         target = params.get("target", "conductivity")
         return suggest(db_path=db_path, target=target)
 

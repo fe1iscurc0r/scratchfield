@@ -1,6 +1,6 @@
 # 授粉 · knowledge_graph 实体抽取管线 — 落地报告（2026-09-20）
 
-> 卷142 交付 | 实验田维护者签
+> 卷142 交付 | 沈遥签
 > 上游：rahulnyk/knowledge_graph（4060★ · MIT ✅ gh api 核验 · 2026-08-15 最后推送）
 > 落点：`mcpserver/graph_memory_adapter/kg_extract.py` + `prompts/`（与卷139 共享目录，按其工单要求）
 

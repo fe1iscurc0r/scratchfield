@@ -1,6 +1,6 @@
 # TRAE 低星项目融合工单 · v1
 
-> 施工方：Trae｜审查：实验田维护者（Hermes）
+> 施工方：Trae｜审查：沈遥（Hermes）
 > 日期：2026-08-16
 > 定位：把 17 个「未受 AI 红利的低星优质项目」按五层分类融合进 scratchpad（NEKO 身体 + 陆墨大脑 + MCP 工具体系）。
 > 前置：先读 `docs/SPEC-Writing-Standard-v1.md`（SPEC 规范）——你产出的每份融合 SPEC 都要按它卡。
@@ -66,7 +66,7 @@ scratchpad 定位：**NEKO（Live2D 桌宠身体）+ 陆墨（材料科研大脑
 
 1. **许可铁律**：主仓 AGPL v3。MIT/BSD/Apache-2.0/CC0 → 直接吞；AGPL/GPL → 同许可直接吞；LGPL → 可吞但标注。**无 LICENSE → 一律暂缓**（不拉）。
 2. **先读 SPEC 规范再动手**：每份融合 SPEC 按 `docs/SPEC-Writing-Standard-v1.md` 十条卡。
-3. **不碰主流程**：融合走旁路（独立 adapter / 独立目录），不改 NEKO 源码（`NEKO/N.E.K.O/`）和主系统核心（`apiserver/` 主链路）。
+3. **不碰主流程**：融合走旁路（独立 adapter / 独立目录），不改 NEKO 源码（`NEKO/N.E.K.O/`）和陆墨核心（`apiserver/` 主链路）。
 4. **自包含**：每份 SPEC 的代码骨架可直接粘贴运行，引用到文件 + 行号。
 5. **路径用 `$PKG_DIR`**：源码包路径用变量，不硬编码绝对路径（你跑在另一台机器）。
 

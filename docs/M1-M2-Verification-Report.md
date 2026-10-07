@@ -1,7 +1,7 @@
 # M1 验证 + M2 规划报告
 
 > 日期: 2026-08-02
-> 多智能体流程: 铁锚(代码审查) + 实验田维护者(架构安全) + 杜赞(决策) + Hermes(协调编码)
+> 多智能体流程: 铁锚(代码审查) + 沈遥(架构安全) + 杜赞(决策) + Hermes(协调编码)
 
 ## 一、M1 验证结果
 
@@ -39,7 +39,7 @@
 
 ## 二、M2 语音打通规划
 
-### 2.1 架构分析（实验田维护者）
+### 2.1 架构分析（沈遥）
 
 **核心结论**: 方案 A（NEKO 的 TTS/ASR 直接使用）是唯一合理选择。
 
@@ -49,7 +49,7 @@
 
 ### 2.2 范围决策（杜赞）
 
-**GO。但范围比实验田维护者说的小，比"配置验证"大。**
+**GO。但范围比沈遥说的小，比"配置验证"大。**
 
 M2 工作项（3 项，不做第 4 项）:
 1. 配置验证：LUMO_PROXY_TOKEN、ASR 开关、use_tts、tts provider 三者连通
@@ -93,7 +93,7 @@ M2 工作项（3 项，不做第 4 项）:
 ## 五、M2 验证结果（2026-08-02 18:00 续接）
 
 > 续接会话：M1 文本链路打通后，本节追加 M2 语音链路（TTS+ASR）验证结果。
-> 多智能体流程：实验田维护者(架构接缝) + 铁锚(代码审查) + 杜赞(决策) + Hermes(协调编码)
+> 多智能体流程：沈遥(架构接缝) + 铁锚(代码审查) + 杜赞(决策) + Hermes(协调编码)
 
 ### 5.1 验证状态总览
 
@@ -110,7 +110,7 @@ M2 工作项（3 项，不做第 4 项）:
 
 ### 5.2 多智能体审查结论
 
-#### 实验田维护者（架构接缝）5 条风险
+#### 沈遥（架构接缝）5 条风险
 
 | 编号 | 严重性 | 问题 | 位置 |
 |------|--------|------|------|
@@ -132,7 +132,7 @@ M2 工作项（3 项，不做第 4 项）:
 | 编号 | 问题 | 影响 |
 |------|------|------|
 | HIGH-1 | emotion_model=lumo-persona 导致 NEKO 5 处情绪分析/翻译/活动丰富化/破冰全部失效 | emotion.py/language_utils.py/llm_enrichment.py/icebreaker_router.py/_streaming.py 调 lumo_proxy 返回人格对话而非情绪标签，JSON 解析失败走降级 |
-| HIGH-2 | SONIOX_API_KEY 注入路径缺失（与实验田维护者 R1 一致） | ASR 链路在凭证读取处断裂 |
+| HIGH-2 | SONIOX_API_KEY 注入路径缺失（与沈遥 R1 一致） | ASR 链路在凭证读取处断裂 |
 | HIGH-3 | lumo_proxy _query_rag_standalone 无显式超时控制 | summer_memory 后端异常时整个对话链路卡死 |
 
 **TTS 链路结论**：wrapper patch 不破坏 TTS 启动。TTS 触发依赖 M1 已通的 SSE 解析链路。HIGH-1 的 emotion 接缝断裂不致命，会导致 TTS 语气单调但不阻断合成。
@@ -213,8 +213,8 @@ config['SONIOX_REGION'] = core_cfg.get('sonioxRegion', '') or os.environ.get('SO
 | P1 | **选人设卡住**（persona_managed_by_lumo） | 前端 character_personality_onboarding.js 尝试编辑人格被拒绝（persona.py:168），onboarding 流程未处理此错误 | 用户在前端选择人设时卡住，需前端检测 persona_managed_by_lumo 后跳过 onboarding |
 | P1 | emotion_model=lumo-persona 断裂（HIGH-1） | 铁锚 | M2 ASR 通过后立即修 |
 | P2 | lumo_proxy _query_rag_standalone 无超时（HIGH-3） | 铁锚 | 下次迭代 |
-| P2 | Soniox 408 无 backoff（R2） | 实验田维护者 | 下次迭代（改用 Qwen 后此项降级） |
-| P3 | wrapper patch 与 lifecycle [local-patch] 双层冗余（R5） | 实验田维护者 | 重构时清理 |
+| P2 | Soniox 408 无 backoff（R2） | 沈遥 | 下次迭代（改用 Qwen 后此项降级） |
+| P3 | wrapper patch 与 lifecycle [local-patch] 双层冗余（R5） | 沈遥 | 重构时清理 |
 
 ### 5.7 Gitee 推送时机
 
@@ -250,7 +250,7 @@ config['SONIOX_REGION'] = core_cfg.get('sonioxRegion', '') or os.environ.get('SO
 |--------|------|------|
 | 主智能体（Hermes） | 代码实现 + 协调 | 5 处代码修改 |
 | 铁锚（Sidro） | 代码审查 | 2 HIGH / 4 MEDIUM / 4 LOW（HIGH 已修） |
-| 实验田维护者（shenyao） | 架构方案 + 安全 | 反向通道设计 + 5 条风险（R5 已修） |
+| 沈遥（shenyao） | 架构方案 + 安全 | 反向通道设计 + 5 条风险（R5 已修） |
 | 杜赞（dusan） | 决策拍板 | 方案A（前端互斥），后端 cancel 记 M3.1 |
 
 ### 6.3 交付清单
@@ -258,7 +258,7 @@ config['SONIOX_REGION'] = core_cfg.get('sonioxRegion', '') or os.environ.get('SO
 #### 6.3.1 `_SyncMessageQueue` maxsize + 类型感知丢弃 ✅
 **文件**：[character_runtime.py](file:///d:/my/git/scratchpad/NEKO/N.E.K.O/app/main_server/character_runtime.py#L38-L108)
 
-- 新增 `_MAX_QUEUE_SIZE = 2000`（实验田维护者 R3 防 OOM）
+- 新增 `_MAX_QUEUE_SIZE = 2000`（沈遥 R3 防 OOM）
 - `_drop_sacrificial_for()`：满队列时优先丢 binary/json，保护 user/system（铁锚 HIGH-1）
 - 全是 user/system 时无奈丢 HEAD 并记 error 级日志
 
@@ -273,8 +273,8 @@ config['SONIOX_REGION'] = core_cfg.get('sonioxRegion', '') or os.environ.get('SO
 #### 6.3.3 `lumo_proxy.py` bytes 比较统一 ✅
 **文件**：[lumo_proxy.py:62](file:///d:/my/git/scratchpad/apiserver/routes/lumo_proxy.py#L62)
 
-- 实验田维护者 R5：`hmac.compare_digest(str,str)` → `hmac.compare_digest(bytes,bytes)`，避免非 ASCII token 触发 TypeError
-- 返回值移除 token 字段（实验田维护者 R4，与 inject 侧对齐）
+- 沈遥 R5：`hmac.compare_digest(str,str)` → `hmac.compare_digest(bytes,bytes)`，避免非 ASCII token 触发 TypeError
+- 返回值移除 token 字段（沈遥 R4，与 inject 侧对齐）
 
 #### 6.3.4 `app-websocket.js` speak 分支抢断 ✅
 **文件**：[app-websocket.js:4388](file:///d:/my/git/scratchpad/NEKO/N.E.K.O/static/app/app-websocket.js#L4388)
@@ -288,8 +288,8 @@ config['SONIOX_REGION'] = core_cfg.get('sonioxRegion', '') or os.environ.get('SO
 
 - POST /api/lumo/event，复用 `require_proxy_token` 鉴权
 - 6 类事件：user_input / asr_result / tts_start / tts_end / user_action / error（discriminated union）
-- 时效校验 ±5min + event_id LRU 去重（容量 4096）防重放（实验田维护者 R1）
-- 审计日志只记 type+len，不记全文（实验田维护者 R4）
+- 时效校验 ±5min + event_id LRU 去重（容量 4096）防重放（沈遥 R1）
+- 审计日志只记 type+len，不记全文（沈遥 R4）
 - 路由注册：[api_server.py:296,310](file:///d:/my/git/scratchpad/apiserver/api_server.py#L296)
 
 ### 6.4 铁锚审查结果
@@ -307,8 +307,8 @@ config['SONIOX_REGION'] = core_cfg.get('sonioxRegion', '') or os.environ.get('SO
 
 | 优先级 | 债务项 | 来源 | 说明 |
 |--------|--------|------|------|
-| ✅ | **NEKO 侧 outbox 发送方** | 实验田维护者方案 | 8/14 已落地：`lumo_event_sender.py`(254行) 优先级队列 + sender task + 静默期降级 |
-| P1 | **陆墨决策回路接入反向事件** | 实验田维护者方案 | apiserver 接收事件后仅审计日志，未投递决策回路（`lumo_event.py:207` 仍为 [TODO M3.1]） |
+| ✅ | **NEKO 侧 outbox 发送方** | 沈遥方案 | 8/14 已落地：`lumo_event_sender.py`(254行) 优先级队列 + sender task + 静默期降级 |
+| P1 | **陆墨决策回路接入反向事件** | 沈遥方案 | apiserver 接收事件后仅审计日志，未投递决策回路（`lumo_event.py:207` 仍为 [TODO M3.1]） |
 | P2 | 后端 LLM 流取消（speak 抢断时） | 杜赞决策 | 前端已抢断字幕+TTS，但后端 LLM 仍在跑浪费 token；触发条件：单次抢断浪费 > 200 token |
 | P3 | QueueFull 路径单元测试 | 铁锚 MEDIUM-4 | 无测试覆盖类型感知丢弃逻辑 |
 | P3 | maxsize 按字节限流 | 铁锚 MEDIUM-5 | 当前按计数 2000，大 TTS 帧场景 OOM 防护弱 |

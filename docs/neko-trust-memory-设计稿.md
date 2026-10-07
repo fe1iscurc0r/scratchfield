@@ -1,6 +1,6 @@
 # NEKO trust 模块 · 记忆投毒防护设计稿
 
-> 2026-08-29 · 实验田维护者线完成（原 AC-05）· 论文依据：记忆投毒 2608.21230/21159、InjecMEM 2608.23471、SkillBloat 2608.21929、AgentFlow 2608.22868
+> 2026-08-29 · 沈遥线完成（原 AC-05）· 论文依据：记忆投毒 2608.21230/21159、InjecMEM 2608.23471、SkillBloat 2608.21929、AgentFlow 2608.22868
 > 对齐：docs/memory_maas-design-spec.md（provenance 字段 P0 必填）
 > 范围：只写防御设计稿 + 检测启发式，不写攻击 PoC
 

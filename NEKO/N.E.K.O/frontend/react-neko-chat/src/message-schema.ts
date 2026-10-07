@@ -55,6 +55,23 @@ const statusBlockSchema = z.object({
 // Frontend-only "she has a topic she'd like to bring up" teaser, shown just
 // before a proactive deep-topic opener. Backend sends only the character name
 // (no LLM-context text); the dedicated TopicHintBubble renders localized copy.
+export const htmlCardBlockSchema = z.object({
+  type: z.literal('html_card'),
+  cardId: z.string().min(1),
+  pluginId: z.string().min(1),
+  targetLanlan: z.string().min(1),
+  presentation: z.enum(['chat', 'agent']).optional(),
+  html: z.string(),
+  css: z.string().default(''),
+  summary: z.string(),
+  actions: z.record(z.object({
+    entry: z.string().min(1),
+    args: z.record(z.unknown()).optional(),
+  })).default({}),
+});
+export type HtmlCard = z.infer<typeof htmlCardBlockSchema>;
+export type HtmlCardInput = z.input<typeof htmlCardBlockSchema>;
+
 const topicHintBlockSchema = z.object({
   type: z.literal('topic-hint'),
   // Trim before length check so a whitespace-only author is rejected, matching
@@ -83,6 +100,30 @@ const compactChatStateSchema = z.enum(['default', 'options', 'input']);
 const galgameOptionSchema = z.object({
   label: z.string().min(1),
   text: z.string().min(1),
+});
+
+const theaterHistoryEntrySchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(['player_action', 'narration', 'dialogue', 'ending']),
+  text: z.string(),
+  author: z.string().optional(),
+  displayKind: z.enum(['action', 'scene']).optional(),
+  status: z.enum(['streaming', 'sent']).optional(),
+});
+
+const theaterPresentationSchema = z.object({
+  active: z.boolean(),
+  phase: z.enum(['inactive', 'loading', 'performing', 'awaiting_player', 'evaluating', 'ending', 'ended', 'returning_selector']),
+  storyTitle: z.string().optional(),
+  history: z.array(theaterHistoryEntrySchema).optional(),
+  suggestedInputs: z.array(z.string()).optional(),
+  busy: z.boolean().optional(),
+  sessionEnded: z.boolean().optional(),
+  errorMessage: z.string().optional(),
+  // 用量提示独立于历史消息，刷新后不伪造上一轮账单。
+  tokenUsage: z.object({ summary: z.string(), detail: z.string() }).nullable().optional(),
+  draftRestore: z.object({ id: z.string().min(1), text: z.string() }).nullable().optional(),
+  ordinaryDraftRestore: z.object({ id: z.string().min(1), text: z.string() }).nullable().optional(),
 });
 
 // Generic ChoicePrompt — composer-anchored "AI 给你出几个选项" UI 组件抽象。
@@ -156,6 +197,7 @@ export const messageBlockSchema = z.discriminatedUnion('type', [
   statusBlockSchema,
   buttonGroupBlockSchema,
   topicHintBlockSchema,
+  htmlCardBlockSchema,
 ]);
 
 const turnIdSchema = z.preprocess((value) => {
@@ -164,6 +206,11 @@ const turnIdSchema = z.preprocess((value) => {
   }
   return value;
 }, z.string().min(1).optional());
+
+export const messageReactionSchema = z.object({
+  emoji: z.enum(['😊', '😄', '😃', '🙂', '😌', '🤔', '🧐', '💭', '❓', '👍', '✅', '🙌', '💪', '🎉', '🙏', '🤝', '😮', '👀', '⚠️', '💡', '😔', '😢', '😅', '🙇', '🥳', '✨', '🌟', '💻', '🤖', '📚', '🔧', '❤️', '⭐', '🔥', '🚀', '📌', '😂', '🤗', '🥰', '🥺', '💧', '😲', '❗', '😤', '😠', '💢', '😾']),
+  author: z.string().trim().min(1),
+});
 
 export const chatMessageSchema = z.object({
   id: z.string().min(1),
@@ -176,6 +223,7 @@ export const chatMessageSchema = z.object({
   avatarUrl: z.string().optional(),
   blocks: z.array(messageBlockSchema),
   actions: z.array(messageActionSchema).optional(),
+  reaction: messageReactionSchema.optional(),
   status: z.enum(['sending', 'sent', 'failed', 'streaming']).optional(),
   sortKey: z.number().finite().optional(),
 });
@@ -183,12 +231,14 @@ export const chatMessageSchema = z.object({
 export const composerSubmitSchema = z.object({
   text: z.string(),
   requestId: z.string().optional(),
+  submitMethod: z.enum(['enter', 'button']).optional(),
 });
 
 export const chatWindowPropsSchema = z.object({
   title: z.string().optional(),
   iconSrc: z.string().optional(),
   messages: z.array(chatMessageSchema).optional(),
+  userName: z.string().trim().min(1).optional(),
   assistantName: z.string().trim().min(1).optional(),
   inputPlaceholder: z.string().optional(),
   sendButtonLabel: z.string().optional(),
@@ -242,6 +292,7 @@ export const chatWindowPropsSchema = z.object({
   galgameToggleButtonLabel: z.string().optional(),
   galgameToggleButtonAriaLabel: z.string().optional(),
   galgameLoadingLabel: z.string().optional(),
+  theaterPresentation: theaterPresentationSchema.optional(),
   avatarToolMenuOpenRequest: avatarToolMenuOpenRequestSchema.optional(),
   compactToolFanOpenRequest: compactToolFanOpenRequestSchema.optional(),
   compactHistoryOpenRequest: compactHistoryOpenRequestSchema.optional(),
@@ -257,7 +308,12 @@ export const chatWindowPropsSchema = z.object({
     .optional(),
   onComposerScreenshot: z.function()
     .args()
-    .returns(z.void())
+    // 宿主的 handleComposerScreenshot 结尾是 return handled（布尔）——PC 主进程按 F4 时
+    // 走 resize-drag-and-api.js 暴露的 triggerComposerScreenshot 读这个返回值，决定要不要
+    // 回落到旧的 Pet 截图路径，所以返回值不能去掉。声明成 z.void() 会让 zod 的校验壳在
+    // 宿主函数跑完之后抛 invalid_return_type，从聊天面板每点一次截图就往 window 抛一个
+    // 未捕获错误（debug-health.js 的全局 error 计数会跟着涨）。
+    .returns(z.unknown())
     .optional(),
   onComposerRemoveAttachment: z.function()
     .args(z.string())
@@ -299,6 +355,18 @@ export const chatWindowPropsSchema = z.object({
     .args(galgameOptionSchema)
     .returns(z.void())
     .optional(),
+  onTheaterSubmit: z.function()
+    .args(z.string())
+    .returns(z.void())
+    .optional(),
+  onTheaterSuggestedInputSelect: z.function()
+    .args(z.string())
+    .returns(z.void())
+    .optional(),
+  onTheaterEnd: z.function()
+    .args()
+    .returns(z.void())
+    .optional(),
   // Generic ChoicePrompt（mini-game invite 等通用三选项框架）
   choicePrompt: choicePromptSchema.optional(),
   onChoiceSelect: z.function()
@@ -321,10 +389,12 @@ export type ComposerAttachment = z.infer<typeof composerAttachmentSchema>;
 export type ChatSurfaceMode = z.infer<typeof chatSurfaceModeSchema>;
 export type CompactChatState = z.infer<typeof compactChatStateSchema>;
 export type GalgameOption = z.infer<typeof galgameOptionSchema>;
+export type TheaterPresentation = z.infer<typeof theaterPresentationSchema>;
 export type ChoiceOption = z.infer<typeof choiceOptionSchema>;
 export type ChoicePrompt = NonNullable<z.infer<typeof choicePromptSchema>>;
 export type ChoicePromptSource = ChoicePrompt['source'];
 export type MessageBlock = z.infer<typeof messageBlockSchema>;
+export type MessageReaction = z.infer<typeof messageReactionSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ComposerSubmitPayload = z.infer<typeof composerSubmitSchema>;
 export type ChatWindowSchemaProps = z.infer<typeof chatWindowPropsSchema>;

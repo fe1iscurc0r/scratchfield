@@ -1,51 +1,64 @@
-# 实验田 · 快速上手 QUICKSTART
+# QUICKSTART — 从 clone 到第一个界面
 
-> 从 clone 到看到第一个界面，最短路径。环境细节见 [环境依赖清单（Windows 装机指南）](docs/环境依赖清单-Windows装机-2026-09-27.md)。
+> 最短路径，中文优先。遇到问题先跑体检命令，再看文末「卡住了？」。
 
-## 普通用户（推荐）
+## 0. 前置（只列必装）
 
-1. 到 [Releases](https://github.com/fe1iscurc0r/scratchfield/releases) 下载最新的 `实验田-Setup-x.y.z.exe`
-2. 双击安装（SmartScreen 提示「仍要运行」即可，安装包未做代码签名）
-3. 首次启动后在设置里填 LLM API key
-4. 完——不需要 Python/Node/命令行
+| 依赖 | 版本 | 说明 |
+|---|---|---|
+| Python | **3.12.x（严格，不是 3.13）** | `requires-python = ">=3.12,<3.13"` |
+| Node.js | ≥ 20.19 | 只用 npm（本仓有 package-lock.json） |
+| uv | 最新 | 后端一律 `uv sync`，**不要裸 pip install** |
 
-## 开发者（源码路线）
-
-```bash
-# 1. 拉库
-git clone https://github.com/fe1iscurc0r/scratchfield && cd scratchfield
-
-# 2. 环境自检（缺什么报什么，给可直接粘贴的安装命令）
-python doctor_env.py
-
-# 3. 一键安装（uv sync → 前端 npm install → build）
-./setup.ps1        # Windows
-./setup.sh         # Linux/macOS（骨架版）
-
-# 4. 配置
-cp config.json.example config.json   # 填 LLM API key
-cp .env .env.local                   # 敏感配置
-
-# 5. 跑起来
-cd frontend && npm run dev           # dev 模式自动拉起后端
-```
-
-## 装完想确认没装坏
+## 1. 拉库并自检工具链
 
 ```bash
-python scripts/doctor.py --quick     # 应用层体检: 依赖/配置/数据目录/前端产物
+git clone https://github.com/fe1iscurc0r/scratchpad && cd scratchpad
+python doctor_env.py          # 缺什么报什么，附可直接粘贴的安装命令
 ```
 
-## 常见坑
-
-- **Python 必须 3.12.x**，装 3.13 会被 uv 直接拒（`requires-python >=3.12,<3.13`）
-- **只用 npm**，本仓有 package-lock.json，别混 pnpm/yarn
-- **用 uv 不用裸 pip**——绕过 uv.lock 会装出不可复现的环境
-- 全量细节见环境依赖清单
-
-## 插件商城
+## 2. 装依赖
 
 ```bash
-cat plugins/index.json                    # 看有什么
-./scripts/plugin-install.sh <plugin-id>   # 装一个
+uv sync                       # 后端（要判例/论文 PDF→MD 加 --extra pdf2md）
+cd frontend && npm install && npm run build && cd ..
 ```
+
+> Windows 全自动：`.\setup.ps1`（= 自检 + 上面两步 + 构建）。
+
+## 3. 填两份配置
+
+```bash
+cp config.json.example config.json   # 填入 LLM API key
+cp .env .env.local                   # 填入 MCP_API_KEY 等敏感配置
+```
+
+## 4. 安装后体检（卷186-B2）
+
+```bash
+.venv/Scripts/python.exe scripts/doctor.py        # Windows
+python3 scripts/doctor.py                         # Linux / macOS
+# 加 --quick 跳过前端现场构建，只查产物存在性
+```
+
+逐项 ✅/⚠️/❌ + 修复建议：依赖导入、.env.local 占位符、数据目录可写、
+前端构建产物（`doctor_env.py` 管**装机前**的工具链，本脚本管**装机后**的应用层）。
+
+## 5. 启动
+
+```bash
+cd frontend && npm run dev    # dev 模式自动拉起后端
+```
+
+看到工作台界面、设置里填好 LLM API key 能正常对话 —— 完成。
+
+---
+
+## 卡住了？
+
+- 体检某项 ❌ → 按输出里的「↳ 修复建议」处理
+- 工具链缺件 / 端口占用 → `docs/环境依赖清单-Windows装机-2026-09-27.md`
+- Windows 一键启动全家桶（后端 + NEKO 桌宠 + Electron Shell）：
+  `.\lumo_fusion.ps1`（最小启动加 `-NoNeo4j -NoFrontend`）
+- 普通用户免构建路线：到 [Releases](https://github.com/fe1iscurc0r/scratchpad/releases)
+  下载 `陆墨-Setup-x.y.z.exe` 双击安装（仅 Windows x64）

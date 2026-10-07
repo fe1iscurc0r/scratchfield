@@ -520,7 +520,7 @@ class TestSecurityBoundaryAndCrossSourceRealPath(unittest.TestCase):
 
 
 # =========================================================================
-# 多智能体审查修复验证 —— 实验田维护者 Phase 4 Case1-5
+# 多智能体审查修复验证 —— 沈遥 Phase 4 Case1-5
 # =========================================================================
 class TestGateHardeningVerification(unittest.TestCase):
     """验证 P1 三件套门禁加固（HIGH-1 isinstance 短路 / HIGH-2 跨源冲突 / MEDIUM-4 读写分离）。"""

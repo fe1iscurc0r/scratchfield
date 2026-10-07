@@ -9,12 +9,12 @@
 
 鉴权：
   - 复用 lumo_proxy.require_proxy_token（LUMO_PROXY_TOKEN）
-  - 实验田维护者 R5：bytes 比较已统一
+  - 沈遥 R5：bytes 比较已统一
 
 数据流：
   NEKO 事件源 → POST /api/lumo/event → 本端点校验+去重 → 审计日志 → EventBus.emit(USER_INPUT_RECEIVED)
 
-设计依据：实验田维护者反向通道架构方案（push 模式，与正向 /api/lumo/speak 对称）。
+设计依据：沈遥反向通道架构方案（push 模式，与正向 /api/lumo/speak 对称）。
 """
 import asyncio
 import logging
@@ -71,7 +71,7 @@ def _parse_timestamp(ts: str) -> float | None:
         clean = ts.replace("Z", "+00:00")
         dt = datetime.fromisoformat(clean)
         if dt.tzinfo is None:
-            # 实验田维护者 R5 / No.5：naive timestamp 收紧为拒绝（project_memory 约定：
+            # 沈遥 R5 / No.5：naive timestamp 收紧为拒绝（project_memory 约定：
             # NEKO 发送方稳定后必须收紧为 400 拒绝）。返回 None 触发 400。
             return None
         return dt.timestamp()
@@ -158,9 +158,9 @@ async def receive_event(
     """接收 NEKO 推送的反向事件。
 
     处理链：
-    1. timestamp 时效校验（±5min，防重放——实验田维护者 R1）
-    2. event_id 去重（LRU 5min，容量 4096——实验田维护者 R1）
-    3. 审计日志（只记 type+len，不记全文——实验田维护者 R4）
+    1. timestamp 时效校验（±5min，防重放——沈遥 R1）
+    2. event_id 去重（LRU 5min，容量 4096——沈遥 R1）
+    3. 审计日志（只记 type+len，不记全文——沈遥 R4）
     4. emit 到 EventBus v2（消费者热插拔订阅，本文件不感知具体消费者）
 
     幂等：重复 event_id 返回 200 + duplicated=True，不抛错。
@@ -186,14 +186,14 @@ async def receive_event(
     text_len = getattr(event, "text_len", None)
     if text_len is None and hasattr(event, "text"):
         text_len = len(event.text)
-    # 实验田维护者 No.4：character 截断 32 字符 + sanitize 换行，防日志注入
+    # 沈遥 No.4：character 截断 32 字符 + sanitize 换行，防日志注入
     char_safe = event.character.replace("\n", "\\n").replace("\r", "\\r")[:32]
     # M1 修复：neko_session / event_id 也需 sanitize 换行，防日志注入
     def _sanitize_log_field(s: str, limit: int = 32) -> str:
         return s.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")[:limit]
     sid_safe = _sanitize_log_field(event.neko_session, 8)
     eid_safe = _sanitize_log_field(event.event_id, 8)
-    # 实验田维护者 No.8：error 事件额外记录 severity + error_type
+    # 沈遥 No.8：error 事件额外记录 severity + error_type
     extra = ""
     if event.event_type == "error":
         etype_safe = event.error_type.replace("\n", "\\n").replace("\r", "\\r")

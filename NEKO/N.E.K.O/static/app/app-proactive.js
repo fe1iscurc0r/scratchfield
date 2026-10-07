@@ -24,6 +24,8 @@
     const NEW_USER_ICEBREAKER_STORAGE_KEY = 'neko.new_user_icebreaker.v1';
     const NEW_USER_ICEBREAKER_BLOCKING_WINDOW_MS = 2 * 60 * 60 * 1000;
     const MEME_LOAD_FAILED_STICKER_URL = '/static/icons/meme-image-load-failed-sticker.png';
+    const MUSIC_CANDIDATE_FALLBACK_BUDGET_MS = 10000;
+    const MUSIC_CANDIDATE_ATTEMPT_TIMEOUT_MS = 3000;
 
     function isMusicOccupiedNow() {
         if (typeof window.isMusicOccupied === 'function') return window.isMusicOccupied();
@@ -122,6 +124,7 @@
     }
 
     function isHomeTutorialFeatureSuppressed() {
+        if (window.isNekoClickGuideActive === true) return true;
         try {
             if (_homeTutorialFeatureSuppressedByEvent) {
                 return true;
@@ -217,6 +220,10 @@
                 if (window.newUserIcebreaker.getActiveSession()) return true;
             }
         } catch (_) {}
+        try {
+            const state = window.NekoNewUserIcebreakerState;
+            if (state && typeof state.isPeriodActive === 'function' && state.isPeriodActive()) return true;
+        } catch (_) {}
 
         const store = readNewUserIcebreakerStore();
         const days = store && typeof store.days === 'object' ? store.days : null;
@@ -267,7 +274,9 @@
                     const isNewPeer = !_proactivePeers.has(data.id);
                     _proactivePeers.set(data.id, {
                         rank: typeof data.rank === 'number' ? data.rank : 99,
-                        expireAt: Date.now() + PROACTIVE_LEADER_TTL_MS
+                        expireAt: Date.now() + PROACTIVE_LEADER_TTL_MS,
+                        // 对端（如运行小剧场的 chat.html）请求的临时抑制，随心跳 TTL 过期自动失效。
+                        suppressed: data.suppressed === true
                     });
                     // 新 peer 上线：立即回一个 heartbeat，让它在第一次决策前就能感知到我，
                     // 避免新窗口在 announce 后的"无人响应"窗口里误以为只有自己。
@@ -278,9 +287,11 @@
                     if (isNewPeer || data.type === 'announce') {
                         _onProactiveLeadershipMaybeChanged();
                     }
+                    _syncProactiveSuppression();
                 } else if (data.type === 'goodbye') {
                     _proactivePeers.delete(data.id);
                     _onProactiveLeadershipMaybeChanged();
+                    _syncProactiveSuppression();
                 } else if (data.type === 'user_input_reset') {
                     // 分发环境（Electron）下 chat.html 承担文本输入，但 proactive 计时器
                     // 只在 index.html (leader) 运行。chat.html 本地调 resetProactiveChatBackoff
@@ -312,6 +323,8 @@
                 type: type || 'heartbeat',
                 id: PROACTIVE_SELF_ID,
                 rank: PROACTIVE_SELF_RANK,
+                // 只广播本窗口自身的抑制来源，不转发从其他对端听来的状态，避免互相续命。
+                suppressed: isProactiveSuppressedLocally(),
                 ts: Date.now()
             });
         } catch (_) { /* ignore */ }
@@ -431,6 +444,67 @@
         return removed;
     }
 
+    // ======================== transient suppression ========================
+    //
+    // 小剧场等临时场景需要暂停普通主动搭话，但不能改写 S.proactiveChatEnabled：
+    // 该值由 saveSettings 持久化并同步到其他窗口，临时改写会在剧场期间任意一次保存时
+    // 把用户设置永久写成关闭。这里的抑制只存在于内存：本窗口由剧场运行态按会话是否活跃
+    // 实时回答；其他窗口的抑制随 leader 心跳传播，发起窗口关闭或崩溃后按 TTL 自动失效。
+    let _lastProactiveSuppression = false;
+
+    function isProactiveSuppressedLocally() {
+        try {
+            const theater = window.nekoTheaterRuntime;
+            return !!(theater
+                && typeof theater.suppressesProactiveChat === 'function'
+                && theater.suppressesProactiveChat() === true);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function isProactiveSuppressedByPeer() {
+        _purgeStaleProactivePeers();
+        for (const info of _proactivePeers.values()) {
+            if (info && info.suppressed === true) return true;
+        }
+        return false;
+    }
+
+    function isProactiveChatSuppressed() {
+        return isProactiveSuppressedLocally() || isProactiveSuppressedByPeer();
+    }
+    mod.isProactiveChatSuppressed = isProactiveChatSuppressed;
+    // 对端抑制目前只来自小剧场运行态；Pet 窗口的麦克风守卫据此得知另一窗口正在演绎（同样按 TTL 过期）。
+    mod.isProactiveSuppressedByPeer = isProactiveSuppressedByPeer;
+
+    function _syncProactiveSuppression() {
+        const suppressed = isProactiveChatSuppressed();
+        if (suppressed === _lastProactiveSuppression) return;
+        _lastProactiveSuppression = suppressed;
+        if (suppressed) {
+            // follower 的定时器是接班 recheck，不能清掉；它接班后的调度仍会被闸门拦下。
+            if (isProactiveLeader()) stopProactiveChatSchedule();
+            return;
+        }
+        // 解除时视同一次用户活动：清退避并重新调度（仅本窗口，各窗口各自处理自己的解除）。
+        try {
+            resetProactiveChatBackoff({ _fromIpc: true });
+        } catch (e) {
+            console.warn('[Proactive] 解除临时抑制后重新调度失败:', e);
+        }
+    }
+
+    /**
+     * 本窗口的抑制来源（如小剧场运行态）变化后调用：立即广播给其他窗口，
+     * 并在本窗口按新状态停止或恢复调度。不读写任何持久化设置。
+     */
+    function refreshProactiveSuppression() {
+        _proactiveBroadcast('heartbeat');
+        _syncProactiveSuppression();
+    }
+    mod.refreshProactiveSuppression = refreshProactiveSuppression;
+
     function isProactiveLeader() {
         if (PROACTIVE_SELF_RANK === 99) return false; // 不参与的页面永远不是
         _purgeStaleProactivePeers();
@@ -484,6 +558,8 @@
             if (_purgeStaleProactivePeers()) {
                 _onProactiveLeadershipMaybeChanged();
             }
+            // 抑制方窗口崩溃时不会发送解除消息，只能靠心跳 TTL 过期后在这里恢复调度。
+            _syncProactiveSuppression();
         }, PROACTIVE_LEADER_HEARTBEAT_MS);
         // 窗口关闭前广播 goodbye，让对端立即接班
         window.addEventListener('beforeunload', function () {
@@ -547,7 +623,7 @@
      * 检查是否有任何搭话方式被选中
      */
     function hasAnyChatModeEnabled() {
-        return S.proactiveVisionChatEnabled || S.proactiveNewsChatEnabled ||
+        return S.proactiveVisionChatEnabled || S.proactiveNewsChatEnabled || S.proactiveCommunityChatEnabled ||
             S.proactiveVideoChatEnabled || S.proactivePersonalChatEnabled ||
             S.proactiveMusicEnabled || S.proactiveMemeEnabled ||
             S.proactiveMiniGameInviteEnabled;
@@ -650,13 +726,18 @@
             return false;
         }
 
+        // 小剧场等临时抑制（可能来自其他窗口）；不依赖改写 proactiveChatEnabled。
+        if (isProactiveChatSuppressed()) {
+            return false;
+        }
+
         // 必须开启主动搭话
         if (!S.proactiveChatEnabled) {
             return false;
         }
 
         // 必须选择至少一种搭话方式
-        if (!S.proactiveVisionChatEnabled && !S.proactiveNewsChatEnabled &&
+        if (!S.proactiveVisionChatEnabled && !S.proactiveNewsChatEnabled && !S.proactiveCommunityChatEnabled &&
             !S.proactiveVideoChatEnabled && !S.proactivePersonalChatEnabled &&
             !S.proactiveMusicEnabled && !S.proactiveMemeEnabled &&
             !S.proactiveMiniGameInviteEnabled) {
@@ -664,7 +745,7 @@
         }
 
         // 如果只选择了视觉搭话，需要同时开启自主视觉
-        if (S.proactiveVisionChatEnabled && !S.proactiveNewsChatEnabled &&
+        if (S.proactiveVisionChatEnabled && !S.proactiveNewsChatEnabled && !S.proactiveCommunityChatEnabled &&
             !S.proactiveVideoChatEnabled && !S.proactivePersonalChatEnabled &&
             !S.proactiveMusicEnabled && !S.proactiveMemeEnabled &&
             !S.proactiveMiniGameInviteEnabled) {
@@ -672,7 +753,7 @@
         }
 
         // 如果只选择了个人动态搭话，需要同时开启个人动态
-        if (!S.proactiveVisionChatEnabled && !S.proactiveNewsChatEnabled &&
+        if (!S.proactiveVisionChatEnabled && !S.proactiveNewsChatEnabled && !S.proactiveCommunityChatEnabled &&
             !S.proactiveVideoChatEnabled && S.proactivePersonalChatEnabled &&
             !S.proactiveMusicEnabled && !S.proactiveMemeEnabled &&
             !S.proactiveMiniGameInviteEnabled) {
@@ -1037,6 +1118,11 @@
                 console.log('[ProactiveChat] 游戏路由 active，跳过普通主动搭话');
                 return;
             }
+            // 旧定时器可能在抑制开始前已排好；语音快速路径不经过 canTriggerProactively，这里统一拦截。
+            if (isProactiveChatSuppressed()) {
+                console.log('[ProactiveChat] 主动搭话被临时抑制（如小剧场进行中），跳过本次触发');
+                return;
+            }
             // ── 语音模式快速路径：直接发 voice_mode 请求，后端注入文本触发 ──
             if (S.isRecording) {
                 var lanlanName = (window.lanlan_config && window.lanlan_config.lanlan_name) || '';
@@ -1127,9 +1213,14 @@
                 availableModes.push('window');
             }
 
-            // 新闻搭话：使用微博热议与小黑盒首页内容
+            // 新闻搭话：使用微博热议、贴吧与小黑盒首页内容
             if (S.proactiveNewsChatEnabled && S.proactiveChatEnabled) {
                 availableModes.push('news');
+            }
+
+            // 喵宇宙社区搭话：使用发现页的公开卡牌。
+            if (S.proactiveCommunityChatEnabled && S.proactiveChatEnabled) {
+                availableModes.push('community');
             }
 
             // 视频搭话：中文地区使用 B站，非中文地区使用 YouTube 首页 Feed
@@ -1250,6 +1341,9 @@
                 }
                 if (S.proactiveNewsChatEnabled && S.proactiveChatEnabled) {
                     latestModes.push('news');
+                }
+                if (S.proactiveCommunityChatEnabled && S.proactiveChatEnabled) {
+                    latestModes.push('community');
                 }
                 if (S.proactiveVideoChatEnabled && S.proactiveChatEnabled) {
                     latestModes.push('video');
@@ -1433,6 +1527,9 @@
                     console.log('主动搭话已发送:', result.message, result.source_mode ? '(来源: ' + result.source_mode + ')' : '');
 
                     var dispatchedTrackUrl = null;
+                    var proactiveMusicCardScopeId = 'proactive:' + (
+                        result.turn_id || (Date.now() + '-' + Math.random().toString(36).slice(2, 8))
+                    );
 
                     // 如果模式包含音乐信号，按顺序尝试音轨；候选 URL 或媒体自身
                     // 的错误（包括加载超时）才回退，播放器/调度错误结束本轮推荐。
@@ -1465,36 +1562,63 @@
                                 if (!unknownTrack || unknownTrack === 'music.unknownTrack') unknownTrack = 'Unknown Track';
                                 if (!unknownArtist || unknownArtist === 'music.unknownArtist') unknownArtist = 'Unknown Artist';
 
-                                for (var musicIndex = 0; musicIndex < musicLinks.length; musicIndex++) {
-                                    var musicLink = musicLinks[musicIndex];
-                                    var track = {
-                                        name: musicLink.title || unknownTrack,
-                                        artist: musicLink.artist || unknownArtist,
-                                        url: musicLink.url,
-                                        cover: musicLink.cover
-                                    };
-                                    console.log('[ProactiveChat] 尝试音乐候选 ' + (musicIndex + 1) + '/' + musicLinks.length + ':', track);
-                                    var dispatchResult;
-                                    if (typeof window.dispatchMusicPlayDetailed === 'function') {
-                                        dispatchResult = await window.dispatchMusicPlayDetailed(track, { source: 'proactive' });
-                                    } else {
-                                        var legacyAccepted = await window.dispatchMusicPlay(track, { source: 'proactive' });
-                                        dispatchResult = {
-                                            ok: legacyAccepted === true,
-                                            reason: legacyAccepted === true ? '' : 'player_error',
-                                            canTryNextCandidate: false
+                                var proactiveMusicFallbackDeadlineAt = Date.now() + MUSIC_CANDIDATE_FALLBACK_BUDGET_MS;
+                                var lastAttemptedMusicTrack = null;
+                                try {
+                                    for (var musicIndex = 0; musicIndex < musicLinks.length; musicIndex++) {
+                                        var musicLink = musicLinks[musicIndex];
+                                        var hasNextMusicCandidate = musicIndex < musicLinks.length - 1;
+                                        var track = {
+                                            name: musicLink.title || unknownTrack,
+                                            artist: musicLink.artist || unknownArtist,
+                                            url: musicLink.url,
+                                            cover: musicLink.cover
                                         };
-                                    }
+                                        lastAttemptedMusicTrack = track;
+                                        console.log('[ProactiveChat] 尝试音乐候选 ' + (musicIndex + 1) + '/' + musicLinks.length + ':', track);
+                                        var dispatchResult;
+                                        if (typeof window.dispatchMusicPlayDetailed === 'function') {
+                                            dispatchResult = await window.dispatchMusicPlayDetailed(track, {
+                                                source: 'proactive',
+                                                cardScopeId: proactiveMusicCardScopeId,
+                                                hasNextCandidate: hasNextMusicCandidate,
+                                                fallbackDeadlineAt: hasNextMusicCandidate
+                                                    ? proactiveMusicFallbackDeadlineAt
+                                                    : undefined,
+                                                candidateTimeoutMs: hasNextMusicCandidate
+                                                    ? MUSIC_CANDIDATE_ATTEMPT_TIMEOUT_MS
+                                                    : undefined
+                                            });
+                                        } else {
+                                            var legacyAccepted = await window.dispatchMusicPlay(track, { source: 'proactive' });
+                                            dispatchResult = {
+                                                ok: legacyAccepted === true,
+                                                reason: legacyAccepted === true ? '' : 'player_error',
+                                                canTryNextCandidate: false
+                                            };
+                                        }
 
-                                    if (dispatchResult.ok === true) {
-                                        dispatchedTrackUrl = musicLink.url;
-                                        break;
+                                        if (dispatchResult.ok === true) {
+                                            dispatchedTrackUrl = musicLink.url;
+                                            break;
+                                        }
+                                        if (dispatchResult.canTryNextCandidate !== true) {
+                                            console.warn('[ProactiveChat] 音乐派发因非候选错误停止:', dispatchResult.reason, musicLink.url);
+                                            break;
+                                        }
+                                        console.warn('[ProactiveChat] 音乐候选不可用，尝试下一条:', dispatchResult.reason, musicLink.url);
                                     }
-                                    if (dispatchResult.canTryNextCandidate !== true) {
-                                        console.warn('[ProactiveChat] 音乐派发因非候选错误停止:', dispatchResult.reason, musicLink.url);
-                                        break;
+                                } finally {
+                                    if (
+                                        !dispatchedTrackUrl
+                                        && lastAttemptedMusicTrack
+                                        && typeof window.finalizeMusicCandidateCardFailure === 'function'
+                                    ) {
+                                        window.finalizeMusicCandidateCardFailure(lastAttemptedMusicTrack, {
+                                            source: 'proactive',
+                                            cardScopeId: proactiveMusicCardScopeId
+                                        });
                                     }
-                                    console.warn('[ProactiveChat] 音乐候选不可用，尝试下一条:', dispatchResult.reason, musicLink.url);
                                 }
                             }
                         }
@@ -1707,6 +1831,121 @@
         }
     }
 
+    /**
+     * 向 React 聊天窗追加一条 assistant 图片气泡。
+     *
+     * 消息构造、头像解析、镜像广播（__nekoMirrorChatAppend 同步到
+     * chat.html 等 follower 窗口，见 music_ui.js）与兜底路径都在这里，
+     * 调用方只提供 url / 文案 / id 前缀，避免每个图片来源各抄一份会
+     * 各自漂移的拷贝。
+     * 已知边界（与后端 send_* 的 display-plane 约束一致，见 notify.py）：
+     * WS 帧只送达最新连接的窗口，镜像广播经 BroadcastChannel、不跨
+     * Electron partition——隔离 partition 内的窗口（如宠物窗）看不到该
+     * 气泡，属既有限制。
+     * 返回 false 表示 React host 未就绪，调用方走旧 DOM 兜底。
+     */
+    function _appendReactImageBubble(url, alt, turnId, idPrefix, logTag, logDetail) {
+        var host = window.reactChatWindowHost;
+        if (!host || typeof host.appendMessage !== 'function') {
+            return false;
+        }
+        var mirrorAppend = window.__nekoMirrorChatAppend;
+        var now = new Date();
+        var timeStr = now.getHours().toString().padStart(2, '0') + ':' +
+            now.getMinutes().toString().padStart(2, '0');
+        var assistantName = '';
+        if (window.lanlan_config && window.lanlan_config.lanlan_name) assistantName = window.lanlan_config.lanlan_name;
+        else if (window._currentCatgirl) assistantName = window._currentCatgirl;
+        else if (window.currentCatgirl) assistantName = window.currentCatgirl;
+        assistantName = assistantName || 'Neko';
+        var avatarUrl = '';
+        if (window.appChatAvatar && typeof window.appChatAvatar.getCurrentAvatarDataUrl === 'function') {
+            avatarUrl = window.appChatAvatar.getCurrentAvatarDataUrl() || '';
+        }
+        var msg = {
+            id: idPrefix + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+            role: 'assistant',
+            author: assistantName,
+            time: timeStr,
+            createdAt: Date.now(),
+            turnId: turnId,
+            avatarLabel: assistantName.trim().slice(0, 1).toUpperCase(),
+            avatarUrl: avatarUrl || undefined,
+            blocks: [{ type: 'image', url: url, alt: alt }],
+            status: 'sent'
+        };
+        if (typeof mirrorAppend === 'function') {
+            mirrorAppend(host, msg);
+        } else {
+            // 兜底：music_ui.js 未就绪时退化为只在本窗口显示
+            host.appendMessage(msg);
+        }
+        console.log(logTag, logDetail);
+        return true;
+    }
+    mod._appendReactImageBubble = _appendReactImageBubble;
+
+    /**
+     * 构建旧 DOM 聊天窗的图片气泡脚手架。
+     *
+     * 气泡结构（message/gemini/attachment 容器、时间戳+🎀 头部、居中图片
+     * 容器、currentTurnGeminiAttachments 登记、追加后滚动到底）与图片来源
+     * 无关，抽在这里防止每个来源各抄一份后各自漂移。返回 { bubble, img }，
+     * 调用方在 img 上挂各自差异化的 click/error 行为（meme 挂的是外链重试
+     * + 失败贴纸）。容器存在但不可见（React 聊天窗为主显示时旧容器
+     * display:none）时大声警告——否则"渲染成功"日志会制造假安全网。容器
+     * 缺失返回 null，由调用方决定如何提示。
+     */
+    function _createLegacyImageBubble(chatContainer, imgSrc, altText, maxHeight) {
+        // 与上方 docstring 及调用方的 `if (!parts)` 守卫对齐：容器缺失时
+        // 返回 null（调用方决定如何提示），而不是无条件建气泡。
+        if (!chatContainer) {
+            return null;
+        }
+        var imgBubble = document.createElement('div');
+        imgBubble.classList.add('message', 'gemini', 'attachment');
+        imgBubble.style.padding = '12px';
+        imgBubble.style.textAlign = 'left';
+
+        // 复刻 createGeminiBubble 的头部（与 meme 兜底同一来源）
+        var now = new Date();
+        var timestamp = now.getHours().toString().padStart(2, '0') + ':' +
+            now.getMinutes().toString().padStart(2, '0') + ':' +
+            now.getSeconds().toString().padStart(2, '0');
+        var headerSpan = document.createElement('span');
+        headerSpan.textContent = "[" + (window.appChat ? window.appChat.getCurrentTimeString() : timestamp) + "] \uD83C\uDF80 ";
+        imgBubble.appendChild(headerSpan);
+
+        var imgOuter = document.createElement('div');
+        imgOuter.style.marginTop = '8px';
+        imgOuter.style.textAlign = 'center';
+
+        var img = document.createElement('img');
+        img.src = imgSrc;
+        img.alt = altText;
+        img.style.cssText = 'max-width: 100%; max-height: ' + maxHeight + 'px; border-radius: 8px; cursor: pointer; display: inline-block;';
+        img.addEventListener('load', function () {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        });
+
+        imgOuter.appendChild(img);
+        imgBubble.appendChild(imgOuter);
+        chatContainer.appendChild(imgBubble);
+
+        if (window.currentTurnGeminiAttachments) {
+            window.currentTurnGeminiAttachments.push(imgBubble);
+        }
+
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        if (!chatContainer.offsetParent) {
+            console.warn('[LegacyChat] 旧 DOM 聊天容器当前不可见（React 聊天窗为主显示），图片气泡将不可见:', imgSrc);
+        }
+
+        return { bubble: imgBubble, img: img };
+    }
+    mod._createLegacyImageBubble = _createLegacyImageBubble;
+
     function _showMemeBubbles(memeLinks, targetTurnId) {
         if (window.realisticGeminiCurrentTurnId !== targetTurnId) return;
         // [优化] 不再此处手动 addToHistory，因为正向的对话流(response_text) 已经由 finish_proactive_delivery 记录。
@@ -1724,50 +1963,19 @@
             ? String(targetTurnId) : undefined;
 
         // 优先通过 React 聊天窗口 API 显示表情包
+        // （PR #780 之后 proactive 只在 leader 触发，meme 只会暂存在 leader
+        // 的 _proactiveAttachmentBuffer 里；镜像广播由 _appendReactImageBubble
+        // 内部的 __nekoMirrorChatAppend 同步到所有窗口。）
         var host = window.reactChatWindowHost;
         if (host && typeof host.appendMessage === 'function') {
-            // PR #780 之后 proactive 只在 leader 触发，meme 只会暂存在 leader 的
-            // _proactiveAttachmentBuffer 里，flush 到 host.appendMessage 也只写
-            // 进 leader 的 React chat。用 music_ui 暴露的镜像 helper 同步到
-            // 所有窗口，保证 chat.html（follower）也能看到表情包气泡。
-            var mirrorAppend = window.__nekoMirrorChatAppend;
             for (var i = 0; i < memeLinks.length; i++) {
-                (function (meme) {
-                    if (!meme || !meme.safeUrl) return;
-                    var proxyUrl = '/api/meme/proxy-image?url=' + encodeURIComponent(meme.safeUrl);
-                    var now = new Date();
-                    var timeStr = now.getHours().toString().padStart(2, '0') + ':' +
-                        now.getMinutes().toString().padStart(2, '0');
-                    var assistantName = '';
-                    if (window.lanlan_config && window.lanlan_config.lanlan_name) assistantName = window.lanlan_config.lanlan_name;
-                    else if (window._currentCatgirl) assistantName = window._currentCatgirl;
-                    else if (window.currentCatgirl) assistantName = window.currentCatgirl;
-                    assistantName = assistantName || 'Neko';
-                    var avatarUrl = '';
-                    if (window.appChatAvatar && typeof window.appChatAvatar.getCurrentAvatarDataUrl === 'function') {
-                        avatarUrl = window.appChatAvatar.getCurrentAvatarDataUrl() || '';
-                    }
-                    var msg = {
-                        id: 'meme-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-                        role: 'assistant',
-                        author: assistantName,
-                        time: timeStr,
-                        createdAt: Date.now(),
-                        turnId: memeTurnId,
-                        avatarLabel: assistantName.trim().slice(0, 1).toUpperCase(),
-                        avatarUrl: avatarUrl || undefined,
-                        blocks: [{ type: 'image', url: proxyUrl, alt: meme.title || 'Meme' }],
-                        status: 'sent'
-                    };
-                    if (typeof mirrorAppend === 'function') {
-                        // 本地 append + 广播镜像（music_ui.js 已装好监听器）
-                        mirrorAppend(host, msg);
-                    } else {
-                        // 兜底：music_ui.js 未就绪时退化为只在本窗口显示
-                        host.appendMessage(msg);
-                    }
-                    console.log('[Meme] 已展示图片气泡 (React):', meme.title);
-                })(memeLinks[i]);
+                var meme = memeLinks[i];
+                if (!meme || !meme.safeUrl) continue;
+                var proxyUrl = '/api/meme/proxy-image?url=' + encodeURIComponent(meme.safeUrl);
+                _appendReactImageBubble(
+                    proxyUrl, meme.title || 'Meme', memeTurnId, 'meme-',
+                    '[Meme] 已展示图片气泡 (React):', meme.title
+                );
             }
             return;
         }
@@ -1783,40 +1991,15 @@
             (function (meme) {
                 if (!meme || !meme.safeUrl) return;
 
-                // 创建包含时间戳、表情和图片的统一气泡
-                var imgBubble = document.createElement('div');
-                imgBubble.classList.add('message', 'gemini', 'attachment');
-                imgBubble.style.padding = '12px';
-                imgBubble.style.textAlign = 'left';
-
-                // 添加时间戳和 🎀 (复刻 createGeminiBubble 的头部)
-                var now = new Date();
-                var timestamp = now.getHours().toString().padStart(2, '0') + ':' +
-                    now.getMinutes().toString().padStart(2, '0') + ':' +
-                    now.getSeconds().toString().padStart(2, '0');
-
-                var headerSpan = document.createElement('span');
-                headerSpan.textContent = "[" + (window.appChat ? window.appChat.getCurrentTimeString() : timestamp) + "] \uD83C\uDF80 ";
-                imgBubble.appendChild(headerSpan);
-
-                // 添加图片容器（为了间距）
-                var imgOuter = document.createElement('div');
-                imgOuter.style.marginTop = '8px';
-                imgOuter.style.textAlign = 'center';
-
                 var proxyUrl = '/api/meme/proxy-image?url=' + encodeURIComponent(meme.safeUrl);
-                var img = document.createElement('img');
-                img.src = proxyUrl;
-                img.alt = meme.title || 'Meme';
-                img.style.cssText = 'max-width: 100%; max-height: 350px; border-radius: 8px; cursor: pointer; display: inline-block;';
+                var parts = _createLegacyImageBubble(chatContainer, proxyUrl, meme.title || 'Meme', 350);
+                if (!parts) return;
+                var img = parts.img;
 
                 // 【修复】添加重试机制，最多重试 2 次
                 var retryCount = 0;
                 var maxRetries = 2;
 
-                img.addEventListener('load', function () {
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
-                });
                 img.addEventListener('click', function (e) {
                     if (img.dataset.failed === 'true') return;
                     e.preventDefault();
@@ -1856,15 +2039,6 @@
                     }
                 });
 
-                imgOuter.appendChild(img);
-                imgBubble.appendChild(imgOuter);
-                chatContainer.appendChild(imgBubble);
-
-                if (window.currentTurnGeminiAttachments) {
-                    window.currentTurnGeminiAttachments.push(imgBubble);
-                }
-
-                chatContainer.scrollTop = chatContainer.scrollHeight;
                 console.log('[Meme] 已展示图片气泡:', meme.title);
             })(memeLinks[i]);
         }
@@ -1914,6 +2088,16 @@
                 return;
             }
             if (!S.socket || S.socket.readyState !== WebSocket.OPEN) return;
+
+            var rememberedWindowCapture = { required: false, allowed: true };
+            if (typeof window.prepareRememberedWindowCapture === 'function') {
+                rememberedWindowCapture = await window.prepareRememberedWindowCapture();
+                if (rememberedWindowCapture && rememberedWindowCapture.required
+                    && !rememberedWindowCapture.allowed) {
+                    console.warn('[ProactiveVision] 记忆窗口无法确认，停止本次语音视觉帧');
+                    return;
+                }
+            }
 
             var dataUrl = null;
             // 这一帧来自哪种画面来源，决定 Avatar 坐标怎么映射到截图坐标系。
@@ -1984,6 +2168,14 @@
                 }
             }
 
+            // Remember-window is a fail-closed boundary. A validated window whose
+            // stream/native capture failed must not widen to the full desktop.
+            if (!dataUrl && rememberedWindowCapture
+                && rememberedWindowCapture.required) {
+                console.warn('[ProactiveVision] 记忆窗口捕获失败，停止整桌面兜底');
+                return;
+            }
+
             // 后端 pyautogui 兜底
             if (!dataUrl) {
                 var backendResult = await fetchBackendScreenshot();
@@ -2006,6 +2198,12 @@
 
             if (!isProactiveVisionEnabledNow() || !S.isRecording) {
                 stopProactiveVisionDuringSpeech();
+                return;
+            }
+            if (rememberedWindowCapture && rememberedWindowCapture.required
+                && typeof rememberedWindowCapture.isCurrent === 'function'
+                && !rememberedWindowCapture.isCurrent()) {
+                console.warn('[ProactiveVision] 记忆窗口身份已变化，丢弃过期语音视觉帧');
                 return;
             }
             if (dataUrl && S.socket && S.socket.readyState === WebSocket.OPEN) {
@@ -2164,6 +2362,29 @@
     }
 
     async function captureProactiveChatScreenshotWithSource() {
+        var rememberedWindowCapture = { required: false, allowed: true };
+        if (typeof window.prepareRememberedWindowCapture === 'function') {
+            rememberedWindowCapture = await window.prepareRememberedWindowCapture();
+            if (rememberedWindowCapture && rememberedWindowCapture.required
+                && !rememberedWindowCapture.allowed) {
+                console.warn('[主动搭话截图] 记忆窗口无法唯一确认，停止本次截图');
+                return { dataUrl: null, via: null, captureType: null };
+            }
+        }
+
+        function rememberedCaptureStillCurrent() {
+            return !rememberedWindowCapture
+                || !rememberedWindowCapture.required
+                || typeof rememberedWindowCapture.isCurrent !== 'function'
+                || rememberedWindowCapture.isCurrent();
+        }
+
+        function discardSupersededRememberedFrame(path) {
+            if (rememberedCaptureStillCurrent()) return false;
+            console.warn('[主动搭话截图] ' + path + ' 完成时记忆窗口已变化，丢弃旧帧');
+            return true;
+        }
+
         // 策略 0a: 复用有效缓存流（避免打扰正在进行的屏幕共享）
         if (S.screenCaptureStream && S.screenCaptureStream.active) {
             try {
@@ -2173,6 +2394,9 @@
                 if (tracks.length > 0 && tracks.some(function (t) { return t.readyState === 'live'; })) {
                     var cachedFrame = await captureFrameFromStream(cachedStream, 0.85);
                     if (cachedFrame && cachedFrame.dataUrl) {
+                        if (discardSupersededRememberedFrame('缓存流截图')) {
+                            return { dataUrl: null, via: null, captureType: null };
+                        }
                         S.screenCaptureStreamLastUsed = Date.now();
                         if (window.scheduleScreenCaptureIdleCheck) window.scheduleScreenCaptureIdleCheck();
                         console.log('[主动搭话截图] 缓存流截图成功');
@@ -2199,6 +2423,9 @@
                     nativeSourceId
                 );
                 if (direct && direct.success && direct.dataUrl) {
+                    if (discardSupersededRememberedFrame('主进程直接捕获')) {
+                        return { dataUrl: null, via: null, captureType: null };
+                    }
                     console.log('[主动搭话截图] 主进程直接捕获成功:', nativeSourceId);
                     return {
                         dataUrl: direct.dataUrl,
@@ -2221,6 +2448,9 @@
             var streamSourceId = S.selectedScreenSourceId;
             var frame = await captureFrameFromStream(stream, 0.85);
             if (frame && frame.dataUrl) {
+                if (discardSupersededRememberedFrame('前端流截图')) {
+                    return { dataUrl: null, via: null, captureType: null };
+                }
                 console.log('[主动搭话截图] 前端截图成功');
                 return {
                     dataUrl: frame.dataUrl,
@@ -2241,6 +2471,9 @@
                 var retrySourceId = S.selectedScreenSourceId;
                 frame = await captureFrameFromStream(stream, 0.85);
                 if (frame && frame.dataUrl) {
+                    if (discardSupersededRememberedFrame('前端流重试截图')) {
+                        return { dataUrl: null, via: null, captureType: null };
+                    }
                     return {
                         dataUrl: frame.dataUrl,
                         via: 'stream',
@@ -2255,6 +2488,13 @@
                     S.screenCaptureStreamLastUsed = null;
                 }
             }
+        }
+
+        // Remember-window is a fail-closed boundary. A validated window whose
+        // direct/stream capture failed must not widen to a desktop screenshot.
+        if (rememberedWindowCapture && rememberedWindowCapture.required) {
+            console.warn('[主动搭话截图] 记忆窗口捕获失败，停止整桌面兜底');
+            return { dataUrl: null, via: null, captureType: null };
         }
 
         // 策略2: 后端 pyautogui 兜底
@@ -2287,16 +2527,34 @@
      * 开启时：优先测试后端 pyautogui（静默无弹窗），不可用则通过前端流获取（用户手势上下文可弹 getDisplayMedia）
      */
     async function acquireProactiveVisionStream() {
-        // 策略1: 测试后端 pyautogui 是否可用（静默，无弹窗）
-        var backendResult = await fetchBackendScreenshot();
-        if (backendResult.dataUrl) {
-            console.log('[主动视觉] 后端 pyautogui 可用，无需前端流');
-            return true;
+        var rememberedWindowCapture = { required: false, allowed: true };
+        if (typeof window.prepareRememberedWindowCapture === 'function') {
+            rememberedWindowCapture = await window.prepareRememberedWindowCapture();
+            if (rememberedWindowCapture && rememberedWindowCapture.required
+                && !rememberedWindowCapture.allowed) {
+                console.warn('[主动视觉] 记忆窗口无法确认，停止启用');
+                return false;
+            }
+        }
+
+        // 策略1: 无记忆窗口约束时测试后端 pyautogui（静默，无弹窗）
+        if (!rememberedWindowCapture || !rememberedWindowCapture.required) {
+            var backendResult = await fetchBackendScreenshot();
+            if (backendResult.dataUrl) {
+                console.log('[主动视觉] 后端 pyautogui 可用，无需前端流');
+                return true;
+            }
         }
 
         // 策略2: 后端不可用，尝试前端流（用户手势上下文，可弹 getDisplayMedia）
         var stream = await acquireOrReuseCachedStream({ allowPrompt: true });
         if (stream) {
+            if (rememberedWindowCapture && rememberedWindowCapture.required
+                && typeof rememberedWindowCapture.isCurrent === 'function'
+                && !rememberedWindowCapture.isCurrent()) {
+                console.warn('[主动视觉] 记忆窗口身份已变化，忽略过期流');
+                return false;
+            }
             console.log('[主动视觉] 前端流获取/复用成功');
             return true;
         }
@@ -2376,6 +2634,7 @@
     window.releaseProactiveVisionStream = releaseProactiveVisionStream;
     window.scheduleProactiveChat = scheduleProactiveChat;
     window.isProactiveLeader = isProactiveLeader;
+    window.isProactiveChatSuppressed = isProactiveChatSuppressed;
     window.captureCanvasFrame = captureCanvasFrame;
     window.fetchBackendScreenshot = fetchBackendScreenshot;
     window.scheduleScreenCaptureIdleCheck = scheduleScreenCaptureIdleCheck;

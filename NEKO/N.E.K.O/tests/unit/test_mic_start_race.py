@@ -86,6 +86,8 @@ function loadModule() {
   // and getUserMedia() (device open / permission).
   let addModuleGate = Promise.resolve();
   let getUserMediaGate = Promise.resolve();
+  // getUserMedia 调用序号 -> 返回一条 readyState 已是 ended 的音轨。
+  const endedTrackOnGetUserMediaCall = new Set();
   const getUserMediaCalls = [];
   const getUserMediaFailures = [];
   const statusToasts = [];
@@ -96,6 +98,9 @@ function loadModule() {
   // genuinely throws in the field once starts have leaked.
   let captureContextThrows = false;
   let runDeferredTimeouts = false;
+  // When set, timers are recorded instead of dropped so a case can fire one
+  // by hand (e.g. the settings mic-test watchdog).
+  let capturedTimeouts = null;
 
   class FakeMediaStream {
     constructor(id, track) {
@@ -168,7 +173,11 @@ function loadModule() {
     createMediaStreamSource() { return makeNode(this, { __kind: 'source' }); }
     createGain() { return makeNode(this, { __kind: 'gain', gain: { value: 0 } }); }
     createAnalyser() {
-      return makeNode(this, { __kind: 'analyser', fftSize: 0, smoothingTimeConstant: 0 });
+      return makeNode(this, {
+        __kind: 'analyser', fftSize: 0, smoothingTimeConstant: 0,
+        // A steady mid-level signal, so any sample of this analyser is non-zero.
+        getFloatTimeDomainData(buffer) { buffer.fill(0.5); },
+      });
     }
     resume() { return Promise.resolve(); }
   }
@@ -198,11 +207,18 @@ function loadModule() {
     // Every module-scope timer here is a deferred UI/permission side effect
     // (mic permission pre-request, floating list render). Suppressing them
     // keeps the harness to the capture pipeline and lets node exit cleanly.
-    setTimeout: (callback) => {
+    setTimeout: (callback, delay) => {
+      if (capturedTimeouts) {
+        const timer = { callback, delay, cleared: false };
+        capturedTimeouts.push(timer);
+        return timer;
+      }
       if (runDeferredTimeouts) Promise.resolve().then(callback);
       return 0;
     },
-    clearTimeout: () => {},
+    clearTimeout: (timer) => {
+      if (timer && typeof timer === 'object') timer.cleared = true;
+    },
     setInterval: () => 0,
     clearInterval: () => {},
     requestAnimationFrame: () => 0,
@@ -253,7 +269,9 @@ function loadModule() {
           if (getUserMediaFailures.length > 0) {
             throw getUserMediaFailures.shift();
           }
-          return makeStream();
+          const stream = makeStream();
+          if (endedTrackOnGetUserMediaCall.delete(callNumber)) stream.track.readyState = 'ended';
+          return stream;
         },
         enumerateDevices: async () => [],
         addEventListener() {},
@@ -274,6 +292,7 @@ function loadModule() {
   // The floating mic button is the observable half of the caller-side UI
   // restore: both the commit path and the unwind path drive it.
   const micButtonStates = [];
+  const composerHiddenStates = [];
   sandbox.window = {
     appState,
     appConst: {},
@@ -284,7 +303,7 @@ function loadModule() {
     showStatusToast(...args) { statusToasts.push(args); }, t: (key) => key,
     localStorage: sandbox.localStorage,
     syncFloatingMicButtonState(on) { micButtonStates.push(on); },
-    syncVoiceChatComposerHidden() {},
+    syncVoiceChatComposerHidden(hidden) { composerHiddenStates.push(hidden); },
   };
   sandbox.globalThis = sandbox;
 
@@ -293,12 +312,14 @@ function loadModule() {
 
   return {
     mod: sandbox.window.appAudioCapture,
+    win: sandbox.window,
     S: appState,
     streams,
     contexts,
     workletNodes,
     nodes,
     micButtonStates,
+    composerHiddenStates,
     getUserMediaCalls,
     statusToasts,
     removedStorageKeys,
@@ -322,11 +343,26 @@ function loadModule() {
       getUserMediaGate = parked;
       return release;
     },
+    parkAudioPlayerSetup() {
+      let release;
+      const parked = new Promise((resolve) => { release = resolve; });
+      sandbox.window.ensureAudioPlayerContext = async () => {
+        await parked;
+        if (!appState.audioPlayerContext) {
+          appState.audioPlayerContext = new FakeAudioContext();
+        }
+        return appState.audioPlayerContext;
+      };
+      return release;
+    },
     unparkGetUserMedia() {
       getUserMediaGate = Promise.resolve();
     },
     failCaptureContext() {
       captureContextThrows = true;
+    },
+    endTrackOnGetUserMediaCall(callNumber) {
+      endedTrackOnGetUserMediaCall.add(callNumber);
     },
     failNextGetUserMedia(error) {
       getUserMediaFailures.push(error || new Error('getUserMedia failed'));
@@ -339,6 +375,10 @@ function loadModule() {
     },
     enableDeferredTimeouts() {
       runDeferredTimeouts = true;
+    },
+    captureTimeouts() {
+      capturedTimeouts = [];
+      return capturedTimeouts;
     },
     // stopProactiveChatSchedule is the LAST thing on the success path, so this
     // throws only after the pipeline has committed and published.
@@ -723,6 +763,57 @@ async function stopRecordingCancelsAnInFlightStartCase() {
   assert(env.S.stream === null, 'a cancelled start must not publish its stream');
   assert(started === false,
          'stopRecording cancellation must propagate to the outer voice starter');
+}
+
+async function playbackSetupCancellationAvoidsMicrophoneOpenCase() {
+  const env = loadModule();
+  const release = env.parkAudioPlayerSetup();
+  const attempt = env.mod.startMicCapture();
+  await settle();
+  assert(env.getUserMediaCalls.length === 0,
+         'microphone acquisition must wait for playback sink setup');
+
+  env.mod.stopRecording({ notifyServer: false });
+  release();
+  const started = await attempt;
+
+  assert(started === false,
+         'a start cancelled during playback setup must remain cancelled');
+  assert(env.getUserMediaCalls.length === 0,
+         'a cancelled playback setup must not open or prompt for the microphone');
+  assert(env.streams.length === 0,
+         'no microphone stream may be created after playback-setup cancellation');
+  assert(env.micButtonStates[env.micButtonStates.length - 1] === false,
+         'playback-setup cancellation must restore the microphone UI');
+}
+
+async function stalePlaybackSetupCancellationPreservesNewerPendingUiCase() {
+  const env = loadModule();
+  const release = env.parkAudioPlayerSetup();
+  const olderAttempt = env.mod.startMicCapture();
+  await settle();
+  const newerAttempt = env.mod.startMicCapture();
+  await settle();
+
+  assert(env.composerHiddenStates.length === 2,
+         'both pending starts should claim the shared composer UI');
+  assert(env.composerHiddenStates.every((hidden) => hidden === true),
+         'pending starts must keep the composer hidden before playback setup resolves');
+
+  release();
+  const [olderStarted, newerStarted] = await Promise.all([
+    olderAttempt,
+    newerAttempt,
+  ]);
+
+  assert(olderStarted === false,
+         'the older playback-setup continuation must remain cancelled');
+  assert(newerStarted === true && env.S.isRecording === true,
+         'the newer pending start must commit normally');
+  assert(env.composerHiddenStates.every((hidden) => hidden === true),
+         'the stale cancellation must not restore the newer start\'s composer');
+  assert(env.micButtonStates[env.micButtonStates.length - 1] === true,
+         'the newer committed start must keep the floating microphone UI active');
 }
 
 async function entryTeardownReconcilesIsRecordingCase() {
@@ -1128,6 +1219,8 @@ async function fallbackOwnershipChangeDuringWorkletCase() {
   await restartThenFailClosedCase();
   await addModuleFailureCase();
   await stopRecordingCancelsAnInFlightStartCase();
+  await playbackSetupCancellationAvoidsMicrophoneOpenCase();
+  await stalePlaybackSetupCancellationPreservesNewerPendingUiCase();
   await entryTeardownReconcilesIsRecordingCase();
   await staleRecordingFlagDoesNotMasqueradeAsWinnerCase();
   await rapidDeviceSwitchRetriesLatestSelectionCase();

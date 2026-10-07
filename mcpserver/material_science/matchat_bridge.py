@@ -11,7 +11,7 @@ MatChat Bridge — Playwright 双模式桥接层
   - Bridge.py 专注 AI Agent 自动化调用 (MCP 工具链)
   - BrowserView 流程 (手动问答 → 入库) 由 Electron 侧 matchat.ts 处理
 
-架构：实验田维护者 | 决策：杜赞 | 实现：fe1iscurc0r (Trae)
+架构：沈遥 | 决策：杜赞 | 实现：fe1iscurc0r (Trae)
 """
 import logging
 import os

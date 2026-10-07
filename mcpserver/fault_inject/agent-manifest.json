@@ -3,7 +3,7 @@
   "displayName": "故障注入（ECHO 线：注入+鲁棒性回归）",
   "version": "0.1.0",
   "description": "ECHO 线故障注入器的 MCP 桥：inject 按配置/预置场景注入故障并统计触发；run_robustness 全故障类型鲁棒性回归（重试/退避/重连/降级指标）；list_scenarios 列预置场景；check 校验故障配置。封装不重写，注入器无状态（每次调用新建）。",
-  "author": "实验田维护者",
+  "author": "沈遥",
   "license": "AGPL-3.0",
   "agentType": "mcp",
   "entryPoint": {

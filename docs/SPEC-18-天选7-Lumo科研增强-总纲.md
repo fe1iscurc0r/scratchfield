@@ -2,7 +2,7 @@
 
 > 状态：待施工（2026-08-25 用户拍板：六模块全要，写 SPEC）
 > 用途：天选7 Pro（RTX 5060 8GB / Windows / lumo 桌面端）从"AI 伴侣"升级为**材料学科研操作系统**——实验记录、材料模型、文献、电台、数据工具台
-> 读者：Trae（天选7）/ 实验田维护者 / 陆墨
+> 读者：Trae（天选7）/ 沈遥 / 陆墨
 > 依据：SPEC-15（身份层，本 SPEC 是能力层）；Old-Target-New-Model-Plan-v1.md（靶子 A/B/D）；skills/lumo-hamlog-log + mcpserver/adapters/hamlog_adapter.py（已授粉）；skills/experimental-design（DOE，已入 skills 未注册 manifest）；iu2frl-civ 调研（phone-mobile-hub）；用户确认：Ollama 已装、OB(Obsidian) 已有
 
 ## 〇、一句话定位
@@ -95,5 +95,5 @@ P0（A+B）→ P1（C+D+E）→ P2（F）。A 是底座（记录本），B 吃 A
 
 ---
 
-*制定：实验田维护者（Hermes）· 2026-08-25*
+*制定：沈遥（Hermes）· 2026-08-25*
 *依据：SPEC-Writing-Standard-v2 + Old-Target-New-Model-Plan + 已授粉 hamlog/experimental-design + 用户 8-25 拍板*

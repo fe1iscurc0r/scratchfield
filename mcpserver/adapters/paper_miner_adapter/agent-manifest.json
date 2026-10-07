@@ -3,7 +3,7 @@
   "displayName": "论文实验参数提取器",
   "version": "0.1.0",
   "description": "从论文 PDF / Markdown 提取前驱体、KOH 比例、碳化温度等实验参数并入库 SQLite，支持条件查询。依赖本地 Ollama（默认 http://127.0.0.1:11434）；Ollama 未启动时工具会明确报错，不静默返回空。",
-  "author": "实验田维护者",
+  "author": "沈遥",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.flat_bridges",

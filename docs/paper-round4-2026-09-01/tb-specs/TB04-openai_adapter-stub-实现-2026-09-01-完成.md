@@ -1,7 +1,7 @@
 # TB04 openai_adapter stub 实现（2026-09-01 完成）
 
 > 批次：第十三期 · 专项工单
-> 组装：实验田维护者（Hermes）2026-09-01
+> 组装：沈遥（Hermes）2026-09-01
 
 【SPEC】实现 voice/input/voice_realtime/adapters/openai_adapter.py 的 connect()/disconnect()/is_active()：基于真实 OpenAI Realtime API 对接，补充客户端初始化、状态管理、错误处理；无法对接真实 API 时 mock 并显式标注。
 

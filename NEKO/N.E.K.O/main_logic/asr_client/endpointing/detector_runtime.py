@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 import time
+from array import array
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, TypeAlias
 
 from main_logic.voice_turn.activity_evidence import RnnoiseEvidence
+from main_logic.voice_turn.admission import AdmissionConfig, SpeechEvidence
 from main_logic.voice_turn.contracts import (
     EvaluationStatus,
     SpeechActivityEvent,
@@ -36,8 +39,10 @@ from .detector import (
     SmartTurnCompletionFence,
 )
 from .silero_vad import SileroActivityGate, SileroVad
+from .admission_gate import AdmissionActivity, AdmissionActivityGate, AdmissionAudioRangeError
 from .smart_turn_audio_evidence import create_smart_turn_audio_evidence_recorder
 from .smart_turn_diagnostics import create_smart_turn_runtime_diagnostics
+from .smart_turn_reasons import CompletionReason, EvaluationReason
 from .smart_turn_v3 import SmartTurnV3
 from .throttle_policy import (
     ThrottleAction,
@@ -49,6 +54,7 @@ from ..provider_policy import AsrProviderPolicy
 from ..speaker_shadow.contracts import (
     SpeakerShadowCandidateKey,
     SpeakerShadowObserver,
+    SpeakerShadowScope,
 )
 
 
@@ -58,6 +64,10 @@ logger = logging.getLogger(__name__)
 _Identity: TypeAlias = tuple[int, int, int]
 _FallbackReason: TypeAlias = Literal["semantic_incomplete", "semantic_degraded"]
 _COMMIT_DRAIN_ON_CLOSE_SECONDS = 0.5
+_SPEAKER_SHADOW_REPLACEMENT_CLOSE_SECONDS = 2.0
+# Keep the floor below the AGC noise floor: no-VAD must preserve quiet speech,
+# while an all-zero (digital silence) frame still leaves the deadline alone.
+_NO_VAD_SPEECH_RMS = 0.001 * 32_768
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +82,7 @@ class _AudioItem:
     pcm16: bytes
     duration_us: int
     detector_identity: DetectorIngressIdentity | None = None
+    no_vad_activity: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +102,7 @@ class _EvaluationResultItem:
     identity: _Identity
     coordinator_generation: int
     activity_seq: int
-    reason: Literal["candidate_pause", "periodic_no_vad", "strict_retry"]
+    reason: EvaluationReason
     detector_identity: DetectorIngressIdentity | None = None
     evaluation_ms: int = 0
     result: object | None = None
@@ -102,7 +113,7 @@ class _EvaluationResultItem:
 class _PendingCompleteConfirmation:
     identity: _Identity
     detector_identity: DetectorIngressIdentity | None
-    reason: Literal["candidate_pause", "periodic_no_vad", "strict_retry"]
+    reason: EvaluationReason
     probability: float | None
 
 
@@ -128,7 +139,7 @@ class _VoiceTurnAdapter:
         coordinator: TurnCoordinator,
         on_commit: Callable[[int, int, int], Awaitable[None]],
         on_completion_fence: Callable[
-            [int, int, int, DetectorIngressIdentity], _Identity
+            [int, int, int, DetectorIngressIdentity], _Identity | None
         ]
         | None = None,
         on_activity: Callable[[SpeechActivityEvent], Awaitable[None]] | None = None,
@@ -225,6 +236,10 @@ class _VoiceTurnAdapter:
         self._evaluation_tail_duration_us = 0
         self._confirmation_tail: list[_AudioItem] = []
         self._confirmation_tail_duration_us = 0
+        # Queue capacity has its own wake-up event.  Retained evaluation and
+        # confirmation audio needs a separate one so admission waiters do not
+        # mistake a dequeue for complete capacity.
+        self._tail_capacity_changed = asyncio.Event()
         self._continuation_timeout_seconds = continuation_timeout_seconds
         self._max_endpoint_wait_seconds = max_endpoint_wait_seconds
         self._candidate_complete_confirmation_seconds = (
@@ -242,11 +257,10 @@ class _VoiceTurnAdapter:
         self._smart_turn_unload_task: asyncio.Task[None] | None = None
         self._evaluation_task: asyncio.Task[None] | None = None
         self._reevaluation_requested = False
-        self._reevaluation_reason: (
-            Literal["candidate_pause", "periodic_no_vad", "strict_retry"] | None
-        ) = None
+        self._reevaluation_reason: EvaluationReason | None = None
         self._pending_complete_confirmation: _PendingCompleteConfirmation | None = None
         self._strict_endpoint_deadline: float | None = None
+        self._no_vad_deadline_cap: float | None = None
         self._latest_detector_identity: DetectorIngressIdentity | None = None
         self._smart_turn_evaluation_ms = 0
         self._smart_turn_stale_result_count = 0
@@ -258,6 +272,7 @@ class _VoiceTurnAdapter:
         self._vad_degraded = False
         self._fallback_speech_started = False
         self._fallback_audio_bytes = 0
+        self._last_no_vad_audio_at: float | None = None
         self._semantic_degraded = False
         self._failed = False
         self._failure_future: asyncio.Future[_VoiceTurnFailure] | None = None
@@ -267,6 +282,38 @@ class _VoiceTurnAdapter:
         self._commit_dispatched: set[_Identity] = set()
         self._successor_audio_fence: tuple[_Identity, int, _Identity] | None = None
         self._smart_turn_pin_count = 0
+
+    def _audio_capacity_available(
+        self,
+        duration_us: int,
+        *,
+        identity: _Identity | None = None,
+        detector_identity: DetectorIngressIdentity | None = None,
+    ) -> bool:
+        """Apply the same queue/tail/identity budget used by ``push_audio``."""
+
+        if not self._queue.can_accept_audio(duration_us):
+            return False
+        pending = self._pending_complete_confirmation
+        retains_for_confirmation = (
+            pending is not None
+            and identity is not None
+            and detector_identity is not None
+            and pending.identity == identity
+            and pending.detector_identity is not None
+            and detector_identity.detector_epoch
+            == pending.detector_identity.detector_epoch
+            and detector_identity.sequence_no > pending.detector_identity.sequence_no
+        )
+        if self._evaluation_task is None and not retains_for_confirmation:
+            return True
+        return (
+            self._evaluation_tail_duration_us
+            + self._confirmation_tail_duration_us
+            + self._queue.audio_duration_us
+            + duration_us
+            <= self._evaluation_tail_capacity_us
+        )
 
     async def start(self) -> None:
         if self._closed:
@@ -349,6 +396,7 @@ class _VoiceTurnAdapter:
         pcm16: bytes,
         sample_rate_hz: int = 16_000,
         detector_identity: DetectorIngressIdentity | None = None,
+        no_vad_activity: bool | None = None,
     ) -> None:
         if len(pcm16) % 2:
             raise ValueError("ASR_INVALID_PCM: Voice Turn requires PCM16LE")
@@ -359,23 +407,10 @@ class _VoiceTurnAdapter:
         self._ensure_running()
         samples = len(pcm16) // 2
         duration_us = (samples * 1_000_000 + sample_rate_hz - 1) // sample_rate_hz
-        pending = self._pending_complete_confirmation
-        retains_for_confirmation = (
-            pending is not None
-            and pending.identity == (generation, buffer_epoch, utterance_id)
-            and pending.detector_identity is not None
-            and detector_identity is not None
-            and detector_identity.detector_epoch
-            == pending.detector_identity.detector_epoch
-            and detector_identity.sequence_no > pending.detector_identity.sequence_no
-        )
-        if (
-            (self._evaluation_task is not None or retains_for_confirmation)
-            and self._evaluation_tail_duration_us
-            + self._confirmation_tail_duration_us
-            + self._queue.audio_duration_us
-            + duration_us
-            > self._evaluation_tail_capacity_us
+        if not self._audio_capacity_available(
+            duration_us,
+            identity=(generation, buffer_epoch, utterance_id),
+            detector_identity=detector_identity,
         ):
             # Surface the shared duration budget at ingress so DetectorRuntime
             # can use its existing whole-candidate backpressure recovery. Once
@@ -388,6 +423,7 @@ class _VoiceTurnAdapter:
                 pcm16,
                 duration_us,
                 detector_identity,
+                no_vad_activity,
             ),
             duration_us=duration_us,
         )
@@ -559,6 +595,7 @@ class _VoiceTurnAdapter:
                 pcm16=item.pcm16,
                 duration_us=item.duration_us,
                 detector_identity=item.detector_identity,
+                no_vad_activity=item.no_vad_activity,
             )
         defers_for_evaluation = self._evaluation_task is not None
         if defers_for_evaluation:
@@ -592,7 +629,17 @@ class _VoiceTurnAdapter:
             return
 
         try:
-            events = await asyncio.to_thread(self._gate.feed, item.pcm16)
+            if isinstance(self._gate, AdmissionActivityGate) and item.detector_identity is not None:
+                events = await asyncio.to_thread(
+                    self._gate.feed_at, item.pcm16, item.detector_identity.audio_end_sample,
+                )
+            else:
+                events = await asyncio.to_thread(self._gate.feed, item.pcm16)
+        except AdmissionAudioRangeError:
+            # Broken ownership is not model unavailability. It must never
+            # enable the SmartTurn no-VAD fallback and upload uncertain PCM.
+            self._report_failure("runtime_error", "vad_feed")
+            return
         except Exception:
             if self._smart_turn_required:
                 self._vad_degraded = True
@@ -600,7 +647,17 @@ class _VoiceTurnAdapter:
             else:
                 self._report_failure("runtime_error", "vad_feed")
             return
-        for event in events:
+        admitted_events = (
+            self._gate.admission_events
+            if isinstance(self._gate, AdmissionActivityGate) else events
+        )
+        for index, event in enumerate(admitted_events):
+            if isinstance(self._gate, AdmissionActivityGate):
+                # The detector worker owns publication. Capture each window's
+                # immutable evidence before its scoped callback can yield.
+                record = self._gate.admission_records[index]
+                self._gate.event_evidence = record.evidence
+                self._gate.event_audio_start_sample = record.audio_start_sample
             if self._on_activity is not None:
                 await self._on_activity(event)
             if (
@@ -608,6 +665,7 @@ class _VoiceTurnAdapter:
                 and item.detector_identity is not None
             ):
                 await self._on_scoped_activity(event, item.detector_identity)
+        for event in events:
             await self._coordinator.on_activity_event(event)
 
         if any(
@@ -618,6 +676,7 @@ class _VoiceTurnAdapter:
             self._cancel_smart_turn_unload()
             self._cancel_fallback()
             self._strict_endpoint_deadline = None
+            self._no_vad_deadline_cap = None
 
         if (
             SpeechActivityEvent.CANDIDATE_PAUSE not in events
@@ -641,6 +700,46 @@ class _VoiceTurnAdapter:
     async def _process_without_vad(self, item: _AudioItem) -> None:
         """Keep SmartTurn authoritative when Silero cannot provide candidates."""
 
+        if isinstance(self._gate, AdmissionActivityGate):
+            self._report_failure("unavailable", "vad_admission")
+            return
+
+        has_activity = item.no_vad_activity
+        if has_activity is not True:
+            # Below RNNoise onset is not proof of silence: quiet speech may
+            # still have PCM energy. Keep the bounded RMS fallback available.
+            has_activity = self._pcm_has_no_vad_speech(item.pcm16)
+        if has_activity:
+            now = asyncio.get_running_loop().time()
+            self._last_no_vad_audio_at = now
+            if (
+                self._smart_turn_required
+                and self._strict_endpoint_deadline is not None
+            ):
+                if item.no_vad_activity is not True:
+                    # RMS is only an activity hint without a positive RNNoise
+                    # classification: steady HVAC or microphone self-noise
+                    # can sit above the floor. Keep this fallback bounded so
+                    # noise cannot starve semantic_timeout.
+                    cap = self._no_vad_deadline_cap
+                    if cap is None:
+                        cap = (
+                            self._strict_endpoint_deadline
+                            + self._max_endpoint_wait_seconds
+                        )
+                        self._no_vad_deadline_cap = cap
+                    self._strict_endpoint_deadline = min(
+                        now + self._max_endpoint_wait_seconds, cap
+                    )
+                else:
+                    # RNNoise has already classified this chunk as activity;
+                    # preserve the normal inactivity semantics for long speech.
+                    self._strict_endpoint_deadline = (
+                        now + self._max_endpoint_wait_seconds
+                    )
+                    # Confirmed speech retires the previous RMS-only wait.
+                    # A later fallback starts a fresh bound from this window.
+                    self._no_vad_deadline_cap = None
         started_now = False
         if not self._fallback_speech_started:
             self._fallback_speech_started = True
@@ -668,10 +767,19 @@ class _VoiceTurnAdapter:
             item.detector_identity,
         )
 
+    @staticmethod
+    def _pcm_has_no_vad_speech(pcm16: bytes) -> bool:
+        samples = array("h")
+        samples.frombytes(pcm16)
+        if not samples:
+            return False
+        rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+        return rms >= _NO_VAD_SPEECH_RMS
+
     def _request_evaluation(
         self,
         identity: _Identity,
-        reason: Literal["candidate_pause", "periodic_no_vad", "strict_retry"],
+        reason: EvaluationReason,
         detector_identity: DetectorIngressIdentity | None = None,
     ) -> None:
         if self._closed or self._failed or identity != self._identity:
@@ -679,7 +787,10 @@ class _VoiceTurnAdapter:
         if self._evaluation_task is not None:
             self._smart_turn_coalesced_evaluation_count += 1
             self._reevaluation_requested = True
-            self._reevaluation_reason = reason
+            if reason != "periodic_no_vad" or self._reevaluation_reason is None:
+                # A periodic tick must not erase a pending pause or strict
+                # retry: only those can seal the turn once the wait expires.
+                self._reevaluation_reason = reason
             return
         coordinator_generation = int(getattr(self._coordinator, "generation", 0))
         activity_seq = int(getattr(self._coordinator, "activity_seq", 0))
@@ -718,6 +829,7 @@ class _VoiceTurnAdapter:
         evaluation_tail = tuple(self._evaluation_tail)
         self._evaluation_tail.clear()
         self._evaluation_tail_duration_us = 0
+        self._tail_capacity_changed.set()
         reevaluate = self._reevaluation_requested
         reevaluation_reason = self._reevaluation_reason or item.reason
         self._reevaluation_requested = False
@@ -837,21 +949,51 @@ class _VoiceTurnAdapter:
             )
             return
         if status is EvaluationStatus.OK and decision is TurnDecision.INCOMPLETE:
+            if (
+                item.reason != "periodic_no_vad"
+                and self._strict_endpoint_wait_expired()
+            ):
+                # An unfinished-sounding pause is still a semantic answer, not
+                # an endpointing failure: seal the turn instead of blocking
+                # the whole ASR session.
+                await self._publish_complete_result(
+                    item.identity,
+                    item.detector_identity,
+                    "semantic_timeout",
+                    probability=probability,
+                    evaluation_tail=evaluation_tail,
+                )
+                return
             self._observe_evaluation_tail(evaluation_tail)
+            if self._smart_turn_required and self._strict_endpoint_deadline is None:
+                # Silero may be unavailable for the whole turn.  The periodic
+                # no-VAD path still needs a strict semantic wait so an
+                # incomplete SmartTurn result cannot leave the session stuck.
+                self._strict_endpoint_deadline = (
+                    asyncio.get_running_loop().time()
+                    + self._max_endpoint_wait_seconds
+                )
+                self._no_vad_deadline_cap = (
+                    self._strict_endpoint_deadline
+                    + self._max_endpoint_wait_seconds
+                )
+            if item.reason != "periodic_no_vad" or (
+                self._smart_turn_required
+                and (
+                    self._fallback_task is None
+                    or self._fallback_task.done()
+                )
+            ):
+                # A periodic tick must not restart an already pending strict
+                # wait; otherwise continuous no-VAD audio can postpone the
+                # retry past the semantic endpoint deadline.
+                self._schedule_fallback(item.identity, "semantic_incomplete")
             if reevaluate:
                 self._request_evaluation(
                     item.identity,
                     reevaluation_reason,
                     self._latest_detector_identity,
                 )
-                return
-            if item.reason != "periodic_no_vad":
-                if self._smart_turn_required and self._strict_endpoint_deadline is None:
-                    self._strict_endpoint_deadline = (
-                        asyncio.get_running_loop().time()
-                        + self._max_endpoint_wait_seconds
-                    )
-                self._schedule_fallback(item.identity, "semantic_incomplete")
             return
         if self._smart_turn_required:
             failure_kind = (
@@ -905,6 +1047,7 @@ class _VoiceTurnAdapter:
         items = tuple(self._confirmation_tail)
         self._confirmation_tail.clear()
         self._confirmation_tail_duration_us = 0
+        self._tail_capacity_changed.set()
         return items
 
     def _complete_observed_candidate(
@@ -948,9 +1091,12 @@ class _VoiceTurnAdapter:
         self._reevaluation_requested = False
         self._reevaluation_reason = None
         self._strict_endpoint_deadline = None
+        self._no_vad_deadline_cap = None
+        self._last_no_vad_audio_at = None
         self._latest_detector_identity = None
         self._evaluation_tail.clear()
         self._evaluation_tail_duration_us = 0
+        self._tail_capacity_changed.set()
         self._clear_confirmation_audio()
         self._successor_audio_fence = None
         self._smart_turn_audio_evidence.discard()
@@ -1021,7 +1167,7 @@ class _VoiceTurnAdapter:
         self,
         identity: _Identity,
         detector_identity: DetectorIngressIdentity | None,
-        reason: Literal["candidate_pause", "periodic_no_vad", "strict_retry"],
+        reason: EvaluationReason,
         *,
         probability: float | None,
         delay_seconds: float,
@@ -1111,43 +1257,72 @@ class _VoiceTurnAdapter:
     async def _strict_incomplete_wait(self, identity: _Identity) -> None:
         """Schedule one strict retry through the single SmartTurn lane."""
 
-        await asyncio.sleep(self._continuation_timeout_seconds)
-        if (
-            self._closed
-            or self._failed
-            or identity != self._identity
-            or self._coordinator.state is not CoordinatorState.WAIT_CONTINUATION
-        ):
+        while True:
+            wait_started_at = asyncio.get_running_loop().time()
+            await asyncio.sleep(self._continuation_timeout_seconds)
+            # Without VAD there is no SPEECH_RESUMED event to move the strict
+            # endpoint deadline. Keep the retry asleep while audio is still
+            # arriving while the deadline permits it. The bounded RMS
+            # fallback must retry at its cap even with continuous noise.
+            if (
+                self._last_no_vad_audio_at is not None
+                and self._last_no_vad_audio_at > wait_started_at
+                and not self._strict_endpoint_wait_expired()
+            ):
+                continue
+            break
+        state = self._coordinator.state
+        # A periodic no-VAD inference may be running; the retry then coalesces
+        # behind it instead of silently ending the strict wait.
+        waiting = state is CoordinatorState.WAIT_CONTINUATION or (
+            state is CoordinatorState.EVALUATING
+        )
+        if self._closed or self._failed or identity != self._identity or not waiting:
             return
-        deadline = self._strict_endpoint_deadline
-        if deadline is None or asyncio.get_running_loop().time() >= deadline:
+        if self._strict_endpoint_deadline is None:
             self._report_failure("unavailable", "smart_turn")
             return
+        # Past the deadline this retry is the last one: a still-incomplete
+        # result seals the turn as ``semantic_timeout``.
         self._request_evaluation(
             identity,
             "strict_retry",
             self._latest_detector_identity,
         )
 
+    def _strict_endpoint_wait_expired(self) -> bool:
+        deadline = self._strict_endpoint_deadline
+        return (
+            self._smart_turn_required
+            and deadline is not None
+            and asyncio.get_running_loop().time() >= deadline
+        )
+
     async def _publish_complete_result(
         self,
         identity: _Identity,
         detector_identity: DetectorIngressIdentity | None,
-        reason: Literal["candidate_pause", "periodic_no_vad", "strict_retry"],
+        reason: CompletionReason,
         *,
         probability: float | None,
         evaluation_tail: tuple[_AudioItem, ...],
         wait_for_commit: bool = False,
     ) -> None:
-        self._strict_endpoint_deadline = None
-        self._smart_turn_diagnostics.complete(reason=reason)
-        self._complete_observed_candidate(detector_identity)
         active_identity = identity
         if self._on_completion_fence is not None and detector_identity is not None:
             active_identity = self._on_completion_fence(
                 *identity,
                 detector_identity,
             )
+            if active_identity is None:
+                # The detector retired this result (for example, after an
+                # overflow reset). Do not publish stale observability data or
+                # complete the retired candidate.
+                return
+        self._strict_endpoint_deadline = None
+        self._no_vad_deadline_cap = None
+        self._smart_turn_diagnostics.complete(reason=reason)
+        self._complete_observed_candidate(detector_identity)
         if active_identity == identity:
             self._observe_evaluation_tail(evaluation_tail)
         self._smart_turn_audio_evidence.complete(
@@ -1194,6 +1369,7 @@ class _VoiceTurnAdapter:
                     pcm16=tail_item.pcm16,
                     duration_us=tail_item.duration_us,
                     detector_identity=tail_item.detector_identity,
+                    no_vad_activity=tail_item.no_vad_activity,
                 )
             )
 
@@ -1348,6 +1524,9 @@ class DetectorFeedResult:
     throttle_available: bool
     endpointing_available: bool = True
     throttle_action: ThrottleAction | None = None
+    evidence: SpeechEvidence | None = None
+    audio_start_sample: int | None = None
+    admission_records: tuple[AdmissionActivity, ...] = ()
 
 
 class SmartTurnReadiness(Enum):
@@ -1362,13 +1541,34 @@ class SmartTurnReadiness(Enum):
 class SmartTurnLease:
     token: VoiceTurnToken
     _runtime: "DetectorRuntime"
+    _lease_id: int
     _released: bool = False
 
     async def release(self) -> None:
         if self._released:
             return
-        await self._runtime.release_endpointing(self.token)
+        await self._runtime.release_endpointing(self.token, self._lease_id)
         self._released = True
+
+
+@dataclass(frozen=True, slots=True)
+class DetectorCandidateRejectionLease:
+    """Revocable synchronous authority for one exact detector candidate."""
+
+    candidate: DetectorCandidateKey
+    shadow_candidate: SpeakerShadowCandidateKey
+    turn_token: VoiceTurnToken
+    _runtime: "DetectorRuntime"
+
+    def belongs_to(self, runtime: object) -> bool:
+        """Return whether this lease was issued by ``runtime``."""
+
+        return runtime is self._runtime
+
+    def commit(self) -> bool:
+        """Invalidate candidate authority without yielding the event loop."""
+
+        return self._runtime._commit_candidate_rejection(self)
 
 
 class DetectorRuntime:
@@ -1388,24 +1588,39 @@ class DetectorRuntime:
         on_turn_complete: Callable[[], Awaitable[None]] | None = None,
         on_endpointing_failure: Callable[[], Awaitable[None]] | None = None,
         on_event: Callable[[DetectorEvent], Awaitable[None]] | None = None,
+        admission_enabled: bool | None = None,
+        admission_config: AdmissionConfig | None = None,
+        admission_shadow_config: AdmissionConfig | None = None,
     ) -> None:
         if not 0.0 <= rnnoise_onset_probability <= 1.0:
             raise ValueError("RNNoise onset probability must be within [0, 1]")
+        if admission_enabled is None:
+            admission_enabled = os.environ.get("NEKO_ASR_ADMISSION", "0") == "1"
         if vad is None:
             config = SmartTurnConfig(enabled=True)
             vad = SileroVad(
                 enabled=True,
                 inference_error_limit=config.inference_error_limit,
             )
-            gate = SileroActivityGate(vad, config)
+            gate = (
+                AdmissionActivityGate(
+                    vad, config, admission_config=admission_config,
+                    admission_shadow_config=admission_shadow_config,
+                )
+                if admission_enabled else SileroActivityGate(vad, config)
+            )
         if gate is None:
             raise ValueError("DetectorRuntime gate is required with a custom VAD")
         self._vad = vad
         self._gate = gate
+        self.admission_enabled = isinstance(gate, AdmissionActivityGate)
+        if admission_enabled and not self.admission_enabled:
+            raise ValueError("admission requires an evidence-capable activity gate")
         self._lock = asyncio.Lock()
         self._load_attempted = False
         self._available = True
         self._closed = False
+        self._close_task: asyncio.Task[None] | None = None
         self._rnnoise_onset_probability = rnnoise_onset_probability
         self._resource_optimization_enabled = bool(resource_optimization_enabled)
         self._throttle_policy = throttle_policy or VoiceThrottlePolicy(
@@ -1429,12 +1644,19 @@ class DetectorRuntime:
         self._failure_watch_task: asyncio.Task[None] | None = None
         self._smart_turn_readiness = SmartTurnReadiness.UNLOADED
         self._smart_turn_token: VoiceTurnToken | None = None
+        self._smart_turn_generation_sequence = 0
+        self._smart_turn_generation: int | None = None
+        self._smart_turn_lease_sequence = 0
+        self._smart_turn_lease_ids: set[int] = set()
         self._prepare_task: asyncio.Task[bool] | None = None
         self._prepare_token: VoiceTurnToken | None = None
         self._prepare_epoch: int | None = None
+        self._prepare_waiters: dict[asyncio.Task[bool], int] = {}
+        self._prepare_generations: dict[asyncio.Task[bool], int] = {}
         self._overflow_reset_task: asyncio.Task[None] | None = None
         self._detector_epoch = 0
         self._sequence_no = 0
+        self.submitted_samples = 0
         self._ingress_token: VoiceIngressToken | None = None
         self._candidate_open = False
         self._candidate_generation = 0
@@ -1450,6 +1672,9 @@ class DetectorRuntime:
         self._speaker_shadow = speaker_shadow
         self._speaker_shadow_generation = 0
         self._speaker_shadow_candidate: SpeakerShadowCandidateKey | None = None
+        self._speaker_shadow_suppressed_candidate: (
+            tuple[int, SpeakerShadowScope] | None
+        ) = None
         if (
             provider_policy is not None
             and provider_policy.endpoint_authority == "smart_turn"
@@ -1478,7 +1703,12 @@ class DetectorRuntime:
                 buffer_epoch: int,
                 turn_id: int,
                 identity: DetectorIngressIdentity,
-            ) -> _Identity:
+            ) -> _Identity | None:
+                if identity.detector_epoch != self._detector_epoch:
+                    # A result evaluated before an overflow reset must not
+                    # advance the successor epoch's semantic identity or
+                    # publish stale diagnostics/evidence.
+                    return None
                 successor_present = self._sequence_no > identity.sequence_no
                 fence = SmartTurnCompletionFence(
                     detector_epoch=identity.detector_epoch,
@@ -1488,6 +1718,7 @@ class DetectorRuntime:
                     semantic_turn_id=turn_id,
                     successor_candidate_generation=self._candidate_generation + 1,
                     successor_present=successor_present,
+                    admission_confirmed=(not self.admission_enabled or self._gate.had_admission),
                 )
                 self._completion_fences[(generation, buffer_epoch, turn_id)] = fence
                 self._semantic_generation += 1
@@ -1508,6 +1739,15 @@ class DetectorRuntime:
                     (generation, buffer_epoch, turn_id),
                     None,
                 )
+                if fence is not None and not fence.admission_confirmed:
+                    self._deferred_completions.pop(fence.candidate, None)
+                    return
+                if fence is None and (generation, turn_id) != (
+                    self._semantic_generation,
+                    self._semantic_turn_id,
+                ):
+                    # An overflow or reset already retired this semantic turn.
+                    return
                 if fence is None:
                     self._candidate_open = False
                     self._policy_event_candidate = None
@@ -1554,6 +1794,8 @@ class DetectorRuntime:
                             self._candidate_generation,
                         ),
                         activity=event,
+                        evidence=self.admission_evidence,
+                        audio_start_sample=(self._gate.event_audio_start_sample if self.admission_enabled else None),
                     )
                 )
 
@@ -1569,6 +1811,8 @@ class DetectorRuntime:
                 ):
                     return
                 fence = self._completion_fences.get((generation, buffer_epoch, turn_id))
+                if fence is not None and not fence.admission_confirmed:
+                    return
                 candidate = (
                     fence.candidate
                     if fence is not None
@@ -1589,16 +1833,8 @@ class DetectorRuntime:
                 on_activity=activity,
                 on_scoped_commit=scoped_commit,
                 on_scoped_activity=scoped_activity,
-                on_accepted_audio=(
-                    self._observe_smart_turn_speaker_shadow
-                    if self._speaker_shadow is not None
-                    else None
-                ),
-                on_candidate_complete=(
-                    self._finish_smart_turn_speaker_shadow
-                    if self._speaker_shadow is not None
-                    else None
-                ),
+                on_accepted_audio=self._observe_smart_turn_speaker_shadow,
+                on_candidate_complete=self._finish_smart_turn_speaker_shadow,
                 candidate_complete_confirmation_seconds=(
                     candidate_complete_confirmation_seconds
                 ),
@@ -1610,12 +1846,34 @@ class DetectorRuntime:
         return self._smart_turn_readiness
 
     @property
+    def admission_evidence(self):
+        return self._gate.event_evidence if self.admission_enabled else None
+
+    @property
     def detector_epoch(self) -> int:
         return self._detector_epoch
 
     @property
     def candidate_open(self) -> bool:
         return self._candidate_open
+
+    @property
+    def recovery_boundary_ready(self) -> bool:
+        """Expose local raw pause/idle, never provider candidate ownership.
+
+        Read after the serialized audio feed completes. Unavailable or unloaded
+        VAD cannot establish a safe boundary, including SmartTurn fallback.
+        """
+        if self._closed or not self._available:
+            return False
+        adapter = self._semantic_adapter
+        if adapter is not None:
+            if (adapter.failed or not adapter._vad_available
+                    or not adapter.throttle_available):
+                return False
+        elif not self._load_attempted:
+            return False
+        return getattr(self._gate, "recovery_boundary_ready", False) is True
 
     @property
     def throttle_shadow_metrics(self) -> ThrottleShadowMetrics:
@@ -1666,6 +1924,80 @@ class DetectorRuntime:
         if deferred is not None:
             await self._publish_bound_completion(candidate, deferred)
         return bound
+
+    async def prepare_candidate_rejection(
+        self,
+        shadow_candidate: SpeakerShadowCandidateKey,
+    ) -> DetectorCandidateRejectionLease | None:
+        """Map one private speaker observation to current detector authority.
+
+        This is phase one only: it captures a revocable lease under the
+        detector lock but changes no ASR state. The runtime later commits it
+        synchronously inside its final-serialization boundary.
+        """
+
+        if type(shadow_candidate) is not SpeakerShadowCandidateKey:
+            return None
+        async with self._lock:
+            if (
+                self._closed
+                or not self._candidate_open
+                or shadow_candidate != self._speaker_shadow_candidate
+                or shadow_candidate.detector_epoch != self._detector_epoch
+            ):
+                return None
+            candidate = DetectorCandidateKey(
+                self._detector_epoch,
+                self._candidate_generation,
+            )
+            bound = self._bound_turns.get(candidate)
+            if bound is None:
+                return None
+            return DetectorCandidateRejectionLease(
+                candidate=candidate,
+                shadow_candidate=shadow_candidate,
+                turn_token=bound.turn_token,
+                _runtime=self,
+            )
+
+    def _commit_candidate_rejection(
+        self,
+        lease: DetectorCandidateRejectionLease,
+    ) -> bool:
+        """Apply phase two only while no detector coroutine owns its lock."""
+
+        if type(lease) is not DetectorCandidateRejectionLease:
+            return False
+        # A detector coroutine may hold the lock across an await. Mutating its
+        # authority concurrently would violate the lease proof, so ambiguity
+        # always forwards the candidate.
+        if self._lock.locked():
+            return False
+        candidate = lease.candidate
+        bound = self._bound_turns.get(candidate)
+        if (
+            lease._runtime is not self
+            or self._closed
+            or not self._candidate_open
+            or candidate.detector_epoch != self._detector_epoch
+            or candidate.candidate_generation != self._candidate_generation
+            or lease.shadow_candidate != self._speaker_shadow_candidate
+            or bound is None
+            or bound.turn_token != lease.turn_token
+        ):
+            return False
+
+        self._bound_turns.pop(candidate, None)
+        self._deferred_completions.pop(candidate, None)
+        self._candidate_generation += 1
+        self._candidate_open = False
+        self._policy_event_candidate = None
+        self._provider_candidate_fence = None
+        self._throttle_policy.reset_candidate_activity()
+        self._finish_speaker_shadow_candidate(
+            expected_scope=lease.shadow_candidate.scope,
+        )
+        return True
 
     async def _publish_bound_completion(
         self,
@@ -1732,7 +2064,7 @@ class DetectorRuntime:
                     self._smart_turn_token == token
                     and self._smart_turn_readiness is SmartTurnReadiness.READY
                 ):
-                    return SmartTurnLease(token, self)
+                    return self._acquire_endpointing_lease_locked(token)
                 if self._smart_turn_token is not None:
                     return None
                 if (
@@ -1740,11 +2072,18 @@ class DetectorRuntime:
                     and self._prepare_task is None
                 ):
                     adapter.pin_smart_turn()
+                    self._smart_turn_generation_sequence += 1
+                    self._smart_turn_generation = (
+                        self._smart_turn_generation_sequence
+                    )
                     self._smart_turn_token = token
-                    return SmartTurnLease(token, self)
+                    return self._acquire_endpointing_lease_locked(token)
                 if self._prepare_task is not None:
                     if self._prepare_token == token:
                         prepare_task = self._prepare_task
+                        self._prepare_waiters[prepare_task] = (
+                            self._prepare_waiters.get(prepare_task, 0) + 1
+                        )
                     elif self._prepare_token is not None:
                         return None
                     else:
@@ -1759,24 +2098,76 @@ class DetectorRuntime:
                     self._prepare_token = token
                     self._prepare_epoch = self._detector_epoch
                     adapter.pin_smart_turn()
+                    self._smart_turn_generation_sequence += 1
+                    prepare_generation = self._smart_turn_generation_sequence
                     prepare_task = asyncio.create_task(
                         self._prepare_endpointing_task(
                             adapter,
                             coordinator,
                             token,
                             self._detector_epoch,
+                            prepare_generation,
                         ),
                         name="detector-runtime-smart-turn-prepare",
                     )
                     self._prepare_task = prepare_task
+                    self._prepare_waiters[prepare_task] = 1
+                    self._prepare_generations[prepare_task] = prepare_generation
             if stale_task is None:
                 break
             await asyncio.gather(stale_task, return_exceptions=True)
-        if prepare_task is None or not await asyncio.shield(prepare_task):
+        if prepare_task is None:
             return None
-        if self.endpointing_ready(token):
-            return SmartTurnLease(token, self)
-        return None
+        prepared = False
+        try:
+            prepared = await asyncio.shield(prepare_task)
+        finally:
+            lease = await self._finish_prepare_waiter(
+                prepare_task,
+                token,
+                acquire=prepared,
+            )
+        return lease
+
+    def _acquire_endpointing_lease_locked(
+        self,
+        token: VoiceTurnToken,
+    ) -> SmartTurnLease:
+        self._smart_turn_lease_sequence += 1
+        lease_id = self._smart_turn_lease_sequence
+        self._smart_turn_lease_ids.add(lease_id)
+        return SmartTurnLease(token, self, lease_id)
+
+    async def _finish_prepare_waiter(
+        self,
+        prepare_task: asyncio.Task[bool],
+        token: VoiceTurnToken,
+        *,
+        acquire: bool,
+    ) -> SmartTurnLease | None:
+        async with self._lock:
+            waiter_count = self._prepare_waiters.get(prepare_task, 0)
+            prepare_generation = self._prepare_generations.get(prepare_task)
+            if waiter_count <= 1:
+                self._prepare_waiters.pop(prepare_task, None)
+                self._prepare_generations.pop(prepare_task, None)
+            else:
+                self._prepare_waiters[prepare_task] = waiter_count - 1
+            if acquire and self.endpointing_ready(token):
+                return self._acquire_endpointing_lease_locked(token)
+            if (
+                self._prepare_waiters.get(prepare_task, 0) == 0
+                and not self._smart_turn_lease_ids
+                and self._smart_turn_token == token
+                and self._smart_turn_generation == prepare_generation
+            ):
+                self._smart_turn_token = None
+                self._smart_turn_generation = None
+                self._smart_turn_readiness = SmartTurnReadiness.UNLOADED
+                adapter = self._semantic_adapter
+                if adapter is not None:
+                    adapter.unpin_smart_turn()
+            return None
 
     async def _prepare_endpointing_task(
         self,
@@ -1784,6 +2175,7 @@ class DetectorRuntime:
         coordinator: TurnCoordinator,
         token: VoiceTurnToken,
         detector_epoch: int,
+        prepare_generation: int,
     ) -> bool:
         loaded = False
         prepare_error: BaseException | None = None
@@ -1795,10 +2187,11 @@ class DetectorRuntime:
             prepare_error = exc
         prepared = False
         async with self._lock:
-            owns_prepare = self._prepare_task is asyncio.current_task()
+            current_task = asyncio.current_task()
+            owns_prepare = self._prepare_task is current_task
             if owns_prepare:
                 self._prepare_task = None
-            valid = bool(
+            valid_state = bool(
                 owns_prepare
                 and not self._closed
                 and not adapter.failed
@@ -1806,19 +2199,28 @@ class DetectorRuntime:
                 and self._prepare_epoch == detector_epoch
                 and self._detector_epoch == detector_epoch
             )
+            has_waiters = bool(
+                current_task is not None
+                and self._prepare_waiters.get(current_task, 0) > 0
+            )
             if owns_prepare:
                 # Only the registered single-flight owner may clear these; a
                 # detached task must not clobber a successor's fields.
                 self._prepare_token = None
                 self._prepare_epoch = None
-            if valid and loaded and prepare_error is None:
+            if valid_state and has_waiters and loaded and prepare_error is None:
                 self._smart_turn_token = token
+                self._smart_turn_generation = prepare_generation
                 self._smart_turn_readiness = SmartTurnReadiness.READY
                 prepared = True
             else:
                 adapter.unpin_smart_turn()
-            if valid and not prepared:
-                self._smart_turn_readiness = SmartTurnReadiness.FAILED
+            if valid_state and not prepared:
+                self._smart_turn_readiness = (
+                    SmartTurnReadiness.FAILED
+                    if has_waiters
+                    else SmartTurnReadiness.UNLOADED
+                )
         if isinstance(prepare_error, asyncio.CancelledError):
             raise prepare_error
         return prepared
@@ -1843,13 +2245,21 @@ class DetectorRuntime:
             and self._smart_turn_token == token
         )
 
-    async def release_endpointing(self, token: VoiceTurnToken) -> None:
+    async def release_endpointing(
+        self,
+        token: VoiceTurnToken,
+        lease_id: int,
+    ) -> None:
         async with self._lock:
-            if self._smart_turn_token != token and self._prepare_token != token:
+            if lease_id not in self._smart_turn_lease_ids:
+                return
+            self._smart_turn_lease_ids.remove(lease_id)
+            if self._smart_turn_lease_ids:
+                return
+            if self._smart_turn_token != token:
                 return
             self._smart_turn_token = None
-            self._prepare_token = None
-            self._prepare_epoch = None
+            self._smart_turn_generation = None
             self._smart_turn_readiness = SmartTurnReadiness.UNLOADED
             adapter = self._semantic_adapter
             if adapter is not None:
@@ -1861,6 +2271,8 @@ class DetectorRuntime:
             if self._smart_turn_token != token and self._prepare_token != token:
                 return
             self._smart_turn_token = None
+            self._smart_turn_generation = None
+            self._smart_turn_lease_ids.clear()
             self._prepare_token = None
             self._prepare_epoch = None
             self._detector_epoch += 1
@@ -1897,6 +2309,7 @@ class DetectorRuntime:
         rnnoise_evidence: RnnoiseEvidence | None = None,
         ingress_token: VoiceIngressToken | None = None,
         allow_baseline_update: bool = False,
+        source_end_sample: int | None = None,
     ) -> DetectorFeedResult:
         if not isinstance(pcm16, bytes) or len(pcm16) % 2:
             raise ValueError("DetectorRuntime requires complete PCM16 bytes")
@@ -1928,6 +2341,7 @@ class DetectorRuntime:
                 rnnoise_available=bool(rnnoise_available),
                 rnnoise_evidence=rnnoise_evidence,
                 allow_baseline_update=allow_baseline_update,
+                source_end_sample=source_end_sample,
             )
             if submitted.status is DetectorSubmitStatus.SKIPPED_QUIET:
                 return DetectorFeedResult(
@@ -1996,7 +2410,7 @@ class DetectorRuntime:
                 candidate_open=candidate_admission_open,
                 allow_baseline_update=allow_baseline_update,
             )
-            if throttle.action is ThrottleAction.SKIP_IDLE_PCM:
+            if throttle.action is ThrottleAction.SKIP_IDLE_PCM and not self.admission_enabled:
                 return DetectorFeedResult(
                     (),
                     True,
@@ -2015,7 +2429,15 @@ class DetectorRuntime:
                         throttle_action=throttle.action,
                     )
             try:
-                events = tuple(await asyncio.to_thread(self._gate.feed, pcm16))
+                if self.admission_enabled:
+                    self.submitted_samples = (
+                        source_end_sample if source_end_sample is not None
+                        else self.submitted_samples + len(pcm16) // 2
+                    )
+                    await asyncio.to_thread(self._gate.feed_at, pcm16, self.submitted_samples)
+                    events = self._gate.admission_events
+                else:
+                    events = tuple(await asyncio.to_thread(self._gate.feed, pcm16))
             except Exception:
                 self._available = False
                 return DetectorFeedResult(
@@ -2055,7 +2477,10 @@ class DetectorRuntime:
         return DetectorFeedResult(
             events,
             True,
-            throttle_action=throttle.action,
+            throttle_action=(None if self.admission_enabled else throttle.action),
+            evidence=self.admission_evidence,
+            audio_start_sample=(self._gate.event_audio_start_sample if self.admission_enabled else None),
+            admission_records=(self._gate.admission_records if self.admission_enabled else ()),
         )
 
     def observe_provider_audio(
@@ -2086,7 +2511,13 @@ class DetectorRuntime:
             candidate=candidate,
         )
 
-    async def seal_provider_candidate(self) -> ProviderCandidateFence | None:
+    async def seal_provider_candidate(
+        self,
+        *,
+        preserve_admission: bool = False,
+        admission_start_sample: int | None = None,
+        admission_boundary: Callable[[], int] | None = None,
+    ) -> ProviderCandidateFence | None:
         """Seal local detector activity after a streaming Provider endpoint."""
 
         async with self._lock:
@@ -2095,11 +2526,18 @@ class DetectorRuntime:
             existing = self._provider_candidate_fence
             if existing is not None:
                 return existing
+            # A feed may have committed another old-turn block while this
+            # operation waited for the detector lock. Resolve ownership here,
+            # synchronously, so the fence and admission boundary are atomic.
+            if admission_boundary is not None:
+                admission_start_sample = admission_boundary()
             fence = ProviderCandidateFence(
                 detector_epoch=self._detector_epoch,
                 candidate_generation=self._candidate_generation,
                 through_sequence_no=self._sequence_no,
             )
+            if self.admission_enabled and not preserve_admission:
+                self._gate.seal_admission(start_sample=admission_start_sample)
             self._provider_candidate_fence = fence
             self._provider_discarded_through_sequence_no = None
             self._candidate_generation += 1
@@ -2133,6 +2571,11 @@ class DetectorRuntime:
             self._policy_event_candidate = None
             self._throttle_policy.reset_candidate_activity()
             self._reset_speaker_shadow_identity()
+            if self._speaker_shadow_suppressed_candidate == (
+                self._detector_epoch,
+                "provider_candidate",
+            ):
+                self._speaker_shadow_suppressed_candidate = None
             speaker_shadow = self._speaker_shadow
         await self._reset_speaker_shadow(speaker_shadow)
         return True
@@ -2166,6 +2609,115 @@ class DetectorRuntime:
                 self._throttle_policy.reset_candidate_activity()
             return successor_present
 
+    async def wait_audio_capacity(
+        self,
+        pcm16: bytes,
+        *,
+        sample_rate_hz: int,
+        deadline: float,
+        ingress_token: VoiceIngressToken | None = None,
+    ) -> bool:
+        """Wait for the complete queue/evaluation-tail admission budget."""
+        if not isinstance(pcm16, bytes) or len(pcm16) % 2:
+            raise ValueError("DetectorRuntime requires complete PCM16 bytes")
+        if sample_rate_hz <= 0:
+            raise ValueError("DetectorRuntime sample rate must be positive")
+        adapter = self._semantic_adapter
+        epoch = self._detector_epoch
+        if self._closed or adapter is None or adapter.failed:
+            return False
+        if not pcm16:
+            return True
+        duration_us = (len(pcm16) // 2 * 1_000_000 + sample_rate_hz - 1) // sample_rate_hz
+        candidate_identity = None
+        detector_identity = None
+        if ingress_token is not None:
+            candidate_identity = (
+                self._semantic_generation,
+                0,
+                self._semantic_turn_id,
+            )
+            detector_identity = DetectorIngressIdentity(
+                ingress_token=ingress_token,
+                detector_epoch=self._detector_epoch,
+                sequence_no=self._sequence_no + 1,
+            )
+        capacity_check = getattr(adapter, "_audio_capacity_available", None)
+        if (
+            self._semantic_adapter is not adapter
+            or self._detector_epoch != epoch
+        ):
+            return False
+        if capacity_check is not None and capacity_check(
+            duration_us,
+            identity=candidate_identity,
+            detector_identity=detector_identity,
+        ):
+            return True
+        # Queue dequeue and retained evaluation/confirmation tails are
+        # independent capacity changes.  Waiting only on the queue can wake
+        # while a tail still occupies the shared budget and turn temporary
+        # backpressure into a session-failing overflow.
+        loop = asyncio.get_running_loop()
+        tail_changed = getattr(adapter, "_tail_capacity_changed", None)
+        while loop.time() < deadline:
+            if (
+                self._closed
+                or adapter.failed
+                or self._semantic_adapter is not adapter
+                or self._detector_epoch != epoch
+            ):
+                return False
+            complete_capacity = (
+                adapter._queue.can_accept_audio(duration_us)
+                if capacity_check is None
+                else capacity_check(
+                    duration_us,
+                    identity=candidate_identity,
+                    detector_identity=detector_identity,
+                )
+            )
+            if complete_capacity:
+                return True
+            # If the queue already has room, its wait method would complete
+            # immediately and spin while a retained tail is still full.  In
+            # that case wait only for the tail event.
+            queue_wait = None
+            if not adapter._queue.can_accept_audio(duration_us):
+                queue_wait = asyncio.create_task(
+                    adapter._queue.wait_audio_capacity(duration_us, deadline)
+                )
+            tail_wait = (
+                asyncio.create_task(tail_changed.wait())
+                if tail_changed is not None
+                else None
+            )
+            waiters = set()
+            if queue_wait is not None:
+                waiters.add(queue_wait)
+            if tail_wait is not None:
+                waiters.add(tail_wait)
+            if not waiters:
+                return False
+            try:
+                await asyncio.wait(
+                    waiters,
+                    timeout=max(0.0, deadline - loop.time()),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                for waiter in waiters:
+                    if not waiter.done():
+                        waiter.cancel()
+                await asyncio.gather(*waiters, return_exceptions=True)
+            if tail_wait is not None and tail_wait.done() and tail_changed is not None:
+                tail_changed.clear()
+            if self._closed or adapter.failed or self._semantic_adapter is not adapter:
+                return False
+            if self._detector_epoch != epoch:
+                return False
+        return False
+
     async def submit_audio(
         self,
         pcm16: bytes,
@@ -2176,6 +2728,7 @@ class DetectorRuntime:
         rnnoise_available: bool,
         rnnoise_evidence: RnnoiseEvidence | None = None,
         allow_baseline_update: bool = False,
+        source_end_sample: int | None = None,
     ) -> DetectorSubmitResult:
         """Validate and enqueue one frame without waiting for detector inference."""
 
@@ -2240,7 +2793,7 @@ class DetectorRuntime:
             candidate_open=self._candidate_open,
             allow_baseline_update=allow_baseline_update,
         )
-        if throttle.action is ThrottleAction.SKIP_IDLE_PCM:
+        if throttle.action is ThrottleAction.SKIP_IDLE_PCM and not self.admission_enabled:
             return DetectorSubmitResult(
                 DetectorSubmitStatus.SKIPPED_QUIET,
                 adapter.throttle_available,
@@ -2255,6 +2808,10 @@ class DetectorRuntime:
             ingress_token=ingress_token,
             detector_epoch=self._detector_epoch,
             sequence_no=next_sequence,
+            audio_end_sample=(
+                source_end_sample if source_end_sample is not None
+                else self.submitted_samples + len(pcm16) // 2
+            ),
         )
         try:
             await adapter.push_audio(
@@ -2264,6 +2821,16 @@ class DetectorRuntime:
                 pcm16=pcm16,
                 sample_rate_hz=sample_rate_hz,
                 detector_identity=identity,
+                no_vad_activity=(
+                    bool(
+                        evidence.available
+                        and evidence.frame_count > 0
+                        and evidence.peak is not None
+                        and evidence.peak >= throttle.onset_threshold
+                    )
+                    if evidence.available and evidence.frame_count > 0
+                    else None
+                ),
             )
         except asyncio.QueueFull:
             self._detector_epoch += 1
@@ -2301,6 +2868,7 @@ class DetectorRuntime:
                 None,
             )
         self._sequence_no = next_sequence
+        self.submitted_samples = identity.audio_end_sample
         candidate = DetectorCandidateKey(
             identity.detector_epoch,
             self._candidate_generation,
@@ -2318,7 +2886,7 @@ class DetectorRuntime:
                     candidate=candidate,
                     kind=(
                         "continuous"
-                        if throttle.action is ThrottleAction.PROCESS_PCM
+                        if throttle.action is ThrottleAction.PROCESS_PCM and not self.admission_enabled
                         else "prewarm"
                     ),
                 )
@@ -2363,6 +2931,9 @@ class DetectorRuntime:
                         self._smart_turn_readiness = SmartTurnReadiness.FAILED
 
     async def reset(self) -> None:
+        capacity_queue = getattr(self._semantic_adapter, "_queue", None)
+        if capacity_queue is not None:
+            capacity_queue.invalidate_capacity_waiters()
         overflow_reset_task = self._overflow_reset_task
         if (
             overflow_reset_task is not None
@@ -2393,6 +2964,8 @@ class DetectorRuntime:
                 self._speech_active = False
                 self._prepare_token = None
                 self._prepare_epoch = None
+                self._smart_turn_generation = None
+                self._smart_turn_lease_ids.clear()
                 self._smart_turn_readiness = SmartTurnReadiness.UNLOADED
                 if self._semantic_adapter is not None and self._semantic_started:
                     if self._smart_turn_token is not None:
@@ -2423,6 +2996,75 @@ class DetectorRuntime:
         finally:
             await self._reset_speaker_shadow(speaker_shadow)
 
+    async def replace_speaker_verifier(
+        self,
+        new_shadow: SpeakerShadowObserver | None,
+    ) -> None:
+        """Atomically replace speaker observation for the next candidate.
+
+        An active candidate is deliberately left unobserved after the swap. Its
+        old observations are invalidated by generation, and the replacement is
+        admitted only after the authoritative provider/SmartTurn boundary.
+        Closing the detached observer happens outside the detector lock and is
+        bounded so verifier cleanup cannot stall endpointing or ASR.
+        """
+
+        detached_shadow: SpeakerShadowObserver | None = None
+        rejected_shadow: SpeakerShadowObserver | None = None
+        async with self._lock:
+            if self._closed:
+                if new_shadow is not self._speaker_shadow:
+                    rejected_shadow = new_shadow
+            elif new_shadow is self._speaker_shadow:
+                return
+            else:
+                suppressed = self._speaker_shadow_suppressed_candidate
+                if suppressed is not None and suppressed[0] != self._detector_epoch:
+                    self._speaker_shadow_suppressed_candidate = None
+                candidate = self._speaker_shadow_candidate
+                if candidate is not None:
+                    self._speaker_shadow_suppressed_candidate = (
+                        self._detector_epoch,
+                        candidate.scope,
+                    )
+                elif (
+                    self._candidate_open
+                    and self._speaker_shadow_suppressed_candidate is None
+                ):
+                    scope: SpeakerShadowScope = (
+                        "smart_turn_turn"
+                        if self._semantic_adapter is not None
+                        else "provider_candidate"
+                    )
+                    self._speaker_shadow_suppressed_candidate = (
+                        self._detector_epoch,
+                        scope,
+                    )
+                self._speaker_shadow_generation += 1
+                self._speaker_shadow_candidate = None
+                detached_shadow, self._speaker_shadow = (
+                    self._speaker_shadow,
+                    new_shadow,
+                )
+
+        cleanup_shadow = (
+            detached_shadow if detached_shadow is not None else rejected_shadow
+        )
+        if cleanup_shadow is None:
+            return
+        try:
+            await asyncio.wait_for(
+                self._close_speaker_shadow(cleanup_shadow),
+                timeout=_SPEAKER_SHADOW_REPLACEMENT_CLOSE_SECONDS,
+            )
+        except TimeoutError:
+            return
+        except asyncio.CancelledError:
+            current_task = asyncio.current_task()
+            if current_task is not None and current_task.cancelling():
+                raise
+            return
+
     async def release_deferred_turn(self) -> None:
         """Release a deferred SmartTurn completion after the prior final."""
 
@@ -2450,6 +3092,16 @@ class DetectorRuntime:
             await callback()
 
     async def close(self) -> None:
+        close_task = self._close_task
+        if close_task is None:
+            close_task = asyncio.create_task(
+                self._close_impl(),
+                name="detector-runtime-close",
+            )
+            self._close_task = close_task
+        await asyncio.shield(close_task)
+
+    async def _close_impl(self) -> None:
         adapter: _VoiceTurnAdapter | None = None
         vad = None
         prepare_task: asyncio.Task[bool] | None = None
@@ -2461,6 +3113,9 @@ class DetectorRuntime:
                     return
                 self._closed = True
                 self._detector_epoch += 1
+                capacity_queue = getattr(self._semantic_adapter, "_queue", None)
+                if capacity_queue is not None:
+                    capacity_queue.invalidate_capacity_waiters()
                 self._reset_speaker_shadow_identity()
                 speaker_shadow = self._speaker_shadow
                 self._candidate_generation = 0
@@ -2479,6 +3134,8 @@ class DetectorRuntime:
                 if self._semantic_adapter is not None:
                     overflow_reset_task = self._overflow_reset_task
                     self._smart_turn_token = None
+                    self._smart_turn_generation = None
+                    self._smart_turn_lease_ids.clear()
                     self._prepare_token = None
                     self._prepare_epoch = None
                     prepare_task, self._prepare_task = self._prepare_task, None
@@ -2539,6 +3196,13 @@ class DetectorRuntime:
         self,
         scope: Literal["provider_candidate", "smart_turn_turn"],
     ) -> SpeakerShadowCandidateKey | None:
+        suppressed = self._speaker_shadow_suppressed_candidate
+        if suppressed is not None:
+            suppressed_epoch, suppressed_scope = suppressed
+            if suppressed_epoch != self._detector_epoch or suppressed_scope != scope:
+                self._speaker_shadow_suppressed_candidate = None
+            else:
+                return None
         shadow = self._speaker_shadow
         if shadow is None:
             return None
@@ -2582,6 +3246,12 @@ class DetectorRuntime:
         candidate = self._speaker_shadow_candidate
         self._speaker_shadow_candidate = None
         self._speaker_shadow_generation += 1
+        suppressed = self._speaker_shadow_suppressed_candidate
+        if suppressed is not None and (
+            suppressed[0] != self._detector_epoch
+            or suppressed[1] == expected_scope
+        ):
+            self._speaker_shadow_suppressed_candidate = None
         if candidate is None or candidate.scope != expected_scope:
             return
         shadow = self._speaker_shadow

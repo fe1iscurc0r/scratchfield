@@ -31,6 +31,7 @@ from starlette.requests import Request
 
 from system.config import get_config as _get_config
 from system.config import get_data_dir
+from apiserver.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def _set_secure_file_permission(file_path: Path):
     """
     try:
         if sys.platform == 'win32':
-            username = os.environ.get("USERNAME", "")
+            username = settings.os_username()
             if username:
                 subprocess.run(
                     ['icacls', str(file_path), '/inheritance:r', '/grant:r',

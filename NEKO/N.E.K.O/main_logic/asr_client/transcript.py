@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from main_logic.voice_turn.admission import SpeechEvidence
+
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -177,6 +179,7 @@ class TranscriptEnvelope:
     turn_token: VoiceTurnToken
     provider: str
     text: str
+    evidence: SpeechEvidence | None = None
 
     @property
     def final_key(self) -> FinalKey:
@@ -200,10 +203,39 @@ class TranscriptDispatcher:
             maxsize=capacity
         )
         self._reservations: set[FinalKey] = set()
+        # One delivery ledger spans accepted reservations, queued envelopes
+        # and active dispatch; moving between stages does not change it.
+        self._pending_turns: dict[FinalKey, VoiceTurnToken] = {}
         self._worker: asyncio.Task[None] | None = None
         self._active: TranscriptEnvelope | None = None
         self._idle = asyncio.Event()
         self._idle.set()
+
+    @property
+    def has_pending_delivery(self) -> bool:
+        """Return whether an accepted final still owns delivery priority."""
+
+        return bool(
+            self._reservations
+            or not self._queue.empty()
+            or self._active is not None
+        )
+
+    def pending_turn_tokens(self) -> frozenset[VoiceTurnToken]:
+        """Return turns whose accepted final is not yet delivered to Core."""
+
+        return frozenset(self._pending_turns.values())
+
+    def mark_accepted(self, key: FinalKey, turn_token: VoiceTurnToken) -> None:
+        """Pin a reserved slot whose final was accepted but not yet submitted."""
+
+        if key not in self._reservations:
+            raise RuntimeError("ASR_TRANSCRIPT_SLOT_NOT_RESERVED")
+        self._pending_turns[key] = turn_token
+        self._idle.clear()
+
+    def holds_accepted(self, key: FinalKey) -> bool:
+        return key in self._reservations and key in self._pending_turns
 
     def try_reserve(self, key: FinalKey) -> bool:
         if key in self._reservations:
@@ -219,7 +251,9 @@ class TranscriptDispatcher:
         return True
 
     def release(self, key: FinalKey) -> None:
-        self._reservations.discard(key)
+        if key in self._reservations:
+            self._reservations.remove(key)
+            self._pending_turns.pop(key, None)
         self._set_idle_if_empty()
 
     def submit(self, envelope: TranscriptEnvelope) -> None:
@@ -228,6 +262,7 @@ class TranscriptDispatcher:
             raise RuntimeError("ASR_TRANSCRIPT_SLOT_NOT_RESERVED")
         self._reservations.remove(key)
         self._queue.put_nowait(envelope)
+        self._pending_turns[key] = envelope.turn_token
         self._idle.clear()
         self._ensure_worker()
 
@@ -235,6 +270,7 @@ class TranscriptDispatcher:
         """Synchronously cancel active/queued Core work at an identity barrier."""
 
         self._reservations.clear()
+        self._pending_turns.clear()
         while True:
             try:
                 self._queue.get_nowait()
@@ -243,18 +279,38 @@ class TranscriptDispatcher:
                 break
         worker, self._worker = self._worker, None
         if worker is not None and not worker.done():
-            worker.cancel()
+            # 不要取消调用者自己。收口路径（例如独立 ASR final 里发现会话不可用后
+            # 调 _close_independent_asr）本身就跑在这个 worker 上：取消它会让紧接着
+            # 的那个 await 抛 CancelledError，剩下的 detector/provider 清理和
+            # send_session_ended_by_server() 全部被跳过，前端也就收不到结束通知。
+            # 队列已经清空、_worker 也已置 None，所以不取消它也不会再接新活，
+            # 当前这一条 envelope 跑完就自然结束。
+            if worker is not asyncio.current_task():
+                worker.cancel()
         self._active = None
         self._idle.set()
 
     async def wait_idle(self) -> None:
         """Await dispatch quiescence: no queued and no active envelope.
 
-        This is not "no turn in flight". Outstanding reservations are
-        excluded on purpose; see ``_set_idle_if_empty``.
+        Accepted reservations are pending delivery even while their owner
+        awaits lease release. Unaccepted reservations are excluded; see
+        ``_set_idle_if_empty``.
         """
 
         await self._idle.wait()
+
+    def when_idle(self, callback: Callable[[], None]) -> None:
+        """Run one owned terminal cleanup after accepted delivery settles.
+
+        This creates no extra waiter or delivery deadline. User cancellation
+        still invalidates this dispatcher normally; the callback must fence
+        its own runtime operation before doing anything.
+        """
+        if self._idle.is_set():
+            callback()
+        else:
+            self._idle_callback = callback
 
     def _ensure_worker(self) -> None:
         if self._worker is not None and not self._worker.done():
@@ -284,16 +340,27 @@ class TranscriptDispatcher:
                         self._worker is worker_task
                         and self._active is envelope
                     ):
+                        self._pending_turns.pop(envelope.final_key, None)
                         self._active = None
                         self._set_idle_if_empty()
+                if self._worker is not worker_task:
+                    # invalidate_all() 已经把我们从 _worker 上摘掉了（而且刻意没有
+                    # 取消调用者自己）。跑完手头这条 envelope 就必须退出 —— 再回去
+                    # await self._queue.get() 会变成一个和新 worker 并存的僵尸，
+                    # 两个消费者抢同一个队列。
+                    return
         except asyncio.CancelledError:
             return
 
     def _set_idle_if_empty(self) -> None:
-        # Reservations are deliberately NOT part of the idle predicate. A slot
+        # Unaccepted reservations are deliberately NOT part of the idle predicate. A slot
         # is reserved at turn preparation and stays held for the whole live
         # turn, and the next turn reserves its slot while the previous final
         # is still draining. Folding reservations in here would make
         # wait_idle() unsettleable for any back-to-back session.
-        if self._queue.empty() and self._active is None:
+        if self._queue.empty() and self._active is None and not self._pending_turns:
             self._idle.set()
+            callback = getattr(self, "_idle_callback", None)
+            self._idle_callback = None
+            if callback is not None:
+                callback()

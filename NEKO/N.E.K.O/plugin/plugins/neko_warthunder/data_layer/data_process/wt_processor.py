@@ -265,7 +265,7 @@ class TelemetryProcessor:
         self._reset_ammo_tracking()
 
     def _reset_ammo_tracking(self) -> None:
-        """清空本次出生的一级弹药基线。"""
+        """清空本次出生的一级候选基线。"""
         self._ammo_max: float | None = None        # 本次出生见过的最大一级弹（满弹估计）
         self._ammo_last_valid: float | None = None
         self._ammo_baseline_seen = False
@@ -518,7 +518,7 @@ class TelemetryProcessor:
                           f"涡环风险：低速{speed_kmh:.0f}km/h且下降{-vario:.0f}m/s", vario)
 
     def _process_ground(self, indicators: Any, cfg: dict[str, Any], result: ProcessedData) -> None:
-        """地面载具(坦克)告警：乘员阵亡 / 一级弹药耗尽 / 被激光照射。"""
+        """地面载具(坦克)告警：乘员阵亡 / 一级候选耗尽 / 被激光照射。"""
         crew_cur = getattr(indicators, "crew_current", None)
         crew_tot = getattr(indicators, "crew_total", None)
         ammo = getattr(indicators, "first_stage_ammo", None)
@@ -558,7 +558,7 @@ class TelemetryProcessor:
             message = "驾驶员正在补位，暂时无法机动" if driver_state == 2 else "驾驶员失能，暂无乘员补位"
             self._add(result, "driver_disabled", "warning", message, driver_state)
 
-        # 一级弹药（炮塔待发弹仓）：打空后再开火需从备弹长装填。
+        # 一级候选（炮塔待发弹仓）：打空后再开火需从备弹长装填。
         # 各车满弹量不同，用本架次见过的最大值作满弹估计，按比例自适应告警。
         if ammo is None or ammo < 0:
             # -1/缺失是不可用哨兵值。丢失有效性后必须重新观察正数基线。
@@ -572,7 +572,7 @@ class TelemetryProcessor:
             low_thr = (self._ammo_max or 0) * ratio
             if self._ammo_max and self._ammo_max > 3 and ammo <= low_thr:
                 self._add(result, "ammo_low", "info",
-                          f"一级弹药偏少：剩 {ammo:.0f}/{self._ammo_max:.0f} 发", ammo)
+                          f"一级候选偏少：剩 {ammo:.0f}/{self._ammo_max:.0f} 发", ammo)
             self._ammo_last_valid = ammo
         else:
             # 只有本次出生先见过正数，并明确从正数降到 0，才锁存“耗尽”。
@@ -580,7 +580,7 @@ class TelemetryProcessor:
                 self._ammo_empty_latched = True
             if self._ammo_empty_latched:
                 self._add(result, "ammo_empty", "warning",
-                          "一级弹药耗尽，装填变慢", ammo)
+                          "一级候选耗尽，装填变慢", ammo)
             self._ammo_last_valid = ammo
 
         # LWS：-1=无设备，0=待机，1=正在告警，2=设备损坏。

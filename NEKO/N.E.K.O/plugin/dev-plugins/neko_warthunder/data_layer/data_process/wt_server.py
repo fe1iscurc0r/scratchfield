@@ -433,7 +433,7 @@ class TelemetryService:
             if state is ConnectionState.IN_BATTLE:
                 respawned = self._update_dead_state_locked(ind, processed, now)
             if respawned:
-                # 当前 processed 在复活判定前生成，仍可能携带上一条命的弹药基线。
+                # 当前 processed 在复活判定前生成，仍可能携带上一条命的候选基线。
                 # 立即重置处理器并压掉当前帧；下一帧从新载具重新建立基线。
                 self.processor.reset()
                 self._life_entry_ts = now

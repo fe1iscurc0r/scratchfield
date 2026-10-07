@@ -71,4 +71,4 @@ rf_brain 新旁路模块 protocol_finder/（独立，不改现有 sensor/decisio
 
 urh 是「协议逆向 IDE」——rf_brain 是「频谱大脑」。授粉方向明确：**urh 的 FormatFinder 字段发现 + engines 语义引擎 + encoding 解码层** 恰好补 rf_brain 的「结构理解」空白，让 LLM 决策层从「猜调制」升级到「猜协议」。GPL-3.0 只读勘察，设计抄写（算法/接口是通用技术），代码独立实现（rf_brain 是 AGPL 主仓，不引 GPL 代码）。
 
-*—— 实验田维护者 · 耳朵有了，手有了，现在要给它一双会读协议的眼睛 🐾*
+*—— 沈遥 · 耳朵有了，手有了，现在要给它一双会读协议的眼睛 🐾*

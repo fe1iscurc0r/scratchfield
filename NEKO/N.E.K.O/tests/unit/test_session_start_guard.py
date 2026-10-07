@@ -1,12 +1,16 @@
 import asyncio
 import time
+import threading
+from types import SimpleNamespace
 from queue import Queue
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from main_logic.core import LLMSessionManager
 from main_logic.core import lifecycle as lifecycle_module
+from main_logic.core import streaming as streaming_module
+from main_logic.omni_offline_client import OmniOfflineClient
 
 from tests.fake_clock import patch_module_clock
 
@@ -17,6 +21,9 @@ def _make_inactive_manager(*, starting_count=1):
     mgr.input_cache_lock = asyncio.Lock()
     mgr.is_active = False
     mgr.session = None
+    mgr.message_handler_task = None
+    mgr.lanlan_name = "test"
+    mgr.send_status = AsyncMock()
     mgr._starting_session_count = starting_count
     mgr.session_ready = True
     mgr.pending_input_data = [{"input_type": "text", "data": "stale"}]
@@ -36,6 +43,28 @@ def _make_inactive_manager(*, starting_count=1):
     mgr._teardown_tts_runtime = _teardown_tts_runtime
     return mgr
 
+
+def _make_active_manager():
+    """A manager that actually reaches the main teardown (not inactive-early).
+
+    The inactive-early branch has its own pending_input_data clear (already gated
+    on reset_starting_count), so a test that takes that path passes for an
+    unrelated reason. This one must go through the active teardown.
+    """
+    mgr = _make_inactive_manager(starting_count=0)
+    mgr.is_active = True
+    mgr.session = AsyncMock()
+    mgr.pending_session = None
+    mgr.final_swap_task = None
+    mgr.background_preparation_task = None
+    mgr.state = MagicMock()
+    mgr.state.reset = AsyncMock()
+    mgr.sync_message_queue = MagicMock()
+    mgr.message_handler_task = None
+    mgr._activity_tracker = MagicMock()
+    mgr._master_emotion = MagicMock()
+    mgr._focus_scorer = MagicMock()
+    return mgr
 
 @pytest.mark.unit
 @pytest.mark.asyncio
@@ -66,32 +95,32 @@ async def test_inactive_end_session_preserves_starting_guard_for_internal_cleanu
 @pytest.mark.asyncio
 async def test_inactive_end_session_does_not_clear_next_start_pending_input():
     mgr = _make_inactive_manager(starting_count=1)
-    teardown_started = asyncio.Event()
-    finish_teardown = asyncio.Event()
+    finish_thread = threading.Event()
+    worker = threading.Thread(target=finish_thread.wait, daemon=True)
+    mgr.tts_thread = worker
+    worker.start()
+    end_task = mgr.request_end_session()
+    retirement = mgr._session_retirements[-1]
+    try:
+        await asyncio.wait_for(retirement.handoff_safe.wait(), 2.0)
+        assert not retirement.cleanup_complete.is_set()
+        assert worker.is_alive()
+        assert mgr._starting_session_count == 0
+        assert mgr.pending_input_data == []
 
-    async def _teardown_tts_runtime(*args, **kwargs):
-        teardown_started.set()
-        await finish_teardown.wait()
-
-    mgr._teardown_tts_runtime = _teardown_tts_runtime
-
-    end_task = asyncio.create_task(LLMSessionManager.end_session(mgr))
-    await teardown_started.wait()
-
-    assert mgr._starting_session_count == 0
-    assert mgr.pending_input_data == []
-
-    async with mgr.input_cache_lock:
-        mgr._starting_session_count = 1
-        mgr.session_ready = False
-        mgr.pending_input_data.append({"input_type": "text", "data": "new"})
-
-    finish_teardown.set()
-    await end_task
-
-    assert mgr._starting_session_count == 1
-    assert mgr.session_ready is False
-    assert mgr.pending_input_data == [{"input_type": "text", "data": "new"}]
+        async with mgr.input_cache_lock:
+            mgr._starting_session_count = 1
+            mgr.session_ready = False
+            mgr.pending_input_data.append({"input_type": "text", "data": "new"})
+        finish_thread.set()
+        await asyncio.wait_for(end_task, 2.0)
+        assert mgr._starting_session_count == 1
+        assert mgr.session_ready is False
+        assert mgr.pending_input_data == [{"input_type": "text", "data": "new"}]
+    finally:
+        finish_thread.set()
+        await asyncio.to_thread(worker.join, 2.0)
+        await asyncio.gather(end_task, return_exceptions=True)
 
 
 class _ConnectedState:
@@ -144,8 +173,9 @@ async def test_cross_mode_start_waits_then_restarts_in_requested_mode():
     mgr.start_session = restart_mock
 
     ws = mgr.websocket  # 重启前会校验 self.websocket is websocket 且连接
+    deadline = asyncio.get_running_loop().time() + 15.0
     start_task = asyncio.create_task(
-        LLMSessionManager.start_session(mgr, ws, False, "audio", user_initiated=True)
+        LLMSessionManager.start_session(mgr, ws, False, "audio", user_initiated=True, _deadline=deadline)
     )
     # 让它先进入跨模式等待循环，再放行 in-flight 落定。
     await asyncio.sleep(0.1)
@@ -161,8 +191,10 @@ async def test_cross_mode_start_waits_then_restarts_in_requested_mode():
         user_initiated=True,
         _allow_cross_mode_restart=False,
         request_id=None,
-        handshake_override=None,
-        resource_optimization_override=None,
+            handshake_override=None,
+            resource_optimization_override=None,
+            provider_preference_override=None,
+            _deadline=deadline,
     )
 
 
@@ -441,18 +473,26 @@ async def test_same_mode_dedupe_measures_the_deadline_on_the_wall_clock(
     counter barely moves, and an inflated budget then permits a full 12s connect
     whose ack lands after the client has already given up and sent
     end_session."""
-    real_monotonic = time.monotonic
+    real_monotonic = asyncio.get_running_loop().time
     # Local rather than module-level: a shared mutable would couple this case to
     # any future one that reuses it, and to test ordering (CodeRabbit).
     stalled = {"on": False}
     # The counter will read ~0.1s of nominal sleep; the wall clock says the
     # frontend deadline is nearly spent. Scoped to the module under test --
     # patching stdlib time would hand the fake to every background thread too.
-    patch_module_clock(
-        monkeypatch,
-        lifecycle_module,
-        monotonic=lambda: real_monotonic() + (14.0 if stalled["on"] else 0.0),
-    )
+    # The unified deadline now uses the event loop's monotonic clock. Patch
+    # only the module's clock view; scheduler timers retain their real clock.
+    real_loop = asyncio.get_running_loop()
+    class _ClockLoop:
+        def time(self):
+            return real_monotonic() + (14.0 if stalled["on"] else 0.0)
+
+        def __getattr__(self, name):
+            return getattr(real_loop, name)
+
+    module_asyncio = SimpleNamespace(**vars(asyncio))
+    module_asyncio.get_running_loop = lambda: _ClockLoop()
+    monkeypatch.setattr(lifecycle_module, "asyncio", module_asyncio)
     mgr = _make_deduping_manager(route_mode="blocked")
     calls = _record_dedupe_calls(mgr)
 
@@ -516,6 +556,64 @@ async def test_same_mode_dedupe_skips_both_when_inflight_never_settles(monkeypat
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["failed", "invalidated", "timeout"])
+async def test_same_mode_dedupe_reports_terminal_failure_to_its_request(outcome):
+    mgr = _make_deduping_manager(route_mode="blocked")
+    mgr.send_session_failed = AsyncMock()
+    mgr.send_session_started = AsyncMock()
+    mgr._start_independent_asr_if_enabled = AsyncMock()
+    operation = SimpleNamespace(valid=True)
+    mgr._start_operation = operation
+    deadline = asyncio.get_running_loop().time() + 0.6
+    task = asyncio.create_task(
+        LLMSessionManager.start_session(
+            mgr,
+            mgr.websocket,
+            False,
+            "audio",
+            user_initiated=True,
+            request_id="dedup-request",
+            _deadline=deadline,
+        )
+    )
+    await asyncio.sleep(0.05)
+    if outcome == "failed":
+        mgr.session = None
+        mgr.is_active = False
+        mgr._starting_session_count = 0
+    elif outcome == "invalidated":
+        operation.valid = False
+    await asyncio.wait_for(task, 1)
+    if outcome == "timeout":
+        assert asyncio.get_running_loop().time() < deadline
+
+    mgr.send_session_failed.assert_awaited_once_with(
+        "audio", request_id="dedup-request", also_notify=mgr.websocket
+    )
+    mgr.send_session_started.assert_not_awaited()
+    mgr._start_independent_asr_if_enabled.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_same_mode_dedupe_acks_successful_explicit_request():
+    mgr = _make_deduping_manager(route_mode="native")
+    mgr.send_session_failed = AsyncMock()
+    mgr.send_session_started = AsyncMock()
+
+    await _run_dedupe_start(mgr, request_id="dedup-request")
+
+    mgr.send_session_started.assert_awaited_once_with(
+        "audio",
+        request_id="dedup-request",
+        also_notify=mgr.websocket,
+        microphone_route_override=None,
+    )
+    mgr.send_session_failed.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_cross_mode_start_skips_restart_when_torn_down_during_wait():
     """When the user actively ends the start during the wait (the frontend 15s
     timeout sends end_session, which bumps _user_session_abandon_epoch and
@@ -554,8 +652,9 @@ async def test_cross_mode_start_restarts_even_if_inflight_failed_internally():
     mgr.start_session = restart_mock
 
     ws = mgr.websocket  # the request's ws stays connected throughout
+    deadline = asyncio.get_running_loop().time() + 15.0
     start_task = asyncio.create_task(
-        LLMSessionManager.start_session(mgr, ws, False, "audio", user_initiated=True)
+        LLMSessionManager.start_session(mgr, ws, False, "audio", user_initiated=True, _deadline=deadline)
     )
     await asyncio.sleep(0.1)
     # In-flight text start failed → cleanup() clears self.websocket to None and
@@ -573,8 +672,10 @@ async def test_cross_mode_start_restarts_even_if_inflight_failed_internally():
         user_initiated=True,
         _allow_cross_mode_restart=False,
         request_id=None,
-        handshake_override=None,
-        resource_optimization_override=None,
+            handshake_override=None,
+            resource_optimization_override=None,
+            provider_preference_override=None,
+            _deadline=deadline,
     )
 
 
@@ -605,3 +706,152 @@ async def test_cross_mode_start_skips_restart_when_websocket_replaced_during_wai
     await start_task
 
     restart_mock.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_active_end_session_preserves_pending_input_for_an_in_place_swap():
+    """An in-place swap to the offline session must not drop cached input.
+
+    ``_ensure_offline_session_for_text_input`` flips ``session_ready`` off and
+    then awaits ``end_session``; every concurrent text/attachment task caches
+    into ``pending_input_data`` during that window, and clearing it there loses
+    those inputs silently.
+    """
+    mgr = _make_active_manager()
+    cached = [{"input_type": "text", "data": "typed mid-handoff"}]
+    mgr.pending_input_data = list(cached)
+
+    await LLMSessionManager.end_session(
+        mgr,
+        by_server=True,
+        reset_starting_count=False,
+        preserve_pending_input=True,
+    )
+
+    assert mgr.pending_input_data == cached
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_active_end_session_still_clears_pending_input_by_default():
+    """A genuine session end still clears: stale cache must not survive."""
+    mgr = _make_active_manager()
+    mgr.pending_input_data = [{"input_type": "text", "data": "typed mid-handoff"}]
+    # Request->attachment ledger entries point into the retired session's queue.
+    mgr._request_staged_images = [("req-image", "staged-image")]
+
+    await LLMSessionManager.end_session(mgr, by_server=True)
+
+    assert mgr.pending_input_data == []
+    assert mgr._request_staged_images == []
+
+
+def _make_handoff_manager():
+    """A manager parked on a non-offline session, ready for the text handoff."""
+    mgr = LLMSessionManager.__new__(LLMSessionManager)
+    mgr.input_cache_lock = asyncio.Lock()
+    mgr._multimodal_handoff_lock = asyncio.Lock()
+    mgr.session = MagicMock()  # deliberately NOT an OmniOfflineClient
+    mgr.session_ready = True
+    mgr.is_active = True
+    mgr.websocket = MagicMock()
+    mgr._starting_session_count = 0
+    mgr._starting_input_mode = None
+    mgr.session_start_failure_count = 0
+    mgr.session_start_max_failures = 3
+    return mgr
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_concurrent_text_handoffs_rebuild_the_offline_session_once():
+    """Two text/attachment inputs racing the handoff must not fight each other.
+
+    Each handoff is an end_session + start_session pair with a long await
+    window. Unserialized, the second teardown destroys the offline session the
+    first just built, and the first then submits into a retired client. The
+    loser has to observe the winner's result instead of redoing the swap.
+    """
+    mgr = _make_handoff_manager()
+    gate = asyncio.Event()
+    end_calls = []
+
+    async def gated_end_session(**kwargs):
+        end_calls.append(kwargs)
+        await gate.wait()
+        mgr.session = None
+        mgr.is_active = False
+
+    async def start_session(*args, **kwargs):
+        mgr.session = MagicMock(spec=OmniOfflineClient)
+        mgr.is_active = True
+
+    mgr.end_session = gated_end_session
+    mgr.start_session = start_session
+
+    first = asyncio.create_task(
+        LLMSessionManager._ensure_offline_session_for_text_input(mgr, "text")
+    )
+    await asyncio.sleep(0)
+    second = asyncio.create_task(
+        LLMSessionManager._ensure_offline_session_for_text_input(mgr, "image")
+    )
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    # 第一条还卡在 end_session 里，第二条绝不能已经开始拆同一个会话。
+    assert len(end_calls) == 1
+
+    gate.set()
+    assert await first is True
+    assert await second is True
+    # 第二条看到的是第一条的成果，没有再拆一次。
+    assert len(end_calls) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_text_handoff_gives_up_instead_of_swapping_without_the_barrier(
+    monkeypatch,
+):
+    """Waiting out the barrier and rebuilding anyway is the race, not a fallback."""
+    monkeypatch.setattr(
+        streaming_module, "FRONTEND_START_SESSION_TIMEOUT_SECONDS", 0.01
+    )
+    mgr = _make_handoff_manager()
+    mgr.end_session = AsyncMock()
+    mgr.start_session = AsyncMock()
+    await mgr._multimodal_handoff_lock.acquire()
+    try:
+        assert await LLMSessionManager._ensure_offline_session_for_text_input(
+            mgr, "text"
+        ) is False
+    finally:
+        mgr._multimodal_handoff_lock.release()
+    mgr.end_session.assert_not_awaited()
+    mgr.start_session.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_text_handoff_accepts_a_barrier_timeout_once_the_swap_already_landed(
+    monkeypatch,
+):
+    """Timing out is only fatal if nobody did the job; the winner may have."""
+    monkeypatch.setattr(
+        streaming_module, "FRONTEND_START_SESSION_TIMEOUT_SECONDS", 0.01
+    )
+    mgr = _make_handoff_manager()
+    mgr.end_session = AsyncMock()
+    mgr.start_session = AsyncMock()
+    await mgr._multimodal_handoff_lock.acquire()
+    try:
+        # 闸的持有者已经把会话换成 offline 了，只是还没释放。
+        mgr.session = MagicMock(spec=OmniOfflineClient)
+        assert await LLMSessionManager._ensure_offline_session_for_text_input(
+            mgr, "text"
+        ) is True
+    finally:
+        mgr._multimodal_handoff_lock.release()
+    mgr.end_session.assert_not_awaited()

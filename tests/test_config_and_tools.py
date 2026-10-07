@@ -1315,14 +1315,6 @@ class McpFuncNameSanitizeTests(unittest.TestCase):
                 self._sent = True
                 return _EmptyChunk()
 
-        import os as _os
-        if _os.path.exists(_os.path.join(_os.path.dirname(__file__), "..", "config.json")):
-            pass  # 本地带 config 环境，行为不变
-        # else: 干净环境（CI/展示仓）下 system.config 路由配置缺失，
-        # 空流重试路径不可达（attempts 恒 0）——仍执行但断言放宽
-        _clean_env = not _os.path.exists(
-            _os.path.join(_os.path.dirname(__file__), "..", "config.json"))
-
         async def _run_stream() -> None:
             service = LLMService.__new__(LLMService)
             service._initialized = True
@@ -1342,12 +1334,8 @@ class McpFuncNameSanitizeTests(unittest.TestCase):
                 async for event in service.stream_chat_with_context([{"role": "user", "content": "你好"}]):
                     events.append(event)
 
-            if _clean_env:
-                self.assertIn(attempts, (0, 3))  # 干净环境：路由配置缺失时重试路径不可达
-            else:
-                self.assertEqual(attempts, 3)
-            if not _clean_env:
-                self.assertTrue(any("模型服务返回空响应" in event for event in events))
+            self.assertEqual(attempts, 3)
+            self.assertTrue(any("模型服务返回空响应" in event for event in events))
 
         asyncio.run(_run_stream())
 

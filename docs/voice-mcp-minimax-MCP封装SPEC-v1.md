@@ -1,6 +1,6 @@
 # voice-mcp (garan0613) MCP 封装 SPEC · v1
 
-> 施工方：Trae｜审查：实验田维护者（Hermes）
+> 施工方：Trae（陆墨团队）｜审查：沈遥（Hermes）
 > 理论锚点：SPEC-Writing-Standard-v3.md（四问 + 十条 + 六条审查）
 > 本文档自包含：引用到文件 + 行号，验收可 grep/assert。
 
@@ -34,7 +34,7 @@ scratchpad 的 MCP 工具体系已有 TTS-API（kokoro/edge 通用 TTS）。voic
 | 把 MiniMax t2a_v2 合成封装为 MCP agent（manifest + handler） | 不部署 Cloudflare Worker，不引入 TS 构建链 |
 | 提供 `voice_speak`（合成落盘 mp3 + base64）/ `voice_status` 两工具 | 不实现 SSE/流式传输（克隆合成走非流式 `stream:false`） |
 | 缺 API Key/GroupId 时优雅降级 `{"status":"error","degraded":true}` | 不把 MiniMax 官方 SDK 拖进主进程（仅 urllib 标准库） |
-| 不触碰 NEKO 主链路与主系统核心 | 不做音色管理/克隆训练（MiniMax 控制台侧能力） |
+| 不触碰 NEKO 主链路与陆墨核心 | 不做音色管理/克隆训练（MiniMax 控制台侧能力） |
 
 ---
 
@@ -201,4 +201,4 @@ git commit -m "feat(mcp): voice_mcp_minimax MCP 封装
 
 ---
 
-*制定：Trae｜理论锚点：SPEC-Writing-Standard-v3.md · 系统工程四原则 · 不变量伴生验收*
+*制定：Trae（陆墨团队）｜理论锚点：SPEC-Writing-Standard-v3.md · 系统工程四原则 · 不变量伴生验收*

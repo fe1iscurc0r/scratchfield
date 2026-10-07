@@ -173,7 +173,7 @@ const topPredicates = computed(() => summary.value?.predicate_distribution ?? []
 const DELETE_SUPPORTED = false
 
 function onDelete(_row: Quintuple) {
-  // TODO(后端): 需要 DELETE /memory/quintuples（按 subject/predicate/object 三元定位）
+  // TODO(后端·报沈遥): 需要 DELETE /memory/quintuples（按 subject/predicate/object 三元定位）
   // 与 summer_memory/reversible.py 的 forget_entity / _apply_inverse 打通后再接真实删除。
 }
 
@@ -294,7 +294,7 @@ onMounted(async () => {
                     <button
                       type="button"
                       class="text-white/25 cursor-not-allowed"
-                      :title="DELETE_SUPPORTED ? '删除这条记忆' : '后端暂无删除接口（TODO）：需要 DELETE /memory/quintuples'"
+                      :title="DELETE_SUPPORTED ? '删除这条记忆' : '后端暂无删除接口（TODO·报沈遥）：需要 DELETE /memory/quintuples'"
                       :disabled="!DELETE_SUPPORTED"
                       @click="onDelete(r)"
                     >

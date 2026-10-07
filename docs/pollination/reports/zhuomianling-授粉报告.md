@@ -1,7 +1,7 @@
 # zhuomianling（桌面灵）授粉报告 · Live2D 桌宠框架 → NEKO 身体层
 
 > 来源：qiyueblues-design/zhuomianling（17★，MIT，TypeScript/Electron）
-> 审查：实验田维护者（Hermes）｜日期：2026-08-16
+> 审查：沈遥（Hermes）｜日期：2026-08-16
 > 定位：融合参考层——开源可自定义 Live2D 桌宠框架，授粉到 NEKO 桌宠身体层。
 
 ---

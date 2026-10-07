@@ -68,6 +68,10 @@ def test_pngtuber_transform_and_interactions_use_active_layout_fields():
         source.index("async endTouchZoom()")
     ]
     save_block = source[
+        source.index("async saveOrStageCurrentConfig()"):
+        source.index("        scheduleSaveCurrentConfig")
+    ]
+    runtime_save_block = source[
         source.index("async saveCurrentConfig()"):
         source.index("        scheduleSaveCurrentConfig")
     ]
@@ -92,13 +96,17 @@ def test_pngtuber_transform_and_interactions_use_active_layout_fields():
     assert "startOffsetX: placement.offsetX" in drag_block
     assert "this.setActiveOffsets(state.startOffsetX + dx, state.startOffsetY + dy);" in drag_block
     assert "const currentScale = this.getActivePlacement().scale;" in wheel_block
+    assert "this.beginModelManagerPositionEditing();" in wheel_block
+    assert "window.stageModelManagerPNGTuberPlacement(this.config);" in wheel_block
     assert "initialScale: placement.scale" in touch_block
+    assert "this.beginModelManagerPositionEditing();" in touch_block
     assert "this.setActiveOffsets(state.startOffsetX + dx, state.startOffsetY + dy);" in touch_block
-    assert "this.config.mobile_offset_x" in save_block
-    assert "this.config.mobile_offset_y" in save_block
-    assert "this.config.mobile_scale" in save_block
-    assert "this.config.position_anchor" in save_block
-    assert "apply_runtime: false" in save_block
+    assert "window.stageModelManagerPNGTuberPlacement(this.config);" in save_block
+    assert "this.config.mobile_offset_x" in runtime_save_block
+    assert "this.config.mobile_offset_y" in runtime_save_block
+    assert "this.config.mobile_scale" in runtime_save_block
+    assert "this.config.position_anchor" in runtime_save_block
+    assert "apply_runtime: false" in runtime_save_block
 
 
 def test_pngtuber_drag_uses_the_shared_multiscreen_transfer_contract():
@@ -123,10 +131,423 @@ def test_pngtuber_drag_uses_the_shared_multiscreen_transfer_contract():
     assert "state.dragHintApproachPending = true;" in drag_block
     assert "state.dragHintApproachPending = false;" in drag_block
     assert "this.isDragCompletionCurrent(state)" in drag_block
+    assert "this.beginModelManagerPositionEditing();" in drag_block
     assert "bridge.moveWindowToDisplay(switchScreenX, switchScreenY)" in drag_block
     assert "result.windowBounds" in drag_block
     assert "this.moveModelCenterToWindowPoint(desiredCenterX, desiredCenterY);" in drag_block
     assert "helper.markDisplaySwitchSuccess('pngtuber');" in drag_block
+    assert "await this.snapModelIntoScreen({ animate: true });" in drag_block
+    assert drag_block.index("await this.recordDragHintPointerEdgeRelease(state);") < drag_block.index(
+        "await this.snapModelIntoScreen({ animate: true });"
+    )
+    assert drag_block.index("await this.snapModelIntoScreen({ animate: true });") < drag_block.index(
+        "await this.saveOrStageCurrentConfig();"
+    )
+    touch_end_block = source[
+        source.index("        async endTouchZoom() {"):
+        source.index("        setupHTMLLockIcon()")
+    ]
+    assert "await this.snapModelIntoScreen({ animate: true });" in touch_end_block
+    assert "if (!this.isDragCompletionCurrent(state)) return;" in touch_end_block
+    assert touch_end_block.index("if (!this.isDragCompletionCurrent(state)) return;") < touch_end_block.index(
+        "await this.snapModelIntoScreen({ animate: true });"
+    )
+    assert touch_end_block.index("await this.snapModelIntoScreen({ animate: true });") < touch_end_block.index(
+        "await this.saveOrStageCurrentConfig();"
+    )
+
+
+def test_pngtuber_drag_snaps_back_when_less_than_200_pixels_remain_visible():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required for PNGTuber edge snap tests")
+
+    source = PNGTUBER_CORE_PATH.read_text(encoding="utf-8")
+    script = f"""
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+
+let nextFrameId = 0;
+const frames = new Map();
+const requestAnimationFrame = (callback) => {{
+  const frameId = ++nextFrameId;
+  frames.set(frameId, callback);
+  return frameId;
+}};
+const cancelAnimationFrame = (frameId) => {{ frames.delete(frameId); }};
+const runNextFrame = (timestamp) => {{
+  const next = frames.entries().next();
+  assert.equal(next.done, false, 'expected a pending animation frame');
+  const [frameId, callback] = next.value;
+  frames.delete(frameId);
+  callback(timestamp);
+}};
+let stagedPlacement = null;
+let modelWidth = 400;
+const window = {{
+  location: {{ pathname: '/' }},
+  innerWidth: 1000,
+  innerHeight: 800,
+  lanlan_config: {{ model_type: 'pngtuber' }},
+  stageModelManagerPNGTuberPlacement(config) {{ stagedPlacement = {{ ...config }}; }},
+}};
+const document = {{
+  body: {{ classList: {{ contains() {{ return false; }}, toggle() {{}} }} }},
+  getElementById() {{ return null; }},
+  querySelectorAll() {{ return []; }},
+}};
+const context = {{
+  cancelAnimationFrame,
+  console,
+  document,
+  performance: {{ now: () => 0 }},
+  requestAnimationFrame,
+  window,
+}};
+vm.runInNewContext({json.dumps(source)}, context, {{ filename: 'pngtuber-core.js' }});
+
+const manager = new window.PNGTuberManager();
+manager.config = {{
+  scale: 1,
+  offset_x: 0,
+  offset_y: 0,
+  mobile_scale: 1,
+  mobile_offset_x: 0,
+  mobile_offset_y: 0,
+  position_anchor: 'center',
+  mirror: false,
+}};
+manager.image = {{
+  classList: {{ toggle() {{}} }},
+  closest() {{ return null; }},
+  setAttribute() {{}},
+  removeAttribute() {{}},
+  setPointerCapture() {{}},
+  getBoundingClientRect() {{
+    const placement = manager.getActivePlacement();
+    const width = modelWidth * placement.scale;
+    const height = 400 * placement.scale;
+    const centerX = window.innerWidth / 2 + placement.offsetX;
+    const centerY = window.innerHeight / 2 + placement.offsetY;
+    return {{ left: centerX - width / 2, top: centerY - height / 2, width, height }};
+  }},
+}};
+manager.applyTransform = () => {{}};
+manager.isLayeredActive = () => false;
+manager.resetLayeredDragVelocity = () => {{}};
+manager.showDragImage = () => {{}};
+manager.restoreStateImage = () => {{}};
+manager.restartLayeredAnimationLoop = () => {{}};
+manager.syncGlobalConfig = () => {{}};
+manager.updateFloatingButtonsPosition = () => {{}};
+manager.updateLockIconPosition = () => {{}};
+let scheduledSaves = 0;
+manager.scheduleSaveCurrentConfig = () => {{ scheduledSaves += 1; }};
+
+(async () => {{
+  manager.config.offset_x = -750;
+  let target = manager.getEdgeSnapTarget();
+  assert.equal(target.offsetX, -500);
+  assert.equal(target.offsetY, 0);
+  assert.equal(await manager.snapModelIntoScreen({{ animate: false }}), true);
+  assert.equal(manager.config.offset_x, -500);
+
+  // Exactly 200 px remains visible, so ordinary edge placement is preserved.
+  assert.equal(manager.getEdgeSnapTarget(), null);
+  assert.equal(await manager.snapModelIntoScreen({{ animate: false }}), false);
+
+  manager.config.offset_x = 750;
+  target = manager.getEdgeSnapTarget();
+  assert.equal(target.offsetX, 500);
+  assert.equal(await manager.snapModelIntoScreen({{ animate: false }}), true);
+  assert.equal(manager.config.offset_x, 500);
+
+  manager.config.offset_x = 0;
+  manager.config.offset_y = -650;
+  target = manager.getEdgeSnapTarget();
+  assert.equal(target.offsetY, -400);
+  assert.equal(await manager.snapModelIntoScreen({{ animate: false }}), true);
+  assert.equal(manager.config.offset_y, -400);
+
+  manager.config.offset_y = 650;
+  target = manager.getEdgeSnapTarget();
+  assert.equal(target.offsetY, 400);
+  assert.equal(await manager.snapModelIntoScreen({{ animate: false }}), true);
+  assert.equal(manager.config.offset_y, 400);
+
+  manager.config.offset_x = -750;
+  manager.config.offset_y = 0;
+  const animatedSnap = manager.snapModelIntoScreen();
+  assert.equal(frames.size, 1);
+  runNextFrame(0);
+  runNextFrame(130);
+  assert.ok(manager.config.offset_x > -500, 'easeOutBack should briefly overshoot the target');
+  runNextFrame(260);
+  assert.equal(await animatedSnap, true);
+  assert.equal(manager.config.offset_x, -500);
+  assert.equal(manager.config.offset_y, 0);
+
+  // Layered-canvas padding is transparent and does not count as visible avatar content.
+  manager.isLayeredActive = () => true;
+  manager.layeredCanvasPadding = 100;
+  manager.layeredCanvasLogicalWidth = 600;
+  manager.layeredCanvasLogicalHeight = 600;
+  manager.config.offset_x = -700;
+  const layeredTarget = manager.getEdgeSnapTarget();
+  assert.ok(Math.abs(layeredTarget.offsetX - (-433.3333333333333)) < 0.001);
+  manager.isLayeredActive = () => false;
+
+  // Content smaller than 200 px stops once it is fully visible.
+  modelWidth = 100;
+  manager.config.offset_x = -480;
+  const smallTarget = manager.getEdgeSnapTarget();
+  assert.equal(smallTarget.offsetX, -450);
+  modelWidth = 400;
+
+  // State image geometry changes retarget an in-flight rebound.
+  manager.config.offset_x = -750;
+  modelWidth = 400;
+  const resizedImageSnap = manager.snapModelIntoScreen();
+  runNextFrame(0);
+  modelWidth = 200;
+  runNextFrame(130);
+  runNextFrame(260);
+  assert.equal(await resizedImageSnap, true);
+  assert.equal(manager.config.offset_x, -400);
+
+  // A size change during ease-out-back overshoot still replaces the stale target.
+  manager.config.offset_x = -750;
+  modelWidth = 400;
+  const overshootResizeSnap = manager.snapModelIntoScreen();
+  runNextFrame(0);
+  runNextFrame(130);
+  modelWidth = 370;
+  runNextFrame(260);
+  assert.equal(await overshootResizeSnap, true);
+  assert.ok(Math.abs(manager.config.offset_x - (-485)) < 0.001);
+  modelWidth = 400;
+
+  // Growing content cannot reverse the snap target past its starting offset.
+  manager.config.offset_x = -750;
+  const growingImageSnap = manager.snapModelIntoScreen();
+  runNextFrame(0);
+  modelWidth = 2000;
+  runNextFrame(130);
+  runNextFrame(260);
+  assert.equal(await growingImageSnap, true);
+  assert.equal(manager.config.offset_x, -500);
+  modelWidth = 400;
+
+  // Crossing the responsive breakpoint restarts against the new layout fields.
+  manager.config.offset_x = -750;
+  manager.config.mobile_offset_x = -500;
+  const responsiveSnap = manager.snapModelIntoScreen();
+  runNextFrame(0);
+  window.innerWidth = 600;
+  runNextFrame(130);
+  runNextFrame(130);
+  runNextFrame(260);
+  assert.equal(await responsiveSnap, true);
+  assert.equal(manager.config.offset_x, -750);
+  assert.equal(manager.config.mobile_offset_x, -300);
+  window.innerWidth = 1000;
+  manager.config.mobile_offset_x = 0;
+
+  // Wheel input clamped at the scale boundary leaves the active rebound untouched.
+  manager.config.scale = 0.1;
+  manager.config.offset_x = -750;
+  const minScaleWheelSnap = manager.snapModelIntoScreen();
+  const sequenceBeforeClampedWheel = manager._dragSequence;
+  manager.handleWheelZoom({{
+    deltaY: 1000,
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  assert.equal(manager._dragSequence, sequenceBeforeClampedWheel);
+  assert.equal(frames.size, 1, 'clamped wheel input must not cancel the rebound');
+  runNextFrame(0);
+  runNextFrame(260);
+  assert.equal(await minScaleWheelSnap, true);
+  manager.config.scale = 1;
+
+  // Wheel zoom cancels the old rebound and targets the resized model geometry.
+  manager.config.offset_x = -750;
+  const preZoomSnap = manager.snapModelIntoScreen();
+  manager.handleWheelZoom({{
+    deltaY: 1000,
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  assert.equal(await preZoomSnap, false);
+  assert.equal(frames.size, 1);
+  runNextFrame(0);
+  runNextFrame(260);
+  await Promise.resolve();
+  const resizedBounds = manager.image.getBoundingClientRect();
+  const resizedRight = resizedBounds.left + resizedBounds.width;
+  assert.ok(Math.abs(resizedRight - 200) < 0.001);
+  assert.equal(scheduledSaves, 1);
+
+  // An unchanged two-finger gesture leaves the active rebound untouched.
+  manager.config.scale = 1;
+  manager.config.offset_x = -750;
+  const untouchedSnap = manager.snapModelIntoScreen();
+  manager.startTouchZoom({{
+    touches: [{{ clientX: 100, clientY: 100 }}, {{ clientX: 200, clientY: 100 }}],
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  assert.equal(frames.size, 1);
+  await manager.endTouchZoom();
+  assert.equal(frames.size, 1, 'unchanged touch must not cancel the rebound');
+  runNextFrame(0);
+  runNextFrame(260);
+  assert.equal(await untouchedSnap, true);
+  assert.equal(manager.config.offset_x, -500);
+
+  // A pinch clamped at the scale boundary with no pan also preserves the rebound.
+  manager.config.scale = 5;
+  manager.config.offset_x = -3000;
+  const maxScaleTouchSnap = manager.snapModelIntoScreen();
+  const sequenceBeforeClampedTouch = manager._dragSequence;
+  manager.startTouchZoom({{
+    touches: [{{ clientX: 100, clientY: 100 }}, {{ clientX: 200, clientY: 100 }}],
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  manager.moveTouchZoom({{
+    touches: [{{ clientX: 90, clientY: 100 }}, {{ clientX: 210, clientY: 100 }}],
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  assert.equal(manager._touchZoomState.changed, false);
+  assert.equal(manager._dragSequence, sequenceBeforeClampedTouch);
+  await manager.endTouchZoom();
+  assert.equal(frames.size, 1, 'clamped touch scale must not cancel the rebound');
+  runNextFrame(0);
+  runNextFrame(260);
+  assert.equal(await maxScaleTouchSnap, true);
+  manager.config.scale = 1;
+
+  // A rebound that finishes during a pending click refreshes the first drag grab offset.
+  manager.config.offset_x = -750;
+  const completedPendingSnap = manager.snapModelIntoScreen();
+  manager.startDrag({{
+    target: manager.image,
+    button: 0,
+    pointerId: 8,
+    clientX: 100,
+    clientY: 100,
+    screenX: 100,
+    screenY: 100,
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  runNextFrame(0);
+  runNextFrame(260);
+  assert.equal(await completedPendingSnap, true);
+  manager.moveDrag({{
+    pointerId: 8,
+    clientX: 110,
+    clientY: 100,
+    screenX: 110,
+    screenY: 100,
+    preventDefault() {{}},
+  }});
+  const centerAfterPendingCompletionMove = manager.getModelCenterInWindow();
+  assert.equal(manager._dragState.modelCenterPointerOffset.x, centerAfterPendingCompletionMove.x - 110);
+  assert.equal(manager._dragState.modelCenterPointerOffset.y, centerAfterPendingCompletionMove.y - 100);
+  manager._dragState = null;
+
+  // Wheel input cannot steal ownership from an active two-finger interaction.
+  manager.config.scale = 1;
+  manager.config.offset_x = 0;
+  manager.config.offset_y = 0;
+  manager.startTouchZoom({{
+    touches: [{{ clientX: 100, clientY: 100 }}, {{ clientX: 200, clientY: 100 }}],
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  manager.moveTouchZoom({{
+    touches: [{{ clientX: 110, clientY: 100 }}, {{ clientX: 210, clientY: 100 }}],
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  const activeTouchSequence = manager._dragSequence;
+  const activeTouchState = manager._touchZoomState;
+  manager.handleWheelZoom({{
+    deltaY: 1000,
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  assert.equal(manager._dragSequence, activeTouchSequence);
+  assert.equal(manager._touchZoomState, activeTouchState);
+  assert.equal(manager.config.scale, 1);
+  manager.moveTouchZoom({{
+    touches: [{{ clientX: 120, clientY: 100 }}, {{ clientX: 220, clientY: 100 }}],
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  assert.equal(manager.config.offset_x, 20);
+  await manager.endTouchZoom();
+  assert.equal(manager._touchZoomState, null);
+
+  // Model-manager wheel replacement stages the final snapped placement.
+  window.location.pathname = '/model_manager';
+  manager._modelManagerUseCurrentPlacement = true;
+  manager.config.offset_x = -750;
+  manager.handleWheelZoom({{
+    deltaY: 1000,
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  runNextFrame(0);
+  runNextFrame(260);
+  await Promise.resolve();
+  assert.ok(stagedPlacement);
+  assert.equal(stagedPlacement.offset_x, manager.config.offset_x);
+  assert.equal(scheduledSaves, 1, 'model-manager placement must be staged instead of auto-saved');
+  window.location.pathname = '/';
+
+  manager.config.offset_x = -750;
+  const cancelledSnap = manager.snapModelIntoScreen();
+  assert.equal(frames.size, 1);
+  manager.startDrag({{
+    target: manager.image,
+    button: 0,
+    pointerId: 9,
+    clientX: 100,
+    clientY: 100,
+    screenX: 100,
+    screenY: 100,
+    preventDefault() {{}},
+    stopPropagation() {{}},
+  }});
+  assert.equal(frames.size, 1, 'pointerdown alone must not cancel the rebound');
+  runNextFrame(0);
+  runNextFrame(130);
+  manager.moveDrag({{
+    pointerId: 9,
+    clientX: 110,
+    clientY: 100,
+    screenX: 110,
+    screenY: 100,
+    preventDefault() {{}},
+  }});
+  const centerAfterTakeover = manager.getModelCenterInWindow();
+  assert.equal(manager._dragState.modelCenterPointerOffset.x, centerAfterTakeover.x - 110);
+  assert.equal(manager._dragState.modelCenterPointerOffset.y, centerAfterTakeover.y - 100);
+  manager.setActiveOffsets(-123, 45);
+  assert.equal(await cancelledSnap, false);
+  assert.equal(frames.size, 0);
+  assert.equal(manager.config.offset_x, -123);
+  assert.equal(manager.config.offset_y, 45);
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+    run_node_script(node, script, check=True, cwd=PROJECT_ROOT)
 
 
 def test_pngtuber_drag_hint_edge_approach_allows_only_one_in_flight_call():
@@ -182,6 +603,109 @@ vm.runInNewContext({json.dumps(source)}, context, {{ filename: 'pngtuber-core.js
   console.error(error);
   process.exit(1);
 }});
+"""
+    run_node_script(node, script, check=True, cwd=PROJECT_ROOT)
+
+
+def test_pngtuber_drag_and_pinch_share_the_animation_clock():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required for PNGTuber animation tests")
+
+    source = PNGTUBER_CORE_PATH.read_text(encoding="utf-8")
+    script = "const source = " + json.dumps(source) + ";\n" + r"""
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+let nextId = 0;
+const frames = new Map(), timers = new Map();
+const window = { location: { pathname: '/' }, innerWidth: 1000,
+  lanlan_config: { model_type: 'pngtuber' } };
+const document = { body: { classList: { contains: () => false } }, getElementById: () => null };
+vm.runInNewContext(source, { window, document, console, performance: { now: () => 100 },
+  requestAnimationFrame: fn => { frames.set(++nextId, fn); return nextId; },
+  cancelAnimationFrame: id => frames.delete(id),
+  setTimeout: fn => { timers.set(++nextId, fn); return nextId; },
+  clearTimeout: id => timers.delete(id),
+});
+const tick = () => {
+  const [id, fn] = frames.entries().next().value;
+  frames.delete(id);
+  fn(100);
+};
+const pointer = (x, y, pointerType) => ({ pointerId: 1, button: 0, pointerType,
+  clientX: x, clientY: y, preventDefault() {}, stopPropagation() {} });
+const pinch = (x, distance) => ({ touches: [
+  { clientX: x - distance / 2, clientY: 200 },
+  { clientX: x + distance / 2, clientY: 200 },
+], preventDefault() {}, stopPropagation() {} });
+
+(async () => {
+  for (const gesture of ['mouse', 'touch', 'pinch']) {
+    const manager = new window.PNGTuberManager();
+    manager.config = { scale: 1, offset_x: 20, offset_y: 30 };
+    for (const name of ['applyTransform', 'rememberDragScreenPoint', 'rememberModelCenterPointerOffset',
+      'setModelDraggingState', 'resetLayeredDragVelocity', 'startLayeredBreathingLoop',
+      'showDragImage', 'restoreStateImage', 'updateLockIconPosition']) manager[name] = () => {};
+    for (const name of ['layeredPointerNeedsFrame', 'layeredPhysicsNeedsFrame',
+      '_layeredStateHasFastSheetAnimation', 'checkAndSwitchDisplayAfterDrag']) manager[name] = () => false;
+    for (const name of ['recordDragHintPointerEdgeApproach', 'recordDragHintPointerEdgeRelease',
+      'snapModelIntoScreen']) manager[name] = async () => {};
+    let saved;
+    manager.saveOrStageCurrentConfig = async () => { saved = { ...manager.config }; };
+    let layered = true, motion = true;
+    manager.isLayeredActive = () => layered;
+    manager.hasMotionLayersForCurrentState = () => motion;
+    const drawn = [];
+    manager.drawLayeredState = () => drawn.push({ ...manager.config });
+
+    // Begin with an existing idle timer, then wake it once for an input burst.
+    manager.startLayeredAnimationLoop();
+    tick();
+    assert.equal(timers.size, 1);
+    const timeline = manager.layeredAnimationStart;
+    drawn.length = 0;
+    if (gesture === 'pinch') manager.startTouchZoom(pinch(100, 100));
+    else manager.startDrag(pointer(100, 200, gesture));
+    for (let i = 1; i <= 100; i++) {
+      if (gesture === 'pinch') manager.moveTouchZoom(pinch(100 + i, 100 + i));
+      else manager.moveDrag(pointer(100 + i, 200 + i, gesture));
+    }
+    assert.equal(manager.config.offset_x, 120, 'placement updates before the next frame');
+    assert.equal(manager.config.offset_y, gesture === 'pinch' ? 30 : 130);
+    assert.equal(manager.config.scale, gesture === 'pinch' ? 2 : 1);
+    assert.equal(drawn.length, 0, 'input bursts must not draw synchronously');
+    assert.equal(timers.size, 0, 'dragging upgrades the idle timer to rAF');
+    assert.equal(frames.size, 1, 'all moves share the existing animation loop');
+    assert.equal(manager.layeredAnimationStart, timeline);
+    tick();
+    assert.equal(drawn.length, 1);
+    assert.equal(drawn[0].offset_x, 120);
+    assert.equal(frames.size, 1);
+
+    // Releasing before the next frame must still save the final position/scale.
+    if (gesture === 'pinch') {
+      manager.moveTouchZoom(pinch(210, 210));
+      await manager.endTouchZoom();
+    } else {
+      manager.moveDrag(pointer(210, 310, gesture));
+      await manager.endDrag(pointer(210, 310, gesture));
+    }
+    assert.equal(saved.offset_x, 130);
+    assert.equal(saved.scale, gesture === 'pinch' ? 2.1 : 1);
+    assert.equal(frames.size, 1, 'release leaves only one animation loop');
+    manager.stopLayeredAnimationLoop();
+
+    // Static layered canvases and ordinary PNGs move via their CSS transform.
+    motion = false;
+    for (layered of [true, false]) {
+      manager.startDrag(pointer(100, 200, 'mouse'));
+      manager.moveDrag(pointer(120, 220, 'mouse'));
+      assert.equal(frames.size, 0);
+      await manager.endDrag(pointer(120, 220, 'mouse'));
+    }
+    assert.equal(timers.size, 0);
+  }
+})().catch(error => { console.error(error); process.exit(1); });
 """
     run_node_script(node, script, check=True, cwd=PROJECT_ROOT)
 
@@ -400,6 +924,30 @@ function pointer(type, clientX, clientY, screenX, screenY, pointerId = 7) {{
   assert.equal(movedPoint, null);
   manager.getModelCenterInWindow = getModelCenterInWindow;
 
+  // A second pointerdown without movement must not invalidate the prior completion.
+  currentDisplay = primary;
+  currentWindowBounds = {{ ...primaryWindowBounds }};
+  window.innerWidth = currentWindowBounds.width;
+  window.innerHeight = currentWindowBounds.height;
+  manager.config.offset_x = -700;
+  manager.config.offset_y = 0;
+  movedPoint = null;
+  saves = 0;
+  deferredFrames = [];
+  manager.startDrag(pointer('pointerdown', 154, 534, 155, 535));
+  manager.moveDrag(pointer('pointermove', -201, 534, -200, 535));
+  const pendingClickEnd = manager.endDrag(pointer('pointerup', -201, 534, -200, 535));
+  while (deferredFrames.length === 0) await new Promise(setImmediate);
+  manager.startDrag(pointer('pointerdown', 100, 100, -2459, 101, 8));
+  deferredFrames.shift()(0);
+  await new Promise(setImmediate);
+  deferredFrames.shift()(0);
+  await pendingClickEnd;
+  assert.equal(manager._dragState.pointerId, 8);
+  assert.equal(manager._dragState.dragSequence, null);
+  assert.equal(saves, 1);
+  await manager.endDrag(pointer('pointerup', 100, 100, -2459, 101, 8));
+
   currentDisplay = primary;
   currentWindowBounds = {{ ...primaryWindowBounds }};
   window.innerWidth = currentWindowBounds.width;
@@ -576,7 +1124,7 @@ def test_layered_pngtuber_motion_requires_explicit_runtime_feature_flags():
 def test_layered_pngtuber_caps_render_resolution_without_changing_logical_coordinates():
     source = PNGTUBER_CORE_PATH.read_text(encoding="utf-8")
     setup_block = source[
-        source.index("        async setupLayeredAdapter()"):
+        source.index("        async setupLayeredAdapter(options = {})"):
         source.index("        hasBlinkLayers()")
     ]
     pointer_block = source[
@@ -617,14 +1165,142 @@ def test_layered_pngtuber_can_render_full_resolution_snapshot_without_resizing_r
     assert "document.createElement('canvas')" in snapshot_block
     assert "Number(this.layeredCanvasLogicalWidth)" in snapshot_block
     assert "Number(this.layeredCanvasLogicalHeight)" in snapshot_block
+    assert "Number(options.maxEdge)" in snapshot_block
+    assert "maxEdge / Math.max(logicalWidth, logicalHeight)" in snapshot_block
     assert "this.drawLayeredState(stateName, timestamp, {" in snapshot_block
-    assert "scaleX: 1" in snapshot_block
-    assert "scaleY: 1" in snapshot_block
+    assert "scaleX: canvas.width / logicalWidth" in snapshot_block
+    assert "scaleY: canvas.height / logicalHeight" in snapshot_block
     assert "return drawn ? canvas : null;" in snapshot_block
     assert "this.canvasElement =" not in snapshot_block
     assert "renderTarget?.canvas || this.canvasElement" in draw_block
     assert "renderTarget?.scaleX ?? this.layeredCanvasScaleX" in draw_block
     assert "renderTarget?.scaleY ?? this.layeredCanvasScaleY" in draw_block
+
+
+def test_pngtuber_load_announces_identity_change_before_async_setup():
+    source = PNGTUBER_CORE_PATH.read_text(encoding="utf-8")
+    load_block = source[
+        source.index("        async load(config, options = {}) {"):
+        source.index("        stateToSrc(state)")
+    ]
+
+    config_assignment = "this.config = normalizedConfig;"
+    loading_event = "window.dispatchEvent(new CustomEvent('pngtuber-model-loading', {"
+    async_setup = "await this.setupLayeredAdapter({ config: normalizedConfig, isCurrentLoad });"
+    assert load_block.index(config_assignment) < load_block.index(loading_event)
+    assert load_block.index(loading_event) < load_block.index(async_setup)
+
+
+def test_pngtuber_loader_finishes_loading_state_on_every_exit():
+    source = PNGTUBER_CORE_PATH.read_text(encoding="utf-8")
+    loader_block = source[
+        source.index("    async function loadPNGTuberAvatar(config) {"):
+        source.index("    function playPNGTuberAnimation")
+    ]
+
+    assert "try {" in loader_block
+    assert "} finally {" in loader_block
+    assert "window.dispatchEvent(new CustomEvent('pngtuber-model-load-finished', {" in loader_block
+
+
+def test_pngtuber_loader_binds_lifecycle_events_to_one_load_token():
+    source = PNGTUBER_CORE_PATH.read_text(encoding="utf-8")
+    load_block = source[
+        source.index("        async load(config, options = {}) {"):
+        source.index("        stateToSrc(state)")
+    ]
+    loader_block = source[
+        source.index("    async function loadPNGTuberAvatar(config) {"):
+        source.index("    function playPNGTuberAnimation")
+    ]
+
+    assert "let pngtuberLoadSequence = 0;" in source
+    assert "const loadToken = ++pngtuberLoadSequence;" in loader_block
+    assert "await window.pngtuberManager.load(config || {}, { loadToken });" in loader_block
+    assert "const loadToken = Number(options.loadToken) || 0;" in load_block
+    assert "if (!isCurrentLoad()) return false;" in load_block
+    assert loader_block.count("if (loadToken !== pngtuberLoadSequence)") == 3
+    assert "if (!loaded || loadToken !== pngtuberLoadSequence)" in loader_block
+    assert load_block.count("detail: { loadToken }") == 1
+    assert loader_block.count("detail: { loadToken }") == 3
+
+
+def test_pngtuber_remote_images_enable_anonymous_cors_before_loading():
+    source = PNGTUBER_CORE_PATH.read_text(encoding="utf-8")
+    assign_block = source[
+        source.index("    function assignImageSource(image, src) {"):
+        source.index("    function isPNGTuberPlusLayerVisible")
+    ]
+
+    assert "/^(?:https?:)?\\/\\//i.test" in assign_block
+    assert "image.crossOrigin = 'anonymous';" in assign_block
+    assert assign_block.index("image.crossOrigin = 'anonymous';") < assign_block.index("image.src = src;")
+    assert "assignImageSource(img, src);" in source
+    assert "assignImageSource(this.image, nextSrc);" in source
+
+
+def test_pngtuber_older_overlapping_load_cannot_resume_over_latest_model():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required for PNGTuber overlapping load tests")
+
+    source = PNGTUBER_CORE_PATH.read_text(encoding="utf-8")
+    script = f"""
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+
+const events = [];
+const window = {{
+  location: {{ pathname: '/' }},
+  innerWidth: 1280,
+  innerHeight: 720,
+  lanlan_config: {{ model_type: 'pngtuber' }},
+  dispatchEvent(event) {{ events.push(event); }},
+}};
+const document = {{
+  body: {{ classList: {{ contains() {{ return false; }} }} }},
+  getElementById() {{ return null; }},
+  querySelectorAll() {{ return []; }},
+}};
+class CustomEvent {{
+  constructor(type, options = {{}}) {{ this.type = type; this.detail = options.detail; }}
+}}
+const context = {{ console, CustomEvent, document, window }};
+vm.runInNewContext({json.dumps(source)}, context, {{ filename: 'pngtuber-core.js' }});
+
+const manager = new window.PNGTuberManager();
+const pendingSetups = [];
+manager.detachDragListeners = () => {{}};
+manager.clearEmotion = () => {{}};
+manager.setupLayeredAdapter = (options) => new Promise((resolve) => {{
+  pendingSetups.push({{ options, resolve }});
+}});
+manager.ensureContainer = () => {{}};
+manager.preloadImages = () => {{}};
+manager.attachSpeechListeners = () => {{}};
+manager.attachDragListeners = () => {{}};
+manager.setState = () => {{}};
+manager.applyTransform = () => {{}};
+manager.syncGlobalConfig = () => {{}};
+manager.setupHTMLLockIcon = () => {{}};
+
+(async () => {{
+  const older = manager.load({{ idle_image: 'older.png' }}, {{ loadToken: 1 }});
+  const newer = manager.load({{ idle_image: 'newer.png' }}, {{ loadToken: 2 }});
+  assert.equal(pendingSetups.length, 2);
+
+  pendingSetups[1].resolve(false);
+  assert.equal(await newer, true);
+  assert.equal(manager.config.idle_image, 'newer.png');
+
+  pendingSetups[0].resolve(false);
+  assert.equal(await older, false);
+  assert.equal(manager.config.idle_image, 'newer.png');
+  assert.equal(events.filter((event) => event.type === 'pngtuber-model-loading').length, 2);
+}})().catch((error) => {{ console.error(error); process.exit(1); }});
+"""
+
+    run_node_script(node, script, check=True, cwd=PROJECT_ROOT)
 
 
 def test_layered_pngtuber_alt_one_cycles_states_without_imported_hotkeys():
@@ -635,7 +1311,7 @@ def test_layered_pngtuber_alt_one_cycles_states_without_imported_hotkeys():
     ]
     handler_block = source[
         source.index("        handleLayeredHotkey(event) {"):
-        source.index("        async setupLayeredAdapter()")
+        source.index("        async setupLayeredAdapter(options = {})")
     ]
     cycle_hotkey_block = source[
         source.index("        isLayeredCycleHotkey(event) {"):
@@ -681,7 +1357,7 @@ def test_layered_pngtuber_alt_two_toggles_imported_asset_action():
     ]
     handler_block = source[
         source.index("        handleLayeredHotkey(event) {"):
-        source.index("        async setupLayeredAdapter()")
+        source.index("        async setupLayeredAdapter(options = {})")
     ]
     asset_hotkey_block = source[
         source.index("        isLayeredAssetActionHotkey(event) {"):
@@ -1065,6 +1741,98 @@ def test_pngtuber_floating_controls_auto_hide_like_live2d_without_touching_other
     assert "'live2d-lock-icon'" not in setup_block
     assert "'vrm-lock-icon'" not in setup_block
     assert "'mmd-lock-icon'" not in setup_block
+    # document 级 capture 事件必须过滤为窗口边界事件，否则相邻按钮边缘
+    # 移动会反复触发隐藏/显示（闪烁）
+    assert "const isWindowBoundaryMouseEvent = (event) => {" in setup_block
+    assert "return isDocTarget && !event.relatedTarget;" in setup_block
+    assert "if (!isWindowBoundaryMouseEvent(event)) return;" in setup_block
+    assert "if (isWindowBoundaryMouseEvent(event)) {" in setup_block
+    # unmarkControlsHover 必须校验 relatedTarget 仍在控件区域内再取消悬停标记
+    assert "const related = event && event.relatedTarget;" in setup_block
+    assert "buttonsContainer.contains(related)" in setup_block
+
+
+def test_pngtuber_get_stable_anchor_rect_strips_animation_transforms():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required for PNGTuber anchor tests")
+
+    source = PNGTUBER_CORE_PATH.read_text(encoding="utf-8")
+    script = "const source = " + json.dumps(source) + ";\n" + r"""
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+const window = { location: { pathname: '/' }, innerWidth: 1000, innerHeight: 800,
+  lanlan_config: { model_type: 'pngtuber' } };
+const document = { body: { classList: { contains: () => false } }, getElementById: () => null };
+vm.runInNewContext(source, { window, document, console, performance: { now: () => 0 },
+  requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
+
+const manager = new window.PNGTuberManager();
+manager.config = {
+  scale: 1, offset_x: 0, offset_y: 0,
+  mobile_scale: 1, mobile_offset_x: 0, mobile_offset_y: 0,
+  position_anchor: 'bottom_right', mirror: false,
+};
+let currentRect = null;
+manager.image = {
+  style: {},
+  getBoundingClientRect: () => ({ ...currentRect }),
+};
+manager.updateLockIconPosition = () => {};
+// 受控动画量：说话弹跳 Y=-10、挤压 scaleX=1.2/scaleY=0.9，呼吸 Y=-2
+manager.currentSpeakingBounceTransform = () => ({ y: -10, scaleX: 1.2, scaleY: 0.9 });
+manager.currentLayeredBreathingTransform = () => ({ y: -2, scaleX: 1, scaleY: 1 });
+manager.currentTalkingHopTransform = () => ({ y: 0, scaleX: 1, scaleY: 1 });
+manager.applyTransform(0);
+assert.equal(manager._appliedAnimOffsetY, -12);
+assert.equal(manager._appliedAnimScaleX, 1.2);
+assert.equal(manager._appliedAnimScaleY, 0.9);
+assert.equal(manager._appliedAnimCenterAnchored, false);
+assert.equal(manager._appliedAnimMirrored, false);
+
+// bottom_right 非镜像：缩放围绕右下角，右/底边界固定
+currentRect = { left: 100, top: 200, width: 240, height: 180, right: 340, bottom: 380 };
+let stable = manager.getStableAnchorRect();
+assert.equal(stable.width, 200);   // 240 / 1.2
+assert.equal(stable.height, 200);  // 180 / 0.9
+assert.equal(stable.right, 340);
+assert.equal(stable.bottom, 392);  // 380 - (-12)
+assert.equal(stable.left, 140);
+assert.equal(stable.top, 192);
+
+// bottom_right 镜像：finalScaleX 为负，右 bottom 原点固定的是可见矩形左边界
+manager.config.mirror = true;
+manager.applyTransform(0);
+assert.equal(manager._appliedAnimMirrored, true);
+stable = manager.getStableAnchorRect();
+assert.equal(stable.left, 100);
+assert.equal(stable.right, 300);   // 100 + 200
+assert.equal(stable.bottom, 392);
+assert.equal(stable.top, 192);
+
+// center 锚点：缩放围绕中心，镜像不影响结果
+manager.config.mirror = false;
+manager.config.position_anchor = 'center';
+manager.applyTransform(0);
+assert.equal(manager._appliedAnimCenterAnchored, true);
+stable = manager.getStableAnchorRect();
+assert.equal(stable.left, 120);    // centerX 220 - 100
+assert.equal(stable.right, 320);
+assert.equal(stable.top, 202);     // centerY 290 - (-12) - 100
+assert.equal(stable.bottom, 402);
+
+// 动画量归零时稳定矩形等于当前矩形
+manager.currentSpeakingBounceTransform = () => ({ y: 0, scaleX: 1, scaleY: 1 });
+manager.currentLayeredBreathingTransform = () => ({ y: 0, scaleX: 1, scaleY: 1 });
+manager.applyTransform(0);
+stable = manager.getStableAnchorRect();
+assert.equal(stable.left, 100);
+assert.equal(stable.top, 200);
+assert.equal(stable.width, 240);
+assert.equal(stable.height, 180);
+console.log('stable anchor rect OK');
+"""
+    run_node_script(node, script, check=True, cwd=PROJECT_ROOT)
 
 
 def test_apply_emotion_prefers_pngtuber_runtime_when_active():

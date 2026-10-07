@@ -642,8 +642,11 @@ class ChatAnthropic:
             client_kw["base_url"] = self.base_url
         if _timeout is not None:
             client_kw["timeout"] = _timeout
-        if default_headers:
-            client_kw["default_headers"] = default_headers
+        # 注入 neko/<版本号> User-Agent 覆盖 SDK 自带 UA（AsyncAnthropic/Python x.y.z），
+        # 防止自定义 API 端点的 Cloudflare "Manage AI bots" 规则拦截。调用方若已在
+        # default_headers 里显式指定 UA（如 Kimi Code 的 claude-code/0.1.0）则不覆盖。
+        from utils.http_client import ensure_user_agent
+        client_kw["default_headers"] = ensure_user_agent(default_headers)
 
         self._client = anthropic_cls(**client_kw)
         self._aclient = async_anthropic_cls(**client_kw)
@@ -885,6 +888,22 @@ class ChatAnthropic:
         resp = self._client.messages.create(**payload)
         _record_anthropic_token_usage(self.model, _anthropic_usage_to_dict(getattr(resp, "usage", None)))
         return resp
+
+    async def alist_models(self, *, limit: int) -> list[dict[str, str]]:
+        """List the endpoint's models via ``GET /v1/models``, at most ``limit`` entries.
+
+        Each entry carries ``id`` and, when the endpoint reports one, ``name``.
+        """
+        models: list[dict[str, str]] = []
+        # Anthropic 单页上限 1000；SDK 的 async for 会自动翻页，limit 只决定每页大小。
+        async for item in self._aclient.models.list(limit=max(1, min(limit, 1000))):
+            models.append({
+                "id": str(getattr(item, "id", "") or ""),
+                "name": str(getattr(item, "display_name", "") or ""),
+            })
+            if len(models) >= limit:
+                break
+        return models
 
     async def aclose(self) -> None:
         await self._aclient.close()

@@ -460,7 +460,7 @@ def test_focus_stream_overrides_decision():
     assert _C._focus_stream_overrides(True, "claude-opus-4-7") == {
         "extra_body": {"thinking": {"type": "disabled"}}
     }
-    # free server (model 名固定 free-model) shares the thinking.type dialect
+    # 免费版沿用 thinking.type 方言，Focus 会把关闭状态翻转为启用状态。
     assert _C._focus_stream_overrides(True, "free-model") == {
         "extra_body": {"thinking": {"type": "enabled"}}
     }
@@ -510,10 +510,9 @@ def test_focus_extra_body_provider_dialects():
     )
     from config.providers import EXTRA_BODY_MINIMAX  # not re-exported via config/__init__
 
-    # free server (model 名固定 free-model): regular turn sends thinking DISABLED…
+    # 免费版默认下发 thinking.disabled，Focus 翻转为 thinking.enabled。
     assert get_extra_body("free-model") == {"thinking": {"type": "disabled"}}
     assert get_extra_body("free-model") == EXTRA_BODY_CLAUDE
-    # …凝神 flips it to enabled (thinking.type dialect)
     assert focus_extra_body("free-model") == {"thinking": {"type": "enabled"}}
 
     # per-dialect enabled forms
@@ -545,6 +544,50 @@ def test_focus_extra_body_provider_dialects():
     nested = focus_extra_body("glm-5.2")
     nested["thinking"]["type"] = "disabled"
     assert focus_extra_body("glm-5.2") == {"thinking": {"type": "enabled"}}
+
+
+def test_step_reasoning_effort_stays_low():
+    """Step flash / step-5-preview reject reasoning_effort=none.
+
+    low is the floor and thinking cannot be turned off, so regular and focus
+    turns send the same body. Pin the constant identity: a same-shaped dict
+    registered in ``_THINKING_ENABLE_FORM`` would flip on focus.
+    """
+    from config.providers import (
+        EXTRA_BODY_STEP_LOW, MODELS_EXTRA_BODY_MAP, focus_extra_body, get_extra_body,
+    )
+
+    for model in (
+        "step-5-preview",
+        "step-3.7-flash",
+        "step-3.5-flash",
+        "step-3.5-flash-2603",
+    ):
+        assert MODELS_EXTRA_BODY_MAP[model] is EXTRA_BODY_STEP_LOW
+        assert get_extra_body(model) == {"reasoning_effort": "low"}
+        assert focus_extra_body(model) == {"reasoning_effort": "low"}
+
+
+def test_official_deepseek_v4_registers_the_thinking_type_dialect():
+    """Official DeepSeek V4 defaults to thinking-on, so it belongs in the map.
+
+    Asserting the VALUE alone would not be enough: swapping in a fresh constant
+    with identical contents (a separate ``EXTRA_BODY_DEEPSEEK``) keeps the value
+    assertions green, yet ``_THINKING_ENABLE_FORM`` pairs by ``id()`` — a new
+    identity silently drops the focus dual. So pin the constant identity too.
+    """
+    from config.providers import (
+        EXTRA_BODY_CLAUDE, MODELS_EXTRA_BODY_MAP, focus_extra_body, get_extra_body,
+    )
+
+    for model in ("deepseek-v4-flash", "deepseek-v4-pro"):
+        assert MODELS_EXTRA_BODY_MAP[model] is EXTRA_BODY_CLAUDE
+        assert get_extra_body(model) == {"thinking": {"type": "disabled"}}
+        # 凝神对偶由派生表自动获得，不需要单独登记。
+        assert focus_extra_body(model) == {"thinking": {"type": "enabled"}}
+
+    # 转售同款的网关是另外的键名，各走各的方言，不被官方那两行波及。
+    assert get_extra_body("deepseek-ai/DeepSeek-V4-Flash") == {"enable_thinking": False}
 
 
 async def test_focus_override_threads_through_visible_stream():

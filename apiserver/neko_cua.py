@@ -9,9 +9,10 @@ import os
 from typing import Any, Optional
 
 import httpx
+from apiserver.config import settings
 
-NEKO_AGENT_BASE = os.environ.get("NEKO_AGENT_BASE", "http://127.0.0.1:48915")
-NEKO_EXEC_TOKEN = os.environ.get("NEKO_EXEC_TOKEN", "")
+NEKO_AGENT_BASE = settings.neko_agent_base()
+NEKO_EXEC_TOKEN = settings.neko_exec_token()
 
 _client: httpx.AsyncClient | None = None
 

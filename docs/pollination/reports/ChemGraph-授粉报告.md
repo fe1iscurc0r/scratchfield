@@ -1,7 +1,7 @@
 # ChemGraph 授粉报告 · 科研 agent 框架 → Lumo 计算/实验任务调度 + 实验记录持久化
 
 > 来源：argonne-lcf/ChemGraph（146★，Apache-2.0，Python，LangGraph + ASE + MCP）
-> 审查：实验田维护者（Hermes）｜日期：2026-08-17
+> 审查：沈遥（Hermes）｜日期：2026-08-17
 > 定位：融合参考层——不整包吞，提取「多后端执行抽象 + Planner-Executor 任务分解 + 会话/实验记录持久化」三大件，授粉到 Lumo 科研大脑。
 
 ---

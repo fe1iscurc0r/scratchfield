@@ -3,19 +3,25 @@ from __future__ import annotations
 import ast
 import json
 import re
+import shutil
+import subprocess
+import textwrap
 from pathlib import Path
+
+import pytest
+
+from tests.node_harness import run_node_script
 
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCALES = ("zh-CN", "zh-TW", "en", "ja", "ko", "ru", "es", "pt")
 
+pytestmark = pytest.mark.frontend_contract
+
 
 def _contrast_ratio(foreground: str, background: str) -> float:
     def luminance(color: str) -> float:
-        channels = [
-            int(color[index : index + 2], 16) / 255
-            for index in (1, 3, 5)
-        ]
+        channels = [int(color[index : index + 2], 16) / 255 for index in (1, 3, 5)]
         linear = [
             channel / 12.92
             if channel <= 0.04045
@@ -57,15 +63,12 @@ def _literal_string_set(source: str, assignment_name: str) -> set[str]:
 def test_voice_identity_page_is_routed_and_available_in_settings_window() -> None:
     pages = (ROOT / "main_routers/pages_router.py").read_text(encoding="utf-8")
     server = (ROOT / "app/main_server/__init__.py").read_text(encoding="utf-8")
-    popup = (ROOT / "static/avatar/avatar-ui-popup.js").read_text(
-        encoding="utf-8"
-    )
+    popup = (ROOT / "static/avatar/avatar-ui-popup.js").read_text(encoding="utf-8")
 
     assert '@router.get("/voice_identity", response_class=HTMLResponse)' in pages
     assert '"templates/voice_identity.html"' in pages
     assert "/voice_identity" in _literal_string_set(
-        server,
-        "_MAIN_LIMITED_MODE_ALLOWED_PAGE_PATHS",
+        server, "_MAIN_LIMITED_MODE_ALLOWED_PAGE_PATHS"
     )
     assert "finalUrl.startsWith('/voice_identity')" in popup
     assert "windowName = 'neko_voice_identity'" in popup
@@ -84,13 +87,36 @@ def test_voice_identity_page_is_routed_and_available_in_settings_window() -> Non
     assert api_index < identity_index < memory_index
 
 
+def test_settings_menu_hides_voice_identity_only_when_off_without_cleanup() -> None:
+    popup = (ROOT / "static/avatar/avatar-ui-popup.js").read_text(encoding="utf-8")
+    helper = popup[
+        popup.index("function hideAvatarVoiceIdentityEntryWhenDisabled") : popup.index(
+            "function clearAvatarSidePanelHoverState"
+        )
+    ]
+    menu_items = popup[
+        popup.index("ManagerProto._createSettingsMenuItems = function") : popup.index(
+            "ManagerProto.renderScreenSourceList = async function"
+        )
+    ]
+
+    assert "fetch('/api/voice-identity/status'" in helper
+    assert "status.runtime_mode === 'off'" in helper
+    # Stored biometric data must stay reachable for disable/delete cleanup.
+    assert "status.has_profile !== true" in helper
+    assert "status.requested_enabled !== true" in helper
+    assert "menuItem.style.display = 'none'" in helper
+    assert ".catch(() => { })" in helper
+    assert "if (item.id === 'voice-identity')" in menu_items
+    assert "hideAvatarVoiceIdentityEntryWhenDisabled(menuItem)" in menu_items
+
+
 def test_settings_menu_icons_are_decorative_for_button_names() -> None:
-    popup = (ROOT / "static/avatar/avatar-ui-popup.js").read_text(
-        encoding="utf-8"
-    )
+    popup = (ROOT / "static/avatar/avatar-ui-popup.js").read_text(encoding="utf-8")
     menu_item = popup[
-        popup.index("ManagerProto._createMenuItem = function"):
-        popup.index("ManagerProto._createSettingsMenuItems = function")
+        popup.index("ManagerProto._createMenuItem = function") : popup.index(
+            "ManagerProto._createSettingsMenuItems = function"
+        )
     ]
 
     assert "iconImg.alt = '';" in menu_item
@@ -100,13 +126,8 @@ def test_settings_menu_icons_are_decorative_for_button_names() -> None:
 
 
 def test_voice_identity_header_keeps_title_bounded() -> None:
-    stylesheet = (ROOT / "static/css/voice_identity.css").read_text(
-        encoding="utf-8"
-    )
-
-    title = re.search(
-        r"\.voice-identity-header h2\s*\{([^}]*)\}", stylesheet
-    )
+    stylesheet = (ROOT / "static/css/voice_identity.css").read_text(encoding="utf-8")
+    title = re.search(r"\.voice-identity-header h2\s*\{([^}]*)\}", stylesheet)
     title_layers = re.search(
         r"\.voice-identity-header h2::before,\s*"
         r"\.voice-identity-header h2::after\s*\{([^}]*)\}",
@@ -121,180 +142,330 @@ def test_voice_identity_header_keeps_title_bounded() -> None:
     assert "text-overflow: ellipsis" in title_layers.group(1)
 
 
-def test_voice_identity_template_is_an_accessible_step_wizard() -> None:
-    template = (ROOT / "templates/voice_identity.html").read_text(
-        encoding="utf-8"
-    )
-    stylesheet = (ROOT / "static/css/voice_identity.css").read_text(
-        encoding="utf-8"
-    )
+def test_voice_identity_template_is_a_four_segment_enrollment_flow() -> None:
+    template = (ROOT / "templates/voice_identity.html").read_text(encoding="utf-8")
+    stylesheet = (ROOT / "static/css/voice_identity.css").read_text(encoding="utf-8")
 
-    assert (
-        '<title data-i18n="voiceIdentity.pageTitle">声纹注册面板（开发中）</title>'
-        in template
+    light_theme = re.search(r":root\s*\{(?P<body>.*?)\}", stylesheet, re.DOTALL)
+    dark_theme = re.search(
+        r'\[data-theme="dark"\]\s*\{(?P<body>.*?)\}', stylesheet, re.DOTALL
     )
-    assert (
-        '<h2 data-i18n="voiceIdentity.pageTitle" '
-        'data-text="声纹注册面板（开发中）">声纹注册面板（开发中）</h2>'
-        in template
-    )
+    assert light_theme is not None
+    assert dark_theme is not None
+
+    def css_color(theme: re.Match[str], name: str) -> str:
+        match = re.search(
+            rf"--{name}:\s*(#[0-9a-fA-F]{{6}})", theme.group("body")
+        )
+        assert match is not None
+        return match.group(1)
+
+    assert '<title data-i18n="voiceIdentity.pageTitle">Owner 声纹</title>' in template
     assert 'class="voice-identity-shell container"' in template
     assert 'class="voice-identity-header container-header page-title-bar"' in template
     assert 'class="container-content"' in template
     assert 'data-neko-window-control="pin"' in template
-    assert 'id="voice-identity-step"' in template
-    assert 'id="voice-identity-step-announcement"' in template
-    assert 'role="status" aria-live="polite" aria-atomic="true"' in template
-    assert 'id="voice-identity-record"' in template
-    assert 'id="voice-identity-filter"' in template
+    assert 'id="voice-identity-start"' in template
+    assert 'id="voice-identity-finish"' in template
+    assert 'data-i18n="voiceIdentity.finish"' in template
+    assert 'id="voice-identity-next"' in template
+    assert 'data-i18n="voiceIdentity.nextSegment"' in template
+    assert 'id="voice-identity-progress"' in template
+    assert 'aria-labelledby="voice-identity-step-title"' in template
+    assert 'id="voice-identity-step-title" tabindex="-1"' in template
+    assert 'id="voice-identity-prompt"' in template
+    assert 'id="voice-identity-result"' in template
+    assert 'id="voice-identity-result-title"' in template
+    assert 'id="voice-identity-match-percent"' in template
+    assert 'id="voice-identity-score-help"' in template
+    assert 'id="voice-identity-result-status"' in template
+    assert 'id="voice-identity-eyebrow"' in template
+    assert 'id="voice-identity-rule-note"' in template
+    assert 'id="voice-identity-actions"' in template
+    assert 'role="status" aria-live="polite" aria-atomic="true"></blockquote>' in template
+    assert 'id="voice-identity-voice-state"' in template
+    assert 'data-i18n="voiceIdentity.enrollAndEnable"' in template
+    assert 'id="voice-identity-capture-status" hidden' in template
+    assert 'id="voice-identity-profile-controls"' in template
+    assert 'id="voice-identity-filter-controls"' in template
+    assert 'id="voice-identity-profile-actions"' in template
     assert 'aria-labelledby="voice-filter-title"' in template
     assert 'aria-describedby="voice-filter-help"' in template
+    assert 'role="status" aria-live="polite" aria-atomic="true"' in template
+    assert "segment-progress" in template
+    assert template.count('data-step="') == 4
+    assert "voice-identity-record" not in template
+    assert "embedding" not in template.lower()
+    assert "verification-score" in template
+
     assert ".switch input:focus-visible + .switch-track" in stylesheet
-    assert "--voice-blue-dark: #075b80" in stylesheet
     assert "--voice-danger: #b4233b" in stylesheet
-    assert "--voice-focus: #082f45" in stylesheet
+    assert "--voice-success-text: #166b52" in stylesheet
+    assert "--voice-muted: #536b7b" in stylesheet
     assert "--voice-focus: #8edcff" in stylesheet
     assert "outline: 3px solid var(--voice-focus)" in stylesheet
-    assert _contrast_ratio("#075b80", "#f8fcff") >= 4.5
-    assert _contrast_ratio("#b4233b", "#fff0f2") >= 4.5
-    assert "--voice-muted: #61798a" in stylesheet
-    assert _contrast_ratio("#61798a", "#ffffff") >= 4.5
-    switch_block = stylesheet[
-        stylesheet.index("\n.switch {"):
-        stylesheet.index("}", stylesheet.index("\n.switch {"))
-    ]
-    assert "width: 54px" in switch_block
-    assert "height: 30px" in switch_block
-    assert "align-self: center" in switch_block
-    assert "flex: 0 0 auto" in switch_block
-    assert "flex: 0 0 54px" not in switch_block
-    switch_track_start = stylesheet.index("\n.switch-track {")
-    switch_track_block = stylesheet[
-        switch_track_start:stylesheet.index("}", switch_track_start)
-    ]
-    assert "position: absolute" in switch_track_block
-    assert "inset: 0" in switch_track_block
-    switch_track_color = re.search(
-        r"background:\s*(#[0-9a-fA-F]{6})", switch_track_block
-    )
-    assert switch_track_color is not None
-    assert _contrast_ratio(switch_track_color.group(1), "#ffffff") >= 3
-    checked_track = re.search(
-        r"\.switch input:checked \+ \.switch-track\s*\{([^}]*)\}",
+    for surface in ("voice-panel", "voice-panel-soft"):
+        assert _contrast_ratio(
+            css_color(light_theme, "voice-blue-dark"),
+            css_color(light_theme, surface),
+        ) >= 4.5
+    # Focus outlines are non-text UI and need 3:1 against the surfaces they ring.
+    for theme in (light_theme, dark_theme):
+        assert _contrast_ratio(
+            css_color(theme, "voice-focus"),
+            css_color(theme, "voice-panel-soft"),
+        ) >= 3
+    # Primary-button text sits on a gradient between these two stops.
+    for stop in ("#74d6fa", css_color(light_theme, "voice-blue-strong")):
+        assert _contrast_ratio("#07354d", stop) >= 4.5
+    assert re.search(
+        r"\.primary-button\s*\{[^}]*color:\s*#07354d[^}]*background:\s*linear-gradient\(100deg,\s*#74d6fa,\s*var\(--voice-blue-strong\)\)",
         stylesheet,
+        re.DOTALL,
     )
-    assert checked_track is not None
-    checked_track_color = re.search(
-        r"background:\s*(#[0-9a-fA-F]{6})", checked_track.group(1)
+    assert _contrast_ratio("#b4233b", "#fff0f2") >= 4.5
+    assert _contrast_ratio(
+        css_color(light_theme, "voice-muted"),
+        css_color(light_theme, "voice-panel-soft"),
+    ) >= 4.5
+    assert _contrast_ratio(
+        css_color(dark_theme, "voice-muted"),
+        css_color(dark_theme, "voice-panel-soft"),
+    ) >= 4.5
+    assert _contrast_ratio(
+        css_color(light_theme, "voice-success-text"),
+        css_color(light_theme, "voice-panel-soft"),
+    ) >= 4.5
+    # The current-segment marker keeps the same blue fill in both themes, so
+    # its text token must pass on that fill and must not be themed away.
+    assert _contrast_ratio(
+        css_color(light_theme, "voice-progress-current-text"),
+        css_color(light_theme, "voice-blue-strong"),
+    ) >= 4.5
+    assert "--voice-progress-current-text" not in dark_theme.group("body")
+    assert "--voice-blue-strong" not in dark_theme.group("body")
+    for selector in (r"\.segment-progress\s+span\.active", r"\.segment-progress\s+span\.current"):
+        assert re.search(
+            selector + r"\s*\{[^}]*color:\s*var\(--voice-progress-current-text\)[^}]*background:\s*var\(--voice-blue-strong\)",
+            stylesheet,
+            re.DOTALL,
+        )
+    assert re.search(
+        r"\.voice-activity-state\s*\{[^}]*color:\s*var\(--voice-muted\)",
+        stylesheet,
+        re.DOTALL,
     )
-    assert checked_track_color is not None
-    assert _contrast_ratio(checked_track_color.group(1), "#ffffff") >= 3
-    assert _contrast_ratio(checked_track_color.group(1), "#1b2730") >= 3
+    assert re.search(
+        r"\.capture-status\.voice-detected\s+\.voice-activity-state\s*\{[^}]*color:\s*var\(--voice-success-text\)",
+        stylesheet,
+        re.DOTALL,
+    )
+    assert re.search(
+        r"\.capture-status\s*\{[^}]*background:\s*var\(--voice-panel-soft\)",
+        stylesheet,
+        re.DOTALL,
+    )
     assert '[data-theme="dark"]' in stylesheet
     assert "--voice-panel: rgba(27, 39, 48, 0.96)" in stylesheet
-    dark_start = stylesheet.index('[data-theme="dark"] {')
-    dark_block = stylesheet[
-        dark_start:stylesheet.index("}", dark_start)
-    ]
-    dark_focus = re.search(
-        r"--voice-focus:\s*(#[0-9a-fA-F]{6})", dark_block
-    )
-    dark_panel = re.search(
-        r"--voice-panel:\s*rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)",
-        dark_block,
-    )
-    assert dark_focus is not None
-    assert dark_panel is not None
-    dark_panel_hex = "#" + "".join(
-        f"{int(channel):02x}" for channel in dark_panel.groups()
-    )
-    assert _contrast_ratio(dark_focus.group(1), dark_panel_hex) >= 3
-    header_block = stylesheet[
-        stylesheet.index(
-            ".voice-identity-page .voice-identity-header {"
-        ) : stylesheet.index(
-            "}", stylesheet.index(".voice-identity-page .voice-identity-header {")
-        )
-    ]
-    assert "padding: 18px 24px" in header_block
-    assert "linear-gradient(to right, #4bd4fd, #17a7ff)" in header_block
-    assert "position: relative" in header_block
-    assert "box-shadow:" not in header_block
+    assert "padding: 18px 24px" in stylesheet
     assert "/static/js/voice_identity.js" in template
     assert "/static/css/voice_identity.css" in template
-    assert "embedding" not in template.lower()
-    assert "similarity" not in template.lower()
 
 
-def test_voice_identity_idle_focus_target_is_programmatically_focusable() -> None:
-    template = (ROOT / "templates/voice_identity.html").read_text(
-        encoding="utf-8"
-    )
-    stylesheet = (ROOT / "static/css/voice_identity.css").read_text(
-        encoding="utf-8"
-    )
+def test_voice_identity_enrollment_focus_target_is_programmatically_focusable() -> None:
+    template = (ROOT / "templates/voice_identity.html").read_text(encoding="utf-8")
+    stylesheet = (ROOT / "static/css/voice_identity.css").read_text(encoding="utf-8")
 
     assert 'id="voice-identity-step-title" tabindex="-1"' in template
     assert "#voice-identity-step-title:focus-visible" in stylesheet
 
 
-def test_browser_capture_is_fixed_pcm16_and_cancels_on_close() -> None:
+def test_browser_capture_is_one_click_audio_worklet_pcm16_and_cancels_on_close() -> None:
     script = (ROOT / "static/js/voice_identity.js").read_text(encoding="utf-8")
+    processor = (ROOT / "static/audio-processor.js").read_text(encoding="utf-8")
 
     for contract in (
         "navigator.mediaDevices.getUserMedia",
         "AudioContext",
+        "AudioWorkletNode",
+        "audioWorklet.addModule(",
+        "AUDIO_PROCESSOR_CACHE_VERSION",
         "Int16Array",
-        "TARGET_SAMPLE_RATE = 16000",
-        "RECORDING_MS = 4000",
+        "TARGET_SAMPLE_RATE = 48000",
+        "REFERENCE_RECORDING_MS = 3000",
+        "VERIFICATION_RECORDING_MS = 5000",
+        "capturePcm16(recordingDurationMs)",
         "API_ROOT = '/api/voice-identity'",
         "'/enrollment/start'",
         "'/enrollment/segment'",
-        "'/enrollment/verify'",
-        "'/enrollment/commit'",
         "'/enrollment/cancel'",
         "'/profile'",
         "'/filter'",
         "X-Voice-Identity-Enrollment",
+        "X-Voice-Identity-Profile",
+        "audio/pcm;format=pcm_s16le;rate=48000;channels=1",
+        "X-Voice-Audio-Contract",
         "X-CSRF-Token",
         "window.nekoBeforeWindowClose",
         "pagehide",
+        "keepalive: true",
     ):
         assert contract in script
-    assert "RECORDING_MS + CAPTURE_TIMEOUT_GRACE_MS" in script
-    assert "new Error('incomplete_capture')" in script
-    assert "maxSourceSamples - capturedSamples" in script
-    assert "input.subarray(0, length)" in script
-    assert "MAX_RECORDING_MS" not in script
-    assert "if (sampleCount === 0)" in script
-    assert "throw new Error('empty_capture')" in script
-    assert script.count("error.name === 'NotAllowedError'") == 2
-    assert script.count("error.name === 'NotFoundError'") == 2
-    assert "state.stage === 'ready_to_commit'" in script
-    assert "await commitEnrollment()" in script
-    assert "window.addEventListener('localechange', render)" in script
-    assert "elements.reenroll.disabled = !state.initialized || !isIdle" in script
-    assert "elements.start.disabled = !state.initialized || state.busy" in script
-    assert "state.initialized = true;\n            applyStatus(status)" in script
+
+    assert "maxRecordingMs + CAPTURE_TIMEOUT_GRACE_MS" in script
+    assert "processor.port.postMessage({ type: 'flush' })" in script
+    assert "processor.port.postMessage({ type: 'shutdown' })" in script
+    assert "typeof processor.port.close === 'function'" in script
+    assert "activeRecordingBody" in script
+    assert "startAbort" in script
+    assert "flush_complete" in script
+    assert "capturedSamples <= 0" in script
+    assert "state.profileId || createProfileId()" in script
+    assert "['has_profile', 'profile_available', 'available']" in script
+    assert "const replacementConfirmed = segmentRequestPending" in script
+    assert "state.profileRevision !== profileRevisionBefore" in script
     assert "MediaRecorder" not in script
+    assert "createScriptProcessor" not in script
+    assert "'/enrollment/verify'" not in script
+    assert "'/enrollment/commit'" not in script
+    assert "readingPrompt${index}" in script
+    assert "ready_to_commit" not in script
     assert "embedding" not in script.lower()
-    assert "similarity" not in script.lower()
+    assert "completionResult" in script
+    assert "enrollmentVerification" in script
+    assert "window.addEventListener('localechange', render)" in script
+    assert "reconcileStatus({ timeoutMs: CANCEL_STATUS_TIMEOUT_MS })" in script
+    assert "needsLowPass = this.targetSampleRate < this.originalSampleRate" in processor
+    assert "createLowPassFilter()" in processor
+    assert "applyLowPassFilter(audioData)" in processor
+    assert "const sourceData = this.applyLowPassFilter(audioData)" in processor
+    assert "Array.from(" not in processor
+    assert ".concat(" not in processor
+    assert "resampleInputSize" not in processor
+    assert "resampleBufferIndex" not in processor
+    assert "extended.slice" not in processor
+    assert "audioData[audioData.length - 1]" not in processor
+
+
+def test_voice_identity_lowpass_is_causal_across_worklet_blocks() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for audio processor behavioural contract")
+    script = textwrap.dedent(
+        """
+        const fs = require('fs');
+        global.AudioWorkletProcessor = class {};
+        global.registerProcessor = (_name, processorClass) => {
+          global.AudioProcessor = processorClass;
+        };
+        eval(fs.readFileSync('static/audio-processor.js', 'utf8'));
+
+        const processor = new global.AudioProcessor({
+          processorOptions: {
+            originalSampleRate: 48000,
+            targetSampleRate: 16000,
+          },
+        });
+        processor.lowPassTaps = new Float32Array([0, 0, 1]);
+        processor.lowPassHistory = new Float32Array(2);
+        processor.lowPassHistoryFilled = 0;
+
+        const first = Array.from(
+          processor.applyLowPassFilter(new Float32Array([1, 2]))
+        );
+        const second = Array.from(
+          processor.applyLowPassFilter(new Float32Array([3, 4]))
+        );
+
+        if (JSON.stringify(first) !== JSON.stringify([0, 0])) {
+          throw new Error(`first block used fabricated future samples: ${first}`);
+        }
+        if (JSON.stringify(second) !== JSON.stringify([1, 2])) {
+          throw new Error(`second block did not consume prior history: ${second}`);
+        }
+        """
+    )
+    result: subprocess.CompletedProcess[str] = run_node_script(
+        node,
+        script,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_voice_identity_resampler_preserves_phase_across_worklet_blocks() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for audio processor behavioural contract")
+    script = textwrap.dedent(
+        """
+        const fs = require('fs');
+        global.AudioWorkletProcessor = class {};
+        global.registerProcessor = (_name, processorClass) => {
+          global.AudioProcessor = processorClass;
+        };
+        eval(fs.readFileSync('static/audio-processor.js', 'utf8'));
+
+        const processor = new global.AudioProcessor({
+          processorOptions: {
+            originalSampleRate: 44100,
+            targetSampleRate: 16000,
+          },
+        });
+        processor.applyLowPassFilter = (audioData) => audioData;
+
+        const makeRamp = (start, length) => {
+          const data = new Float32Array(length);
+          for (let i = 0; i < length; i++) {
+            data[i] = start + i;
+          }
+          return data;
+        };
+
+        const first = processor.resampleAudio(makeRamp(0, 1412));
+        const second = processor.resampleAudio(makeRamp(1412, 1412));
+        const expectedSecondFirst = 512 * 44100 / 16000;
+
+        if (first.length !== 512) {
+          throw new Error(`unexpected first block sample count: ${first.length}`);
+        }
+        if (second.length !== 513) {
+          throw new Error(`unexpected second block sample count: ${second.length}`);
+        }
+        if (Math.abs(second[0] - expectedSecondFirst) > 0.0001) {
+          throw new Error(
+            `resampler restarted at ${second[0]} instead of ${expectedSecondFirst}`
+          );
+        }
+        """
+    )
+    result: subprocess.CompletedProcess[str] = run_node_script(
+        node,
+        script,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_voice_identity_route_is_reserved_for_character_profiles() -> None:
     backend = (ROOT / "utils/character_name.py").read_text(encoding="utf-8")
     frontend = (
-        ROOT
-        / "static/js/character_card_manager/character-data-and-transfer.js"
+        ROOT / "static/js/character_card_manager/character-data-and-transfer.js"
     ).read_text(encoding="utf-8")
-
-    backend_routes = backend.split(
-        "RESERVED_ROUTE_NAMES = frozenset({", 1
-    )[1].split("})", 1)[0]
+    backend_routes = backend.split("RESERVED_ROUTE_NAMES = frozenset({", 1)[1].split(
+        "})", 1
+    )[0]
     frontend_routes = frontend.split(
         "CHARACTER_PROFILE_RESERVED_ROUTE_NAMES = new Set([", 1
     )[1].split("]);", 1)[0]
-
     assert '"voice_identity"' in backend_routes
     assert "'voice_identity'" in frontend_routes
 
@@ -303,68 +474,80 @@ def test_all_locales_define_complete_voice_identity_copy() -> None:
     required = {
         "pageTitle",
         "title",
+        "profileStatus",
+        "localOnly",
         "privacyTitle",
         "privacyBody",
-        "start",
-        "record",
+        "activeRecordingBody",
+        "recordingRule",
+        "enrollAndEnable",
         "recording",
         "cancel",
-        "retry",
         "delete",
         "reenroll",
         "filterLabel",
         "filterHelp",
-        "fixedPrompts",
-        "freePrompt1",
-        "freePrompt2",
+        "recordingSeconds",
+        "saving",
         "profileReady",
+        "profileSavedDisabled",
         "profileMissing",
-        "persistenceUnavailable",
-        "verificationPassed",
-        "verificationRetry",
+        "reasonDisabled",
+        "reasonModelUnavailable",
+        "reasonProfileIncompatible",
+        "reasonSecureStorageUnavailable",
+        "reasonEnrollmentActive",
+        "reasonRuntimeDegraded",
+        "reasonUnsupportedAsrRoute",
+        "featureDisabled",
+        "enrollmentComplete",
         "microphoneDenied",
         "requestFailed",
+        "deleteConfirm",
+        "retryConnection",
+        "verificationResultTitle",
+        "verificationScoreLabel",
+        "verificationSavedStatus",
+    }
+    required_segment_keys = {
+        "readingPrompt1",
+        "readingPrompt2",
+        "readingPrompt3",
+        "readingPrompt4",
+        "readingPromptLabel",
+        "segmentProgress",
+        "nextSegment",
+        "retrySegment",
+        "finish",
+        "finishTooSoon",
+        "voiceWaiting",
+        "voiceDetected",
+        "voiceQuiet",
+        "errorSpeechTooShort",
+        "errorSilence",
+        "errorSevereClipping",
+        "errorAudioTooLong",
+        "errorIncompleteCapture",
+        "errorVoiceSamplesInconsistent",
     }
     for locale in LOCALES:
         payload = json.loads(
-            (ROOT / "static/locales" / f"{locale}.json").read_text(
-                encoding="utf-8"
-            )
+            (ROOT / "static/locales" / f"{locale}.json").read_text(encoding="utf-8")
         )
         copy = payload["voiceIdentity"]
         assert required <= set(copy)
-        assert copy["pageTitle"].strip()
-        assert copy["title"].strip()
-        if locale == "zh-CN":
-            assert copy["pageTitle"] == "声纹注册面板（开发中）"
-            assert copy["title"] == "声纹注册面板"
-        assert len(copy["fixedPrompts"]) == 3
-        assert all(
-            isinstance(prompt, str) and prompt.strip()
-            for prompt in copy["fixedPrompts"]
-        )
-        if locale in {"en", "ru", "es", "pt"}:
-            assert all(
-                len(prompt.split()) <= 10
-                for prompt in copy["fixedPrompts"]
-            )
-        else:
-            assert all(
-                len(re.sub(r"[^\w]", "", prompt, flags=re.UNICODE)) <= 24
-                for prompt in copy["fixedPrompts"]
-            )
+        assert required_segment_keys <= set(copy)
+        assert all(isinstance(copy[key], str) and copy[key].strip() for key in required)
         assert payload["settings"]["menu"]["voiceIdentity"]
 
 
 def test_locale_bootstrap_declares_a_non_empty_locale_cache_key() -> None:
+    # 这条只保“声纹文案落地时缓存键已经翻过 2026-08-07-credentials-console-guide”，
+    # 是个不会腐烂的负向断言，所以留着不动。别把它改成钉死当前取值 —— 那样每次无关的
+    # 递增都要顺手来改这一行（static/yui-guide-day1-systray-intro.test.cjs 就那么烂过）。
+    # 版本串本身的通用约束（形状、不得复用旧值、两个装载点都带 ?v=、key 结构变了必须
+    # 递增）统一放在 tests/unit/test_locale_cache_bust_contract.py。
     bootstrap = (ROOT / "static/i18n-i18next.js").read_text(encoding="utf-8")
-
-    # 只要求存在一个非空的 LOCALE_VERSION（locale 文件靠它做 cache-bust），
-    # 不再钉死具体取值：钉死等于让每一次无关的版本串变更都打红这条用例。
-    # tests/unit/test_window_pin_static_contracts.py 里的同族判据已经因为
-    # 同样的原因退役过一次，这条是漏网的第二处。
     locale_version = re.search(r"const\s+LOCALE_VERSION\s*=\s*'([^']+)'", bootstrap)
-    assert locale_version and locale_version.group(1).strip(), (
-        "i18n-i18next.js 必须带一个非空的 LOCALE_VERSION 常量做 locale cache-bust"
-    )
+    assert locale_version and locale_version.group(1).strip()
     assert locale_version.group(1) != "2026-08-07-credentials-console-guide"

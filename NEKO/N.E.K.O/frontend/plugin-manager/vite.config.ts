@@ -3,14 +3,46 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
 const BACKEND_TARGET = process.env.VITE_BACKEND_URL || 'http://localhost:48916'
+const isVitest = process.env.VITEST === 'true'
+const elementPlusImportStyle = isVitest ? false : 'css'
+
+// 提取代理目标的 hostname 用于运行时检测
+// 当 API_BASE_URL 为空（通过 Vite 代理）时，前端需要知道代理目标是本地还是远程
+let PROXY_TARGET_HOSTNAME = 'localhost'
+try {
+  PROXY_TARGET_HOSTNAME = new URL(BACKEND_TARGET).hostname
+} catch {
+  // 解析失败，假定为本地
+  PROXY_TARGET_HOSTNAME = 'localhost'
+}
+
+// 组件测试普遍用 `app.component('el-tabs', stub)` 之类的全局桩替掉 Element Plus，
+// 断言再去查桩渲染出的标记（如 data-tab-name）。ElementPlusResolver 会把模板里的
+// <el-tabs> 编译成显式 `import { ElTabs } from 'element-plus'`，直接绕过全局注册，
+// 于是桩失效、断言落空。测试环境关掉自动导入，让模板回到全局解析。
+const autoImportComponents = isVitest
+  ? []
+  : [
+      Components({
+        dts: false,
+        resolvers: [ElementPlusResolver({ importStyle: elementPlusImportStyle })],
+      }),
+    ]
 
 // https://vite.dev/config/
 export default defineConfig({
   base: '/ui/',
+  define: {
+    // 注入代理目标的 hostname，用于运行时检测本地/远程后端
+    __VITE_PROXY_TARGET_HOSTNAME__: JSON.stringify(PROXY_TARGET_HOSTNAME)
+  },
   plugins: [
     vue(),
+    ...autoImportComponents,
     vueDevTools(),
   ],
   resolve: {
@@ -26,6 +58,25 @@ export default defineConfig({
       allow: ['..']
     },
     proxy: {
+      // Hosted surfaces open the main model-settings page through the parent
+      // bridge. Keep this exact SPA-external route on the backend in dev.
+      '^/api_key(?:\\?.*)?$': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+        secure: false
+      },
+      // Hosted document parsing uses a deliberately narrow API proxy. Do not
+      // expose the entire /api namespace through the plugin-manager dev server.
+      '/api/documents': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+        secure: false
+      },
+      '/api/model-config': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+        secure: false
+      },
       // 代理所有插件服务器 API 请求
       '/plugin/': {
         target: BACKEND_TARGET,
@@ -33,10 +84,15 @@ export default defineConfig({
         secure: false
       },
       // Market Bridge API endpoints only. Keep the SPA route /market on Vite.
-      '^/market/(status|bridge-token|install|installed|token-exchange|catalog(?:/.*)?|oauth(?:/.*)?|tasks(?:/.*)?)(?:\\?.*)?$': {
+      '^/market/(status|bridge-token|install|installed|token-exchange|github-proxy/measure|catalog(?:/.*)?|oauth(?:/.*)?|tasks(?:/.*)?)(?:\\?.*)?$': {
         target: BACKEND_TARGET,
         changeOrigin: true,
         secure: false
+      },
+      '^/plugins/development(?:/.*)?(?:\\?.*)?$': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+        secure: false,
       },
       // 只代理精确匹配 /plugins 的 API 请求（不带路径参数）
       // 使用 bypass 函数区分 API 请求和前端路由
@@ -64,6 +120,12 @@ export default defineConfig({
         secure: false
       },
       '/health': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+        secure: false
+      },
+      // CSRF token bootstrap used by the shared mutation request interceptor.
+      '^/security/csrf-token(?:\\?.*)?$': {
         target: BACKEND_TARGET,
         changeOrigin: true,
         secure: false

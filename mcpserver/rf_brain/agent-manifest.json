@@ -3,7 +3,7 @@
   "displayName": "射频大脑",
   "version": "1.0.0",
   "description": "物理层 AI 决策大脑：频谱感知→特征提取→LLM决策(调制方式/解调参数)→解调→反馈迭代闭环。协议无关抽象层，M1 仿真数据源，M2 接真 SDR",
-  "author": "实验田维护者",
+  "author": "沈遥",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.rf_brain.agent",

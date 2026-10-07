@@ -15,9 +15,8 @@ import {
   computeCompactHistoryExitDelay,
 } from './CompactExportHistoryPanel';
 import MessageList from './MessageList';
-import { ACTIVE_AVATAR_TOOLS_STORAGE_KEY } from './avatarTools';
+import { ACTIVE_AVATAR_TOOLS_STORAGE_KEY, ACTIVE_AVATAR_TOOLS_STORAGE_KEYS } from './avatarTools';
 import { getChatCompanionEmptyStateFallback, getChatEmptyStateFallback } from './chat-copy';
-import { MEME_IMAGE_LOAD_FAILED_STICKER_URL } from './memeImageFallback';
 import { parseChatMessage, type CompactChatState } from './message-schema';
 import compactChatStyles from './styles.css?raw';
 
@@ -32,6 +31,7 @@ describe('App', () => {
     COMPACT_HISTORY_HEIGHT_STORAGE_KEY,
     COMPACT_INPUT_TOOL_WHEEL_INDEX_STORAGE_KEY,
     ACTIVE_AVATAR_TOOLS_STORAGE_KEY,
+    ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full,
   ];
 
   beforeEach(() => {
@@ -48,6 +48,7 @@ describe('App', () => {
     resetCompactToolWheelDetentAudioForTests();
     document.body.style.pointerEvents = '';
     document.body.classList.remove('electron-chat-window');
+    document.body.classList.remove('neko-electron-runtime');
     document.body.classList.remove('yui-guide-chat-buttons-disabled');
     document.body.classList.remove('yui-guide-standalone-input-shield-active');
   });
@@ -329,12 +330,184 @@ describe('App', () => {
     fireEvent.change(input, { target: { value: '  你好  ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好', submitMethod: 'button' });
     expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument();
     expect(container.querySelector('[data-compact-chat-state="input"]')).not.toBeNull();
 
     fireEvent.click(container.querySelector('.compact-chat-minimize-ball') as HTMLButtonElement);
     expect(onCompactMinimizeRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes theater drafts through the dedicated callback before cat-local chat', () => {
+    const onComposerSubmit = vi.fn();
+    const onTheaterSubmit = vi.fn();
+    renderInputApp({
+      catLocalTextOnly: true,
+      theaterPresentation: {
+        active: true,
+        phase: 'awaiting_player',
+        history: [],
+        suggestedInputs: [],
+      },
+      onComposerSubmit,
+      onTheaterSubmit,
+    });
+
+    const input = screen.getByPlaceholderText('Type a message...');
+    fireEvent.change(input, { target: { value: '  推开教室门  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(onTheaterSubmit).toHaveBeenCalledWith('推开教室门');
+    expect(onComposerSubmit).not.toHaveBeenCalled();
+  });
+
+  it('keeps the theater draft when the dedicated callback is unavailable', () => {
+    const onComposerSubmit = vi.fn();
+    renderInputApp({
+      theaterPresentation: {
+        active: true,
+        phase: 'awaiting_player',
+        history: [],
+        suggestedInputs: [],
+      },
+      onComposerSubmit,
+    });
+
+    const input = screen.getByPlaceholderText('Type a message...');
+    fireEvent.change(input, { target: { value: '等待剧场宿主就绪' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(onComposerSubmit).not.toHaveBeenCalled();
+    expect(input).toHaveValue('等待剧场宿主就绪');
+  });
+
+  it('only shows theater Galgame options while the selection callback is available', () => {
+    const props = {
+      theaterPresentation: { active: true, phase: 'awaiting_player' as const, suggestedInputs: ['推开教室门'] },
+    };
+    const { container, rerender } = render(<App {...props} />);
+    expect(document.querySelector('.composer-galgame-option')).toBeNull();
+    const onTheaterSuggestedInputSelect = vi.fn();
+    rerender(<App {...props} onTheaterSuggestedInputSelect={onTheaterSuggestedInputSelect} />);
+    fireEvent.click(document.querySelector('.composer-galgame-option')!);
+    expect(onTheaterSuggestedInputSelect).toHaveBeenCalledExactlyOnceWith('推开教室门');
+    expect(container.querySelectorAll('.composer-input').length).toBeLessThanOrEqual(1);
+    rerender(<App {...props} />);
+    expect(document.querySelector('.composer-galgame-option')).toBeNull();
+  });
+
+  it.each(['evaluating', 'performing', 'ended'] as const)(
+    'locks the open theater composer during %s and preserves its draft', (phase) => {
+      const onTheaterSubmit = vi.fn();
+      const onComposerSubmit = vi.fn();
+      const props = { compactChatState: 'input' as const, onTheaterSubmit, onComposerSubmit };
+      const { rerender } = render(<App {...props} theaterPresentation={{ active: true, phase: 'awaiting_player' }} />);
+      const input = screen.getByPlaceholderText('Type a message...');
+      fireEvent.change(input, { target: { value: '留在这里等她' } });
+      rerender(<App {...props} theaterPresentation={{ active: true, phase }} />);
+
+      expect(input).toHaveAttribute('readonly');
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      fireEvent.change(input, { target: { value: '不能写入的草稿' } });
+      pressEnter(input);
+      fireEvent.submit(input.closest('form')!);
+      expect(onTheaterSubmit).not.toHaveBeenCalled();
+      expect(onComposerSubmit).not.toHaveBeenCalled();
+      expect(input).toHaveValue('留在这里等她');
+
+      rerender(<App {...props} theaterPresentation={{ active: true, phase: 'awaiting_player' }} />);
+      expect(input).not.toHaveAttribute('readonly');
+      pressEnter(input);
+      expect(onTheaterSubmit).toHaveBeenCalledExactlyOnceWith('留在这里等她');
+    },
+  );
+
+  it('keeps theater history accessible when the composer becomes disabled', () => {
+    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
+    const props = { chatSurfaceMode: 'compact' as const, compactChatState: 'input' as const };
+    const { container, rerender } = render(
+      <App {...props} theaterPresentation={{ active: true, phase: 'awaiting_player' }} />,
+    );
+    const handle = container.querySelector<HTMLButtonElement>('.compact-history-visibility-handle');
+    expect(handle).toHaveAttribute('aria-expanded', 'true');
+    expect(handle).toBeDisabled();
+    fireEvent.click(handle!);
+    expect(handle).toHaveAttribute('aria-expanded', 'true');
+
+    rerender(<App {...props} composerDisabled theaterPresentation={{ active: true, phase: 'performing' }} />);
+    expect(handle).toHaveAttribute('aria-expanded', 'true');
+    expect(container.querySelector('.compact-export-history-anchor')).not.toBeNull();
+  });
+
+  it('restores a theater IME draft on blur without overwriting the ordinary draft', () => {
+    const onTheaterSubmit = vi.fn();
+    const onComposerSubmit = vi.fn();
+    const props = { compactChatState: 'input' as const, onTheaterSubmit, onComposerSubmit };
+    const { rerender } = render(<App {...props} />);
+    const input = screen.getByPlaceholderText('Type a message...');
+    fireEvent.change(input, { target: { value: 'ordinary draft' } });
+    rerender(<App {...props} theaterPresentation={{ active: true, phase: 'awaiting_player' }} />);
+    fireEvent.change(input, { target: { value: '等待她回应' } });
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', isComposing: true });
+    fireEvent.input(input, { target: { value: '等待她回应\n' }, inputType: 'insertLineBreak' });
+    fireEvent.blur(input);
+    expect(input).toHaveValue('等待她回应');
+    expect(onTheaterSubmit).not.toHaveBeenCalled();
+    expect(onComposerSubmit).not.toHaveBeenCalled();
+    rerender(<App {...props} />);
+    expect(input).toHaveValue('ordinary draft');
+  });
+
+  it('restores the pre-theater ordinary draft only once across full and compact remounts', () => {
+    // 剧场结束后宿主的 viewProps 会一直保留这份恢复协议；full/compact 切换重挂组件时不能再次填回。
+    const ended = {
+      active: false,
+      phase: 'inactive' as const,
+      history: [],
+      suggestedInputs: [],
+      ordinaryDraftRestore: { id: 'ordinary_restore_compact_exit', text: '晚饭吃什么' },
+    };
+    const { rerender } = render(
+      <App chatSurfaceMode="compact" compactChatState="input" theaterPresentation={ended} />,
+    );
+    const compactInput = screen.getByPlaceholderText('Type a message...');
+    expect(compactInput).toHaveValue('晚饭吃什么');
+    fireEvent.change(compactInput, { target: { value: '' } });
+
+    rerender(<App chatSurfaceMode="full" theaterPresentation={ended} />);
+    expect(screen.getByPlaceholderText('Type a message...')).toHaveValue('');
+    rerender(<App chatSurfaceMode="compact" compactChatState="input" theaterPresentation={ended} />);
+    expect(screen.getByPlaceholderText('Type a message...')).toHaveValue('');
+  });
+
+  it('delivers the ordinary draft to the full surface when the theater exit restores full mode', () => {
+    const restore = { id: 'ordinary_restore_full_exit', text: '明天去哪玩' };
+    const { rerender } = render(
+      <App
+        chatSurfaceMode="compact"
+        compactChatState="input"
+        theaterPresentation={{ active: true, phase: 'awaiting_player', ordinaryDraftRestore: restore }}
+      />,
+    );
+    // 演绎期间胶囊输入框属于剧场，不能提前消费普通草稿。
+    expect(screen.getByPlaceholderText('Type a message...')).toHaveValue('');
+
+    rerender(
+      <App
+        chatSurfaceMode="full"
+        theaterPresentation={{ active: false, phase: 'inactive', ordinaryDraftRestore: restore }}
+      />,
+    );
+    expect(screen.getByPlaceholderText('Type a message...')).toHaveValue('明天去哪玩');
+    rerender(
+      <App
+        chatSurfaceMode="compact"
+        compactChatState="input"
+        theaterPresentation={{ active: false, phase: 'inactive', ordinaryDraftRestore: restore }}
+      />,
+    );
+    expect(screen.getByPlaceholderText('Type a message...')).toHaveValue('');
   });
 
   it('keeps the ordinary draft separate from the temporary compact cat draft', () => {
@@ -354,7 +527,7 @@ describe('App', () => {
       target: { value: 'cat draft' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    expect(onComposerSubmit).toHaveBeenLastCalledWith({ text: 'cat draft' });
+    expect(onComposerSubmit).toHaveBeenLastCalledWith({ text: 'cat draft', submitMethod: 'button' });
 
     rerender(
       <App compactChatState="input" onComposerSubmit={onComposerSubmit} />,
@@ -384,7 +557,21 @@ describe('App', () => {
     fireEvent.change(input, { target: { value: '喵一下' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '喵一下' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '喵一下', submitMethod: 'button' });
+  });
+
+  it('marks a plain Enter submission from the full chat surface', () => {
+    const onComposerSubmit = vi.fn();
+    render(<App chatSurfaceMode="full" onComposerSubmit={onComposerSubmit} />);
+
+    const input = screen.getByPlaceholderText('Type a message...');
+    fireEvent.change(input, { target: { value: 'full Enter send' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    expect(onComposerSubmit).toHaveBeenCalledWith({
+      text: 'full Enter send',
+      submitMethod: 'enter',
+    });
   });
 
   it('keeps the ordinary full-chat draft separate from the temporary cat draft', () => {
@@ -404,7 +591,7 @@ describe('App', () => {
       target: { value: 'full cat draft' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    expect(onComposerSubmit).toHaveBeenLastCalledWith({ text: 'full cat draft' });
+    expect(onComposerSubmit).toHaveBeenLastCalledWith({ text: 'full cat draft', submitMethod: 'button' });
 
     rerender(
       <App chatSurfaceMode="full" onComposerSubmit={onComposerSubmit} />,
@@ -493,7 +680,7 @@ describe('App', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Manage tools' })).toBeNull());
     expect(Array.from(toolGroup.querySelectorAll<HTMLElement>('[data-avatar-tool-id]'))
       .map(button => button.dataset.avatarToolId)).toEqual(['rps', 'fist', 'hammer']);
-    expect(JSON.parse(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY) || '[]'))
+    expect(JSON.parse(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full) || '[]'))
       .toEqual(['rps', 'fist', 'hammer']);
 
     fireEvent.click(container.querySelector('[data-avatar-tool-id="rps"]') as HTMLButtonElement);
@@ -504,6 +691,239 @@ describe('App', () => {
         avatar_win: 'Neko wins',
       }),
     })));
+  });
+
+  it('loads a local avatar tool into Full and exposes the shared create/edit entries', async () => {
+    const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+    const onAvatarToolStateChange = vi.fn();
+    (window as Window & { __NEKO_MULTI_WINDOW__?: boolean }).__NEKO_MULTI_WINDOW__ = true;
+    window.localStorage.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full, JSON.stringify([localToolId]));
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      ok: true,
+      items: [{
+        id: localToolId,
+        recordVersion: 2, revision: '2-123',
+        name: 'Feather',
+        changeMode: 'click-advance',
+        defaultUrl: `/user_avatar_tools/${localToolId}/default.png?v=1`,
+        changeUrls: [
+          `/user_avatar_tools/${localToolId}/change-000.png?v=1`,
+          `/user_avatar_tools/${localToolId}/change-001.png?v=1`,
+        ],
+        normalSoundUrl: `/user_avatar_tools/${localToolId}/normal.mp3?v=1`,
+        special: {
+          probability: 0.1,
+          imageUrl: `/user_avatar_tools/${localToolId}/special.png?v=1`,
+          soundUrl: `/user_avatar_tools/${localToolId}/special.mp3?v=1`,
+        },
+      }],
+      limits: {
+        maxTools: 20,
+        maxNameChars: 20,
+        maxMeaningChars: 100,
+              maxChangeImages: 16,
+              maxImages: 17,
+              maxInteractions: 16,
+              maxLinks: 32,
+              maxDelayMs: 600000,
+        maxImageBytes: 10_000_000,
+        maxImagePixels: 16_000_000,
+        maxAudioBytes: 10_000_000,
+        maxAudioDurationMs: 60_000,
+        maxTotalBytes: 100_000_000,
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      render(
+        <App
+          chatSurfaceMode="full"
+          onAvatarToolStateChange={onAvatarToolStateChange}
+        />,
+      );
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      fireEvent.click(screen.getByRole('button', { name: 'Emoji' }));
+      const localToolButton = await screen.findByRole('button', { name: 'Feather' });
+      fireEvent.click(localToolButton);
+
+      await waitFor(() => expect(onAvatarToolStateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        active: true,
+        toolId: localToolId,
+        desktopContract: expect.objectContaining({
+          wireVersion: 1,
+          definition: expect.objectContaining({
+            id: localToolId,
+            definitionVersion: 2,
+            visual: expect.objectContaining({
+              frames: expect.arrayContaining([
+                expect.objectContaining({ pointerImagePath: expect.stringContaining('/default.png?v=1') }),
+                expect.objectContaining({ pointerImagePath: expect.stringContaining('/change-001.png?v=1') }),
+              ]),
+            }),
+            interaction: expect.objectContaining({
+              profile: expect.objectContaining({
+                imageChange: { kind: 'click-advance' },
+                chance: expect.objectContaining({ probability: 0.1 }),
+              }),
+            }),
+          }),
+        }),
+      })));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Emoji: Feather' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Emoji' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit quick tools' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Manage tools' });
+      expect(dialog.querySelector(`[data-avatar-tool-library-id="${localToolId}"]`)).not.toBeNull();
+      expect(dialog.querySelector('[data-avatar-tool-create]')).not.toBeNull();
+      expect(dialog.querySelector('.avatar-tool-manager-modify')).not.toBeNull();
+      expect(dialog.querySelector('.avatar-tool-manager-delete')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      delete (window as Window & { __NEKO_MULTI_WINDOW__?: boolean }).__NEKO_MULTI_WINDOW__;
+    }
+  });
+
+  it('never rewrites Full local slots from the best-effort catalog list', async () => {
+    const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+    const stored = JSON.stringify([localToolId, 'fist']);
+    window.localStorage.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full, stored);
+    let listCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith(`/api/avatar-tools/${localToolId}`)) {
+        return new Response(JSON.stringify({ ok: false, error_code: 'record_invalid' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      listCount += 1;
+      if (listCount === 1) throw new Error('offline');
+      return new Response(JSON.stringify({
+        ok: true,
+        items: [],
+        limits: {
+          maxTools: 20,
+          maxNameChars: 20,
+          maxMeaningChars: 100,
+          maxChangeImages: 16,
+          maxImages: 17,
+          maxInteractions: 16,
+          maxLinks: 32,
+          maxDelayMs: 600000,
+          maxImageBytes: 10_000_000,
+          maxImagePixels: 16_000_000,
+          maxAudioBytes: 10_000_000,
+          maxAudioDurationMs: 60_000,
+          maxTotalBytes: 100_000_000,
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      render(<App chatSurfaceMode="full" />);
+      await waitFor(() => expect(listCount).toBe(1));
+      expect(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full)).toBe(stored);
+
+      act(() => window.dispatchEvent(new Event('focus')));
+      await waitFor(() => expect(listCount).toBe(2));
+      await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
+        String(input).endsWith(`/api/avatar-tools/${localToolId}`)
+      ))).toBe(true));
+
+      // 加载成功后内存里不再渲染这个槽位……
+      fireEvent.click(screen.getByRole('button', { name: 'Emoji' }));
+      const toolGroup = await screen.findByRole('group', { name: 'Tool icons' });
+      await waitFor(() => expect(
+        toolGroup.querySelector(`[data-avatar-tool-id="${localToolId}"]`),
+      ).toBeNull());
+      // ……对照：内置道具照常渲染，否则上面那条只是「工具栏根本没画」的假绿。
+      expect(Array.from(toolGroup.querySelectorAll<HTMLElement>('[data-avatar-tool-id]'))
+        .map(button => button.dataset.avatarToolId)).toEqual(['fist']);
+
+      // localStorage 不回写：list_items 会跳过校验失败的道具，「不在列表里」
+      // ≠「道具不存在」。详情明确是 record_invalid 而非 tool_not_found，不能
+      // 永久抹掉用户的槽位。
+      expect(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full)).toBe(stored);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('clears a hidden Full slot after refresh and detail both prove the tool was deleted', async () => {
+    const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+    const stored = JSON.stringify([localToolId, 'fist']);
+    const limits = {
+      maxTools: 64,
+      maxNameChars: 20,
+      maxMeaningChars: 100,
+      maxChangeImages: 16,
+      maxImages: 17,
+      maxInteractions: 16,
+      maxLinks: 32,
+      maxDelayMs: 600000,
+      maxImageBytes: 8_388_608,
+      maxImagePixels: 16_000_000,
+      maxAudioBytes: 5_242_880,
+      maxAudioDurationMs: 10_000,
+      maxTotalBytes: 268_435_456,
+    };
+    const localItem = {
+      id: localToolId,
+      recordVersion: 2, revision: '2-100',
+      name: 'Feather',
+      changeMode: 'press-swap',
+      defaultUrl: `/user_avatar_tools/${localToolId}/default.png?v=1`,
+      changeUrls: [`/user_avatar_tools/${localToolId}/change-000.png?v=1`],
+    };
+    let listCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith(`/api/avatar-tools/${localToolId}`)) {
+        return new Response(JSON.stringify({ ok: false, error_code: 'tool_not_found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      listCount += 1;
+      return new Response(JSON.stringify({
+        ok: true,
+        items: listCount === 1 ? [localItem] : [],
+        limits,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    window.localStorage.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full, stored);
+    vi.stubGlobal('fetch', fetchMock);
+    const onAvatarToolStateChange = vi.fn();
+
+    try {
+      render(<App chatSurfaceMode="full" onAvatarToolStateChange={onAvatarToolStateChange} />);
+      await waitFor(() => expect(listCount).toBe(1));
+      expect(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full)).toBe(stored);
+      fireEvent.click(screen.getByRole('button', { name: 'Emoji' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Feather' }));
+      await waitFor(() => expect(onAvatarToolStateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        active: true,
+        toolId: localToolId,
+      })));
+
+      act(() => window.dispatchEvent(new Event('focus')));
+
+      await waitFor(() => expect(
+        JSON.parse(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full) || '[]'),
+      ).toEqual(['fist']));
+      expect(fetchMock.mock.calls.some(([input]) => (
+        String(input).endsWith(`/api/avatar-tools/${localToolId}`)
+      ))).toBe(true);
+      await waitFor(() => expect(onAvatarToolStateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        active: false,
+        toolId: null,
+      })));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('publishes only the strict desktop descriptor from the full chat surface', async () => {
@@ -986,295 +1406,27 @@ describe('App', () => {
     }
   });
 
-  it('keeps the proactive meme overlay through the same-turn assistant caption that follows it', () => {
+  it('keeps proactive memes inside chat history instead of floating above the compact input', () => {
     window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    // 回归：主动分享是「发表情包 + 说台词」，台词是 assistant 消息、紧随 meme 落地。
-    // 旧逻辑「有新消息就收起」会让图一瞬间被台词顶掉（线上实测：图闪一下就没）。
     const meme = parseChatMessage({
-      id: 'meme-abc123',
+      id: 'meme-history-only',
       role: 'assistant',
       author: 'Neko',
       time: '10:00',
       createdAt: 1,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=x', alt: 'lol' }],
+      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=history-only', alt: 'history meme' }],
       status: 'sent',
     });
-    const { container, rerender } = render(
-      <App chatSurfaceMode="compact" compactChatState="input" messages={[meme]} />,
-    );
-    const img = container.querySelector('.compact-meme-overlay img');
-    expect(img).not.toBeNull();
-    expect(img).toHaveAttribute('src', '/api/meme/proxy-image?url=x');
-    expect(img).toHaveAttribute('loading', 'eager');
-    expect(img).toHaveAttribute('fetchpriority', 'high');
-    expect(img).not.toHaveAttribute('data-neko-image-load-failed-sticker');
 
-    const caption = parseChatMessage({
-      id: 'assistant-newer',
-      role: 'assistant',
-      author: 'Neko',
-      time: '10:01',
-      createdAt: 2,
-      blocks: [{ type: 'text', text: 'hi' }],
-      status: 'sent',
-    });
-    rerender(<App chatSurfaceMode="compact" compactChatState="input" messages={[meme, caption]} />);
-    expect(container.querySelector('.compact-meme-overlay img')).toHaveAttribute('src', '/api/meme/proxy-image?url=x');
-  });
-
-  it('collapses the meme overlay once the user speaks again', () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    const meme = parseChatMessage({
-      id: 'meme-abc123', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=x', alt: 'lol' }], status: 'sent',
-    });
-    const { container, rerender } = render(
-      <App chatSurfaceMode="compact" compactChatState="input" messages={[meme]} />,
-    );
-    expect(container.querySelector('.compact-meme-overlay')).not.toBeNull();
-
-    const userReply = parseChatMessage({
-      id: 'user-1', role: 'user', author: 'Me', time: '10:02', createdAt: 3,
-      blocks: [{ type: 'text', text: 'haha' }], status: 'sent',
-    });
-    rerender(<App chatSurfaceMode="compact" compactChatState="input" messages={[meme, userReply]} />);
-    expect(container.querySelector('.compact-meme-overlay')).toBeNull();
-  });
-
-  it('keeps the meme overlay alongside a music card from the same share (independent widgets)', () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    const meme = parseChatMessage({
-      id: 'meme-xyz', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=y', alt: 'lol' }], status: 'sent',
-    });
-    const musicCard = parseChatMessage({
-      id: 'music-abc', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 2,
-      blocks: [{ type: 'link', url: 'https://example.com/song', title: 'Song' }], status: 'sent',
-    });
-    const { container } = render(
-      <App chatSurfaceMode="compact" compactChatState="input" messages={[meme, musicCard]} />,
-    );
-    expect(container.querySelector('.compact-meme-overlay img')).toHaveAttribute('src', '/api/meme/proxy-image?url=y');
-  });
-
-  it('keeps the meme overlay even when a much later music-only turn arrives (no user message)', () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    // 表情包是独立挂件，不被猫娘后续的音乐分享收起；只有用户开口才换场。
-    const meme = parseChatMessage({
-      id: 'meme-old', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1000,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=z', alt: 'lol' }], status: 'sent',
-    });
-    const laterMusic = parseChatMessage({
-      id: 'music-later', role: 'assistant', author: 'Neko', time: '10:05', createdAt: 1000 + 60000,
-      blocks: [{ type: 'link', url: 'https://example.com/song2', title: 'Song2' }], status: 'sent',
-    });
-    const { container } = render(
-      <App chatSurfaceMode="compact" compactChatState="input" messages={[meme, laterMusic]} />,
-    );
-    expect(container.querySelector('.compact-meme-overlay img')).toHaveAttribute('src', '/api/meme/proxy-image?url=z');
-  });
-
-  it('keeps the meme overlay through a same-turn caption that shares its turnId', () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    // host 给主动分享 meme 打上它所属轮的 turnId（与同轮台词相同）；同轮台词不该顶掉图。
-    const meme = parseChatMessage({
-      id: 'meme-turn1', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1, turnId: 'turn-1',
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=t1', alt: 'lol' }], status: 'sent',
-    });
-    const sameTurnCaption = parseChatMessage({
-      id: 'assistant-caption', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 2, turnId: 'turn-1',
-      blocks: [{ type: 'text', text: '给你看个图～' }], status: 'sent',
-    });
-    const { container } = render(
-      <App chatSurfaceMode="compact" compactChatState="input" messages={[meme, sameTurnCaption]} />,
-    );
-    expect(container.querySelector('.compact-meme-overlay img')).toHaveAttribute('src', '/api/meme/proxy-image?url=t1');
-  });
-
-  it('collapses the meme overlay once a new assistant turn (different turnId) arrives', () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    // 真正的新一轮回复/主动搭话（不同 turnId）应顶掉旧图，即便用户没开口。
-    const meme = parseChatMessage({
-      id: 'meme-turn1', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1, turnId: 'turn-1',
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=t1', alt: 'lol' }], status: 'sent',
-    });
-    const { container, rerender } = render(
-      <App chatSurfaceMode="compact" compactChatState="input" messages={[meme]} />,
-    );
-    expect(container.querySelector('.compact-meme-overlay')).not.toBeNull();
-
-    const newTurnReply = parseChatMessage({
-      id: 'assistant-newturn', role: 'assistant', author: 'Neko', time: '10:05', createdAt: 2, turnId: 'turn-2',
-      blocks: [{ type: 'text', text: '在干嘛呀～' }], status: 'sent',
-    });
-    rerender(<App chatSurfaceMode="compact" compactChatState="input" messages={[meme, newTurnReply]} />);
-    expect(container.querySelector('.compact-meme-overlay')).toBeNull();
-  });
-
-  it('keeps the meme overlay when a non-assistant (tool/system) message with a different turnId follows', () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    // 只有「不同 turnId 的助手发言」算换场；tool/system 不是发言，不该顶掉图。
-    const meme = parseChatMessage({
-      id: 'meme-turn1', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1, turnId: 'turn-1',
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=t1', alt: 'lol' }], status: 'sent',
-    });
-    const toolMsg = parseChatMessage({
-      id: 'tool-x', role: 'tool', author: 'Tool', time: '10:01', createdAt: 2, turnId: 'turn-2',
-      blocks: [{ type: 'text', text: 'tool result' }], status: 'sent',
-    });
-    const { container } = render(
-      <App chatSurfaceMode="compact" compactChatState="input" messages={[meme, toolMsg]} />,
-    );
-    expect(container.querySelector('.compact-meme-overlay img')).toHaveAttribute('src', '/api/meme/proxy-image?url=t1');
-  });
-
-  it('renders the meme overlay close button after the image loads and hides the overlay when clicked', async () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    const meme = parseChatMessage({
-      id: 'meme-closeme', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=close', alt: 'lol' }], status: 'sent',
-    });
     const { container } = render(
       <App chatSurfaceMode="compact" compactChatState="input" messages={[meme]} />,
     );
-    const img = container.querySelector('.compact-meme-overlay img');
-    expect(img).toHaveAttribute('src', '/api/meme/proxy-image?url=close');
-    expect(container.querySelector('.compact-meme-overlay-close')).toBeNull();
 
-    fireEvent.load(img as Element);
-    await waitFor(() => expect(container.querySelector('.compact-meme-overlay-close')).not.toBeNull());
-    const closeButton = container.querySelector('.compact-meme-overlay-close');
-    // ⚠️ host 只把带 data-compact-hit-region 的子元素登记成 native 可交互区；漏了它 Electron
-    // pass-through 窗口里点击会穿到桌面（见 app-react-chat-window collectCompactCompositeGeometryItems）。
-    expect(closeButton).toHaveAttribute('data-compact-hit-region', 'true');
-
-    fireEvent.click(closeButton as Element);
     expect(container.querySelector('.compact-meme-overlay')).toBeNull();
+    expect(container.querySelector('[data-compact-export-history-message-id="meme-history-only"]')).toBeNull();
   });
 
-  it('refreshes compact interaction geometry when the meme close hit region changes', async () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    const meme = parseChatMessage({
-      id: 'meme-close-geometry', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=geometry', alt: 'lol' }], status: 'sent',
-    });
-    const geometryRefreshes: Event[] = [];
-    const handleGeometryRefresh = (event: Event) => geometryRefreshes.push(event);
-    window.addEventListener('neko:compact-interaction-geometry-refresh', handleGeometryRefresh);
-    try {
-      const { container } = render(
-        <App chatSurfaceMode="compact" compactChatState="input" messages={[meme]} />,
-      );
-      await waitFor(() => expect(geometryRefreshes.length).toBeGreaterThan(0));
-      geometryRefreshes.length = 0;
-
-      const img = container.querySelector('.compact-meme-overlay img');
-      expect(img).not.toBeNull();
-      expect(container.querySelector('.compact-meme-overlay-close')).toBeNull();
-      fireEvent.load(img as Element);
-      expect(geometryRefreshes.length).toBe(0);
-      await waitFor(() => expect(geometryRefreshes.length).toBeGreaterThan(0));
-      expect(container.querySelector('.compact-meme-overlay-close')).not.toBeNull();
-      geometryRefreshes.length = 0;
-
-      fireEvent.click(container.querySelector('.compact-meme-overlay-close') as Element);
-      await waitFor(() => expect(geometryRefreshes.length).toBeGreaterThan(0));
-      expect(container.querySelector('.compact-meme-overlay')).toBeNull();
-    } finally {
-      window.removeEventListener('neko:compact-interaction-geometry-refresh', handleGeometryRefresh);
-    }
-  });
-
-  it('renders the meme overlay close button after the image fails to load', async () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    const meme = parseChatMessage({
-      id: 'meme-error-geometry', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=error', alt: 'lol' }], status: 'sent',
-    });
-    const geometryRefreshes: Event[] = [];
-    const handleGeometryRefresh = (event: Event) => geometryRefreshes.push(event);
-    window.addEventListener('neko:compact-interaction-geometry-refresh', handleGeometryRefresh);
-    try {
-      const { container } = render(
-        <App chatSurfaceMode="compact" compactChatState="input" messages={[meme]} />,
-      );
-      await waitFor(() => expect(geometryRefreshes.length).toBeGreaterThan(0));
-      geometryRefreshes.length = 0;
-
-      const img = container.querySelector('.compact-meme-overlay img');
-      expect(img).not.toBeNull();
-      expect(container.querySelector('.compact-meme-overlay-close')).toBeNull();
-      fireEvent.error(img as Element);
-      expect(img).toHaveAttribute('src', MEME_IMAGE_LOAD_FAILED_STICKER_URL);
-      expect(img).toHaveAttribute('data-neko-image-load-failed-sticker', 'true');
-      expect(geometryRefreshes.length).toBe(0);
-      await waitFor(() => expect(geometryRefreshes.length).toBeGreaterThan(0));
-      expect(container.querySelector('.compact-meme-overlay-close')).not.toBeNull();
-    } finally {
-      window.removeEventListener('neko:compact-interaction-geometry-refresh', handleGeometryRefresh);
-    }
-  });
-
-  it('does not reuse a loaded meme overlay close button after history remounts the same image', async () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    const meme = parseChatMessage({
-      id: 'meme-history-remount', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=history-remount', alt: 'lol' }], status: 'sent',
-    });
-    vi.useFakeTimers();
-    try {
-      const { container } = render(
-        <App chatSurfaceMode="compact" compactChatState="input" messages={[meme]} />,
-      );
-
-      const firstImage = container.querySelector('.compact-meme-overlay img');
-      fireEvent.load(firstImage as Element);
-      expect(container.querySelector('.compact-meme-overlay-close')).not.toBeNull();
-
-      fireEvent.click(container.querySelector<HTMLButtonElement>('.compact-history-visibility-handle')!);
-      expect(container.querySelector('.compact-meme-overlay')).toBeNull();
-
-      fireEvent.click(container.querySelector<HTMLButtonElement>('.compact-history-visibility-handle')!);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(COMPACT_EXPORT_HISTORY_VISIBILITY_ANIMATION_MS);
-      });
-
-      const remountedImage = container.querySelector('.compact-meme-overlay img');
-      expect(remountedImage).toHaveAttribute('src', '/api/meme/proxy-image?url=history-remount');
-      expect(container.querySelector('.compact-meme-overlay-close')).toBeNull();
-
-      fireEvent.load(remountedImage as Element);
-      expect(container.querySelector('.compact-meme-overlay-close')).not.toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('shows a newer meme even after the previous one was manually closed', () => {
-    window.localStorage.setItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY, 'false');
-    const memeA = parseChatMessage({
-      id: 'meme-A', role: 'assistant', author: 'Neko', time: '10:00', createdAt: 1,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=A', alt: 'A' }], status: 'sent',
-    });
-    const { container, rerender } = render(
-      <App chatSurfaceMode="compact" compactChatState="input" messages={[memeA]} />,
-    );
-    const memeAImage = container.querySelector('.compact-meme-overlay img');
-    fireEvent.load(memeAImage as Element);
-    expect(container.querySelector('.compact-meme-overlay-close')).not.toBeNull();
-    fireEvent.click(container.querySelector('.compact-meme-overlay-close') as Element);
-    expect(container.querySelector('.compact-meme-overlay')).toBeNull();
-
-    // 叉掉旧图后，来一张新表情包（不同 id）应照常显示——dismiss 只钉旧 id。
-    const memeB = parseChatMessage({
-      id: 'meme-B', role: 'assistant', author: 'Neko', time: '10:05', createdAt: 2,
-      blocks: [{ type: 'image', url: '/api/meme/proxy-image?url=B', alt: 'B' }], status: 'sent',
-    });
-    rerender(<App chatSurfaceMode="compact" compactChatState="input" messages={[memeA, memeB]} />);
-    expect(container.querySelector('.compact-meme-overlay img')).toHaveAttribute('src', '/api/meme/proxy-image?url=B');
-  });
-
-  it('hides the proactive meme overlay while compact history is open', () => {
+  it('renders proactive memes inside compact history when it is open', () => {
     const meme = parseChatMessage({
       id: 'meme-visible-in-history',
       role: 'assistant',
@@ -1344,7 +1496,7 @@ describe('App', () => {
     expect(container.querySelector('.compact-export-history-message')).not.toHaveAttribute('aria-pressed');
     expect(container.querySelector('.compact-export-history-bubble')).not.toHaveAttribute('role');
     expect(container.querySelector('.compact-export-history-bubble')).not.toHaveAttribute('aria-pressed');
-    expect(container.querySelector('.compact-export-history-bubble')).toHaveAttribute('aria-disabled', 'true');
+    expect(container.querySelector('.compact-export-history-bubble')).not.toHaveAttribute('aria-disabled');
     expect(container.querySelector('.compact-export-history-bubble')).toHaveAttribute('tabindex', '-1');
     expect(window.localStorage.getItem(COMPACT_EXPORT_HISTORY_OPEN_STORAGE_KEY)).toBe('true');
 
@@ -1377,7 +1529,7 @@ describe('App', () => {
       expect(exportButton).toHaveAttribute('aria-pressed', 'false');
       expect(container.querySelector('.compact-export-history-bubble')).not.toHaveAttribute('role');
       expect(container.querySelector('.compact-export-history-bubble')).not.toHaveAttribute('aria-pressed');
-      expect(container.querySelector('.compact-export-history-bubble')).toHaveAttribute('aria-disabled', 'true');
+      expect(container.querySelector('.compact-export-history-bubble')).not.toHaveAttribute('aria-disabled');
       expect(container.querySelector('.compact-export-history-bubble')).toHaveAttribute('tabindex', '-1');
       expect(container.querySelector('.compact-export-history-bubble')).not.toHaveAttribute('data-compact-hit-region');
       expect(container.querySelector('.compact-export-history-scroll')).not.toHaveAttribute('data-compact-hit-region');
@@ -3619,6 +3771,45 @@ describe('App', () => {
     }
   });
 
+  it('drops the ordinary assistant preview when theater takes over the capsule', async () => {
+    const previousAssistantText = '这是进入小剧场之前残留的猫娘回复。';
+    const previousAssistantMessage = parseChatMessage({
+      id: 'assistant-before-theater',
+      role: 'assistant',
+      author: 'Neko',
+      time: '10:00',
+      createdAt: 1,
+      blocks: [{ type: 'text', text: previousAssistantText }],
+      status: 'streaming',
+    });
+    const { container, rerender } = render(
+      <App chatSurfaceMode="compact" messages={[previousAssistantMessage]} />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('.compact-chat-capsule-text')?.textContent?.length ?? 0).toBeGreaterThan(0);
+    });
+    const visibleOrdinaryPreview = container.querySelector('.compact-chat-capsule-text')?.textContent ?? '';
+    expect(previousAssistantText.startsWith(visibleOrdinaryPreview)).toBe(true);
+
+    rerender(
+      <App
+        chatSurfaceMode="compact"
+        messages={[previousAssistantMessage]}
+        theaterPresentation={{
+          active: true,
+          phase: 'loading',
+          history: [],
+          suggestedInputs: [],
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('.compact-chat-capsule-text')).not.toHaveTextContent(visibleOrdinaryPreview);
+    });
+  });
+
   it('keeps the compact caption moving forward when a new bubble joins the same turn instead of replaying it', async () => {
     vi.useFakeTimers();
     const firstBubbleText = '猫娘先说出来的第一段内容，紧凑输入条会逐字显示这一句。';
@@ -5816,7 +6007,7 @@ describe('App', () => {
       const dialog = screen.getByRole('dialog', { name: 'Manage tools' });
       expect(dialog).toHaveClass('is-positioned');
       expect(dialog).toHaveStyle({
-        '--avatar-tool-manager-left': '366px',
+        '--avatar-tool-manager-left': '286px',
         '--avatar-tool-manager-top': '12px',
       });
       expect(dialog.querySelectorAll('.avatar-tool-manager-slot')).toHaveLength(3);
@@ -5847,7 +6038,7 @@ describe('App', () => {
       await waitFor(() => {
         expect(dialog).toHaveClass('is-dragging');
         expect(dialog).toHaveStyle({
-          '--avatar-tool-manager-left': '396px',
+          '--avatar-tool-manager-left': '316px',
           '--avatar-tool-manager-top': '42px',
         });
       });
@@ -5865,6 +6056,145 @@ describe('App', () => {
       Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalInnerHeight });
     }
   });
+
+  it('uses the same expanded avatar tool editor from the full chat surface', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      items: [],
+      limits: {
+        maxTools: 64,
+        maxNameChars: 20,
+        maxMeaningChars: 100,
+        maxChangeImages: 16,
+        maxImages: 17,
+        maxInteractions: 16,
+        maxLinks: 32,
+        maxDelayMs: 600000,
+        maxImageBytes: 8_388_608,
+        maxImagePixels: 16_000_000,
+        maxAudioBytes: 5_242_880,
+        maxAudioDurationMs: 10_000,
+        maxTotalBytes: 268_435_456,
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      render(<App chatSurfaceMode="full" />);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Emoji' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit quick tools' }));
+      const createButton = screen.getByRole('button', { name: 'Create tool' });
+      await waitFor(() => expect(createButton).not.toBeDisabled());
+      fireEvent.click(createButton);
+
+      const workspace = screen.getByRole('dialog', { name: 'Create custom tool' });
+      expect(workspace).toHaveClass('avatar-tool-editor-workspace');
+      expect(workspace.querySelector('.react-flow')).not.toBeNull();
+      expect(screen.queryByRole('dialog', { name: 'Manage tools' })).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+      expect(screen.getByRole('dialog', { name: 'Manage tools' })).toBeInTheDocument();
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Create tool' }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // 编辑器窗口只 postMessage 给自己的 opener；删除还要详情接口明确回 tool_not_found 才算数。
+  // 列表请求一律失败，槽位对账不介入，只看编辑器结果这一条路径。
+  const deliverEditorDeletedResult = (localToolId: string) => {
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const editor = frame.contentWindow!;
+    (editor as unknown as { opener: Window }).opener = window;
+    fireEvent(window, new MessageEvent('message', {
+      origin: window.location.origin,
+      source: editor,
+      data: {
+        type: 'neko:avatar-tool-editor-result',
+        action: 'deleted',
+        toolId: localToolId,
+      },
+    }));
+  };
+  const stubDeletedToolFetch = (localToolId: string, detailErrorCode = 'tool_not_found') => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith(`/api/avatar-tools/${localToolId}`)) {
+        return new Response(JSON.stringify({ ok: false, error_code: detailErrorCode }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error('offline');
+    }));
+  };
+
+  it('restores the management dialog after a standalone editor result and clears a deleted slot', async () => {
+    const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+    window.localStorage.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full, JSON.stringify([localToolId, 'fist']));
+    stubDeletedToolFetch(localToolId);
+    try {
+      render(<App chatSurfaceMode="full" />);
+
+      expect(screen.queryByRole('dialog', { name: 'Manage tools' })).toBeNull();
+      deliverEditorDeletedResult(localToolId);
+
+      expect(await screen.findByRole('dialog', { name: 'Manage tools' })).toBeInTheDocument();
+      await waitFor(() => expect(
+        JSON.parse(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full) || '[]'),
+      ).toEqual(['fist']));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps a slot when the editor reports a deletion the server does not confirm', async () => {
+    const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+    const stored = JSON.stringify([localToolId, 'fist']);
+    window.localStorage.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full, stored);
+    stubDeletedToolFetch(localToolId, 'record_invalid');
+    try {
+      render(<App chatSurfaceMode="full" />);
+      deliverEditorDeletedResult(localToolId);
+
+      expect(await screen.findByRole('dialog', { name: 'Manage tools' })).toBeInTheDocument();
+      await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+        `/api/avatar-tools/${localToolId}`,
+        expect.anything(),
+      ));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+      expect(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full)).toBe(stored);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(['compact', 'full'] as const)(
+    'keeps the %s management dialog closed for a standalone editor result in cat local text mode',
+    async (chatSurfaceMode) => {
+      const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+      const storageKey = ACTIVE_AVATAR_TOOLS_STORAGE_KEYS[chatSurfaceMode];
+      window.localStorage.setItem(storageKey, JSON.stringify([localToolId, 'fist']));
+      stubDeletedToolFetch(localToolId);
+      try {
+        const { rerender } = render(<App chatSurfaceMode={chatSurfaceMode} compactChatState="input" catLocalTextOnly />);
+
+        deliverEditorDeletedResult(localToolId);
+
+        await waitFor(() => expect(JSON.parse(window.localStorage.getItem(storageKey) || '[]')).toEqual(['fist']));
+        expect(screen.queryByRole('dialog', { name: 'Manage tools' })).toBeNull();
+
+        // Leaving the mode must not surface a dialog the hidden result queued up.
+        rerender(<App chatSurfaceMode={chatSurfaceMode} compactChatState="input" />);
+        expect(screen.queryByRole('dialog', { name: 'Manage tools' })).toBeNull();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it('lets Compact equip and select rps while preserving the three-slot limit', async () => {
     const onAvatarToolStateChange = vi.fn();
@@ -5905,6 +6235,277 @@ describe('App', () => {
     })));
   });
 
+  it('keeps a temporarily unavailable local slot when the user saves without touching it', async () => {
+    const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+    const stored = JSON.stringify([localToolId, 'fist']);
+    window.localStorage.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY, stored);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      items: [],
+      limits: {
+        maxTools: 64,
+        maxNameChars: 20,
+        maxMeaningChars: 100,
+        maxChangeImages: 16,
+        maxImages: 17,
+        maxInteractions: 16,
+        maxLinks: 32,
+        maxDelayMs: 600000,
+        maxImageBytes: 8_388_608,
+        maxImagePixels: 16_000_000,
+        maxAudioBytes: 5_242_880,
+        maxAudioDurationMs: 10_000,
+        maxTotalBytes: 268_435_456,
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      render(<App chatSurfaceMode="full" />);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Emoji' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit quick tools' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Manage tools' });
+      // 用户没碰这个槽位，只是保存了一次。旧实现会把草稿按当前可用性 sanitize
+      // 一遍，于是一个只是本轮没出现在列表里的道具被永久冲掉。
+      fireEvent.click(dialog.querySelector('.avatar-tool-manager-action.primary') as HTMLButtonElement);
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Manage tools' })).toBeNull());
+
+      expect(JSON.parse(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY) || '[]'))
+        .toEqual([localToolId, 'fist']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('never rewrites Compact local slots from the best-effort catalog list', async () => {
+    const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+    const stored = JSON.stringify([localToolId, 'fist']);
+    window.localStorage.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY, stored);
+    let listCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith(`/api/avatar-tools/${localToolId}`)) {
+        return new Response(JSON.stringify({ ok: false, error_code: 'record_invalid' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      listCount += 1;
+      if (listCount === 1) throw new Error('offline');
+      return new Response(JSON.stringify({
+        ok: true,
+        items: [],
+        limits: {
+          maxTools: 64,
+          maxNameChars: 20,
+          maxMeaningChars: 100,
+          maxChangeImages: 16,
+          maxImages: 17,
+          maxInteractions: 16,
+          maxLinks: 32,
+          maxDelayMs: 600000,
+          maxImageBytes: 8_388_608,
+          maxImagePixels: 16_000_000,
+          maxAudioBytes: 5_242_880,
+          maxAudioDurationMs: 10_000,
+          maxTotalBytes: 268_435_456,
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const { container } = render(<App chatSurfaceMode="compact" compactChatState="input" />);
+      await waitFor(() => expect(listCount).toBe(1));
+      expect(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY)).toBe(stored);
+
+      act(() => window.dispatchEvent(new Event('focus')));
+      await waitFor(() => expect(listCount).toBe(2));
+      await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
+        String(input).endsWith(`/api/avatar-tools/${localToolId}`)
+      ))).toBe(true));
+
+      // 加载成功后内存里不再渲染这个槽位……
+      await openCompactInputTools();
+      fireEvent.click(screen.getByRole('button', { name: 'Avatar tools' }));
+      await waitFor(() => expect(
+        container.querySelector(`[data-avatar-tool-id="${localToolId}"]`),
+      ).toBeNull());
+      // ……对照：内置道具照常渲染，否则上面那条只是「快捷栏根本没画」的假绿。
+      expect(Array.from(container.querySelectorAll<HTMLElement>('[data-avatar-tool-id]'))
+        .map(button => button.dataset.avatarToolId)).toEqual(['fist']);
+
+      // localStorage 不回写：list_items 会跳过校验失败的道具，「不在列表里」
+      // ≠「道具不存在」。详情明确是 record_invalid 而非 tool_not_found，不能
+      // 永久抹掉用户的槽位。
+      expect(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY)).toBe(stored);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('clears a restored Compact slot only after detail proves the tool was deleted', async () => {
+    const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+    const stored = JSON.stringify([localToolId, 'fist']);
+    const limits = {
+      maxTools: 64,
+      maxNameChars: 20,
+      maxMeaningChars: 100,
+      maxChangeImages: 16,
+      maxImages: 17,
+      maxInteractions: 16,
+      maxLinks: 32,
+      maxDelayMs: 600000,
+      maxImageBytes: 8_388_608,
+      maxImagePixels: 16_000_000,
+      maxAudioBytes: 5_242_880,
+      maxAudioDurationMs: 10_000,
+      maxTotalBytes: 268_435_456,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith(`/api/avatar-tools/${localToolId}`)) {
+        return new Response(JSON.stringify({ ok: false, error_code: 'tool_not_found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, items: [], limits }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    window.localStorage.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY, stored);
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      render(<App chatSurfaceMode="compact" compactChatState="input" />);
+
+      await waitFor(() => expect(
+        JSON.parse(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY) || '[]'),
+      ).toEqual(['fist']));
+      expect(fetchMock.mock.calls.some(([input]) => (
+        String(input).endsWith(`/api/avatar-tools/${localToolId}`)
+      ))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('deletes an equipped local tool from Compact and clears its saved slot', async () => {
+    const localToolId = 'local-12345678-1234-4123-8123-123456789abc';
+    const localItem = {
+      id: localToolId,
+      recordVersion: 2, revision: '2-200',
+      name: 'Feather',
+      changeMode: 'press-swap',
+      defaultUrl: `/user_avatar_tools/${localToolId}/default.png?v=1`,
+      changeUrls: [`/user_avatar_tools/${localToolId}/change-000.png?v=1`],
+    };
+    const limits = {
+      maxTools: 64,
+      maxNameChars: 20,
+      maxMeaningChars: 100,
+      maxChangeImages: 16,
+      maxImages: 17,
+      maxInteractions: 16,
+      maxLinks: 32,
+      maxDelayMs: 600000,
+      maxImageBytes: 8_388_608,
+      maxImagePixels: 16_000_000,
+      maxAudioBytes: 5_242_880,
+      maxAudioDurationMs: 10_000,
+      maxTotalBytes: 268_435_456,
+    };
+    const localDetail = {
+      id: localToolId,
+      recordVersion: 2, revision: '2-200',
+      name: 'Feather',
+      changeMode: 'press-swap',
+      defaultImage: {
+        resource: 'default.png',
+        url: localItem.defaultUrl,
+      },
+      changeItems: [{
+        resource: 'change-000.png',
+        url: localItem.changeUrls[0],
+        meaning: 'The user touches the feather.',
+      }],
+    };
+    let deleted = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === 'DELETE') {
+        deleted = true;
+        return new Response(JSON.stringify({ ok: true, deletedId: localToolId }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.endsWith(`/api/avatar-tools/${localToolId}`)) {
+        return new Response(JSON.stringify({ ok: true, detail: localDetail, limits }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        items: deleted ? [] : [localItem],
+        limits,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onAvatarToolStateChange = vi.fn();
+    (window as Window & { __NEKO_MULTI_WINDOW__?: boolean }).__NEKO_MULTI_WINDOW__ = true;
+    window.localStorage.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY, JSON.stringify([localToolId]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const { container } = render(
+        <App
+          chatSurfaceMode="compact"
+          compactChatState="input"
+          onAvatarToolStateChange={onAvatarToolStateChange}
+        />,
+      );
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      await openCompactInputTools();
+      fireEvent.click(screen.getByRole('button', { name: 'Avatar tools' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Feather' }));
+      await waitFor(() => expect(onAvatarToolStateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        active: true,
+        toolId: localToolId,
+      })));
+
+      // The avatar-tool button first exits the active interaction. Opening it
+      // again exposes the equipped-tool manager, matching the actual UI flow.
+      await openCompactInputTools();
+      fireEvent.click(screen.getByRole('button', { name: 'Avatar tools' }));
+      await waitFor(() => expect(onAvatarToolStateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+        active: false,
+        toolId: null,
+      })));
+      await openCompactInputTools();
+      fireEvent.click(screen.getByRole('button', { name: 'Avatar tools' }));
+      fireEvent.click(container.querySelector('.avatar-tool-quickbar-edit') as HTMLButtonElement);
+      await screen.findByRole('dialog', { name: 'Manage tools' });
+      fireEvent.click(screen.getByRole('button', { name: 'Edit Feather' }));
+      await screen.findByRole('dialog', { name: 'Edit custom tool' });
+      fireEvent.click(screen.getByRole('button', { name: 'Delete tool' }));
+
+      await screen.findByRole('dialog', { name: 'Manage tools' });
+      await waitFor(() => expect(document.querySelector(`[data-avatar-tool-library-id="${localToolId}"]`)).toBeNull());
+      await waitFor(() => expect(window.localStorage.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY)).toBe('[]'));
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(true);
+      expect(confirm).toHaveBeenCalledTimes(1);
+    } finally {
+      confirm.mockRestore();
+      vi.unstubAllGlobals();
+      delete (window as Window & { __NEKO_MULTI_WINDOW__?: boolean }).__NEKO_MULTI_WINDOW__;
+    }
+  });
+
   it('sizes compact avatar tool manager against the desktop work area when the carrier is small', async () => {
     const originalInnerWidth = window.innerWidth;
     const originalInnerHeight = window.innerHeight;
@@ -5916,10 +6517,12 @@ describe('App', () => {
     };
     const originalDesktopLayout = desktopWindow.__nekoDesktopCompactLayout;
     const hadElectronChatWindowClass = document.body.classList.contains('electron-chat-window');
+    const hadElectronRuntimeClass = document.body.classList.contains('neko-electron-runtime');
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 393 });
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 74 });
     document.body.classList.add('electron-chat-window');
+    document.body.classList.add('neko-electron-runtime');
     desktopWindow.__nekoDesktopCompactLayout = {
       windowBounds: { x: 976, y: 485, width: 393, height: 74 },
       workArea: { x: 0, y: 0, width: 1706, height: 1066 },
@@ -5955,10 +6558,10 @@ describe('App', () => {
       expect(dialog).toHaveClass('is-desktop-compact-layout');
       expect(dialog).toHaveAttribute('data-compact-geometry-item', 'avatarToolManager');
       expect(dialog).toHaveStyle({
-        '--avatar-tool-manager-left': '-24px',
+        '--avatar-tool-manager-left': '-104px',
         '--avatar-tool-manager-top': '-473px',
-        '--avatar-tool-manager-width': '380px',
-        '--avatar-tool-manager-height': '600px',
+        '--avatar-tool-manager-width': '460px',
+        '--avatar-tool-manager-height': '680px',
       });
 
       desktopWindow.__nekoDesktopCompactLayout = {
@@ -5982,6 +6585,11 @@ describe('App', () => {
         document.body.classList.add('electron-chat-window');
       } else {
         document.body.classList.remove('electron-chat-window');
+      }
+      if (hadElectronRuntimeClass) {
+        document.body.classList.add('neko-electron-runtime');
+      } else {
+        document.body.classList.remove('neko-electron-runtime');
       }
       desktopWindow.__nekoDesktopCompactLayout = originalDesktopLayout;
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth });
@@ -7200,18 +7808,28 @@ describe('App', () => {
 
   it('gives the compact surface the full chat liquid-glass edge hierarchy', () => {
     const steadyFrameRule = compactChatStyles.match(/\.compact-chat-surface-frame\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
-    expect(compactChatStyles).toContain('--compact-chat-surface-edge-top: rgba(255, 255, 255, 0.7);');
+    expect(compactChatStyles).toContain(
+      '--compact-chat-surface-edge-top: rgba(255, 255, 255, calc(0.7 * var(--neko-chat-opacity-factor, 1)));',
+    );
     expect(compactChatStyles).toContain('border-width: 2px 1px 1px 1px;');
     expect(compactChatStyles).toContain('box-shadow: var(--compact-chat-surface-shadow);');
     expect(steadyFrameRule).not.toContain('clip-path: inset(0 round 999px);');
     expect(compactChatStyles).toMatch(
-      /\.compact-chat-surface-frame::after\s*\{[\s\S]*?radial-gradient\(ellipse at 14% 4%[\s\S]*?inset -2px 0 4px[\s\S]*?animation: compact-chat-liquid-edge 20s ease-in-out infinite;/,
+      /\.compact-chat-surface-frame::after\s*\{[\s\S]*?linear-gradient\(180deg[\s\S]*?inset -2px 0 4px/,
     );
-    expect(compactChatStyles).toContain('@keyframes compact-chat-liquid-edge');
+    for (const color of ['blue', 'violet', 'rose']) {
+      const keyframes = compactChatStyles.match(new RegExp(`@keyframes compact-chat-refraction-${color} \\{[\\s\\S]*?\\n\\}`))?.[0] ?? '';
+      expect(keyframes).toContain('transform: translate(');
+      expect(keyframes).not.toContain('background-position');
+    }
+    expect(compactChatStyles).toContain('animation-duration: 20s;');
+    expect(compactChatStyles).not.toContain('--compact-decoration-play-state');
     expect(compactChatStyles).toMatch(
-      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.compact-chat-surface-frame::after\s*\{\s*animation: none;/,
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.compact-chat-refraction > span\s*\{\s*animation: none;/,
     );
-    expect(compactChatStyles).toContain('--compact-chat-surface-edge-top: rgba(196, 228, 255, 0.44);');
+    expect(compactChatStyles).toContain(
+      '--compact-chat-surface-edge-top: rgba(196, 228, 255, calc(0.44 * var(--neko-chat-opacity-factor, 1)));',
+    );
   });
 
   it('keeps the backdrop layer pill-clipped while compact reveal masks are active', () => {
@@ -7222,19 +7840,19 @@ describe('App', () => {
 
   it('frosts the backdrop while strengthening compact surface opacity', () => {
     expect(compactChatStyles).toMatch(
-      /\.compact-chat-surface-frame\s*\{[\s\S]*?background-clip: padding-box;[\s\S]*?background-color: rgba\(255, 255, 255, 0\.035\);[\s\S]*?backdrop-filter: blur\(36px\) saturate\(0\.9\) contrast\(0\.78\) brightness\(1\.08\);/,
+      /\.compact-chat-surface-frame\s*\{[\s\S]*?background-clip: padding-box;[\s\S]*?background-color: rgba\(255, 255, 255, calc\(0\.035 \* var\(--neko-chat-opacity-factor, 1\)\)\);[\s\S]*?backdrop-filter: blur\(36px\) saturate\(0\.9\) contrast\(0\.78\) brightness\(1\.08\);/,
     );
     expect(compactChatStyles).toContain(
-      'linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(242, 249, 255, 0.42) 46%, rgba(219, 238, 253, 0.48))',
+      'linear-gradient(180deg,\n      rgba(255, 255, 255, calc(0.58 * var(--neko-chat-opacity-factor, 1))),\n      rgba(242, 249, 255, calc(0.42 * var(--neko-chat-opacity-factor, 1))) 46%,\n      rgba(219, 238, 253, calc(0.48 * var(--neko-chat-opacity-factor, 1))))',
     );
     expect(compactChatStyles).toContain(
-      'linear-gradient(180deg, rgba(31, 48, 66, 0.80), rgba(15, 29, 46, 0.76) 58%, rgba(8, 17, 30, 0.72))',
+      'linear-gradient(180deg,\n      rgba(31, 48, 66, calc(0.80 * var(--neko-chat-opacity-factor, 1))),\n      rgba(15, 29, 46, calc(0.76 * var(--neko-chat-opacity-factor, 1))) 58%,\n      rgba(8, 17, 30, calc(0.72 * var(--neko-chat-opacity-factor, 1))))',
     );
     expect(compactChatStyles).toContain(
-      '--compact-chat-capsule-surface-bg:\n    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(242, 249, 255, 0.68) 46%, rgba(219, 238, 253, 0.72));',
+      '--compact-chat-capsule-surface-bg:\n    linear-gradient(180deg,\n      rgba(255, 255, 255, calc(0.78 * var(--neko-chat-opacity-factor, 1))),\n      rgba(242, 249, 255, calc(0.68 * var(--neko-chat-opacity-factor, 1))) 46%,\n      rgba(219, 238, 253, calc(0.72 * var(--neko-chat-opacity-factor, 1))));',
     );
     expect(compactChatStyles).toContain(
-      '--compact-chat-capsule-surface-bg:\n    linear-gradient(180deg, rgba(31, 48, 66, 0.86), rgba(15, 29, 46, 0.82) 58%, rgba(8, 17, 30, 0.78));',
+      '--compact-chat-capsule-surface-bg:\n    linear-gradient(180deg,\n      rgba(31, 48, 66, calc(0.86 * var(--neko-chat-opacity-factor, 1))),\n      rgba(15, 29, 46, calc(0.82 * var(--neko-chat-opacity-factor, 1))) 58%,\n      rgba(8, 17, 30, calc(0.78 * var(--neko-chat-opacity-factor, 1))));',
     );
     expect(compactChatStyles).toMatch(
       /\.compact-chat-surface-frame\[data-compact-chat-state="default"\]::before,[\s\S]*?\.compact-chat-surface-frame\[data-compact-chat-state="options"\]::before,[\s\S]*?\.compact-chat-surface-frame\[data-compact-chat-state="input"\]::before\s*\{[\s\S]*?background: var\(--compact-chat-capsule-surface-bg\);/,
@@ -7281,6 +7899,31 @@ describe('App', () => {
     );
     expect(compactChatStyles).toMatch(
       /\.message-link-copy\s*\{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/,
+    );
+  });
+
+  it('gives compact history link cards a bounded readable width', () => {
+    expect(compactChatStyles).toContain('--compact-export-history-edge-gutter: 12px;');
+    expect(compactChatStyles).toContain('--compact-export-history-viewport-gutter: 24px;');
+    expect(compactChatStyles).toContain('--compact-export-history-shadow-gutter-right: 32px;');
+    expect(compactChatStyles).toContain('--compact-export-history-shadow-gutter-left: 12px;');
+    expect(compactChatStyles).toContain('--compact-export-link-card-min-inline-size: 170px;');
+    expect(compactChatStyles).toContain('--compact-export-link-bubble-chrome-inline-size: 23px;');
+    expect(compactChatStyles).toContain('--compact-export-link-row-reserve-inline-size: 48px;');
+    expect(compactChatStyles).toMatch(
+      /--compact-export-link-history-min-inline-size:\s*calc\([\s\S]*?var\(--compact-export-link-card-min-inline-size\)[\s\S]*?var\(--compact-export-link-bubble-chrome-inline-size\)[\s\S]*?var\(--compact-export-link-row-reserve-inline-size\)[\s\S]*?var\(--compact-export-history-shadow-gutter-left\) \+ var\(--compact-export-history-shadow-gutter-right\)[\s\S]*?\);/,
+    );
+    expect(compactChatStyles).toMatch(
+      /\.compact-export-history-anchor:has\(\.compact-export-history-content > \.message-block-link\)\s*\{[\s\S]*?max\(var\(--compact-export-history-inline-size\), var\(--compact-export-link-history-min-inline-size\)\)[\s\S]*?var\(--compact-export-history-max-inline-size\)/,
+    );
+    expect(compactChatStyles).toMatch(
+      /\.compact-export-history-bubble:has\(> \.compact-export-history-content > \.message-block-link\)\s*\{[\s\S]*?width: calc\(100% - var\(--compact-export-link-row-reserve-inline-size\)\);[\s\S]*?min-width: min\(/,
+    );
+    expect(compactChatStyles).toMatch(
+      /\.compact-export-history-content > \.message-block-link\s*\{[\s\S]*?width: 100%;[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0;/,
+    );
+    expect(compactChatStyles).toMatch(
+      /\.compact-export-history-content > \.message-block-link \.message-link-copy\s*\{[\s\S]*?min-width: 0;[\s\S]*?overflow-wrap: anywhere;/,
     );
   });
 
@@ -9160,7 +9803,7 @@ describe('App', () => {
     expect(sendButton.querySelector('img')).toHaveAttribute('src', '/static/icons/send_new_icon.png');
     fireEvent.click(sendButton);
 
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'Test compact send' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'Test compact send', submitMethod: 'button' });
   });
 
   it('keeps controlled compact input focused after submitting text for continuous typing', async () => {
@@ -9187,7 +9830,7 @@ describe('App', () => {
     expect(document.activeElement).toBe(sendButton);
     fireEvent.click(sendButton);
 
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'First compact message' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'First compact message', submitMethod: 'button' });
     expect(container.querySelector('.app-shell')).toHaveAttribute('data-compact-chat-state', 'input');
     expect(screen.getByPlaceholderText('Type a message...')).toHaveValue('');
     await waitFor(() => {
@@ -9246,6 +9889,73 @@ describe('App', () => {
     });
 
     expect(onCompactChatStateChange).toHaveBeenCalledWith('default');
+  });
+
+  it.each([false, true])('preserves native guide input and tools across desktop outside events (wheel open: %s)', async (wheelOpen) => {
+    vi.useFakeTimers();
+    const onCompactChatStateChange = vi.fn();
+    const layer = document.createElement('div');
+    layer.className = 'click-guide-layer click-guide-native';
+    layer.style.visibility = 'hidden';
+    document.body.appendChild(layer);
+    try {
+      render(<App chatSurfaceMode="compact" compactChatState="input"
+        onCompactChatStateChange={onCompactChatStateChange} />);
+      const input = screen.getByPlaceholderText('Type a message...');
+      input.focus();
+      if (wheelOpen) fireEvent.click(screen.getByRole('button', { name: '更多工具' }));
+      onCompactChatStateChange.mockClear();
+      fireEvent.blur(input);
+      fireEvent(window, new Event('blur'));
+      fireEvent(window, new CustomEvent('neko:desktop-compact-pointer-outside'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      expect(onCompactChatStateChange).not.toHaveBeenCalledWith('default');
+      expect(document.body.querySelector('.compact-input-tool-fan')).toHaveAttribute('data-compact-input-tool-fan-open', String(wheelOpen));
+      layer.remove();
+      fireEvent(window, new Event('blur'));
+      fireEvent(window, new CustomEvent('neko:desktop-compact-pointer-outside'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      expect(onCompactChatStateChange).toHaveBeenCalledWith('default');
+      expect(document.body.querySelector('.compact-input-tool-fan')).toHaveAttribute('data-compact-input-tool-fan-open', 'false');
+    } finally {
+      layer.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['click-guide-card', 'click-guide-mask', 'click-guide-choice'])('keeps empty compact input open during a press and focus transfer to %s', async (className) => {
+    const onCompactChatStateChange = vi.fn();
+    const layer = document.createElement('div');
+    layer.className = className === 'click-guide-choice' ? className : 'click-guide-layer';
+    const control = document.createElement('button');
+    control.className = className;
+    layer.appendChild(control);
+    document.body.appendChild(layer);
+    try {
+      render(<App chatSurfaceMode="compact" compactChatState="input"
+        onCompactChatStateChange={onCompactChatStateChange} />);
+      screen.getByPlaceholderText('Type a message...').focus();
+      onCompactChatStateChange.mockClear();
+      fireEvent.pointerDown(control);
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+      expect(onCompactChatStateChange).not.toHaveBeenCalledWith('default');
+      await act(async () => {
+        control.focus();
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+      expect(document.activeElement).toBe(control);
+      expect(onCompactChatStateChange).not.toHaveBeenCalledWith('default');
+      layer.remove();
+      fireEvent.pointerDown(document.body);
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+      expect(onCompactChatStateChange).toHaveBeenCalledWith('default');
+    } finally {
+      layer.remove();
+    }
   });
 
   it('returns empty compact input to subtitle state when a document-level outside pointer starts', async () => {
@@ -9365,11 +10075,50 @@ describe('App', () => {
 
     const input = screen.getByPlaceholderText('Type a message...');
     fireEvent.change(input, { target: { value: 'Test send' } });
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    const enterDispatchResult = fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    expect(enterDispatchResult).toBe(false);
+    expect(input).toHaveValue('Test send');
     expect(onComposerSubmit).not.toHaveBeenCalled();
     fireEvent.keyUp(input, { key: 'Enter', code: 'Enter' });
 
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'Test send' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'Test send', submitMethod: 'enter' });
+  });
+
+  it('finishes a plain Enter submission when the compact input blurs before keyup', () => {
+    const onComposerSubmit = vi.fn();
+    renderInputApp({ onComposerSubmit });
+
+    const input = screen.getByPlaceholderText('Type a message...');
+    fireEvent.change(input, { target: { value: 'Send on blur' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    fireEvent.blur(input);
+    fireEvent.keyUp(input, { key: 'Enter', code: 'Enter' });
+
+    expect(onComposerSubmit).toHaveBeenCalledTimes(1);
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'Send on blur', submitMethod: 'enter' });
+    expect(input).toHaveValue('');
+  });
+
+  it('does not turn Shift+Enter or IME confirmation into a submission on blur', () => {
+    const onComposerSubmit = vi.fn();
+    renderInputApp({ onComposerSubmit });
+
+    const input = screen.getByPlaceholderText('Type a message...');
+    fireEvent.change(input, { target: { value: 'Keep draft' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', shiftKey: true });
+    fireEvent.blur(input);
+
+    fireEvent.focus(input);
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, {
+      key: 'Enter',
+      code: 'Enter',
+      isComposing: true,
+    });
+    fireEvent.blur(input);
+
+    expect(onComposerSubmit).not.toHaveBeenCalled();
+    expect(input).toHaveValue('Keep draft');
   });
 
   it('submits plain Enter when WebKit inserts a line break before keyup', () => {
@@ -9385,7 +10134,7 @@ describe('App', () => {
     });
     fireEvent.keyUp(input, { key: 'Enter', code: 'Enter' });
 
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'Send without newline' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'Send without newline', submitMethod: 'enter' });
     expect(input).toHaveValue('');
   });
 
@@ -9401,7 +10150,7 @@ describe('App', () => {
     });
     fireEvent.keyUp(input, { key: 'Enter', code: 'Enter' });
 
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'Fallback send' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'Fallback send', submitMethod: 'enter' });
   });
 
   it('treats an inputType-less text replacement as an IME candidate commit', () => {
@@ -9420,7 +10169,7 @@ describe('App', () => {
     expect(input).toHaveValue('candidate');
 
     pressEnter(input);
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'candidate' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'candidate', submitMethod: 'enter' });
   });
 
   it('keeps a Shift+Enter line break without submitting', () => {
@@ -9429,7 +10178,12 @@ describe('App', () => {
 
     const input = screen.getByPlaceholderText('Type a message...');
     fireEvent.change(input, { target: { value: 'First line' } });
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', shiftKey: true });
+    const shiftEnterDispatchResult = fireEvent.keyDown(input, {
+      key: 'Enter',
+      code: 'Enter',
+      shiftKey: true,
+    });
+    expect(shiftEnterDispatchResult).toBe(true);
     fireEvent.input(input, {
       target: { value: 'First line\n' },
       inputType: 'insertLineBreak',
@@ -9460,7 +10214,7 @@ describe('App', () => {
     expect(input).toHaveValue('你好');
 
     pressEnter(input);
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好', submitMethod: 'enter' });
   });
 
   it('treats macOS WebKit keyCode 229 as IME confirmation until keyup', () => {
@@ -9488,7 +10242,7 @@ describe('App', () => {
     expect(input).toHaveValue('你好');
 
     pressEnter(input);
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好', submitMethod: 'enter' });
   });
 
   it('submits on the first Enter after an IME commit completed without Enter', () => {
@@ -9501,7 +10255,7 @@ describe('App', () => {
     fireEvent.compositionEnd(input);
 
     pressEnter(input);
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好', submitMethod: 'enter' });
   });
 
   it('does not submit an ASCII candidate committed without composition metadata', () => {
@@ -9522,7 +10276,7 @@ describe('App', () => {
     expect(input).toHaveValue('ok');
 
     pressEnter(input);
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'ok' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'ok', submitMethod: 'enter' });
   });
 
   it('allows an explicit pointer send while an IME composition is active', () => {
@@ -9534,7 +10288,7 @@ describe('App', () => {
     fireEvent.change(input, { target: { value: '你好' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }), { detail: 1 });
 
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: '你好', submitMethod: 'button' });
   });
 
   it('disables composer submission while the home tutorial owns interaction', () => {
@@ -9583,7 +10337,7 @@ describe('App', () => {
     fireEvent.change(input, { target: { value: 'No local optimistic bubble' } });
     pressEnter(input);
 
-    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'No local optimistic bubble' });
+    expect(onComposerSubmit).toHaveBeenCalledWith({ text: 'No local optimistic bubble', submitMethod: 'enter' });
     expect(screen.queryByText('No local optimistic bubble')).not.toBeInTheDocument();
     expect(screen.queryByText('You')).not.toBeInTheDocument();
   });

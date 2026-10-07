@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { i18n } from './i18n';
 import MessageBlockView from './MessageBlockView';
+import MessageReactions from './MessageReactions';
 import ThinkingDots from './ThinkingDots';
 import { isTopicHintMessage } from './TopicHintBubble';
 import { type ChatMessage, type MessageAction } from './message-schema';
@@ -64,6 +65,11 @@ type CompactExportPreviewState =
 
 type CompactExportHistoryPanelProps = {
   messages: ChatMessage[];
+  mode?: 'chat' | 'theater';
+  theaterTitle?: string;
+  theaterEnded?: boolean;
+  theaterError?: string;
+  onTheaterEnd?: () => void;
   selectedIds: Set<string>;
   selectedCount: number;
   selectableCount: number;
@@ -181,7 +187,7 @@ function getStableCompactHistoryHash(seed: string) {
 }
 
 function hasRichCompactHistoryContent(message: ChatMessage) {
-  return message.blocks.some(block => block.type === 'image' || block.type === 'buttons');
+  return message.blocks.some(block => block.type === 'image' || block.type === 'buttons' || block.type === 'html_card');
 }
 
 function getCompactHistoryBubbleTone(
@@ -219,6 +225,11 @@ function getCompactHistoryBubbleTone(
 
 export default function CompactExportHistoryPanel({
   messages: allMessages,
+  mode = 'chat',
+  theaterTitle = '',
+  theaterEnded = false,
+  theaterError = '',
+  onTheaterEnd,
   selectedIds,
   selectedCount,
   selectableCount,
@@ -255,6 +266,7 @@ export default function CompactExportHistoryPanel({
     [allMessages],
   );
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollContentRef = useRef<HTMLDivElement | null>(null);
   const autoScrollToBottomRef = useRef(autoScrollToBottom);
   autoScrollToBottomRef.current = autoScrollToBottom;
   const scrollbarDragRef = useRef<ScrollbarDragState | null>(null);
@@ -288,11 +300,13 @@ export default function CompactExportHistoryPanel({
     message.time,
     message.status || '',
     JSON.stringify(message.blocks),
+    JSON.stringify(message.reaction),
   ].join('')).join('');
   const exportBusy = pendingAction !== null;
   const exportActionsDisabled = !previewHasSelection || exportBusy;
   const historyInteractive = visibilityState === 'open';
-  const selectionControlsInteractive = historyInteractive && controlsOpen;
+  const selectionControlsInteractive = mode === 'chat' && historyInteractive && controlsOpen;
+  const historyHasContent = messages.length > 0 || thinking;
   const scrollbarHitVisible = scrollbarVisible
     && !!scrollRef.current
     && !!getCompactHistoryScrollbarMetrics(scrollRef.current);
@@ -497,6 +511,51 @@ export default function CompactExportHistoryPanel({
       }
     };
   }, [autoScrollToBottom, messages, previewOpen, visibilityState, thinking]);
+
+  // 图片（尤其是远端表情包 / GIF）可能在上面的固定 settle 帧结束后才完成解码。若图片块没有
+  // width/height 元数据，它会从 0 高度增长到固有高度；此时 scrollHeight 增大但 scrollTop 不会
+  // 自动跟随，最新消息就只剩顶部一截露在输入框上方。监听真实内容尺寸，并用 capture load 兜底
+  // Chromium 未报告尺寸变化的缓存图片；只在用户仍处于自动跟随状态时钉底，避免打断查看旧消息。
+  useLayoutEffect(() => {
+    if (previewOpen) return undefined;
+    const scrollNode = scrollRef.current;
+    const contentNode = scrollContentRef.current;
+    if (!scrollNode || !contentNode) return undefined;
+
+    let frameId: number | null = null;
+    const scheduleContentGeometryRefresh = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        if (autoScrollToBottomRef.current) {
+          scrollNode.scrollTop = scrollNode.scrollHeight;
+        }
+        window.dispatchEvent(new CustomEvent('neko:compact-interaction-geometry-refresh'));
+      });
+    };
+    const handleCapturedAssetLoad = (event: Event) => {
+      if (event.target instanceof HTMLImageElement) {
+        scheduleContentGeometryRefresh();
+      }
+    };
+
+    scrollNode.addEventListener('load', handleCapturedAssetLoad, true);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(scheduleContentGeometryRefresh);
+      observer.observe(contentNode);
+    }
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      scrollNode.removeEventListener('load', handleCapturedAssetLoad, true);
+      observer?.disconnect();
+    };
+  }, [historyHasContent, previewOpen]);
 
   // 拖动开始/结束两个边界：content 的布局高度在 resizing 切换瞬间从 100% ↔ max 跳变（见 styles.css），
   // 若用户停在底部需同步把可视窗口重新锚定到下端，否则开始拖时内容会因 content 突然撑高而相对上移、
@@ -708,6 +767,7 @@ export default function CompactExportHistoryPanel({
                   {message.blocks.map((block, index) => (
                     <MessageBlockView
                       key={`${message.id}-preview-${block.type}-${index}`}
+                      interactive={false}
                       block={block}
                       message={message}
                       isStreaming={streaming}
@@ -716,6 +776,7 @@ export default function CompactExportHistoryPanel({
                   ))}
                 </div>
               </div>
+              <MessageReactions message={message} />
             </article>
           );
         })}
@@ -901,6 +962,7 @@ export default function CompactExportHistoryPanel({
         'under-choice-prompt': choiceLayerAbove,
         'has-preview': previewOpen,
         'controls-collapsed': !previewOpen && !controlsOpen,
+        'is-theater-history': mode === 'theater',
       })}
       data-compact-geometry-owner="surface"
       data-compact-geometry-item="history"
@@ -912,13 +974,40 @@ export default function CompactExportHistoryPanel({
       data-compact-export-history-content-locked={historyResizeContentLocked ? 'true' : 'false'}
       data-compact-export-preview-open={previewOpen ? 'true' : 'false'}
       data-compact-export-under-choice={choiceLayerAbove ? 'true' : 'false'}
-      aria-label={i18n('chat.exportConversation', 'Export Conversation')}
+      aria-label={mode === 'theater'
+        ? i18n('theater.performanceHistory', 'Theater performance history')
+        : i18n('chat.exportConversation', 'Export Conversation')}
       onPointerDown={(event) => event.stopPropagation()}
       onPointerMove={(event) => event.stopPropagation()}
       onPointerUp={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
       <div className="compact-export-history-panel">
+      {mode === 'theater' && !previewOpen ? (
+        <div className="compact-theater-history-header">
+          <div className="compact-theater-history-header-row">
+            <span>{i18n('theater.inProgress', 'In theater')} · {theaterTitle}</span>
+            {/* 历史面板只允许声明过的子元素接收鼠标事件；结束按钮必须单独登记，
+                否则透明桌面窗口会把点击穿透到下层窗口。 */}
+            <button
+              type="button"
+              data-compact-hit-region={historyInteractive ? 'true' : undefined}
+              data-compact-hit-region-id={historyInteractive ? 'history:theater-end' : undefined}
+              data-compact-hit-region-kind={historyInteractive ? 'theater-end' : undefined}
+              data-compact-no-drag="true"
+              disabled={!historyInteractive}
+              onClick={() => {
+                if (historyInteractive) onTheaterEnd?.();
+              }}
+            >
+              {theaterEnded
+                ? i18n('theater.returnToStories', 'Return to stories')
+                : i18n('theater.endPerformance', 'End performance')}
+            </button>
+          </div>
+          {theaterError ? <div className="compact-theater-history-error" role="alert">{theaterError}</div> : null}
+        </div>
+      ) : null}
       {previewOpen ? previewNode : (
         <>
           {/* 堆砌区顶部的高度 resize bar：平时透明，hover / 拖动中半透明显现（is-active）。
@@ -940,7 +1029,9 @@ export default function CompactExportHistoryPanel({
             ref={scrollRef}
             className="compact-export-history-scroll"
             role="list"
-            aria-label={i18n('chat.messageListAriaLabel', 'Chat messages')}
+            aria-label={mode === 'theater'
+              ? i18n('theater.performanceHistory', 'Theater performance history')
+              : i18n('chat.messageListAriaLabel', 'Chat messages')}
             data-compact-hit-region={historyInteractive && !choiceLayerAbove ? 'true' : undefined}
             data-compact-hit-region-id={historyInteractive && !choiceLayerAbove ? 'history:scroll' : undefined}
             data-compact-hit-region-kind={historyInteractive && !choiceLayerAbove ? 'scroll' : undefined}
@@ -949,8 +1040,8 @@ export default function CompactExportHistoryPanel({
             onWheel={handleWheel}
             onTouchMove={(event) => event.stopPropagation()}
           >
-            {(messages.length > 0 || thinking) ? (
-              <div className="compact-export-history-scroll-content">
+            {historyHasContent ? (
+              <div ref={scrollContentRef} className="compact-export-history-scroll-content">
                 {messages.map((message, index) => {
                   const selectable = isCompactExportMessageSelectable(message);
                   const selected = selectedIds.has(message.id);
@@ -981,7 +1072,7 @@ export default function CompactExportHistoryPanel({
                         className="compact-export-history-bubble"
                         role={selectionEnabled ? 'button' : undefined}
                         aria-pressed={selectionEnabled ? selected : undefined}
-                        aria-disabled={!selectionEnabled}
+                        aria-disabled={selectionEnabled ? false : undefined}
                         tabIndex={selectionEnabled ? 0 : -1}
                         data-compact-hit-region={historyInteractive ? 'true' : undefined}
                         data-compact-hit-region-id={historyInteractive ? `history:message:${message.id}` : undefined}
@@ -1000,6 +1091,7 @@ export default function CompactExportHistoryPanel({
                           {message.blocks.map((block, index) => (
                             <MessageBlockView
                               key={`${message.id}-${block.type}-${index}`}
+                              interactive={!selectionEnabled}
                               block={block}
                               message={message}
                               isStreaming={streaming}
@@ -1008,6 +1100,7 @@ export default function CompactExportHistoryPanel({
                           ))}
                         </div>
                       </div>
+                      <MessageReactions message={message} />
                     </article>
                   );
                 })}
@@ -1046,7 +1139,7 @@ export default function CompactExportHistoryPanel({
               onLostPointerCapture={finishScrollbarPointerDrag}
             />
           ) : null}
-          {controlsOpen ? (
+          {mode === 'chat' && controlsOpen ? (
             <div
               className="compact-export-history-controls"
               role="group"

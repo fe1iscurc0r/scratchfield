@@ -1,6 +1,6 @@
 # 授粉 · Firecrawl 网页抓取 MCP — 落地报告（2026-09-20）
 
-> 卷140 交付 | 实验田维护者签
+> 卷140 交付 | 沈遥签
 > 上游：firecrawl/firecrawl-mcp-server（7491★ · MIT ✅ gh api 核验 · 2026-09-20 仍在活跃更新）
 > 落点：`mcpserver/firecrawl_adapter/`（client.py + adapter.py + manifest + test）
 

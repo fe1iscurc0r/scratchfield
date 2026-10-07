@@ -1,6 +1,6 @@
 # MatChat Browser Relay — Playwright MCP 定制化预加工
 
-> 架构：实验田维护者 | 实现：Trae (fe1iscurc0r)
+> 架构：沈遥 | 实现：Trae (fe1iscurc0r)
 > 目标：用已有浏览器登录态做 Relay，让 NagaAgent MCP 通过 DOM/网络桥接调用 MatChat
 
 ---

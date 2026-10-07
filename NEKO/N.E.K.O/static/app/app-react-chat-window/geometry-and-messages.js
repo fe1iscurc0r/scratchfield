@@ -693,7 +693,7 @@
                 if (style && Number(style.opacity) <= 0.01) return null;
                 var rect = I.normalizeCompactDomRect(child.getBoundingClientRect());
                 if (!rect) return null;
-                var clippedRect = kind === 'musicPlayer' || kind === 'meme'
+                var clippedRect = kind === 'musicPlayer'
                     ? rect
                     : (parentRect ? intersectCompactRects(rect, parentRect) : rect);
                 if (!clippedRect) return null;
@@ -755,6 +755,7 @@
                 && !element.classList.contains('compact-input-tool-fan')
                 && !element.classList.contains('compact-chat-choice-anchor')
                 && !element.classList.contains('neko-idle-cat1-compact-mirror')
+                && !element.classList.contains('modal-dialog-theater')
             ) return items;
             if (!shouldIncludeCompactGeometryElement(element)) return items;
             var compactGeometryItem = element.getAttribute('data-compact-geometry-item');
@@ -958,6 +959,16 @@
         I.syncCompactInteractionGeometry();
     }
 
+    I.republishCompactSurfaceLayoutChange = function republishCompactSurfaceLayoutChange(reason) {
+        if (!I.isCompactHomeMinimizeBallEnabled()) return false;
+        var currentRect = I.getCurrentCompactSurfaceRect();
+        if (!currentRect) return false;
+        I.dispatchCompactSurfaceLayoutChange(Object.assign({}, currentRect, {
+            reason: reason || 'lifecycle-visible'
+        }));
+        return true;
+    }
+
     I.stopCompactMinimizeBallTracking = function stopCompactMinimizeBallTracking() {
         if (I.compactMinimizeBallFrame) {
             window.cancelAnimationFrame(I.compactMinimizeBallFrame);
@@ -1023,6 +1034,16 @@
         I.syncCompactSurfaceAnchor();
         I.scheduleCompactMinimizeBallTracking();
         I.scheduleMobileContentLayout();
+        if (I.state.galgameModeEnabled) {
+            var seqAtReveal = I.state._galgameRequestSeq;
+            I.waitForAssistantBubblesFlushed(2000).then(function () {
+                if (!I.state.galgameModeEnabled) return;
+                if (I.state._galgameRequestSeq !== seqAtReveal) return;
+                var overlayNow = I.getOverlay();
+                if (!overlayNow || overlayNow.hidden) return;
+                I.fetchPendingIcebreakerGalgameHandoffOrLatest();
+            });
+        }
         return true;
     }
 
@@ -1310,6 +1331,11 @@
         return 'You';
     }
 
+    function getConfiguredUserName() {
+        var currentUserName = I.getCurrentUserName();
+        return currentUserName && currentUserName !== 'You' ? currentUserName : '';
+    }
+
     function getDefaultAuthorByRole(role) {
         return role === 'user' ? I.getCurrentUserName() : getCurrentAssistantName();
     }
@@ -1332,6 +1358,7 @@
         return {
             title: title,
             iconSrc: '/static/icons/chat_icon.png',
+            userName: getConfiguredUserName() || undefined,
             assistantName: getConfiguredAssistantName() || undefined,
             inputPlaceholder: inputPlaceholder,
             sendButtonLabel: sendButtonLabel,
@@ -1437,6 +1464,7 @@
                     payload: action.payload || undefined
                 };
             }).filter(Boolean) : undefined,
+            reaction: message.reaction ? Object.assign({}, message.reaction) : undefined,
             status: message.status,
             sortKey: message.sortKey
         };
@@ -1470,6 +1498,7 @@
             avatarUrl: resolveCurrentAssistantAvatarUrl(message.role, baseAvatarUrl),
             blocks: Array.isArray(message.blocks) ? message.blocks : [],
             actions: Array.isArray(message.actions) ? message.actions : undefined,
+            reaction: message.reaction ? Object.assign({}, message.reaction) : undefined,
             status: message.status,
             sortKey: typeof message.sortKey === 'number' ? message.sortKey : fallbackSortKey
         };
@@ -1520,6 +1549,7 @@
             : [];
         return Object.assign({}, I.ensureViewProps(), {
             messages: I.state.messages.concat(catMessages),
+            userName: getConfiguredUserName() || undefined,
             assistantName: getConfiguredAssistantName() || undefined,
             composerAttachments: I.state.composerAttachments,
             rollbackDraft: I.state.rollbackDraft || undefined,
@@ -1539,6 +1569,8 @@
             onComposerScreenshot: I.handleComposerScreenshot,
             onComposerRemoveAttachment: I.handleComposerRemoveAttachment,
             onComposerSubmit: I.handleComposerSubmit,
+            onTheaterSubmit: typeof I.state.onTheaterSubmit === 'function'
+                ? I.handleTheaterSubmit : undefined,
             onAvatarInteraction: I.handleAvatarInteraction,
             onAvatarToolStateChange: I.handleAvatarToolStateChange,
             onJukeboxClick: I.handleJukeboxClick,
@@ -1547,6 +1579,9 @@
             onTranslateToggle: I.handleTranslateToggle,
             onGalgameModeToggle: I.handleGalgameModeToggle,
             onGalgameOptionSelect: I.handleGalgameOptionSelect,
+            onTheaterSuggestedInputSelect: typeof I.state.onTheaterSuggestedInputSelect === 'function'
+                ? I.handleTheaterSuggestedInputSelect : undefined,
+            onTheaterEnd: I.handleTheaterEnd,
             onChoiceSelect: I.handleChoiceSelect,
             onCompactChatStateChange: I.handleCompactChatStateChange,
             onCompactMinimizeRequest: I.handleCompactMinimizeRequest,

@@ -7,6 +7,7 @@ import {
 } from './desktopContract';
 import { desktopAvatarToolContractSchema } from './desktopContract';
 import { AVATAR_TOOL_DEFINITIONS } from './catalog';
+import { buildLocalAvatarToolDefinition } from './localTools';
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -31,6 +32,9 @@ function collectContractAssetPaths(contract: ReturnType<typeof buildDesktopAvata
     Object.values(definition.visual.variants).forEach((variant) => {
       paths.push(variant.iconImagePath, variant.pointerImagePath);
     });
+    definition.visual.frames?.forEach((frame) => {
+      paths.push(frame.iconImagePath, frame.pointerImagePath);
+    });
   }
   definition.interaction?.sounds.forEach(sound => paths.push(sound.src));
   definition.interaction?.effects.forEach((effect) => {
@@ -44,6 +48,139 @@ afterEach(() => {
 });
 
 describe('desktop avatar tool contract', () => {
+  it('projects ordered local frames and the selected image-change rule as strict v2', () => {
+    const source = buildLocalAvatarToolDefinition({
+      id: 'local-12345678-1234-4123-8123-123456789abc',
+      recordVersion: 2, revision: '2-123',
+      name: 'Feather',
+      changeMode: 'click-advance',
+      defaultUrl: '/user_avatar_tools/local-12345678-1234-4123-8123-123456789abc/default.png?v=1',
+      changeUrls: [
+        '/user_avatar_tools/local-12345678-1234-4123-8123-123456789abc/change-000.png?v=1',
+        '/user_avatar_tools/local-12345678-1234-4123-8123-123456789abc/change-001.png?v=1',
+      ],
+      normalSoundUrl: '/user_avatar_tools/local-12345678-1234-4123-8123-123456789abc/normal.mp3?v=1',
+      special: {
+        probability: 0.1,
+        imageUrl: '/user_avatar_tools/local-12345678-1234-4123-8123-123456789abc/special.png?v=1',
+        soundUrl: '/user_avatar_tools/local-12345678-1234-4123-8123-123456789abc/special.mp3?v=1',
+      },
+    });
+
+    const contract = projectDesktopAvatarToolContract(source);
+
+    expect(contract.definition?.definitionVersion).toBe(2);
+    expect(contract.definition?.visual?.frames).toHaveLength(3);
+    expect(contract.definition?.interaction?.profile).toMatchObject({
+      kind: 'press-release',
+      revision: '2-123',
+      actionId: 'interact',
+      imageChange: { kind: 'click-advance' },
+      feedback: { sound: 'normal-feedback' },
+      chance: {
+        field: 'specialTriggered',
+        probability: 0.1,
+        effect: 'special-scatter',
+        sound: 'special-feedback',
+      },
+    });
+    expect(contract.definition?.interaction?.sounds).toEqual([
+      {
+        id: 'normal-feedback',
+        src: '/user_avatar_tools/local-12345678-1234-4123-8123-123456789abc/normal.mp3?v=1',
+        volume: 0.9,
+      },
+      {
+        id: 'special-feedback',
+        src: '/user_avatar_tools/local-12345678-1234-4123-8123-123456789abc/special.mp3?v=1',
+        volume: 0.9,
+      },
+    ]);
+    expect(contract.definition?.interaction?.effects).toEqual([
+      expect.objectContaining({
+        id: 'special-scatter',
+        kind: 'random-scatter',
+        assetPath: '/user_avatar_tools/local-12345678-1234-4123-8123-123456789abc/special.png?v=1',
+      }),
+    ]);
+    expect(contract.definition?.interaction?.profile).not.toHaveProperty('pointerDown');
+    expect(desktopAvatarToolContractSchema.parse(cloneJson(contract))).toEqual(contract);
+    const withoutRevision = cloneJson(contract);
+    if (withoutRevision.definition?.interaction?.profile) {
+      delete (withoutRevision.definition.interaction.profile as { revision?: string }).revision;
+    }
+    expect(() => desktopAvatarToolContractSchema.parse(withoutRevision)).toThrow();
+  });
+
+  it('projects a strict reachable v3 custom graph without inventing a model action', () => {
+    const toolId = 'local-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' as const;
+    const asset = (name: string) => `/user_avatar_tools/${toolId}/${name}?v=1`;
+    const source = buildLocalAvatarToolDefinition({
+      recordVersion: 3,
+      id: toolId,
+      revision: '3-123',
+      name: 'Flow',
+      initialImageUrl: asset('image-000.png'),
+      runtime: {
+        images: [
+          { id: 'img-a', url: asset('image-000.png'), hasMeaning: true },
+          { id: 'img-b', url: asset('image-001.png'), hasMeaning: false },
+          { id: 'img-c', url: asset('image-002.png'), hasMeaning: true },
+        ],
+        initialImageId: 'img-a',
+        initialInteractionIds: ['ix-click'],
+        interactions: [
+          {
+            id: 'ix-click',
+            trigger: { kind: 'mouse-click' },
+            actions: {
+              press: { kind: 'show', imageId: 'img-b' },
+              release: { kind: 'show', imageId: 'img-c' },
+            },
+          },
+          {
+            id: 'ix-delay',
+            trigger: { kind: 'after', delayMs: 800 },
+            actions: { complete: { kind: 'show', imageId: 'img-a' } },
+          },
+        ],
+        links: [
+          { from: 'ix-click', to: 'ix-delay' },
+          { from: 'ix-delay', to: 'ix-click' },
+        ],
+      },
+    });
+
+    const contract = projectDesktopAvatarToolContract(source);
+    expect(contract.definition?.definitionVersion).toBe(3);
+    expect(contract.definition?.visual?.frames).toHaveLength(3);
+    expect(contract.definition?.interaction?.profile).toMatchObject({
+      kind: 'custom-graph',
+      revision: '3-123',
+      initialImageId: 'img-a',
+      initialInteractionIds: ['ix-click'],
+      links: [
+        { from: 'ix-click', to: 'ix-delay' },
+        { from: 'ix-delay', to: 'ix-click' },
+      ],
+    });
+    expect(contract.definition?.interaction).not.toHaveProperty('actionId');
+    expect(() => desktopAvatarToolContractSchema.parse(contract)).not.toThrow();
+
+    const unreachable = cloneJson(contract);
+    if (unreachable.definition?.interaction?.profile.kind === 'custom-graph') {
+      unreachable.definition.interaction.profile.links = [];
+    }
+    expect(desktopAvatarToolContractSchema.safeParse(unreachable).success).toBe(false);
+
+    const missingReference = cloneJson(contract);
+    if (missingReference.definition?.interaction?.profile.kind === 'custom-graph') {
+      missingReference.definition.interaction.profile.initialInteractionIds = ['ix-missing'];
+    }
+    expect(() => desktopAvatarToolContractSchema.safeParse(missingReference)).not.toThrow();
+    expect(desktopAvatarToolContractSchema.safeParse(missingReference).success).toBe(false);
+  });
+
   it('projects inactive and all four active definitions with strict JSON round trips', () => {
     const inactive = buildDesktopAvatarToolContract(null);
     expect(Object.keys(inactive).sort()).toEqual(['definition', 'runtimePolicy', 'wireVersion']);

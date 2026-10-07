@@ -1,13 +1,16 @@
 import type {
   AvatarToolVariantId as CatalogAvatarToolVariantId,
   AvatarToolId,
-  AvatarToolDefinition,
-  AvatarToolManagerIconVisual,
 } from './avatar-tools/catalog';
 import {
-  AVATAR_TOOL_DEFINITIONS,
+  LOCAL_AVATAR_TOOL_ID_PATTERN,
   withAvatarToolAssetVersion,
 } from './avatar-tools/catalog';
+import {
+  BUILT_IN_AVATAR_TOOL_REGISTRY,
+  type AvatarToolItem,
+} from './avatar-tools/registry';
+import { i18n } from './i18n';
 
 export { withAvatarToolAssetVersion };
 
@@ -15,106 +18,44 @@ export type { AvatarToolId } from './avatar-tools/catalog';
 
 export type AvatarToolVariantId = CatalogAvatarToolVariantId;
 
-export type AvatarToolItem = {
-  id: AvatarToolId;
-  labelKey: string;
-  labelFallback: string;
-  iconImagePath: string;
-  iconImagePathAlt?: string;
-  iconImagePathAlt2?: string;
-  menuIconScale?: number;
-  menuIconOffsetX?: number;
-  menuIconOffsetY?: number;
-  menuIconOffsetXAlt?: number;
-  menuIconOffsetYAlt?: number;
-  menuIconOffsetXAlt2?: number;
-  menuIconOffsetYAlt2?: number;
-  managerIconVisual?: AvatarToolManagerIconVisual;
-  pointerImagePath: string;
-  pointerImagePathAlt?: string;
-  pointerImagePathAlt2?: string;
-  pointerHotspotX?: number;
-  pointerHotspotY?: number;
-  pointerNaturalWidth?: number;
-  pointerNaturalHeight?: number;
-  pointerDisplayWidth?: number;
-  pointerDisplayHeight?: number;
-};
+export type { AvatarToolItem } from './avatar-tools/registry';
 
-export const ACTIVE_AVATAR_TOOLS_STORAGE_KEY = 'neko.reactChatWindow.activeAvatarTools';
+export type AvatarToolSurface = 'compact' | 'full';
+export const ACTIVE_AVATAR_TOOLS_STORAGE_KEYS: Record<AvatarToolSurface, string> = {
+  compact: 'neko.reactChatWindow.activeAvatarTools',
+  full: 'neko.reactChatWindow.fullChat.activeAvatarTools',
+};
+export const ACTIVE_AVATAR_TOOLS_STORAGE_KEY = ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.compact;
 export const MAX_ACTIVE_AVATAR_TOOLS = 3;
 export const DEFAULT_ACTIVE_AVATAR_TOOL_IDS: AvatarToolId[] = ['lollipop', 'fist', 'hammer'];
 
-function projectAvatarToolDefinitionToItem(definition: AvatarToolDefinition): AvatarToolItem {
-  const { primary, secondary, tertiary } = definition.visual.variants;
-  // Icons fall straight back to primary, while a tertiary pointer falls back
-  // through secondary in resolveAvatarToolImagePaths; compare against those
-  // respective fallback sources so the projected optional paths stay lossless.
-  const secondaryIcon = secondary.iconImagePath !== primary.iconImagePath
-    ? secondary.iconImagePath
-    : undefined;
-  const tertiaryIcon = tertiary.iconImagePath !== primary.iconImagePath
-    ? tertiary.iconImagePath
-    : undefined;
-  const secondaryPointer = secondary.pointerImagePath !== primary.pointerImagePath
-    ? secondary.pointerImagePath
-    : undefined;
-  const tertiaryPointer = tertiary.pointerImagePath !== secondary.pointerImagePath
-    ? tertiary.pointerImagePath
-    : undefined;
-  const secondaryOffsetX = secondary.menuOffsetX !== primary.menuOffsetX
-    ? secondary.menuOffsetX
-    : undefined;
-  const secondaryOffsetY = secondary.menuOffsetY !== primary.menuOffsetY
-    ? secondary.menuOffsetY
-    : undefined;
-  const tertiaryOffsetX = tertiary.menuOffsetX !== secondary.menuOffsetX
-    ? tertiary.menuOffsetX
-    : undefined;
-  const tertiaryOffsetY = tertiary.menuOffsetY !== secondary.menuOffsetY
-    ? tertiary.menuOffsetY
-    : undefined;
-
-  return {
-    id: definition.id,
-    labelKey: definition.label.key,
-    labelFallback: definition.label.fallback,
-    iconImagePath: primary.iconImagePath,
-    ...(secondaryIcon ? { iconImagePathAlt: secondaryIcon } : {}),
-    ...(tertiaryIcon ? { iconImagePathAlt2: tertiaryIcon } : {}),
-    pointerImagePath: primary.pointerImagePath,
-    ...(secondaryPointer ? { pointerImagePathAlt: secondaryPointer } : {}),
-    ...(tertiaryPointer ? { pointerImagePathAlt2: tertiaryPointer } : {}),
-    ...(definition.visual.menuScale !== 1 ? { menuIconScale: definition.visual.menuScale } : {}),
-    ...(primary.menuOffsetX !== 0 ? { menuIconOffsetX: primary.menuOffsetX } : {}),
-    ...(primary.menuOffsetY !== 0 ? { menuIconOffsetY: primary.menuOffsetY } : {}),
-    ...(secondaryOffsetX !== undefined ? { menuIconOffsetXAlt: secondaryOffsetX } : {}),
-    ...(secondaryOffsetY !== undefined ? { menuIconOffsetYAlt: secondaryOffsetY } : {}),
-    ...(tertiaryOffsetX !== undefined ? { menuIconOffsetXAlt2: tertiaryOffsetX } : {}),
-    ...(tertiaryOffsetY !== undefined ? { menuIconOffsetYAlt2: tertiaryOffsetY } : {}),
-    ...(definition.visual.managerIcon ? { managerIconVisual: definition.visual.managerIcon } : {}),
-    pointerHotspotX: definition.visual.hotspotX,
-    pointerHotspotY: definition.visual.hotspotY,
-    pointerNaturalWidth: definition.visual.naturalWidth,
-    pointerNaturalHeight: definition.visual.naturalHeight,
-    pointerDisplayWidth: definition.visual.pointer.displayWidth,
-    pointerDisplayHeight: definition.visual.pointer.displayHeight,
-  };
+export function getAvatarToolItemLabel(item: AvatarToolItem): string {
+  return item.label.kind === 'literal'
+    ? item.label.value
+    : i18n(item.label.key, item.label.fallback);
 }
 
-const REGISTERED_AVATAR_TOOLS: AvatarToolItem[] =
-  AVATAR_TOOL_DEFINITIONS.map(projectAvatarToolDefinitionToItem);
+const REGISTERED_AVATAR_TOOLS: ReadonlyArray<AvatarToolItem> = BUILT_IN_AVATAR_TOOL_REGISTRY.items;
 
-export const AVAILABLE_COMPACT_AVATAR_TOOLS: AvatarToolItem[] = REGISTERED_AVATAR_TOOLS;
-export const AVAILABLE_FULL_AVATAR_TOOLS: AvatarToolItem[] = REGISTERED_AVATAR_TOOLS;
+export const AVAILABLE_COMPACT_AVATAR_TOOLS: ReadonlyArray<AvatarToolItem> = REGISTERED_AVATAR_TOOLS;
 
 const AVAILABLE_AVATAR_TOOL_IDS = new Set<AvatarToolId>(REGISTERED_AVATAR_TOOLS.map(item => item.id));
 
 export function isAvatarToolId(value: unknown): value is AvatarToolId {
-  return typeof value === 'string' && AVAILABLE_AVATAR_TOOL_IDS.has(value as AvatarToolId);
+  return typeof value === 'string' && (
+    AVAILABLE_AVATAR_TOOL_IDS.has(value as AvatarToolId)
+    || LOCAL_AVATAR_TOOL_ID_PATTERN.test(value)
+  );
 }
 
-export function sanitizeAvatarToolIds(value: unknown): AvatarToolId[] {
+export function isLocalAvatarToolId(value: unknown): value is `local-${string}` {
+  return typeof value === 'string' && LOCAL_AVATAR_TOOL_ID_PATTERN.test(value);
+}
+
+// 槽位记录的是「用户想装备什么」，不是「现在能不能用」。本地道具的列表是
+// 尽力而为的（校验失败会被跳过），所以持久化和草稿一律走这个只校验形状的
+// 入口，把暂时不可用的 id 原样留住；能不能画出来由渲染层按 registry 决定。
+export function sanitizeAvatarToolSlots(value: unknown): AvatarToolId[] {
   if (!Array.isArray(value)) {
     return [...DEFAULT_ACTIVE_AVATAR_TOOL_IDS];
   }
@@ -129,28 +70,69 @@ export function sanitizeAvatarToolIds(value: unknown): AvatarToolId[] {
   return next;
 }
 
-export function readPersistedActiveAvatarToolIds(): AvatarToolId[] {
+// 额外按当前 registry 收窄，只给真正需要「此刻可用」的地方用。
+export function sanitizeAvatarToolIds(
+  value: unknown,
+  validIds: ReadonlySet<AvatarToolId> = BUILT_IN_AVATAR_TOOL_REGISTRY.validIds,
+): AvatarToolId[] {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_ACTIVE_AVATAR_TOOL_IDS];
+  }
+  return sanitizeAvatarToolSlots(value).filter(toolId => validIds.has(toolId));
+}
+
+export function readPersistedActiveAvatarToolIds(surface: AvatarToolSurface = 'compact'): AvatarToolId[] {
   if (typeof window === 'undefined') {
     return [...DEFAULT_ACTIVE_AVATAR_TOOL_IDS];
   }
 
   try {
-    const rawValue = window.localStorage?.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEY);
-    if (rawValue === null || typeof rawValue === 'undefined') {
-      return [...DEFAULT_ACTIVE_AVATAR_TOOL_IDS];
+    const rawValue = window.localStorage?.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS[surface]);
+    if (rawValue !== null && typeof rawValue !== 'undefined') {
+      return sanitizeAvatarToolSlots(JSON.parse(rawValue));
     }
-    return sanitizeAvatarToolIds(JSON.parse(rawValue));
+    // v0.9.0 及更早版本 Full 和 Compact 共用 compact 这把 key。Full 第一次读不到
+    // 自己的 key 时继承旧值，并当场落盘成 Full 自己的一份：之后 Compact 再怎么
+    // 保存都不会渗进 Full。两边都没有就给默认值，不写盘。
+    if (surface === 'full') {
+      const legacyValue = window.localStorage?.getItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.compact);
+      if (legacyValue !== null && typeof legacyValue !== 'undefined') {
+        const legacySlots = sanitizeAvatarToolSlots(JSON.parse(legacyValue));
+        window.localStorage?.setItem(ACTIVE_AVATAR_TOOLS_STORAGE_KEYS.full, JSON.stringify(legacySlots));
+        return legacySlots;
+      }
+    }
+    return [...DEFAULT_ACTIVE_AVATAR_TOOL_IDS];
   } catch {
     return [...DEFAULT_ACTIVE_AVATAR_TOOL_IDS];
   }
 }
 
-export function persistActiveAvatarToolIds(ids: AvatarToolId[]) {
+// 删除是确定性的「这个道具不存在了」，和 list_items 那种尽力而为的缺席不同，
+// 所以要落盘。但只摘掉这一个 id：其余槽位可能只是本轮列表没带上，不能顺手
+// 一起 sanitize 掉。
+export function forgetPersistedAvatarToolId(toolId: AvatarToolId, surface: AvatarToolSurface = 'compact') {
+  if (typeof window === 'undefined') return;
+  try {
+    const storageKey = ACTIVE_AVATAR_TOOLS_STORAGE_KEYS[surface];
+    const rawValue = window.localStorage?.getItem(storageKey);
+    if (!rawValue) return;
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) return;
+    const next = parsed.filter(candidate => candidate !== toolId);
+    if (next.length === parsed.length) return;
+    window.localStorage?.setItem(storageKey, JSON.stringify(next));
+  } catch {
+    // Keep in-memory state when localStorage is unavailable.
+  }
+}
+
+export function persistActiveAvatarToolIds(ids: AvatarToolId[], surface: AvatarToolSurface = 'compact') {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage?.setItem(
-      ACTIVE_AVATAR_TOOLS_STORAGE_KEY,
-      JSON.stringify(sanitizeAvatarToolIds(ids)),
+      ACTIVE_AVATAR_TOOLS_STORAGE_KEYS[surface],
+      JSON.stringify(sanitizeAvatarToolSlots(ids)),
     );
   } catch {
     // Keep in-memory state when localStorage is unavailable.

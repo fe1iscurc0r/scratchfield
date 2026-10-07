@@ -1,6 +1,6 @@
 # ToolRobustBench · MCP/ hermes_proxy 总线故障注入测试设计
 
-> 2026-08-29 · 实验田维护者线完成（原 AC-03/04 安全部分）· 论文：Sim-to-Real Benchmark 2605.11928（22 perturbation types，4 POMDP 组件）+ fault_inject 框架对标
+> 2026-08-29 · 沈遥线完成（原 AC-03/04 安全部分）· 论文：Sim-to-Real Benchmark 2605.11928（22 perturbation types，4 POMDP 组件）+ fault_inject 框架对标
 > 用途：给 hermes_proxy / mcpserver 总线链路设计故障注入回归集，量化「断链不崩、限流不失活、降级可恢复」
 > 现有基线：mcpserver/fault_inject/（E-01~E-02，7 故障类型 + RobustCaller + 预置场景 + MCP 桥 + 完整测试）
 

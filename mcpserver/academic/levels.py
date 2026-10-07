@@ -1,4 +1,4 @@
-"""academic 16 包融合层级总表（W-09 单一事实源）。
+"""academic 20 包融合层级总表（W-09 单一事实源，后续批次扩至 20）。
 
 数据来源：scratchpad-knowledge/_readme_dump/*.txt（16 份 README 全量 dump）+
 FUSION_REPORT.md 初评 + 本仓落地实况（chem_adapter/bio_adapter 为既有融合样板）。
@@ -62,7 +62,7 @@ FUSION_LEVELS: dict[str, dict] = {
         "notes": "欧洲生物活性分子库：CHEMBL_ID 查询/相似性检索；离线时降级为同形错误",
     },
     "scikit-fingerprints": {
-        "level": "MCP(候选)",
+        "level": "MCP",
         "license": "MIT",
         "pip": "scikit-fingerprints",
         "runtime_deps": ["rdkit"],
@@ -182,7 +182,7 @@ LEVEL_ORDER = ["MCP", "Skill", "融合参考", "耦合", "基础设施"]
 
 
 def levels_summary() -> dict[str, int]:
-    """各层级包数汇总（验收：16 全标注）。"""
+    """各层级包数汇总（验收：20 全标注）。"""
     out = {lvl: 0 for lvl in LEVEL_ORDER}
     for info in FUSION_LEVELS.values():
         out[info["level"]] += 1

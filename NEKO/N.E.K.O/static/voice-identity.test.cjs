@@ -9,11 +9,28 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, 'js/voice_identity.js'), 'utf8');
 const stylesheet = fs.readFileSync(path.join(__dirname, 'css/voice_identity.css'), 'utf8');
 const darkModeStylesheet = fs.readFileSync(path.join(__dirname, 'css/dark-mode.css'), 'utf8');
-const windowControlsStylesheet = fs.readFileSync(
-    path.join(__dirname, 'css/window_controls.css'),
+const template = fs.readFileSync(
+    path.join(__dirname, '../templates/voice_identity.html'),
     'utf8',
 );
-const template = fs.readFileSync(path.join(__dirname, '../templates/voice_identity.html'), 'utf8');
+
+const API_ROOT = '/api/voice-identity';
+const PCM_CONTENT_TYPE = 'audio/pcm;format=pcm_s16le;rate=48000;channels=1';
+const AUDIO_CONTRACT_ID = 'owner-campplus-desktop-v1';
+const PROFILE_HEADER = 'X-Voice-Identity-Profile';
+const TARGET_SAMPLE_RATE = 48000;
+const REFERENCE_RECORDING_MS = 3000;
+const VERIFICATION_RECORDING_MS = 5000;
+const MINIMUM_RECORDING_MS = 1500;
+const REFERENCE_TIMEOUT_MS = REFERENCE_RECORDING_MS + 1000;
+const VERIFICATION_TIMEOUT_MS = VERIFICATION_RECORDING_MS + 1000;
+const WINDOW_CLOSE_START_WAIT_MS = 500;
+const REFERENCE_SAMPLES = TARGET_SAMPLE_RATE * REFERENCE_RECORDING_MS / 1000;
+const VERIFICATION_SAMPLES = TARGET_SAMPLE_RATE * VERIFICATION_RECORDING_MS / 1000;
+const MINIMUM_SAMPLES = TARGET_SAMPLE_RATE * MINIMUM_RECORDING_MS / 1000;
+const CAPTURE_CHUNK_MS = 10;
+const CHUNK_SAMPLES = TARGET_SAMPLE_RATE * CAPTURE_CHUNK_MS / 1000;
+const FULL_AUDIO_CHUNKS = Math.ceil(VERIFICATION_RECORDING_MS / CAPTURE_CHUNK_MS);
 
 function deferred() {
     let resolve;
@@ -52,12 +69,15 @@ class MockHeaders {
     get(key) {
         return this.values.get(String(key).toLowerCase());
     }
+
+    has(key) {
+        return this.values.has(String(key).toLowerCase());
+    }
 }
 
-function createElement({ withRecordLabel = false } = {}) {
+function createElement() {
     const listeners = new Map();
     const classes = new Set();
-    const recordLabel = withRecordLabel ? createElement() : null;
     const element = {
         textContent: '',
         hidden: false,
@@ -66,11 +86,8 @@ function createElement({ withRecordLabel = false } = {}) {
         addEventListener(type, listener) {
             listeners.set(type, listener);
         },
-        async emit(type) {
+        emit(type) {
             return listeners.get(type)?.({ type, target: element });
-        },
-        querySelector(selector) {
-            return selector === 'span:last-child' ? recordLabel : null;
         },
         classList: {
             add(...names) {
@@ -86,7 +103,6 @@ function createElement({ withRecordLabel = false } = {}) {
                 return classes.has(name);
             },
         },
-        recordLabel,
     };
     Object.defineProperty(element, 'className', {
         get() {
@@ -101,115 +117,275 @@ function createElement({ withRecordLabel = false } = {}) {
 }
 
 function createHarness({
-    route,
-    audio = false,
-    audioBlocks = 120,
-    audioSample,
-    fixedPrompts,
+    initialProfile = false,
+    initialRequested = false,
+    initialEnrollmentNextSegment = null,
+    statusGate,
+    startGate,
+    cancelGate,
+    explicitCancelGate,
     mediaGate,
     mediaError,
-    nativeConfirm,
+    selectedMicrophoneId,
+    profileStatus = 422,
+    audioChunks = FULL_AUDIO_CHUNKS,
+    manualAudio = false,
+    autoFinish = true,
+    autoAdvance = true,
+    startResponseErrorAfterCreate = false,
+    startResponseErrorAfterAbort = false,
+    profileError,
+    verificationFailures = 0,
+    profileTransportErrorAfterCommit = false,
+    statusFailures = 0,
+    focusStatusGate,
+    statusGates = {},
+    filterGate,
+    segmentGate,
+    inconsistentReference = false,
+    remainingSeconds = 45,
+    promptPaintGate,
     showConfirm,
-    scheduleTimeout,
+    nativeConfirm = true,
+    webCryptoAvailable = true,
+    initialEffectiveReason = null,
+    routeRecoveryReadyAfter = null,
+    manualRouteRecovery = false,
+    audioContextSampleRate = 48000,
+    resumeGate,
+    initialStatusError = false,
+    pageConfigGates = {},
+    segmentInProgressOnce = null,
+    cancelCsrfFailureOnce = false,
+    startGates = {},
+    runtimeMode = 'enforce',
+    readinessController = null,
 } = {}) {
     const elementIds = [
         'voice-identity-status-dot',
         'voice-identity-profile-status',
+        'voice-identity-enrollment',
+        'voice-identity-capture-status',
         'voice-identity-step-count',
         'voice-identity-step-title',
         'voice-identity-step-body',
         'voice-identity-prompt',
+        'voice-identity-next',
+        'voice-identity-capture-label',
+        'voice-identity-voice-state',
         'voice-identity-timer',
         'voice-identity-message',
         'voice-identity-start',
-        'voice-identity-record',
+        'voice-identity-finish',
         'voice-identity-cancel',
+        'voice-identity-profile-controls',
+        'voice-identity-profile-actions',
         'voice-identity-reenroll',
         'voice-identity-delete',
         'voice-identity-filter',
+        'voice-identity-retry',
+        'voice-identity-eyebrow',
+        'voice-identity-rule-note',
+        'voice-identity-actions',
+        'voice-identity-result',
+        'voice-identity-result-title',
+        'voice-identity-match-percent',
+        'voice-identity-score-help',
+        'voice-identity-result-status',
     ];
-    const elements = new Map(elementIds.map(id => [
-        id,
-        createElement({ withRecordLabel: id === 'voice-identity-record' }),
-    ]));
-    const progress = Array.from({ length: 5 }, () => createElement());
+    const elements = new Map(elementIds.map(id => [id, createElement()]));
+    const progressSteps = Array.from({ length: 4 }, () => createElement());
     const documentListeners = new Map();
     const windowListeners = new Map();
     const fetchCalls = [];
-    let locale = 'en';
-    let processor = null;
-    let audioContext = null;
-    let mediaRequests = 0;
-    let sourceSampleIndex = 0;
     const mediaStreams = [];
+    const workletModules = [];
+    let processor = null;
+    let mediaRequests = 0;
+    let serverProfile = initialProfile;
+    let serverProfileGeneration = initialProfile ? 'profile-0' : null;
+    let serverRequested = initialRequested;
+    let remainingVerificationFailures = verificationFailures;
+    let enrollmentId = initialEnrollmentNextSegment ? 'enrollment-1' : null;
+    let enrollmentSerial = enrollmentId ? 1 : 0;
+    let serverNextSegment = initialEnrollmentNextSegment || 1;
+    let remainingInconsistentReferences = inconsistentReference ? 1 : 0;
+    let statusRequestCount = 0;
+    let pageConfigRequestCount = 0;
+    let startRequestCount = 0;
+    let pendingSegmentInProgress = segmentInProgressOnce;
+    const mediaConstraintCalls = [];
+    let timerId = 0;
+    const statusTimeouts = new Map();
+    const routeRecoveryTimers = new Map();
+    let intervalCallback = null;
+    let enrollmentLeaseTimeoutCallback = null;
+    let promptPaintFrames = 0;
+    let fakeNow = 1000;
+    const autoFinishDurations = [];
+    let audioContext = null;
 
-    const translations = {
-        en: {
-            'voiceIdentity.fixedTitle': 'Read the fixed text',
-            'voiceIdentity.fixedHelp': 'Use a natural voice.',
-            'voiceIdentity.retry': 'Retry',
-            'voiceIdentity.record': 'Record',
-            'voiceIdentity.recording': 'Recording...',
-            'voiceIdentity.enrollmentComplete': 'Enrollment complete.',
-            'voiceIdentity.microphoneDenied': 'Microphone unavailable.',
-            'voiceIdentity.requestFailed': 'Request failed.',
-        },
-        ja: {
-            'voiceIdentity.fixedTitle': '固定テキストを読む',
-            'voiceIdentity.fixedHelp': '自然な声で読んでください。',
-            'voiceIdentity.retry': '再試行',
-            'voiceIdentity.record': '録音',
-            'voiceIdentity.recording': '録音中...',
-            'voiceIdentity.requestFailed': '操作に失敗しました。',
-        },
-    };
-    const prompts = {
-        en: ['English one', 'English two', 'English three'],
-        ja: ['日本語一', '日本語二', '日本語三'],
-    };
-    const translate = key => translations[locale]?.[key] || key;
+    const statusPayload = () => ({
+        requested_enabled: serverRequested,
+        effective_enabled: serverProfile && serverRequested
+            && runtimeMode !== 'off'
+            && (routeRecoveryReadyAfter === null
+                || statusRequestCount >= routeRecoveryReadyAfter),
+        effective_reason: (routeRecoveryReadyAfter !== null
+            && statusRequestCount >= routeRecoveryReadyAfter)
+            ? 'ready' : (initialEffectiveReason || (serverProfile
+            ? (serverRequested ? 'ready' : 'disabled')
+            : (enrollmentId ? 'enrollment_active' : 'no_profile'))),
+        has_profile: serverProfile,
+        enrollment: enrollmentId
+            ? { enrollment_id: enrollmentId, expires_at: 123.5, remaining_seconds: remainingSeconds, next_segment_index: serverNextSegment }
+            : null,
+        profile_generation: serverProfileGeneration,
+        runtime_mode: runtimeMode,
+    });
 
-    class MockAudioContext {
-        constructor() {
-            this.sampleRate = 48000;
-            this.state = 'running';
-            this.resumeCalls = 0;
-            this.destination = {};
-            audioContext = this;
+    async function defaultRoute(call) {
+        if (call.url === '/api/config/page_config') {
+            pageConfigRequestCount += 1;
+            const gate = pageConfigGates[pageConfigRequestCount];
+            if (gate) {
+                await new Promise((resolve, reject) => {
+                    const signal = call.options.signal;
+                    const onAbort = () => reject(new Error('aborted'));
+                    if (signal?.aborted) return onAbort();
+                    signal?.addEventListener('abort', onAbort, { once: true });
+                    gate.promise.then(resolve, reject);
+                });
+            }
+            return jsonResponse({ autostart_csrf_token: 'csrf-token' });
         }
-
-        createMediaStreamSource() {
-            return { connect() {}, disconnect() {} };
+        if (call.url === `${API_ROOT}/status`) {
+            statusRequestCount += 1;
+            if (initialStatusError && statusRequestCount === 1) throw new Error('status_unavailable');
+            if (statusGate && statusRequestCount === 1) return statusGate.promise;
+            if (focusStatusGate && statusRequestCount === 2) return focusStatusGate.promise;
+            if (statusGates[statusRequestCount]) {
+                const gate = statusGates[statusRequestCount];
+                return new Promise((resolve, reject) => {
+                    const signal = call.options.signal;
+                    const onAbort = () => reject(new Error('aborted'));
+                    if (signal?.aborted) return onAbort();
+                    signal?.addEventListener('abort', onAbort, { once: true });
+                    gate.promise.then(resolve, reject);
+                });
+            }
+            if (statusFailures > 0 && statusRequestCount > 1) {
+                statusFailures -= 1;
+                throw new Error('status_transient');
+            }
+            return jsonResponse(statusPayload());
         }
-
-        createScriptProcessor() {
-            processor = { connect() {}, disconnect() {}, onaudioprocess: null };
-            return processor;
+        if (call.url === `${API_ROOT}/enrollment/start`) {
+            if (startGate) await startGate.promise;
+            startRequestCount += 1;
+            if (!enrollmentId) {
+                enrollmentSerial += 1;
+                enrollmentId = `enrollment-${enrollmentSerial}`;
+            }
+            // Session created server-side; the response itself is delayed.
+            if (startGates[startRequestCount]) await startGates[startRequestCount].promise;
+            if (startResponseErrorAfterAbort) {
+                await new Promise((resolve, reject) => {
+                    const signal = call.options.signal;
+                    const onAbort = () => reject(new Error('start_response_lost'));
+                    if (signal?.aborted) return onAbort();
+                    signal?.addEventListener('abort', onAbort, { once: true });
+                });
+            }
+            if (startResponseErrorAfterCreate) throw new Error('start_response_lost');
+            return jsonResponse(statusPayload());
         }
-
-        createGain() {
-            return { gain: { value: 1 }, connect() {}, disconnect() {} };
+        if (call.url === `${API_ROOT}/enrollment/segment` || call.url === `${API_ROOT}/enrollment/profile`) {
+            const segment = call.options.headers.get('x-voice-identity-segment');
+            if (segmentGate && call.url.endsWith('/segment')) {
+                await new Promise((resolve, reject) => {
+                    const signal = call.options.signal;
+                    const onAbort = () => reject(new Error('aborted'));
+                    if (signal?.aborted) return onAbort();
+                    signal?.addEventListener('abort', onAbort, { once: true });
+                    segmentGate.promise.then(resolve, reject);
+                });
+            }
+            if (profileError) return jsonResponse({ error_code: profileError }, { ok: false, status: profileStatus });
+            if (pendingSegmentInProgress && call.url.endsWith('/segment')) {
+                if (pendingSegmentInProgress === 'accepted') serverNextSegment = Number(segment) + 1;
+                pendingSegmentInProgress = null;
+                return jsonResponse({ error_code: 'segment_in_progress' }, { ok: false, status: 409 });
+            }
+            if (segment === '3' && remainingInconsistentReferences > 0) {
+                remainingInconsistentReferences -= 1;
+                serverNextSegment = 1;
+                return jsonResponse({ error_code: 'voice_samples_inconsistent' }, { ok: false, status: 422 });
+            }
+            if (call.url.endsWith('/profile') || segment === '4') {
+                if (segment === '4' && remainingVerificationFailures > 0) {
+                    remainingVerificationFailures -= 1;
+                    return jsonResponse({
+                        ...statusPayload(),
+                        verification: { passed: false, match_percent: 31 },
+                    });
+                }
+                enrollmentId = null;
+                serverProfile = true;
+                serverProfileGeneration = call.options.headers.get(PROFILE_HEADER);
+                serverRequested = initialProfile ? serverRequested : true;
+                if (profileTransportErrorAfterCommit) throw new Error('profile_response_lost');
+                return jsonResponse({
+                    ...statusPayload(),
+                    verification: { passed: true, match_percent: 86 },
+                });
+            } else {
+                serverNextSegment = Number(segment) + 1;
+            }
+            return jsonResponse(statusPayload());
         }
-
-        resume() {
-            this.resumeCalls += 1;
-            this.state = 'running';
-            return Promise.resolve();
+        if (call.url === `${API_ROOT}/enrollment/cancel`) {
+            if (cancelCsrfFailureOnce && !call.options.keepalive) {
+                cancelCsrfFailureOnce = false;
+                return jsonResponse({ error_code: 'csrf_validation_failed' }, { ok: false, status: 403 });
+            }
+            if (cancelGate && call.options.keepalive) await cancelGate.promise;
+            if (explicitCancelGate && !call.options.keepalive) {
+                await new Promise((resolve, reject) => {
+                    const signal = call.options.signal;
+                    const onAbort = () => reject(new Error('aborted'));
+                    if (signal?.aborted) return onAbort();
+                    signal?.addEventListener('abort', onAbort, { once: true });
+                    explicitCancelGate.promise.then(resolve, reject);
+                });
+            }
+            if (call.options.headers.get('x-voice-identity-enrollment') === enrollmentId) {
+                enrollmentId = null;
+            }
+            return jsonResponse(statusPayload());
         }
-
-        close() {
-            this.state = 'closed';
-            return Promise.resolve();
+        if (call.url === `${API_ROOT}/filter`) {
+            if (filterGate) await filterGate.promise;
+            serverRequested = JSON.parse(call.options.body).enabled;
+            return jsonResponse(statusPayload());
         }
+        if (call.url === `${API_ROOT}/profile`) {
+            serverProfile = false;
+            serverProfileGeneration = null;
+            serverRequested = false;
+            enrollmentId = null;
+            return jsonResponse(statusPayload());
+        }
+        throw new Error(`unexpected request: ${call.options.method || 'GET'} ${call.url}`);
     }
 
     const document = {
         activeElement: null,
+        querySelectorAll(selector) {
+            return selector === '#voice-identity-progress span' ? progressSteps : [];
+        },
         getElementById(id) {
             return elements.get(id);
-        },
-        querySelectorAll(selector) {
-            return selector === '.step-progress span' ? progress : [];
         },
         addEventListener(type, listener) {
             documentListeners.set(type, listener);
@@ -220,14 +396,127 @@ function createHarness({
             document.activeElement = element;
         };
     });
+
+    class MockAudioContext {
+        constructor(options) {
+            assert.equal(options?.sampleRate, TARGET_SAMPLE_RATE);
+            audioContext = this;
+            this.sampleRate = audioContextSampleRate;
+            this.destination = {};
+            this.state = 'suspended';
+            this.audioWorklet = {
+                addModule: async url => {
+                    workletModules.push(url);
+                },
+            };
+        }
+
+        createMediaStreamSource() {
+            return { connect() {}, disconnect() {} };
+        }
+
+        createGain() {
+            return { gain: { value: 1 }, connect() {}, disconnect() {} };
+        }
+
+        async resume() {
+            if (resumeGate) await resumeGate.promise;
+            this.state = 'running';
+        }
+
+        async close() {
+            this.state = 'closed';
+        }
+    }
+
+    class MockAudioWorkletNode {
+        constructor(context, name, options) {
+            assert.equal(name, 'audio-processor');
+            assert.equal(options.processorOptions.originalSampleRate, context.sampleRate);
+            assert.equal(options.processorOptions.targetSampleRate, TARGET_SAMPLE_RATE);
+            this.originalSampleRate = context.sampleRate;
+            this.targetSampleRate = TARGET_SAMPLE_RATE;
+            this.inputSamples = 0;
+            this.outputSamples = 0;
+            this.pendingOutput = [];
+            const node = this;
+            this.port = {
+                onmessage: null,
+                postMessage(message) {
+                    if (message && message.type === 'flush') {
+                        const pcmData = Int16Array.from(node.pendingOutput);
+                        node.pendingOutput = [];
+                        Promise.resolve().then(() => this.onmessage?.({
+                            data: { type: 'flush_complete', pcmData },
+                        }));
+                    }
+                },
+            };
+            processor = this;
+        }
+
+        emitInput(input) {
+            const samples = input instanceof Int16Array ? input : new Int16Array(input);
+            for (const sample of samples) {
+                const outputBefore = Math.floor(this.inputSamples * this.targetSampleRate / this.originalSampleRate);
+                this.inputSamples += 1;
+                const outputAfter = Math.floor(this.inputSamples * this.targetSampleRate / this.originalSampleRate);
+                for (let index = outputBefore; index < outputAfter; index += 1) {
+                    this.pendingOutput.push(sample);
+                    this.outputSamples += 1;
+                    if (this.pendingOutput.length === CHUNK_SAMPLES) {
+                        const pcmData = Int16Array.from(this.pendingOutput);
+                        this.pendingOutput = [];
+                        this.port.onmessage?.({ data: pcmData });
+                    }
+                }
+            }
+        }
+
+        connect() {}
+
+        disconnect() {}
+    }
+
     const window = {
-        t: translate,
-        i18next: {
-            t(key) {
-                return key === 'voiceIdentity.fixedPrompts'
-                    ? (fixedPrompts === undefined ? prompts[locale] : fixedPrompts)
-                    : translate(key);
-            },
+        __voiceIdentityTestAutoAdvance: autoAdvance,
+        t(key, options) {
+            if (key === 'voiceIdentity.recordingSeconds') {
+                return `${options.seconds} s`;
+            }
+            const translations = {
+                'voiceIdentity.profileMissing': 'No Owner voice profile enrolled',
+                'voiceIdentity.profileReady': 'Owner voice profile is saved and enabled',
+                'voiceIdentity.profileSavedDisabled': 'Owner voice profile is saved; filtering is off',
+                'voiceIdentity.reasonRuntimeDegraded': 'Voice filtering is unavailable',
+                'voiceIdentity.reasonSecureStorageUnavailable': 'Secure storage is unavailable',
+                'voiceIdentity.featureDisabled': 'Voice identity is turned off',
+                'voiceIdentity.recording': 'Recording...',
+                'voiceIdentity.voiceWaiting': 'Waiting for speech',
+                'voiceIdentity.voiceDetected': 'Speech detected',
+                'voiceIdentity.voiceQuiet': 'Voice is quiet',
+                'voiceIdentity.saving': 'Saving...',
+                'voiceIdentity.enrollmentComplete': 'Enrollment complete.',
+                'voiceIdentity.microphoneDenied': 'Microphone unavailable.',
+                'voiceIdentity.requestFailed': 'Request failed.',
+                'voiceIdentity.errorInvalidPcm': 'Invalid recording format.',
+                'voiceIdentity.errorAudioTooLong': 'Recording is too long.',
+                'voiceIdentity.errorSpeechTooShort': 'Not enough speech detected.',
+                'voiceIdentity.errorSilence': 'No speech detected.',
+                'voiceIdentity.errorSevereClipping': 'Recording is distorted.',
+                'voiceIdentity.errorIncompleteCapture': 'Recording did not finish.',
+                'voiceIdentity.errorInsufficientTime': 'Not enough time remains for the next recording.',
+                'voiceIdentity.finishTooSoon': 'Keep speaking for about 1.5 seconds before saving.',
+                'voiceIdentity.errorModelUnavailable': 'Voice model unavailable.',
+                'voiceIdentity.errorAudioProcessingUnavailable': 'Audio processing unavailable.',
+                'voiceIdentity.errorSecureStorageUnavailable': 'Secure storage unavailable.',
+                'voiceIdentity.deleteConfirm': 'Delete the profile?',
+                'voiceIdentity.delete': 'Delete voice profile',
+                'voiceIdentity.verificationResultTitle': 'Voice verification passed',
+                'voiceIdentity.verificationScoreLabel': 'Lowest voice similarity',
+                'voiceIdentity.verificationSavedStatus': 'Owner voice profile is saved and voice filtering is enabled.',
+            };
+            return translations[key] || key;
         },
         addEventListener(type, listener) {
             windowListeners.set(type, listener);
@@ -235,1834 +524,2005 @@ function createHarness({
         dispatchEvent(event) {
             return windowListeners.get(event.type)?.(event);
         },
-        setInterval() {
-            return 1;
+        setInterval(callback) {
+            timerId += 1;
+            intervalCallback = callback;
+            return timerId;
         },
         clearInterval() {},
         setTimeout(callback, delay) {
-            if (scheduleTimeout) return scheduleTimeout(callback, delay);
-            if (audio && processor?.onaudioprocess) {
-                for (let index = 0; index < audioBlocks; index += 1) {
-                    const input = new Float32Array(2048);
-                    for (let sampleIndex = 0; sampleIndex < input.length; sampleIndex += 1) {
-                        input[sampleIndex] = typeof audioSample === 'function'
-                            ? audioSample(sourceSampleIndex)
-                            : 0.25;
-                        sourceSampleIndex += 1;
-                    }
-                    processor.onaudioprocess({
-                        inputBuffer: { getChannelData: () => input },
+            timerId += 1;
+            if (delay === REFERENCE_TIMEOUT_MS || delay === VERIFICATION_TIMEOUT_MS) {
+                if (!manualAudio) {
+                    Promise.resolve().then(() => {
+                        const recordingMs = delay === REFERENCE_TIMEOUT_MS
+                            ? REFERENCE_RECORDING_MS : VERIFICATION_RECORDING_MS;
+                        const targetChunks = Math.ceil(recordingMs / CAPTURE_CHUNK_MS);
+                        const chunksToEmit = Math.min(audioChunks, targetChunks);
+                        const inputChunkSamples = Math.round(
+                            audioContextSampleRate * CAPTURE_CHUNK_MS / 1000,
+                        );
+                        for (let index = 0; index < chunksToEmit; index += 1) {
+                            processor?.emitInput(new Int16Array(inputChunkSamples).fill(1024));
+                        }
+                        if (audioChunks < targetChunks) callback();
+                        else if (autoFinish) {
+                            autoFinishDurations.push(
+                                delay === REFERENCE_TIMEOUT_MS
+                                    ? REFERENCE_RECORDING_MS : VERIFICATION_RECORDING_MS,
+                            );
+                            fakeNow += delay === REFERENCE_TIMEOUT_MS
+                                ? REFERENCE_RECORDING_MS : VERIFICATION_RECORDING_MS;
+                            intervalCallback?.();
+                        }
                     });
                 }
+            } else if (delay === 400) {
+                // Successful flush acknowledgement clears this watchdog.
+            } else if (delay === 600) {
+                if (manualRouteRecovery) routeRecoveryTimers.set(timerId, callback);
+                else Promise.resolve().then(callback);
+            } else if (delay === 1000 || delay === 5000) {
+                // Both status and prompt-paint watchdogs are driven explicitly.
+                statusTimeouts.set(timerId, callback);
+            } else if (delay === 0) {
+                Promise.resolve().then(callback);
+            } else if (delay === WINDOW_CLOSE_START_WAIT_MS) {
+                Promise.resolve().then(callback);
+            } else if (delay > VERIFICATION_TIMEOUT_MS) {
+                enrollmentLeaseTimeoutCallback = callback;
+            } else {
+                throw new Error(`unmodeled setTimeout delay: ${delay}`);
             }
-            callback();
-            return 1;
+            return timerId;
         },
-        clearTimeout() {},
-        AudioContext: audio ? MockAudioContext : undefined,
-        confirm: nativeConfirm,
+        clearTimeout(id) { statusTimeouts.delete(id); routeRecoveryTimers.delete(id); },
+        requestAnimationFrame(callback) {
+            promptPaintFrames += 1;
+            if (promptPaintGate && promptPaintFrames === 2) {
+                promptPaintGate.promise.then(callback);
+            } else {
+                Promise.resolve().then(callback);
+            }
+        },
+        AudioContext: MockAudioContext,
+        webkitAudioContext: undefined,
         showConfirm,
+        confirm: () => nativeConfirm,
+        crypto: webCryptoAvailable ? {
+            randomUUID: () => 'profile-1',
+            getRandomValues(values) {
+                values.fill(1);
+                return values;
+            },
+        } : undefined,
     };
-    const context = vm.createContext({
+
+    const context = {
         window,
         document,
         navigator: {
             mediaDevices: {
-                getUserMedia: async () => {
+                async getUserMedia(constraints) {
                     mediaRequests += 1;
-                    if (mediaGate) await mediaGate;
-                    if (mediaError) throw mediaError;
-                    const track = {
-                        stopped: false,
-                        stop() {
-                            this.stopped = true;
-                        },
-                    };
-                    const mediaStream = {
-                        active: true,
-                        getTracks() {
-                            return [track];
-                        },
-                    };
-                    mediaStreams.push(mediaStream);
-                    return mediaStream;
+                    mediaConstraintCalls.push(constraints);
+                    const gate = typeof mediaGate === 'function' ? mediaGate(mediaRequests) : mediaGate;
+                    if (gate) await gate.promise;
+                    const requestError = Array.isArray(mediaError)
+                        ? mediaError[mediaRequests - 1] : mediaError;
+                    if (requestError) throw requestError;
+                    const track = { enabled: true, stopped: false, stop() { this.stopped = true; } };
+                    const stream = { getTracks: () => [track], track };
+                    mediaStreams.push(stream);
+                    return stream;
                 },
             },
         },
-        Headers: MockHeaders,
-        performance: { now: () => 0 },
+        localStorage: selectedMicrophoneId
+            ? { getItem: key => key === 'neko_selected_microphone' ? selectedMicrophoneId : null }
+            : undefined,
         fetch: async (url, options = {}) => {
-            fetchCalls.push({ url, options });
-            if (route) return route(url, options, fetchCalls);
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            throw new Error(`Unexpected request: ${url}`);
+            const call = { url, options: { ...options, headers: new MockHeaders(options.headers) } };
+            fetchCalls.push(call);
+            return defaultRoute(call);
         },
-        console,
-    });
-    vm.runInContext(source, context, { filename: 'voice_identity.js' });
+        Headers: MockHeaders,
+        AudioWorkletNode: MockAudioWorkletNode,
+        performance: { now: () => fakeNow },
+        console: { log() {}, warn() {}, error() {} },
+        Uint8Array,
+        Int16Array,
+        ArrayBuffer,
+        AbortController,
+        Promise,
+        Error,
+        JSON,
+        Math,
+    };
+    window.window = window;
+    window.document = document;
+    window.navigator = context.navigator;
+    window.fetch = context.fetch;
+    window.Headers = MockHeaders;
+    window.AudioWorkletNode = MockAudioWorkletNode;
+    window.performance = context.performance;
+    if (readinessController) window.createVoiceIdentityReadiness = () => readinessController;
+    if (manualRouteRecovery) context.Date = { now: () => fakeNow };
+
+    vm.runInNewContext(source, context, { filename: path.join(__dirname, 'js/voice_identity.js') });
 
     return {
         elements,
+        progressSteps,
         fetchCalls,
-        async initialize() {
-            return documentListeners.get('DOMContentLoaded')();
-        },
-        setLocale(nextLocale) {
-            locale = nextLocale;
-            window.dispatchEvent({ type: 'localechange' });
-        },
+        mediaStreams,
+        workletModules,
+        autoFinishDurations,
         getAudioContext() {
             return audioContext;
         },
-        getMediaRequests() {
+        get mediaRequests() {
             return mediaRequests;
         },
-        getMediaStreams() {
-            return mediaStreams;
+        get serverEnrollmentId() {
+            return enrollmentId;
         },
-        getActiveElement() {
-            return document.activeElement;
+        fireStatusTimeouts() {
+            const callbacks = [...statusTimeouts.values()];
+            statusTimeouts.clear();
+            callbacks.forEach(callback => callback());
+        },
+        mediaConstraintCalls,
+        setRuntimeMode(mode) { runtimeMode = mode; },
+        pendingRouteRecoveryTimers: () => routeRecoveryTimers.size,
+        fireRouteRecoveryTimer() {
+            const [id, callback] = routeRecoveryTimers.entries().next().value;
+            routeRecoveryTimers.delete(id);
+            fakeNow += 600;
+            callback();
+        },
+        emitAudio(samples) {
+            const chunk = samples instanceof Int16Array
+                ? samples
+                : new Int16Array(samples).fill(1024);
+            processor?.emitInput(chunk);
+        },
+        expireEnrollmentLease() {
+            serverNextSegment = 1;
+            enrollmentId = null;
+            enrollmentLeaseTimeoutCallback?.();
+        },
+        advanceTime(ms) {
+            fakeNow += ms;
+        },
+        tickCaptureClock() {
+            intervalCallback?.();
+        },
+        advanceServerSegment() {
+            serverNextSegment += 1;
+        },
+        fireEnrollmentLeaseTimer() {
+            enrollmentLeaseTimeoutCallback?.();
+        },
+        async initialize() {
+            await documentListeners.get('DOMContentLoaded')();
+        },
+        startInitialization() {
+            return documentListeners.get('DOMContentLoaded')();
+        },
+        emit(id, type = 'click') {
+            return elements.get(id).emit(type);
+        },
+        dispatch(type, event = {}) {
+            return window.dispatchEvent({ type, ...event });
         },
         beforeClose() {
             return window.nekoBeforeWindowClose();
         },
-        pagehide() {
-            return window.dispatchEvent({ type: 'pagehide' });
-        },
-        pageshow() {
-            return window.dispatchEvent({ type: 'pageshow', persisted: true });
-        },
     };
 }
 
-test('mutation controls stay disabled until CSRF and initial status both resolve', async () => {
-    const pageConfig = deferred();
-    const status = deferred();
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') return pageConfig.promise;
-            if (url === '/api/voice-identity/status') return status.promise;
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    const initialization = harness.initialize();
-    const start = harness.elements.get('voice-identity-start');
-    const reenroll = harness.elements.get('voice-identity-reenroll');
-    assert.equal(start.disabled, true);
-    assert.equal(reenroll.disabled, true);
-
-    pageConfig.resolve(jsonResponse({ autostart_csrf_token: 'csrf-token' }));
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.equal(start.disabled, true);
-    assert.equal(reenroll.disabled, true);
-
-    status.resolve(jsonResponse({ enrollment: { stage: 'idle' } }));
-    await initialization;
-    assert.equal(start.disabled, false);
-    assert.equal(reenroll.disabled, false);
-});
-
-test('successful start moves focus into the active wizard after the response', async () => {
-    const startRequested = deferred();
-    const startResponse = deferred();
-    let startRequests = 0;
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                startRequests += 1;
-                startRequested.resolve();
-                return startResponse.promise;
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    const start = harness.elements.get('voice-identity-start');
-    start.focus();
-    const starting = start.emit('click');
-    await startRequested.promise;
-
-    assert.equal(startRequests, 1);
-    assert.equal(harness.getActiveElement(), start);
-
-    startResponse.resolve(jsonResponse({
-        enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-    }));
-    await starting;
-
-    assert.equal(start.hidden, true);
-    assert.equal(
-        harness.getActiveElement(),
-        harness.elements.get('voice-identity-step-title'),
-    );
-});
-
-test('active enrollment disables profile mutations between recording steps', async () => {
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                    profile: { available: true, state: 'active' },
-                    filter: { enabled: true },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    assert.equal(harness.elements.get('voice-identity-reenroll').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-delete').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-filter').disabled, true);
-});
-
-test('an active partial enrollment response preserves the session id', async () => {
-    let segmentRequests = 0;
-    const sessionHeaders = [];
-    const harness = createHarness({
-        audio: true,
-        route(url, options) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/segment') {
-                segmentRequests += 1;
-                sessionHeaders.push(
-                    options.headers.get('X-Voice-Identity-Enrollment'),
-                );
-                return jsonResponse({
-                    enrollment: {
-                        stage: segmentRequests === 1 ? 'fixed_2' : 'fixed_3',
-                    },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-record').emit('click');
-    await harness.elements.get('voice-identity-record').emit('click');
-
-    assert.equal(segmentRequests, 2);
-    assert.deepEqual(sessionHeaders, ['session-1', 'session-1']);
-    assert.equal(harness.elements.get('voice-identity-prompt').textContent, 'English three');
-});
-
-test('filter updates block competing profile mutations with a scoped pending state', async () => {
-    const filterUpdate = deferred();
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { stage: 'idle' },
-                    profile: { available: true, state: 'active' },
-                    filter: { enabled: false },
-                });
-            }
-            if (url === '/api/voice-identity/filter') return filterUpdate.promise;
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    const filter = harness.elements.get('voice-identity-filter');
-    filter.checked = true;
-    const update = filter.emit('change');
-
-    assert.equal(filter.checked, true);
-    assert.equal(filter.disabled, true);
-    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-reenroll').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-delete').disabled, true);
-    await harness.elements.get('voice-identity-reenroll').emit('click');
-    assert.equal(harness.getMediaRequests(), 0);
-
-    filterUpdate.resolve(jsonResponse({
-        enrollment: { stage: 'idle' },
-        profile: { available: true, state: 'active' },
-        filter: { enabled: true },
-    }));
-    await update;
-
-    assert.equal(filter.checked, true);
-    assert.equal(filter.disabled, false);
-    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
-    assert.equal(harness.elements.get('voice-identity-reenroll').disabled, false);
-    assert.equal(harness.elements.get('voice-identity-delete').disabled, false);
-});
-
-test('partial cancellation status preserves the existing profile and filter state', async () => {
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                    profile: { available: true, state: 'active' },
-                    filter: { enabled: true },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/cancel') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-cancel').emit('click');
-
-    assert.equal(harness.elements.get('voice-identity-delete').disabled, false);
-    assert.equal(harness.elements.get('voice-identity-filter').checked, true);
-    assert.equal(
-        harness.elements.get('voice-identity-profile-status').textContent.includes('Owner Profile'),
-        true,
-    );
-});
-
-test('ambiguous filter response reconciles the authoritative enabled state', async () => {
-    let statusRequests = 0;
-    let filterRequests = 0;
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                return jsonResponse({
-                    enrollment: { stage: 'idle' },
-                    profile: { available: true, state: 'active' },
-                    filter: { enabled: statusRequests > 1 },
-                });
-            }
-            if (url === '/api/voice-identity/filter') {
-                filterRequests += 1;
-                throw new Error('connection_lost');
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    const filter = harness.elements.get('voice-identity-filter');
-    filter.checked = true;
-    await filter.emit('change');
-
-    assert.equal(filterRequests, 1);
-    assert.equal(statusRequests, 2);
-    assert.equal(filter.checked, true);
-    assert.equal(harness.elements.get('voice-identity-message').textContent, '');
-});
-
-test('locale changes re-render the current enrollment step and prompt', async () => {
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    assert.equal(harness.elements.get('voice-identity-step-title').textContent, 'Read the fixed text');
-    assert.equal(harness.elements.get('voice-identity-prompt').textContent, 'English one');
-
-    harness.setLocale('ja');
-    assert.equal(harness.elements.get('voice-identity-step-title').textContent, '固定テキストを読む');
-    assert.equal(harness.elements.get('voice-identity-prompt').textContent, '日本語一');
-});
-
-test('invalid localized fixed prompts fall back to the short recording copy', async () => {
-    const harness = createHarness({
-        fixedPrompts: null,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-
-    assert.equal(
-        harness.elements.get('voice-identity-prompt').textContent,
-        '今天我想和你分享一件趣事。',
-    );
-});
-
-test('failed enrollment commit exposes a retry that can finish without re-recording', async () => {
-    let commitAttempts = 0;
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'ready_to_commit' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/commit') {
-                commitAttempts += 1;
-                if (commitAttempts === 1) {
-                    return jsonResponse({ error: 'temporary_failure' }, { ok: false, status: 503 });
-                }
-                return jsonResponse({
-                    enrollment: { stage: 'idle' },
-                    profile: { available: true, state: 'active' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    const record = harness.elements.get('voice-identity-record');
-    assert.equal(record.hidden, false);
-    assert.equal(record.recordLabel.textContent, 'Retry');
-
-    await record.emit('click');
-    assert.equal(commitAttempts, 1);
-    assert.equal(record.hidden, false);
-    assert.equal(record.disabled, false);
-    assert.equal(record.recordLabel.textContent, 'Retry');
-
-    await record.emit('click');
-    assert.equal(commitAttempts, 2);
-    assert.equal(harness.elements.get('voice-identity-start').hidden, false);
-    assert.equal(harness.elements.get('voice-identity-profile-status').textContent.includes('Owner Profile'), true);
-});
-
-test('partial commit success reconciles both enrollment and profile before completion', async () => {
-    for (const committedPayload of [
-        { profile: { available: true, state: 'active' } },
-        { enrollment: { stage: 'idle' } },
-    ]) {
-        let statusRequests = 0;
-        const harness = createHarness({
-            route(url) {
-                if (url === '/api/config/page_config') {
-                    return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-                }
-                if (url === '/api/voice-identity/status') {
-                    statusRequests += 1;
-                    return jsonResponse(statusRequests === 1
-                        ? {
-                            enrollment: {
-                                session_id: 'session-1',
-                                stage: 'ready_to_commit',
-                            },
-                        }
-                        : {
-                            enrollment: { stage: 'idle' },
-                            profile: { available: true, state: 'active' },
-                        });
-                }
-                if (url === '/api/voice-identity/enrollment/commit') {
-                    return jsonResponse(committedPayload);
-                }
-                throw new Error(`Unexpected request: ${url}`);
-            },
-        });
-
-        await harness.initialize();
-        await harness.elements.get('voice-identity-record').emit('click');
-
-        assert.equal(statusRequests, 2);
-        assert.equal(harness.elements.get('voice-identity-start').hidden, false);
-        assert.equal(
-            harness.elements.get('voice-identity-profile-status').textContent
-                .includes('Owner Profile'),
-            true,
-        );
-        assert.equal(
-            harness.elements.get('voice-identity-message').textContent,
-            'Enrollment complete.',
-        );
+async function flush(turns = 8) {
+    for (let index = 0; index < turns; index += 1) {
+        await new Promise(resolve => setImmediate(resolve));
     }
-});
+}
 
-test('ambiguous commit response reconciles activation without entering recording state', async () => {
-    const commitResponse = deferred();
-    let statusRequests = 0;
-    let commitRequests = 0;
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                return jsonResponse(statusRequests === 1
-                    ? {
-                        enrollment: {
-                            session_id: 'session-1',
-                            stage: 'ready_to_commit',
-                        },
-                    }
-                    : {
-                        enrollment: { stage: 'idle' },
-                        profile: { available: true, state: 'active' },
-                    });
-            }
-            if (url === '/api/voice-identity/enrollment/commit') {
-                commitRequests += 1;
-                return commitResponse.promise;
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
+test('mutation controls stay disabled until CSRF and canonical status resolve', async () => {
+    const statusGate = deferred();
+    const harness = createHarness({ statusGate });
 
-    await harness.initialize();
-    const record = harness.elements.get('voice-identity-record');
-    const commit = record.emit('click');
+    const initializing = harness.startInitialization();
+    await flush(2);
 
-    assert.equal(record.disabled, true);
-    assert.equal(record.recordLabel.textContent, 'Retry');
-    assert.equal(record.classList.contains('recording'), false);
-
-    commitResponse.reject(new Error('connection_lost'));
-    await commit;
-
-    assert.equal(commitRequests, 1);
-    assert.equal(statusRequests, 2);
-    assert.equal(record.classList.contains('recording'), false);
-    assert.equal(harness.elements.get('voice-identity-start').hidden, false);
-    assert.equal(
-        harness.elements.get('voice-identity-profile-status').textContent.includes('Owner Profile'),
-        true,
-    );
-});
-
-test('a pre-existing profile does not prove that a failed re-enrollment committed', async () => {
-    let statusRequests = 0;
-    let commitRequests = 0;
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                return jsonResponse(statusRequests === 1
-                    ? {
-                        enrollment: { session_id: 'session-1', stage: 'ready_to_commit' },
-                        profile: { available: true, state: 'active' },
-                    }
-                    : {
-                        enrollment: { stage: 'idle' },
-                        profile: { available: true, state: 'active' },
-                    });
-            }
-            if (url === '/api/voice-identity/enrollment/commit') {
-                commitRequests += 1;
-                return jsonResponse(
-                    { error: 'rejected' },
-                    { ok: false, status: 409 },
-                );
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-record').emit('click');
-
-    assert.equal(commitRequests, 1);
-    assert.equal(statusRequests, 2);
-    assert.equal(
-        harness.elements.get('voice-identity-message').textContent,
-        'Request failed.',
-    );
-});
-
-test('automatic commit clears the recording indicator before the save request settles', async () => {
-    const commitStarted = deferred();
-    const commitResponse = deferred();
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'free_verify_2' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/verify') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'ready_to_commit' },
-                    verification: { passed: true },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/commit') {
-                commitStarted.resolve();
-                return commitResponse.promise;
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    const record = harness.elements.get('voice-identity-record');
-    const saving = record.emit('click');
-    await commitStarted.promise;
-
-    assert.equal(record.classList.contains('recording'), false);
-    assert.equal(record.recordLabel.textContent, 'Retry');
-
-    commitResponse.resolve(jsonResponse({
-        enrollment: { stage: 'idle' },
-        profile: { available: true, state: 'active' },
+    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
+    assert.equal(harness.elements.get('voice-identity-cancel').hidden, true);
+    statusGate.resolve(jsonResponse({
+        requested_enabled: false,
+        effective_enabled: false,
+        effective_reason: 'no_profile',
+        has_profile: false,
+        enrollment: null,
+        runtime_mode: 'enforce',
     }));
-    await saving;
+    await initializing;
+
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
 });
 
-test('successful final commit moves focus from the hidden record control', async () => {
-    const commitResponse = deferred();
-    let commitRequests = 0;
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'ready_to_commit' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/commit') {
-                commitRequests += 1;
-                return commitResponse.promise;
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('one click records three reference segments and one five-second verification segment', async () => {
+    const harness = createHarness();
     await harness.initialize();
-    const record = harness.elements.get('voice-identity-record');
-    record.focus();
-    const committing = record.emit('click');
-    await Promise.resolve();
 
-    assert.equal(commitRequests, 1);
-    assert.equal(harness.getActiveElement(), record);
+    await harness.emit('voice-identity-start');
 
-    commitResponse.resolve(jsonResponse({
-        enrollment: { stage: 'idle' },
-        profile: { available: true, state: 'active' },
-    }));
-    await committing;
-
-    assert.equal(record.hidden, true);
-    assert.equal(
-        harness.getActiveElement(),
-        harness.elements.get('voice-identity-step-title'),
-    );
+    const paths = harness.fetchCalls.map(call => call.url);
+    assert.deepEqual(paths, [
+        '/api/config/page_config',
+        `${API_ROOT}/status`,
+        `${API_ROOT}/enrollment/start`,
+        `${API_ROOT}/enrollment/segment`,
+        `${API_ROOT}/status`,
+        `${API_ROOT}/enrollment/segment`,
+        `${API_ROOT}/status`,
+        `${API_ROOT}/enrollment/segment`,
+        `${API_ROOT}/status`,
+        `${API_ROOT}/enrollment/segment`,
+        `${API_ROOT}/status`,
+    ]);
+    assert.deepEqual(harness.autoFinishDurations, [
+        REFERENCE_RECORDING_MS,
+        REFERENCE_RECORDING_MS,
+        REFERENCE_RECORDING_MS,
+        VERIFICATION_RECORDING_MS,
+    ]);
+    const upload = harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).at(-1);
+    assert.equal(upload.options.method, 'PUT');
+    assert.equal(upload.options.body.byteLength, VERIFICATION_SAMPLES * 2);
+    assert.equal(upload.options.headers.get('content-type'), PCM_CONTENT_TYPE);
+    assert.equal(upload.options.headers.get('x-voice-identity-enrollment'), 'enrollment-1');
+    assert.equal(upload.options.headers.get('x-voice-identity-profile'), 'profile-1');
+    assert.equal(upload.options.headers.get('x-voice-identity-segment'), '4');
+    assert.equal(upload.options.headers.get('x-voice-audio-contract'), AUDIO_CONTRACT_ID);
+    const segmentUploads = harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.deepEqual(segmentUploads.slice(0, 3).map(call => call.options.body.byteLength), [
+        REFERENCE_SAMPLES * 2,
+        REFERENCE_SAMPLES * 2,
+        REFERENCE_SAMPLES * 2,
+    ]);
+    assert.equal(harness.mediaRequests, 1);
+    for (const call of harness.mediaConstraintCalls) {
+        assert.equal(call.audio.noiseSuppression, false);
+        assert.equal(call.audio.echoCancellation, true);
+        assert.equal(call.audio.autoGainControl, false);
+        assert.equal(call.audio.channelCount, 1);
+    }
+    assert.deepEqual(harness.workletModules, ['/static/audio-processor.js?v=voice-identity-flush-v1']);
+    assert.equal(harness.mediaStreams[0].track.stopped, true);
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Enrollment complete.');
+    assert.equal(harness.elements.get('voice-identity-enrollment').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-result').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-result-title').textContent, 'Voice verification passed');
+    assert.equal(harness.elements.get('voice-identity-match-percent').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-match-percent').textContent, '86%');
+    assert.equal(harness.elements.get('voice-identity-eyebrow').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-step-title').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-step-body').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-rule-note').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-actions').hidden, true);
+    assert.equal(harness.progressSteps.length, 4);
+    assert.equal(harness.progressSteps.every(step => step.classList.contains('completed')), true);
 });
 
-test('ordinary upload clears the recording indicator before the request settles', async () => {
-    const uploadStarted = deferred();
-    const uploadResponse = deferred();
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/segment') {
-                uploadStarted.resolve();
-                return uploadResponse.promise;
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('the first prompt is visible before recording starts', async () => {
+    const harness = createHarness();
     await harness.initialize();
-    const record = harness.elements.get('voice-identity-record');
-    const uploading = record.emit('click');
-    await uploadStarted.promise;
 
-    assert.equal(record.classList.contains('recording'), false);
-    assert.equal(record.recordLabel.textContent, 'Record');
-
-    uploadResponse.resolve(jsonResponse({
-        enrollment: { session_id: 'session-1', stage: 'fixed_2' },
-    }));
-    await uploading;
+    assert.equal(harness.elements.get('voice-identity-prompt').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-prompt').textContent, '今天我想和你分享一件趣事。');
 });
 
-test('starting enrollment releases the permission-check microphone before the first prompt', async () => {
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('a browser 44.1 kHz context is resampled to the enrollment contract', async () => {
+    const harness = createHarness({ audioContextSampleRate: 44100 });
     await harness.initialize();
-    await harness.elements.get('voice-identity-start').emit('click');
 
-    assert.equal(harness.getMediaRequests(), 1);
-    assert.equal(harness.getAudioContext().state, 'closed');
-    assert.equal(
-        harness.getMediaStreams()[0].getTracks().every(track => track.stopped),
-        true,
-    );
-    assert.equal(harness.elements.get('voice-identity-record').hidden, false);
+    await harness.emit('voice-identity-start');
+
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Enrollment complete.');
+    const upload = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.equal(upload.options.headers.get('content-type'), PCM_CONTENT_TYPE);
+    assert.equal(upload.options.body.byteLength, REFERENCE_SAMPLES * Int16Array.BYTES_PER_ELEMENT);
 });
 
-test('a stale CSRF token is refreshed and the mutation is retried once', async () => {
-    let pageConfigRequests = 0;
-    let startRequests = 0;
-    const mutationTokens = [];
-    const harness = createHarness({
-        audio: true,
-        route(url, options) {
-            if (url === '/api/config/page_config') {
-                pageConfigRequests += 1;
-                return jsonResponse({
-                    autostart_csrf_token: pageConfigRequests === 1
-                        ? 'stale-token'
-                        : 'fresh-token',
-                });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                startRequests += 1;
-                mutationTokens.push(options.headers.get('X-CSRF-Token'));
-                if (startRequests === 1) {
-                    return jsonResponse(
-                        { error: 'forbidden', error_code: 'csrf_validation_failed' },
-                        { ok: false, status: 403 },
-                    );
-                }
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('clearing an active enrollment resets local segment state', async () => {
+    const harness = createHarness({ initialProfile: true, initialEnrollmentNextSegment: 3 });
     await harness.initialize();
-    await harness.elements.get('voice-identity-start').emit('click');
 
-    assert.equal(pageConfigRequests, 2);
-    assert.equal(startRequests, 2);
-    assert.deepEqual(mutationTokens, ['stale-token', 'fresh-token']);
-    assert.equal(harness.elements.get('voice-identity-record').hidden, false);
-});
-
-test('a repeated CSRF rejection stops after the single refresh retry', async () => {
-    let pageConfigRequests = 0;
-    let startRequests = 0;
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                pageConfigRequests += 1;
-                return jsonResponse({ autostart_csrf_token: `csrf-token-${pageConfigRequests}` });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                startRequests += 1;
-                return jsonResponse(
-                    { error: 'forbidden', error_code: 'csrf_validation_failed' },
-                    { ok: false, status: 403 },
-                );
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-start').emit('click');
-
-    assert.equal(pageConfigRequests, 2);
-    assert.equal(startRequests, 2);
-    assert.equal(
-        harness.elements.get('voice-identity-message').textContent,
-        'Request failed.',
-    );
-});
-
-test('a non-CSRF 403 is not refreshed or replayed', async () => {
-    let pageConfigRequests = 0;
-    let startRequests = 0;
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                pageConfigRequests += 1;
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                startRequests += 1;
-                return jsonResponse(
-                    { error: 'forbidden', error_code: 'different_failure' },
-                    { ok: false, status: 403 },
-                );
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-start').emit('click');
-
-    assert.equal(pageConfigRequests, 1);
-    assert.equal(startRequests, 1);
-    assert.equal(
-        harness.elements.get('voice-identity-message').textContent,
-        'Request failed.',
-    );
-});
-
-test('starting enrollment reports an unavailable microphone', async () => {
-    const mediaError = new Error('microphone_locked');
-    mediaError.name = 'NotReadableError';
-    const harness = createHarness({
-        mediaError,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-start').emit('click');
-
-    assert.equal(
-        harness.elements.get('voice-identity-message').textContent,
-        'Microphone unavailable.',
-    );
-});
-
-test('ambiguous enrollment start failure reconciles the server session', async () => {
-    let statusRequests = 0;
-    let startRequests = 0;
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                return jsonResponse(statusRequests === 1
-                    ? { enrollment: { stage: 'idle' } }
-                    : { enrollment: { session_id: 'session-1', stage: 'fixed_1' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                startRequests += 1;
-                throw new Error('connection_lost');
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-start').emit('click');
-
-    assert.equal(statusRequests, 2);
-    assert.equal(startRequests, 1);
-    assert.equal(harness.elements.get('voice-identity-start').hidden, true);
-    assert.equal(harness.elements.get('voice-identity-record').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, true);
     assert.equal(harness.elements.get('voice-identity-cancel').hidden, false);
+    await harness.emit('voice-identity-cancel');
+    await flush(2);
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-profile-actions').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-start').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-cancel').hidden, true);
+});
+
+test('a lost enrollment-start response adopts the active server session', async () => {
+    const harness = createHarness({ startResponseErrorAfterCreate: true });
+    await harness.initialize();
+
+    await harness.emit('voice-identity-start');
+
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Enrollment complete.');
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/cancel`).length, 0);
+});
+
+test('accepted segment waits for explicit next-segment action', async () => {
+    const harness = createHarness({ autoAdvance: false });
+    await harness.initialize();
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 1);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-prompt').textContent, '窗外的光线正在慢慢变化。');
+    assert.equal(harness.elements.get('voice-identity-step-count').textContent, '第 2 / 4 段');
+    assert.equal(harness.elements.get('voice-identity-voice-state').textContent, 'Waiting for speech');
+    assert.equal(harness.mediaRequests, 1);
+    assert.equal(harness.mediaStreams[0].track.enabled, false);
+    await harness.emit('voice-identity-next');
+    await flush(4);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 2);
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('enrollment lease expiry releases the saved-segment wait', async () => {
+    const harness = createHarness({ autoAdvance: false });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 1);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+
+    harness.expireEnrollmentLease();
+    await enrolling;
+    await flush(2);
+
+    assert.equal(harness.elements.get('voice-identity-message').textContent, '本次录入已过期，请重新开始。');
+    assert.equal(harness.elements.get('voice-identity-next').hidden, true);
+    assert.equal(harness.mediaStreams[0].track.stopped, true);
+});
+
+test('a stalled cancellation after the local lease timer cannot keep the workflow busy', async () => {
+    const explicitCancelGate = deferred();
+    const harness = createHarness({ autoAdvance: false, explicitCancelGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+
+    harness.fireEnrollmentLeaseTimer();
+    await flush(6);
+    const cancel = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/cancel`);
+    assert.ok(cancel);
+    harness.fireStatusTimeouts();
+    await enrolling;
+    await flush(2);
+
+    assert.equal(cancel.options.signal.aborted, true);
+    assert.equal(harness.elements.get('voice-identity-message').textContent, '本次录入已过期，请重新开始。');
+    assert.equal(harness.mediaStreams[0].track.stopped, true);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, true);
+});
+
+test('the bounded expiry cancellation also bounds its CSRF token refresh', async () => {
+    const stalledPageConfig = deferred();
+    const harness = createHarness({
+        autoAdvance: false,
+        cancelCsrfFailureOnce: true,
+        pageConfigGates: { 2: stalledPageConfig },
+    });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    harness.fireEnrollmentLeaseTimer();
+    await flush(8);
+    const pageConfig = harness.fetchCalls.filter(call => call.url === '/api/config/page_config').at(-1);
+    assert.equal(harness.fetchCalls.filter(call => call.url === '/api/config/page_config').length, 2);
+    harness.fireStatusTimeouts();
+    await enrolling;
+    await flush(2);
+
+    assert.equal(pageConfig.options.signal.aborted, true);
+    assert.equal(harness.elements.get('voice-identity-message').textContent, '本次录入已过期，请重新开始。');
+    assert.equal(harness.mediaStreams[0].track.stopped, true);
+});
+
+test('a BFCache restore supersedes an in-flight connection retry', async () => {
+    const stalledRetryStatus = deferred();
+    const harness = createHarness({ initialStatusError: true, statusGates: { 2: stalledRetryStatus } });
+    await harness.initialize();
+    assert.equal(harness.elements.get('voice-identity-retry').hidden, false);
+
+    const retrying = harness.emit('voice-identity-retry');
+    await flush(4);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length, 2);
+    await harness.dispatch('pageshow', { persisted: true });
+    // The superseded retry's status read then times out (or aborts) late.
+    harness.fireStatusTimeouts();
+    await retrying;
+    await flush(2);
+
+    assert.equal(harness.elements.get('voice-identity-retry').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
     assert.equal(harness.elements.get('voice-identity-message').textContent, '');
 });
 
-test('recording upload is capped at four seconds of source samples', async () => {
-    let segmentBody = null;
-    let segmentHeaders = null;
-    const harness = createHarness({
-        audio: true,
-        route(url, options) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/segment') {
-                segmentBody = options.body;
-                segmentHeaders = options.headers;
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_2' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('a retry superseded while loading its token does not read status afterwards', async () => {
+    const slowPageConfig = deferred();
+    const harness = createHarness({ initialStatusError: true, pageConfigGates: { 2: slowPageConfig } });
     await harness.initialize();
-    await harness.elements.get('voice-identity-record').emit('click');
 
-    assert.equal(Object.prototype.toString.call(segmentBody), '[object ArrayBuffer]');
-    assert.equal(segmentBody.byteLength, 16000 * 4 * Int16Array.BYTES_PER_ELEMENT);
+    const retrying = harness.emit('voice-identity-retry');
+    await flush(2);
+    await harness.dispatch('pageshow', { persisted: true });
+    await flush(2);
+    const statusReadsAfterRestore = harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length;
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+
+    slowPageConfig.resolve();
+    await retrying;
+    await flush(4);
+
     assert.equal(
-        segmentHeaders.get('Content-Type'),
-        'audio/pcm;format=pcm_s16le;rate=16000;channels=1',
+        harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length,
+        statusReadsAfterRestore,
     );
-    assert.deepEqual(Array.from(new Uint8Array(segmentBody, 0, 2)), [0xff, 0x1f]);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
 });
 
-test('underfilled recording times out without uploading a partial segment', async () => {
-    let segmentRequests = 0;
-    const harness = createHarness({
-        audio: true,
-        audioBlocks: 92,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/segment') {
-                segmentRequests += 1;
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_2' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('a stalled Cancel releases the page and the next start replaces the unconfirmed session', async () => {
+    const explicitCancelGate = deferred();
+    const harness = createHarness({ autoAdvance: false, explicitCancelGate });
     await harness.initialize();
-    await harness.elements.get('voice-identity-record').emit('click');
 
-    assert.equal(segmentRequests, 0);
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+    harness.emit('voice-identity-cancel');
+    await enrolling;
+    await flush(4);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
+
+    harness.fireStatusTimeouts();
+    await flush(8);
+    const stalledCancel = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/cancel`);
+    assert.equal(stalledCancel.options.signal.aborted, true);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+    assert.equal(harness.elements.get('voice-identity-cancel').disabled, false);
+    assert.equal(harness.serverEnrollmentId, 'enrollment-1');
+
+    explicitCancelGate.resolve();
+    const callsBeforeRestart = harness.fetchCalls.length;
+    const restarting = harness.emit('voice-identity-start');
+    await flush(8);
+    const restartCalls = harness.fetchCalls.slice(callsBeforeRestart);
+    const cancelIndex = restartCalls.findIndex(call => call.url === `${API_ROOT}/enrollment/cancel`);
+    const startIndex = restartCalls.findIndex(call => call.url === `${API_ROOT}/enrollment/start`);
+    assert.ok(cancelIndex >= 0);
+    assert.ok(startIndex > cancelIndex);
+    assert.equal(restartCalls[cancelIndex].options.headers.get('x-voice-identity-enrollment'), 'enrollment-1');
+    assert.equal(harness.serverEnrollmentId, 'enrollment-2');
+    await harness.emit('voice-identity-cancel');
+    await restarting;
+});
+
+test('error cleanup after a futile lease bounds its cancellation request', async () => {
+    const explicitCancelGate = deferred();
+    const harness = createHarness({ remainingSeconds: 9, explicitCancelGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(12);
+    assert.ok(harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/cancel`));
+    harness.fireStatusTimeouts();
+    await enrolling;
+    await flush(4);
+
+    const cancel = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/cancel`);
+    assert.equal(cancel.options.signal.aborted, true);
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Not enough time remains for the next recording.');
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+});
+
+test('cancelling during the in-progress reconciliation does not install a new segment wait', async () => {
+    const inProgressStatus = deferred();
+    const harness = createHarness({
+        segmentInProgressOnce: 'pending',
+        autoAdvance: false,
+        statusGates: { 2: inProgressStatus },
+    });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(8);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length, 2);
+    harness.emit('voice-identity-cancel');
+    await flush(8);
+
+    assert.equal(harness.elements.get('voice-identity-next').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+    assert.equal(harness.serverEnrollmentId, null);
+    await enrolling;
+});
+
+test('a late cancellation recovery after a restore timeout clears the timeout alert', async () => {
+    const cancelGate = deferred();
+    const harness = createHarness({ initialEnrollmentNextSegment: 1, cancelGate, manualAudio: true });
+    await harness.initialize();
+
+    const closing = harness.beforeClose();
+    await flush(3);
+    const restoring = harness.dispatch('pageshow', { persisted: true });
+    await flush(4);
+    harness.fireStatusTimeouts();
+    await restoring;
     assert.equal(harness.elements.get('voice-identity-message').textContent, 'Request failed.');
-    assert.equal(
-        harness.getMediaStreams()[0].getTracks().every(track => track.stopped),
-        true,
-    );
-});
 
-test('recording reports a microphone that becomes unavailable', async () => {
-    const mediaError = new Error('microphone_locked');
-    mediaError.name = 'NotReadableError';
-    const harness = createHarness({
-        mediaError,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-record').emit('click');
-
-    assert.equal(
-        harness.elements.get('voice-identity-message').textContent,
-        'Microphone unavailable.',
-    );
-});
-
-test('ambiguous segment upload failure refreshes the next recording stage', async () => {
-    let statusRequests = 0;
-    let segmentRequests = 0;
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                return jsonResponse({
-                    enrollment: {
-                        session_id: 'session-1',
-                        stage: statusRequests === 1 ? 'fixed_1' : 'fixed_2',
-                    },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/segment') {
-                segmentRequests += 1;
-                throw new Error('connection_lost');
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-record').emit('click');
-
-    assert.equal(statusRequests, 2);
-    assert.equal(segmentRequests, 1);
-    assert.equal(harness.elements.get('voice-identity-prompt').textContent, 'English two');
-    assert.equal(harness.elements.get('voice-identity-record').disabled, false);
+    cancelGate.resolve();
+    await closing;
+    await flush(6);
     assert.equal(harness.elements.get('voice-identity-message').textContent, '');
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
 });
 
-test('upload reconciliation rejects idle and regressed enrollment stages', async () => {
-    for (const reconciledEnrollment of [
-        { stage: 'idle' },
-        { session_id: 'session-1', stage: 'fixed_1' },
-    ]) {
-        let statusRequests = 0;
-        const harness = createHarness({
-            audio: true,
-            route(url) {
-                if (url === '/api/config/page_config') {
-                    return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-                }
-                if (url === '/api/voice-identity/status') {
-                    statusRequests += 1;
-                    return jsonResponse({
-                        enrollment: statusRequests === 1
-                            ? { session_id: 'session-1', stage: 'fixed_2' }
-                            : reconciledEnrollment,
-                    });
-                }
-                if (url === '/api/voice-identity/enrollment/segment') {
-                    throw new Error('connection_lost');
-                }
-                throw new Error(`Unexpected request: ${url}`);
-            },
-        });
+test('continuous quiet speech does not flicker back to waiting', async () => {
+    const harness = createHarness({ manualAudio: true, autoAdvance: false });
+    await harness.initialize();
 
-        await harness.initialize();
-        await harness.elements.get('voice-identity-record').emit('click');
-
-        assert.equal(statusRequests, 2);
-        assert.equal(
-            harness.elements.get('voice-identity-message').textContent,
-            'Request failed.',
-        );
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    const quietChunk = () => harness.emitAudio(new Int16Array(CHUNK_SAMPLES).fill(164));
+    quietChunk();
+    await flush(2);
+    const voiceState = harness.elements.get('voice-identity-voice-state');
+    assert.equal(voiceState.textContent, 'Voice is quiet');
+    for (let step = 0; step < 10; step += 1) {
+        harness.advanceTime(100);
+        quietChunk();
+        harness.tickCaptureClock();
+        await flush(1);
+        assert.equal(voiceState.textContent, 'Voice is quiet');
     }
+
+    harness.advanceTime(900);
+    harness.tickCaptureClock();
+    await flush(1);
+    assert.equal(voiceState.textContent, 'Waiting for speech');
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
 });
 
-test('a recovered final upload continues through automatic commit', async () => {
-    let statusRequests = 0;
-    let verificationRequests = 0;
-    let commitRequests = 0;
+test('a stale start response is cancelled within the cancellation timeout', async () => {
+    const startGate = deferred();
+    const explicitCancelGate = deferred();
+    const harness = createHarness({ startGate, explicitCancelGate, manualAudio: true });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    harness.emit('voice-identity-cancel');
+    await flush(8);
+    startGate.resolve();
+    await flush(8);
+    const staleCancel = harness.fetchCalls.find(call => (
+        call.url === `${API_ROOT}/enrollment/cancel`
+        && call.options.headers.get('x-voice-identity-enrollment') === 'enrollment-1'
+    ));
+    assert.ok(staleCancel);
+    harness.fireStatusTimeouts();
+    await enrolling;
+    await flush(4);
+
+    assert.equal(staleCancel.options.signal.aborted, true);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+});
+
+test('a stalled preflight cancellation before restart is bounded and keeps the pending id', async () => {
+    const explicitCancelGate = deferred();
+    const harness = createHarness({ autoAdvance: false, explicitCancelGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    harness.emit('voice-identity-cancel');
+    await enrolling;
+    await flush(4);
+    harness.fireStatusTimeouts();
+    await flush(8);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+
+    const callsBeforeRestart = harness.fetchCalls.length;
+    const restarting = harness.emit('voice-identity-start');
+    await flush(8);
+    const preflight = harness.fetchCalls.slice(callsBeforeRestart)
+        .find(call => call.url === `${API_ROOT}/enrollment/cancel`);
+    assert.ok(preflight);
+    // The preflight times out; error cleanup then issues its own bounded
+    // cancellation for the still-active session, which also times out.
+    for (let round = 0; round < 3; round += 1) {
+        harness.fireStatusTimeouts();
+        await flush(6);
+    }
+    await restarting;
+    await flush(4);
+
+    assert.equal(preflight.options.signal.aborted, true);
+    assert.equal(
+        harness.fetchCalls.slice(callsBeforeRestart).some(call => call.url === `${API_ROOT}/enrollment/start`),
+        false,
+    );
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+    assert.equal(harness.mediaStreams.at(-1).track.stopped, true);
+});
+
+test('cancelling a replacement start after the preflight cancels the new session', async () => {
+    const explicitCancelGate = deferred();
+    const replacementStart = deferred();
     const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                return jsonResponse(statusRequests === 1
-                    ? {
-                        enrollment: { session_id: 'session-1', stage: 'free_verify_2' },
-                    }
-                    : {
-                        enrollment: { session_id: 'session-1', stage: 'ready_to_commit' },
-                    });
-            }
-            if (url === '/api/voice-identity/enrollment/verify') {
-                verificationRequests += 1;
-                throw new Error('connection_lost');
-            }
-            if (url === '/api/voice-identity/enrollment/commit') {
-                commitRequests += 1;
-                return jsonResponse({
-                    enrollment: { stage: 'idle' },
-                    profile: { available: true, state: 'active' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
+        autoAdvance: false,
+        explicitCancelGate,
+        startGates: { 2: replacementStart },
+    });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    harness.emit('voice-identity-cancel');
+    await enrolling;
+    await flush(4);
+    harness.fireStatusTimeouts();
+    await flush(8);
+    assert.equal(harness.serverEnrollmentId, 'enrollment-1');
+    explicitCancelGate.resolve();
+
+    const restarting = harness.emit('voice-identity-start');
+    await flush(8);
+    assert.equal(harness.serverEnrollmentId, 'enrollment-2');
+    harness.emit('voice-identity-cancel');
+    await flush(8);
+    // Even while the replacement start response is still outstanding, the
+    // cancellation must reach the new session rather than the old ID.
+    assert.equal(harness.serverEnrollmentId, null);
+    replacementStart.resolve();
+    await restarting;
+    await flush(8);
+
+    assert.equal(harness.serverEnrollmentId, null);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+});
+
+test('cancelling a resumed enrollment during the permission prompt releases the page', async () => {
+    const mediaGate = deferred();
+    const harness = createHarness({ initialEnrollmentNextSegment: 2, mediaGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(2);
+    await harness.emit('voice-identity-cancel');
+    await flush(4);
+
+    assert.equal(harness.serverEnrollmentId, null);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+    assert.equal(harness.elements.get('voice-identity-cancel').hidden, true);
+    mediaGate.resolve();
+    await enrolling;
+    await flush(2);
+    assert.equal(harness.mediaStreams[0].track.stopped, true);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+});
+
+test('voice-activity renders do not rewrite the unchanged live prompt', async () => {
+    const harness = createHarness({ manualAudio: true, autoAdvance: false });
+    await harness.initialize();
+    const prompt = harness.elements.get('voice-identity-prompt');
+    let text = prompt.textContent;
+    let writes = 0;
+    Object.defineProperty(prompt, 'textContent', {
+        get() { return text; },
+        set(value) { writes += 1; text = value; },
     });
 
-    await harness.initialize();
-    await harness.elements.get('voice-identity-record').emit('click');
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    const writesBeforeSpeech = writes;
+    const voiceState = harness.elements.get('voice-identity-voice-state');
+    const voiceStates = new Set([voiceState.textContent]);
+    for (let round = 0; round < 3; round += 1) {
+        harness.emitAudio(new Int16Array(REFERENCE_SAMPLES / 8).fill(1024));
+        await flush(4);
+        voiceStates.add(voiceState.textContent);
+        harness.emitAudio(new Int16Array(REFERENCE_SAMPLES / 8));
+        await flush(4);
+        voiceStates.add(voiceState.textContent);
+    }
 
-    assert.equal(verificationRequests, 1);
-    assert.equal(statusRequests, 2);
-    assert.equal(commitRequests, 1);
-    assert.equal(
-        harness.elements.get('voice-identity-message').textContent,
-        'Enrollment complete.',
-    );
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 0);
+    assert.ok(voiceStates.size > 1);
+    assert.equal(writes, writesBeforeSpeech);
+    assert.equal(text, '今天我想和你分享一件趣事。');
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('a segment still being checked elsewhere stays in the retry flow', async () => {
+    const harness = createHarness({
+        profileError: 'segment_in_progress',
+        profileStatus: 409,
+        autoAdvance: false,
+    });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(8);
+
+    assert.equal(harness.elements.get('voice-identity-message').textContent, '当前录音仍在检查，请稍后继续。');
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+    assert.equal(harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/cancel`), false);
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('a segment accepted elsewhere during the in-progress wait is adopted instead of re-recorded', async () => {
+    const harness = createHarness({ segmentInProgressOnce: 'pending', autoAdvance: false });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(8);
+    assert.equal(harness.elements.get('voice-identity-message').textContent, '当前录音仍在检查，请稍后继续。');
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+
+    harness.advanceServerSegment();
+    await harness.emit('voice-identity-next');
+    await flush(8);
+    const uploads = () => harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.equal(uploads().length, 1);
+    assert.equal(harness.elements.get('voice-identity-message').textContent, '');
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+
+    await harness.emit('voice-identity-next');
+    await flush(8);
+    assert.equal(uploads().length, 2);
+    assert.equal(uploads()[1].options.headers.get('x-voice-identity-segment'), '2');
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('an in-progress response adopts progress the service already accepted', async () => {
+    const harness = createHarness({ segmentInProgressOnce: 'accepted', autoAdvance: false });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(8);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+    await harness.emit('voice-identity-next');
+    await flush(8);
+
+    const uploads = harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.equal(uploads.length, 2);
+    assert.equal(uploads[1].options.headers.get('x-voice-identity-segment'), '2');
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('a stalled retry connection releases the page and keeps Retry available', async () => {
+    const stalledPageConfig = deferred();
+    const harness = createHarness({ initialStatusError: true, pageConfigGates: { 2: stalledPageConfig } });
+    await harness.initialize();
+    assert.equal(harness.elements.get('voice-identity-retry').hidden, false);
+
+    const retrying = harness.emit('voice-identity-retry');
+    await flush(2);
+    assert.equal(harness.elements.get('voice-identity-retry').hidden, true);
+    harness.fireStatusTimeouts();
+    await retrying;
+
+    const pageConfig = harness.fetchCalls.filter(call => call.url === '/api/config/page_config').at(-1);
+    assert.equal(pageConfig.options.signal.aborted, true);
+    assert.equal(harness.elements.get('voice-identity-retry').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-retry').disabled, false);
+    assert.notEqual(harness.elements.get('voice-identity-message').textContent, '');
+});
+
+test('later segment prompt paints before recording starts', async () => {
+    const promptPaintGate = deferred();
+    const harness = createHarness({ autoAdvance: false, promptPaintGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 1);
+
+    await harness.emit('voice-identity-next');
+    await flush(2);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 1);
+    assert.equal(harness.elements.get('voice-identity-prompt').hidden, false);
+
+    promptPaintGate.resolve();
+    await flush(4);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 2);
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('sample count finishes a capture without waiting for the duration timer', async () => {
+    const harness = createHarness({ manualAudio: true, autoAdvance: false });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    harness.emitAudio(new Int16Array(REFERENCE_SAMPLES).fill(1024));
+    await flush(4);
+
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 1);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('initial silence does not satisfy the minimum speech duration', async () => {
+    const harness = createHarness({ manualAudio: true, autoAdvance: false });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    harness.emitAudio(new Int16Array(MINIMUM_SAMPLES));
+    await flush(4);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 0);
+
+    harness.emitAudio(new Int16Array(MINIMUM_SAMPLES).fill(1024));
+    await flush(4);
+    const upload = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.ok(upload);
+    assert.equal(upload.options.body.byteLength, REFERENCE_SAMPLES * Int16Array.BYTES_PER_ELEMENT);
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('automatic capture waits for the fixed segment duration after the minimum speech threshold', async () => {
+    const harness = createHarness({ manualAudio: true, autoAdvance: false });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    harness.emitAudio(new Int16Array(MINIMUM_SAMPLES).fill(1024));
+    await flush(4);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 0);
+
+    harness.emitAudio(new Int16Array(REFERENCE_SAMPLES - MINIMUM_SAMPLES).fill(1024));
+    await flush(4);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 1);
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('the upcoming prompt is visible while the first microphone is preparing', async () => {
+    const mediaGate = deferred();
+    const harness = createHarness({ mediaGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(2);
+    assert.equal(harness.elements.get('voice-identity-prompt').hidden, false);
+    assert.notEqual(harness.elements.get('voice-identity-prompt').textContent, '');
+    assert.equal(harness.elements.get('voice-identity-capture-status').classList.contains('preparing'), true);
+    mediaGate.resolve();
+    await enrolling;
+});
+
+test('recording clock starts only after the audio context resumes', async () => {
+    const resumeGate = deferred();
+    const harness = createHarness({ resumeGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    assert.equal(harness.getAudioContext().state, 'suspended');
+    assert.equal(harness.elements.get('voice-identity-timer').textContent, '');
+
+    resumeGate.resolve();
+    await enrolling;
+    assert.equal(harness.autoFinishDurations[0], REFERENCE_RECORDING_MS);
+});
+
+test('cancellation during microphone setup releases a late stream and context', async () => {
+    const mediaGate = deferred();
+    const harness = createHarness({ mediaGate, manualAudio: true });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(2);
+    await harness.emit('voice-identity-cancel');
+    mediaGate.resolve();
+    await enrolling;
+    await flush(2);
+
+    assert.equal(harness.mediaStreams.length, 1);
+    assert.equal(harness.mediaStreams[0].track.stopped, true);
+    assert.equal(harness.getAudioContext(), null);
+    assert.equal(harness.fetchCalls.some(call => call.url.endsWith('/enrollment/start')), false);
+});
+
+test('cancelling while microphone permission is pending releases the controls immediately', async () => {
+    const mediaGate = deferred();
+    const harness = createHarness({ mediaGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(2);
+    await harness.emit('voice-identity-cancel');
+
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+    assert.equal(harness.elements.get('voice-identity-cancel').hidden, true);
+    mediaGate.resolve();
+    await enrolling;
+});
+
+test('a cancelled permission response cannot stop a successor capture', async () => {
+    const oldPermission = deferred();
+    const harness = createHarness({
+        mediaGate: request => request === 1 ? oldPermission : null,
+        manualAudio: true,
+    });
+    await harness.initialize();
+    const oldStart = harness.emit('voice-identity-start');
+    await flush(2);
+    await harness.emit('voice-identity-cancel');
+    const successor = harness.emit('voice-identity-start');
+    await flush(8);
+    const stream = harness.mediaStreams[0];
+    const context = harness.getAudioContext();
+    assert.ok(stream);
+    oldPermission.resolve();
+    await oldStart;
+    assert.equal(harness.mediaStreams[1].track.stopped, true);
+    assert.equal(stream.track.stopped, false);
+    assert.equal(context.state, 'running');
+    assert.equal(harness.elements.get('voice-identity-start').hidden, true);
+    await harness.emit('voice-identity-cancel');
+    await successor;
+});
+
+test('BFCache status timeout unlocks controls and ignores its late response', async () => {
+    const pending = deferred();
+    const harness = createHarness({ statusGates: { 2: pending } });
+    await harness.initialize();
+    const restoring = harness.dispatch('pageshow', { persisted: true });
+    await flush(2);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
+    harness.fireStatusTimeouts();
+    await restoring;
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Request failed.');
+    const statusRequest = harness.fetchCalls.filter(call => call.url.endsWith('/status')).at(-1);
+    assert.equal(statusRequest.options.signal.aborted, true);
+    pending.resolve(jsonResponse({ has_profile: true, requested_enabled: true }));
+    await flush(2);
     assert.equal(harness.elements.get('voice-identity-start').hidden, false);
 });
 
-test('microphone resources are released and reacquired between recording steps', async () => {
-    let segments = 0;
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/segment') {
-                segments += 1;
-                return jsonResponse({
-                    enrollment: {
-                        session_id: 'session-1',
-                        stage: segments === 1 ? 'fixed_2' : 'fixed_3',
-                    },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('an older BFCache restore cannot unlock the newer restore', async () => {
+    const first = deferred();
+    const second = deferred();
+    const harness = createHarness({ statusGates: { 2: first, 3: second } });
     await harness.initialize();
-    const record = harness.elements.get('voice-identity-record');
-    await record.emit('click');
-    const firstContext = harness.getAudioContext();
-
-    assert.equal(firstContext.state, 'closed');
-    assert.equal(harness.getMediaRequests(), 1);
-    assert.equal(
-        harness.getMediaStreams()[0].getTracks().every(track => track.stopped),
-        true,
-    );
-
-    await record.emit('click');
-    const secondContext = harness.getAudioContext();
-
-    assert.equal(segments, 2);
-    assert.notEqual(secondContext, firstContext);
-    assert.equal(secondContext.state, 'closed');
-    assert.equal(harness.getMediaRequests(), 2);
-    assert.equal(
-        harness.getMediaStreams().every(stream => (
-            stream.getTracks().every(track => track.stopped)
-        )),
-        true,
-    );
-});
-
-test('downsampling attenuates microphone energy above the target Nyquist limit', async () => {
-    let segmentBody = null;
-    const harness = createHarness({
-        audio: true,
-        audioSample(index) {
-            return Math.sin(2 * Math.PI * 12000 * index / 48000);
-        },
-        route(url, options) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/segment') {
-                segmentBody = options.body;
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_2' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-record').emit('click');
-
-    const samples = new Int16Array(segmentBody);
-    const stable = samples.subarray(128, samples.length - 128);
-    const rms = Math.sqrt(
-        stable.reduce((sum, sample) => sum + sample * sample, 0) / stable.length
-    ) / 0x8000;
-    assert.ok(rms < 0.1, `expected anti-aliased RMS below 0.1, got ${rms}`);
-});
-
-test('delete falls back to native confirmation when the shared dialog is unavailable', async () => {
-    let confirmations = 0;
-    const harness = createHarness({
-        nativeConfirm() {
-            confirmations += 1;
-            return false;
-        },
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { stage: 'idle' },
-                    profile: { available: true, state: 'active' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    await harness.elements.get('voice-identity-delete').emit('click');
-
-    assert.equal(confirmations, 1);
-    assert.equal(
-        harness.fetchCalls.some(call => call.url === '/api/voice-identity/profile'),
-        false,
-    );
-});
-
-test('async delete confirmation locks mutations and restores them when declined', async () => {
-    const confirmation = deferred();
-    const harness = createHarness({
-        showConfirm() {
-            return confirmation.promise;
-        },
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { stage: 'idle' },
-                    profile: { available: true, state: 'active' },
-                    filter: { enabled: true },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    const deletion = harness.elements.get('voice-identity-delete').emit('click');
-
+    const oldRestore = harness.dispatch('pageshow', { persisted: true });
+    const newRestore = harness.dispatch('pageshow', { persisted: true });
+    first.resolve(jsonResponse({ has_profile: false }));
+    await oldRestore;
     assert.equal(harness.elements.get('voice-identity-start').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-reenroll').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-delete').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-filter').disabled, true);
-    await harness.elements.get('voice-identity-reenroll').emit('click');
-    assert.equal(harness.getMediaRequests(), 0);
-
-    confirmation.resolve(false);
-    await deletion;
-
+    second.resolve(jsonResponse({ has_profile: false }));
+    await newRestore;
     assert.equal(harness.elements.get('voice-identity-start').disabled, false);
-    assert.equal(harness.elements.get('voice-identity-reenroll').disabled, false);
-    assert.equal(harness.elements.get('voice-identity-delete').disabled, false);
-    assert.equal(harness.elements.get('voice-identity-filter').disabled, false);
-    assert.equal(
-        harness.fetchCalls.some(call => call.url === '/api/voice-identity/profile'),
-        false,
-    );
 });
 
-test('a partial profile deletion response clears the stale filter state', async () => {
-    const harness = createHarness({
-        showConfirm() {
-            return true;
-        },
-        route(url, options) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { stage: 'idle' },
-                    profile: { available: true, state: 'active' },
-                    filter: { enabled: true },
-                });
-            }
-            if (url === '/api/voice-identity/profile' && options.method === 'DELETE') {
-                return jsonResponse({
-                    profile: { available: false, state: 'empty' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('resumed enrollment shows the canonical segment prompt before microphone setup', async () => {
+    const harness = createHarness({ initialEnrollmentNextSegment: 3 });
     await harness.initialize();
-    await harness.elements.get('voice-identity-delete').emit('click');
+    assert.equal(harness.elements.get('voice-identity-prompt').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-prompt').textContent, '今天也用自然的声音聊天。');
+    await harness.emit('voice-identity-start');
+    const firstUpload = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.equal(firstUpload.options.headers.get('x-voice-identity-segment'), '3');
+});
+
+test('active enrollment can resume with readiness enabled without sending a null trial contract', async () => {
+    let required = 0;
+    const readinessController = {
+        isPending: () => false, canStart: () => false, audioContract: () => null,
+        async refreshResources() {}, controls() {}, receivedStream() {}, updateMeter() {},
+        requireTest() { required++; }
+    };
+    const harness = createHarness({ initialEnrollmentNextSegment: 3, autoAdvance: true, readinessController });
+    await harness.initialize();
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+    await harness.emit('voice-identity-start');
+    const request = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/start`);
+    assert.ok(request);
+    assert.equal(request.options.body, undefined);
+    assert.equal(required, 0);
+    const firstUpload = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.equal(firstUpload.options.headers.get('x-voice-identity-segment'), '3');
+});
+
+test('resource diagnostics failure does not turn successful status initialization into connection failure', async () => {
+    const readinessController = {
+        isPending: () => false, canStart: () => false, controls() {},
+        async refreshResources() { throw new Error('audio_contract_changed'); }
+    };
+    const harness = createHarness({ readinessController });
+    await harness.initialize();
+    assert.equal(harness.elements.get('voice-identity-retry').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
+});
+
+test('a fresh enrollment still requires a passed trial when readiness is enabled', async () => {
+    let required = 0;
+    const readinessController = {
+        isPending: () => false, canStart: () => false, audioContract: () => null,
+        async refreshResources() {}, controls() {}, requireTest() { required++; }
+    };
+    const harness = createHarness({ readinessController });
+    await harness.initialize();
+    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
+    await harness.emit('voice-identity-start');
+    assert.equal(required, 1);
+    assert.equal(harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/start`), false);
+});
+
+test('changed input prevents continuing an existing enrollment without cancelling it implicitly', async () => {
+    let changed = 0;
+    const readinessController = {
+        isPending: () => false, canStart: () => false, canResume: () => false,
+        async refreshResources() {}, controls() {}, contractChanged() { changed++; }
+    };
+    const harness = createHarness({ initialEnrollmentNextSegment: 3, readinessController });
+    await harness.initialize();
+    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
+    await harness.emit('voice-identity-start');
+    assert.equal(changed, 1);
+    assert.equal(harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/start` || call.url === `${API_ROOT}/enrollment/cancel`), false);
+});
+
+test('failed fourth verification stays in the session and retries the holdout', async () => {
+    const harness = createHarness({ verificationFailures: 1, autoAdvance: true });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(12);
+    const segments = harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.equal(segments.length, 4);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-capture-status').hidden, true);
+    assert.match(harness.elements.get('voice-identity-message').textContent, /31/);
+    assert.equal(harness.elements.get('voice-identity-result').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-match-percent').hidden, true);
+    await harness.emit('voice-identity-next');
+    await enrolling;
+    assert.equal(
+        harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length,
+        5,
+    );
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, false);
+});
+
+test('transient progress status failure keeps the active enrollment resumable', async () => {
+    const harness = createHarness({ statusFailures: 1 });
+    await harness.initialize();
+
+    await harness.emit('voice-identity-start');
+
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Enrollment complete.');
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/cancel`).length, 0);
+});
+
+test('a late focus status response cannot clear a newly started enrollment', async () => {
+    const focusStatusGate = deferred();
+    const harness = createHarness({ focusStatusGate });
+    await harness.initialize();
+
+    harness.dispatch('focus');
+    await flush(2);
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    focusStatusGate.resolve(jsonResponse({
+        requested_enabled: false,
+        effective_enabled: false,
+        effective_reason: 'no_profile',
+        has_profile: false,
+        enrollment: null,
+        runtime_mode: 'enforce',
+    }));
+    await enrolling;
+
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Enrollment complete.');
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/cancel`).length, 0);
+});
+
+test('a stale passive refresh cannot overwrite a newer refresh', async () => {
+    const focusStatusGate = deferred();
+    const harness = createHarness({
+        initialProfile: true,
+        initialRequested: true,
+        focusStatusGate,
+    });
+    await harness.initialize();
+
+    harness.dispatch('focus');
+    await flush(2);
+    harness.dispatch('focus');
+    await flush(2);
+    assert.equal(harness.elements.get('voice-identity-filter').checked, true);
+
+    focusStatusGate.resolve(jsonResponse({
+        requested_enabled: false,
+        effective_enabled: false,
+        effective_reason: 'disabled',
+        has_profile: true,
+        enrollment: null,
+        runtime_mode: 'enforce',
+    }));
+    await flush(2);
+    assert.equal(harness.elements.get('voice-identity-filter').checked, true);
+});
+
+test('a failed newer refresh falls back to an older successful response', async () => {
+    const focusStatusGate = deferred();
+    const harness = createHarness({
+        initialProfile: true,
+        initialRequested: true,
+        focusStatusGate,
+        statusFailures: 1,
+    });
+    await harness.initialize();
+
+    harness.dispatch('focus');
+    await flush(2);
+    harness.dispatch('focus');
+    await flush(2);
+    focusStatusGate.resolve(jsonResponse({
+        requested_enabled: false,
+        effective_enabled: false,
+        effective_reason: 'disabled',
+        has_profile: true,
+        enrollment: null,
+        runtime_mode: 'enforce',
+    }));
+    await flush(3);
 
     assert.equal(harness.elements.get('voice-identity-filter').checked, false);
+});
+
+test('a late response cannot roll back an already applied passive refresh', async () => {
+    const request2 = deferred();
+    const request3 = deferred();
+    const request4 = deferred();
+    const harness = createHarness({
+        initialProfile: true,
+        initialRequested: true,
+        statusGates: { 2: request2, 3: request3, 4: request4 },
+    });
+    await harness.initialize();
+
+    harness.dispatch('focus');
+    harness.dispatch('focus');
+    harness.dispatch('focus');
+    await flush(2);
+    request3.resolve(jsonResponse({
+        requested_enabled: false,
+        effective_enabled: false,
+        effective_reason: 'disabled',
+        has_profile: true,
+        enrollment: null,
+        runtime_mode: 'enforce',
+    }));
+    await flush(2);
+    request4.reject(new Error('status_transient'));
+    await flush(2);
+    request2.resolve(jsonResponse({
+        requested_enabled: true,
+        effective_enabled: true,
+        effective_reason: 'ready',
+        has_profile: true,
+        enrollment: null,
+        runtime_mode: 'enforce',
+    }));
+    await flush(3);
+
+    assert.equal(harness.elements.get('voice-identity-filter').checked, false);
+});
+
+test('disabled runtime blocks enrollment without a stored profile', async () => {
+    const harness = createHarness({ runtimeMode: 'off' });
+    await harness.initialize();
+
+    assert.equal(harness.elements.get('voice-identity-profile-status').textContent, 'Voice identity is turned off');
+    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
+});
+
+test('disabled runtime keeps delete but blocks re-enrollment and filter enable', async () => {
+    const harness = createHarness({ runtimeMode: 'off', initialProfile: true });
+    await harness.initialize();
+
+    assert.equal(harness.elements.get('voice-identity-profile-status').textContent, 'Voice identity is turned off');
+    assert.equal(harness.elements.get('voice-identity-reenroll').disabled, true);
     assert.equal(harness.elements.get('voice-identity-filter').disabled, true);
+    assert.equal(harness.elements.get('voice-identity-delete').disabled, false);
 });
 
-test('ambiguous profile deletion reconciles the authoritative absent state', async () => {
-    let statusRequests = 0;
-    let deleteRequests = 0;
-    const harness = createHarness({
-        showConfirm() {
-            return true;
-        },
-        route(url, options) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                return jsonResponse(statusRequests === 1
-                    ? {
-                        enrollment: { stage: 'idle' },
-                        profile: { available: true, state: 'active' },
-                        filter: { enabled: true },
-                    }
-                    : {
-                        enrollment: { stage: 'idle' },
-                        profile: { available: false, state: 'empty' },
-                        filter: { enabled: false },
-                    });
-            }
-            if (url === '/api/voice-identity/profile' && options.method === 'DELETE') {
-                deleteRequests += 1;
-                throw new Error('connection_lost');
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('disabled runtime still lets a previously enabled filter be turned off', async () => {
+    const harness = createHarness({ runtimeMode: 'off', initialProfile: true, initialRequested: true });
     await harness.initialize();
-    await harness.elements.get('voice-identity-delete').emit('click');
 
-    assert.equal(deleteRequests, 1);
-    assert.equal(statusRequests, 2);
-    assert.equal(harness.elements.get('voice-identity-delete').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-message').textContent, '');
+    assert.equal(harness.elements.get('voice-identity-filter').checked, true);
+    assert.equal(harness.elements.get('voice-identity-filter').disabled, false);
 });
 
-test('ambiguous explicit cancellation reconciles a server-side success', async () => {
-    let statusRequests = 0;
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                return jsonResponse(statusRequests === 1
-                    ? { enrollment: { session_id: 'session-1', stage: 'fixed_1' } }
-                    : { enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/cancel') {
-                return jsonResponse(
-                    { error: 'response_lost' },
-                    { ok: false, status: 503 },
-                );
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('a short remaining lease is rejected before starting a futile recording', async () => {
+    const harness = createHarness({ remainingSeconds: 9 });
     await harness.initialize();
-    const cancel = harness.elements.get('voice-identity-cancel');
-    await cancel.emit('click');
 
-    assert.equal(statusRequests, 2);
-    assert.equal(cancel.hidden, true);
-    assert.equal(harness.elements.get('voice-identity-message').textContent, '');
+    await harness.emit('voice-identity-start');
+
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Not enough time remains for the next recording.');
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 3);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/cancel`).length, 1);
 });
 
-test('successful cancellation moves focus from the hidden cancel control', async () => {
-    const cancelResponse = deferred();
-    let cancelRequests = 0;
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/cancel') {
-                cancelRequests += 1;
-                return cancelResponse.promise;
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('inconsistent third reference adopts the server reset and restarts at segment one', async () => {
+    const harness = createHarness({ inconsistentReference: true, autoAdvance: true });
     await harness.initialize();
-    const cancel = harness.elements.get('voice-identity-cancel');
-    cancel.focus();
-    const cancelling = cancel.emit('click');
-    await Promise.resolve();
 
-    assert.equal(cancelRequests, 1);
-    assert.equal(harness.getActiveElement(), cancel);
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(12);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 3);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-prompt').textContent, '今天我想和你分享一件趣事。');
+    await harness.emit('voice-identity-next');
+    await enrolling;
 
-    cancelResponse.resolve(jsonResponse({ enrollment: { stage: 'idle' } }));
-    await cancelling;
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 7);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/cancel`).length, 0);
+});
 
-    assert.equal(cancel.hidden, true);
+test('underfilled capture can be cancelled without uploading partial PCM', async () => {
+    const harness = createHarness({ audioChunks: 100 });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(6);
+    await harness.elements.get('voice-identity-cancel').emit('click');
+    await enrolling;
+    await flush(4);
+
     assert.equal(
-        harness.getActiveElement(),
-        harness.elements.get('voice-identity-step-title'),
+        harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/segment`),
+        false,
     );
-});
-
-test('failed explicit cancellation preserves the confirmed session and can be retried', async () => {
-    const firstCancellation = deferred();
-    let cancellationAttempts = 0;
-    let statusRequests = 0;
-    const harness = createHarness({
-        route(url, options) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/cancel') {
-                cancellationAttempts += 1;
-                if (cancellationAttempts === 1) return firstCancellation.promise;
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    const cancel = harness.elements.get('voice-identity-cancel');
-    const record = harness.elements.get('voice-identity-record');
-    const cancellation = cancel.emit('click');
-    assert.equal(cancel.disabled, true);
-    assert.equal(record.disabled, true);
-    await record.emit('click');
-    assert.equal(harness.getMediaRequests(), 0);
-    firstCancellation.resolve(
-        jsonResponse({ error: 'temporary_failure' }, { ok: false, status: 503 })
-    );
-    await cancellation;
-
-    const firstCall = harness.fetchCalls.find(
-        call => call.url === '/api/voice-identity/enrollment/cancel'
-    );
-    assert.equal(firstCall.options.headers.get('X-Voice-Identity-Enrollment'), 'session-1');
-    assert.equal(cancel.hidden, false);
-    assert.equal(cancel.disabled, false);
-    assert.equal(statusRequests, 2);
-    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Request failed.');
-
-    await cancel.emit('click');
-    assert.equal(cancellationAttempts, 2);
-    assert.equal(cancel.hidden, true);
-    assert.equal(harness.elements.get('voice-identity-message').textContent, '');
-});
-
-test('window close starts keepalive cancellation without waiting for the response', async () => {
-    const keepaliveCancellation = deferred();
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            if (url === '/api/voice-identity/enrollment/cancel') {
-                return keepaliveCancellation.promise;
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    assert.equal(await harness.beforeClose(), true);
-    harness.pagehide();
-
-    const cancellationCalls = harness.fetchCalls.filter(
-        call => call.url === '/api/voice-identity/enrollment/cancel'
-    );
-    assert.equal(cancellationCalls.length, 1);
-    assert.equal(cancellationCalls[0].options.keepalive, true);
-    keepaliveCancellation.resolve(jsonResponse({}));
-    await Promise.resolve();
-});
-
-test('direct pagehide blocks a start waiting on microphone permission', async () => {
-    const mediaGate = deferred();
-    let startRequests = 0;
-    const harness = createHarness({
-        audio: true,
-        mediaGate: mediaGate.promise,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                startRequests += 1;
-                return jsonResponse({
-                    enrollment: { session_id: 'late-session', stage: 'fixed_1' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
-    await harness.initialize();
-    const starting = harness.elements.get('voice-identity-start').emit('click');
-    assert.equal(harness.getMediaRequests(), 1);
-
-    harness.pagehide();
-    mediaGate.resolve();
-    await starting;
-
-    assert.equal(startRequests, 0);
     assert.equal(
-        harness.getMediaStreams()[0].getTracks().every(track => track.stopped),
+        harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/cancel`),
         true,
     );
+    assert.equal(harness.elements.get('voice-identity-message').textContent, '');
 });
 
-test('bfcache restore clears close state so enrollment can start again', async () => {
-    let startRequests = 0;
-    const harness = createHarness({
-        audio: true,
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                startRequests += 1;
-                return jsonResponse({
-                    enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('server rejection for insufficient usable speech stays fail-safe and visible', async () => {
+    const harness = createHarness({ profileError: 'speech_too_short' });
     await harness.initialize();
-    harness.pagehide();
-    await harness.pageshow();
-    await harness.elements.get('voice-identity-start').emit('click');
 
-    assert.equal(startRequests, 1);
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(8);
+    await harness.elements.get('voice-identity-cancel').emit('click');
+    await enrolling;
+    await flush(4);
+
+    assert.equal(
+        harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/segment`),
+        true,
+    );
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-message').textContent, '');
 });
 
-test('bfcache restore reconciles an active server session before controls re-enable', async () => {
-    const restoredStatus = deferred();
-    let statusRequests = 0;
-    const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                if (statusRequests === 1) {
-                    return jsonResponse({ enrollment: { stage: 'idle' } });
-                }
-                return restoredStatus.promise;
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
+test('canonical enrollment audio errors show localized messages', async () => {
+    const invalid = createHarness({ profileError: 'invalid_pcm' });
+    await invalid.initialize();
+    const invalidEnrollment = invalid.emit('voice-identity-start');
+    await flush(8);
+    await invalid.elements.get('voice-identity-cancel').emit('click');
+    await invalidEnrollment;
+    assert.equal(
+        invalid.elements.get('voice-identity-message').textContent,
+        'Invalid recording format.',
+    );
 
+    const tooLong = createHarness({ profileError: 'audio_too_long' });
+    await tooLong.initialize();
+    const tooLongEnrollment = tooLong.emit('voice-identity-start');
+    await flush(8);
+    await tooLong.elements.get('voice-identity-cancel').emit('click');
+    await tooLongEnrollment;
+    assert.equal(
+        tooLong.elements.get('voice-identity-message').textContent,
+        'Recording is too long.',
+    );
+});
+
+test('stable backend failures keep their actionable enrollment messages', async () => {
+    const cases = [
+        ['model_unavailable', 'Voice model unavailable.'],
+        ['audio_processing_unavailable', 'Audio processing unavailable.'],
+        ['secure_storage_unavailable', 'Secure storage unavailable.'],
+    ];
+    for (const [profileError, expectedMessage] of cases) {
+        const harness = createHarness({ profileError, profileStatus: 503 });
+        await harness.initialize();
+        const enrolling = harness.emit('voice-identity-start');
+        await flush(8);
+        assert.equal(harness.elements.get('voice-identity-message').textContent, expectedMessage);
+        await harness.elements.get('voice-identity-cancel').emit('click');
+        await enrolling;
+    }
+});
+
+test('missing Web Crypto cancels enrollment without attempting an upload', async () => {
+    const harness = createHarness({ webCryptoAvailable: false });
     await harness.initialize();
-    harness.pagehide();
-    const restoring = harness.pageshow();
-    await Promise.resolve();
 
-    assert.equal(statusRequests, 2);
+    await harness.emit('voice-identity-start');
+
+    assert.equal(
+        harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/profile`),
+        false,
+    );
+    assert.equal(
+        harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/cancel`),
+        true,
+    );
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Request failed.');
+});
+
+test('microphone denial prevents enrollment start and reports a useful error', async () => {
+    const denied = new Error('denied');
+    denied.name = 'NotAllowedError';
+    const harness = createHarness({ mediaError: denied });
+    await harness.initialize();
+
+    await harness.emit('voice-identity-start');
+
+    assert.equal(
+        harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/start`),
+        false,
+    );
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Microphone unavailable.');
+});
+
+test('an unreadable selected microphone falls back to the default device', async () => {
+    const harness = createHarness({
+        selectedMicrophoneId: 'stale-device',
+        mediaError: [{ name: 'NotReadableError' }, null],
+    });
+    await harness.initialize();
+    await harness.emit('voice-identity-start');
+    assert.equal(harness.mediaConstraintCalls[0].audio.deviceId.exact, 'stale-device');
+    assert.equal('deviceId' in harness.mediaConstraintCalls[1].audio, false);
+});
+
+test('canonical has_profile reveals only switch, re-enroll, and delete controls', async () => {
+    const harness = createHarness({ initialProfile: true, initialRequested: true });
+    await harness.initialize();
+
+    assert.equal(harness.elements.get('voice-identity-enrollment').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-filter').checked, true);
+    assert.equal(harness.elements.get('voice-identity-profile-status').textContent,
+        'Owner voice profile is saved and enabled');
+    assert.equal(template.includes('voice-identity-record'), false);
+    assert.match(template, /voice-identity-progress/);
+    assert.match(template, /voice-identity-prompt/);
+});
+
+test('backend degradation reason is preserved when no profile exists', async () => {
+    const harness = createHarness({
+        initialEffectiveReason: 'secure_storage_unavailable',
+    });
+    await harness.initialize();
+
+    assert.equal(
+        harness.elements.get('voice-identity-profile-status').textContent,
+        'Secure storage is unavailable',
+    );
     assert.equal(harness.elements.get('voice-identity-start').disabled, true);
-
-    restoredStatus.resolve(jsonResponse({
-        enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-    }));
-    await restoring;
-
-    assert.equal(harness.elements.get('voice-identity-start').hidden, true);
-    assert.equal(harness.elements.get('voice-identity-record').hidden, false);
-    assert.equal(harness.elements.get('voice-identity-record').disabled, false);
 });
 
-test('failed bfcache reconciliation keeps mutation controls gated', async () => {
-    let statusRequests = 0;
+test('backend degradation disables re-enrollment for an existing profile', async () => {
     const harness = createHarness({
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                statusRequests += 1;
-                if (statusRequests === 1) {
-                    return jsonResponse({
-                        enrollment: { session_id: 'session-1', stage: 'fixed_1' },
-                        profile: { available: true, state: 'active' },
-                        filter: { enabled: true },
-                    });
-                }
-                return jsonResponse(
-                    { error: 'status_unavailable' },
-                    { ok: false, status: 503 },
-                );
-            }
-            if (url === '/api/voice-identity/enrollment/cancel') {
-                return jsonResponse(
-                    { error: 'cancel_unconfirmed' },
-                    { ok: false, status: 503 },
-                );
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
+        initialProfile: true,
+        initialEffectiveReason: 'model_unavailable',
     });
-
     await harness.initialize();
-    harness.pagehide();
-    await harness.pageshow();
 
-    assert.equal(statusRequests, 2);
-    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
     assert.equal(harness.elements.get('voice-identity-reenroll').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-delete').disabled, true);
-    assert.equal(harness.elements.get('voice-identity-filter').disabled, true);
+});
+
+test('a pending filter request stays available when the profile is unavailable', async () => {
+    const harness = createHarness({
+        initialRequested: true,
+        initialEffectiveReason: 'profile_incompatible',
+    });
+    await harness.initialize();
+
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-profile-actions').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-filter').checked, true);
+
+    harness.elements.get('voice-identity-filter').checked = false;
+    await harness.emit('voice-identity-filter', 'change');
+
+    assert.equal(harness.elements.get('voice-identity-filter').checked, false);
+});
+
+test('filter toggle sends the requested boolean and adopts canonical state', async () => {
+    const harness = createHarness({ initialProfile: true });
+    await harness.initialize();
+    const filter = harness.elements.get('voice-identity-filter');
+    filter.checked = true;
+
+    await harness.emit('voice-identity-filter', 'change');
+
+    const request = harness.fetchCalls.at(-1);
+    assert.equal(request.url, `${API_ROOT}/filter`);
+    assert.deepEqual(JSON.parse(request.options.body), { enabled: true });
+    assert.equal(filter.checked, true);
+});
+
+test('re-enrollment hides profile mutations while the new session starts', async () => {
+    const startGate = deferred();
+    const harness = createHarness({
+        initialProfile: true,
+        initialRequested: false,
+        startGate,
+    });
+    await harness.initialize();
+
+    const reenrolling = harness.emit('voice-identity-reenroll');
+    await flush(2);
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-enrollment').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-cancel').hidden, false);
+    startGate.resolve();
+    await reenrolling;
+
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-filter').checked, false);
+});
+
+test('re-enrollment recovers a lost response and preserves disabled preference', async () => {
+    const harness = createHarness({
+        initialProfile: true,
+        initialRequested: false,
+        profileTransportErrorAfterCommit: true,
+    });
+    await harness.initialize();
+
+    await harness.emit('voice-identity-reenroll');
+
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-filter').checked, false);
     assert.equal(
         harness.elements.get('voice-identity-message').textContent,
-        'Request failed.',
+        'Owner voice profile is saved; filtering is off',
     );
+    assert.equal(harness.elements.get('voice-identity-result').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-match-percent').hidden, true);
 });
 
-test('window close waits for an in-flight start and cancels its late session', async () => {
-    const startRequested = deferred();
-    const startResponse = deferred();
-    let cancellationRequests = 0;
+test('delete confirms, removes the profile, and returns to one-click enrollment', async () => {
+    const confirmations = [];
     const harness = createHarness({
-        audio: true,
-        scheduleTimeout() {
-            return 1;
-        },
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                startRequested.resolve();
-                return startResponse.promise;
-            }
-            if (url === '/api/voice-identity/enrollment/cancel') {
-                cancellationRequests += 1;
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            throw new Error(`Unexpected request: ${url}`);
+        initialProfile: true,
+        initialRequested: true,
+        showConfirm: async (...args) => {
+            confirmations.push(args);
+            return true;
         },
     });
-
     await harness.initialize();
-    const starting = harness.elements.get('voice-identity-start').emit('click');
-    await startRequested.promise;
-    const closing = harness.beforeClose();
-    assert.equal(typeof closing.then, 'function');
-    harness.pagehide();
-    await Promise.resolve();
-    assert.equal(cancellationRequests, 0);
 
-    startResponse.resolve(jsonResponse({
-        enrollment: { session_id: 'session-after-close', stage: 'fixed_1' },
-    }));
-    await starting;
-    assert.equal(await closing, true);
-    await Promise.resolve();
+    await harness.emit('voice-identity-delete');
 
-    assert.equal(cancellationRequests, 1);
-    const cancellationCall = harness.fetchCalls.find(
-        call => call.url === '/api/voice-identity/enrollment/cancel'
-    );
-    assert.equal(cancellationCall.options.keepalive, true);
+    assert.equal(confirmations.length, 1);
+    assert.equal(harness.fetchCalls.at(-1).url, `${API_ROOT}/profile`);
+    assert.equal(harness.fetchCalls.at(-1).options.method, 'DELETE');
+    assert.equal(harness.elements.get('voice-identity-profile-controls').hidden, true);
+    assert.equal(harness.elements.get('voice-identity-start').hidden, false);
+});
+
+test('explicit cancel aborts an active capture and keeps controls locked until it settles', async () => {
+    const harness = createHarness({ manualAudio: true, autoAdvance: false });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush();
+    assert.equal(harness.elements.get('voice-identity-cancel').hidden, false);
+    await harness.emit('voice-identity-cancel');
+    assert.equal(harness.elements.get('voice-identity-start').disabled, true);
+    await enrolling;
+    await flush();
+
+    const cancel = harness.fetchCalls.find(call => (
+        call.url === `${API_ROOT}/enrollment/cancel`
+    ));
+    assert.ok(cancel);
+    assert.equal(cancel.options.headers.get('x-voice-identity-enrollment'), 'enrollment-1');
+    assert.equal(harness.elements.get('voice-identity-start').hidden, false);
+});
+
+test('cancellation aborts a pending segment upload and clears its PCM', async () => {
+    const segmentGate = deferred();
+    const harness = createHarness({ segmentGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(8);
+    const upload = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.ok(upload);
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+    await flush(2);
+    segmentGate.resolve();
+
+    assert.equal(upload.options.signal.aborted, true);
+    assert.equal(new Int16Array(upload.options.body).every(sample => sample === 0), true);
+    assert.ok(harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/cancel`));
+});
+
+test('manual finish stays available and explains the minimum duration', async () => {
+    const harness = createHarness({ manualAudio: true, autoAdvance: false });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush();
+    assert.equal(harness.elements.get('voice-identity-finish').hidden, false);
+    assert.equal(harness.elements.get('voice-identity-finish').disabled, false);
+
+    harness.emitAudio(new Int16Array(700).fill(1024));
+    await harness.emit('voice-identity-finish');
+    await flush();
+
+    const upload = harness.fetchCalls.find(call => (
+        call.url === `${API_ROOT}/enrollment/segment`
+    ));
+    assert.equal(upload, undefined);
+    assert.equal(harness.elements.get('voice-identity-message').textContent, 'Keep speaking for about 1.5 seconds before saving.');
     assert.equal(
-        cancellationCall.options.headers.get('X-Voice-Identity-Enrollment'),
-        'session-after-close',
+        harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length,
+        0,
     );
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
 });
 
-test('window close stops waiting after the bounded start timeout', async () => {
-    const startRequested = deferred();
-    const startResponse = deferred();
-    const scheduledTimeouts = [];
-    let cancellationRequests = 0;
-    const harness = createHarness({
-        audio: true,
-        scheduleTimeout(callback, delay) {
-            scheduledTimeouts.push({ callback, delay });
-            return scheduledTimeouts.length;
-        },
-        route(url) {
-            if (url === '/api/config/page_config') {
-                return jsonResponse({ autostart_csrf_token: 'csrf-token' });
-            }
-            if (url === '/api/voice-identity/status') {
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            if (url === '/api/voice-identity/enrollment/start') {
-                startRequested.resolve();
-                return startResponse.promise;
-            }
-            if (url === '/api/voice-identity/enrollment/cancel') {
-                cancellationRequests += 1;
-                return jsonResponse({ enrollment: { stage: 'idle' } });
-            }
-            throw new Error(`Unexpected request: ${url}`);
-        },
-    });
-
+test('a short natural utterance can be manually saved into the fixed upload shape', async () => {
+    const harness = createHarness({ manualAudio: true, autoAdvance: false });
     await harness.initialize();
-    void harness.elements.get('voice-identity-start').emit('click');
-    await startRequested.promise;
-    const closing = harness.beforeClose();
-    let closeSettled = false;
-    void closing.then(() => {
-        closeSettled = true;
-    });
-    await Promise.resolve();
 
-    assert.equal(closeSettled, false);
-    assert.equal(scheduledTimeouts.length, 1);
-    assert.equal(scheduledTimeouts[0].delay, 500);
-    scheduledTimeouts[0].callback();
+    const enrolling = harness.emit('voice-identity-start');
+    await flush();
+    harness.emitAudio(new Int16Array(MINIMUM_SAMPLES).fill(1024));
+    await flush(4);
 
-    assert.equal(await closing, true);
-    assert.equal(cancellationRequests, 0);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 0);
+    await harness.emit('voice-identity-finish');
+    await flush(4);
+    const upload = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.ok(upload);
+    assert.equal(upload.options.body.byteLength, REFERENCE_SAMPLES * Int16Array.BYTES_PER_ELEMENT);
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
 });
 
-test('dark theme overrides panel, text, accent, border, and action colors', () => {
-    const darkBlock = stylesheet.slice(
-        stylesheet.indexOf('[data-theme="dark"] {'),
-        stylesheet.indexOf('}', stylesheet.indexOf('[data-theme="dark"] {')) + 1,
-    );
+test('pagehide sends keepalive cancellation and stops microphone resources', async () => {
+    const harness = createHarness({ manualAudio: true });
+    await harness.initialize();
 
-    for (const property of [
-        '--voice-ink',
-        '--voice-muted',
-        '--voice-blue-dark',
-        '--voice-border',
-        '--voice-panel',
-        '--voice-danger',
+    const enrolling = harness.emit('voice-identity-start');
+    await flush();
+    harness.dispatch('pagehide');
+    await flush();
+    await enrolling;
+
+    const cancel = harness.fetchCalls.find(call => (
+        call.url === `${API_ROOT}/enrollment/cancel`
+        && call.options.keepalive === true
+    ));
+    assert.ok(cancel);
+    assert.equal(harness.mediaStreams[0].track.stopped, true);
+    assert.equal(harness.getAudioContext().state, 'closed');
+});
+
+test('BFCache restore waits for keepalive cancellation before reconciling status', async () => {
+    const cancelGate = deferred();
+    const harness = createHarness({
+        initialEnrollmentNextSegment: 1,
+        cancelGate,
+        manualAudio: true,
+    });
+    await harness.initialize();
+
+    const closing = harness.beforeClose();
+    await flush(3);
+    const restoring = harness.dispatch('pageshow', { persisted: true });
+    await flush(4);
+
+    assert.equal(
+        harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length,
+        1,
+    );
+    assert.equal(harness.elements.get('voice-identity-cancel').disabled, true);
+
+    cancelGate.resolve();
+    await closing;
+    await restoring;
+    await flush(4);
+
+    assert.equal(
+        harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length,
+        2,
+    );
+    assert.equal(harness.elements.get('voice-identity-cancel').hidden, true);
+});
+
+test('BFCache restore releases controls when keepalive cancellation times out', async () => {
+    const cancelGate = deferred();
+    const harness = createHarness({
+        initialEnrollmentNextSegment: 1,
+        cancelGate,
+        manualAudio: true,
+    });
+    await harness.initialize();
+
+    const closing = harness.beforeClose();
+    await flush(3);
+    const restoring = harness.dispatch('pageshow', { persisted: true });
+    await flush(4);
+    harness.fireStatusTimeouts();
+    await restoring;
+
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+    assert.equal(harness.elements.get('voice-identity-cancel').disabled, false);
+
+    cancelGate.resolve();
+    await closing;
+    await flush(4);
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+});
+
+test('starting after a restore timeout replaces the session targeted by the late keepalive cancel', async () => {
+    const cancelGate = deferred();
+    const harness = createHarness({
+        initialEnrollmentNextSegment: 1,
+        cancelGate,
+        manualAudio: true,
+        autoAdvance: false,
+    });
+    await harness.initialize();
+
+    const closing = harness.beforeClose();
+    await flush(3);
+    const restoring = harness.dispatch('pageshow', { persisted: true });
+    await flush(4);
+    harness.fireStatusTimeouts();
+    await restoring;
+    assert.equal(harness.elements.get('voice-identity-start').disabled, false);
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(8);
+    const explicitCancelIndex = harness.fetchCalls.findIndex(call => (
+        call.url === `${API_ROOT}/enrollment/cancel` && call.options.keepalive !== true
+    ));
+    const startIndex = harness.fetchCalls.findIndex(call => call.url === `${API_ROOT}/enrollment/start`);
+    assert.ok(explicitCancelIndex >= 0);
+    assert.ok(startIndex > explicitCancelIndex);
+    assert.equal(
+        harness.fetchCalls[explicitCancelIndex].options.headers.get('x-voice-identity-enrollment'),
+        'enrollment-1',
+    );
+    assert.equal(harness.serverEnrollmentId, 'enrollment-2');
+
+    cancelGate.resolve();
+    await closing;
+    await flush(4);
+    assert.equal(harness.serverEnrollmentId, 'enrollment-2');
+
+    harness.emitAudio(new Int16Array(REFERENCE_SAMPLES).fill(1024));
+    await flush(4);
+    const upload = harness.fetchCalls.find(call => call.url === `${API_ROOT}/enrollment/segment`);
+    assert.equal(upload.options.headers.get('x-voice-identity-enrollment'), 'enrollment-2');
+    await harness.emit('voice-identity-cancel');
+    await enrolling;
+});
+
+test('slow enrollment start uses keepalive cancellation after close wait expires', async () => {
+    const startGate = deferred();
+    const harness = createHarness({ startGate, manualAudio: true });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush();
+    await harness.beforeClose();
+    startGate.resolve();
+    await enrolling;
+
+    const cancel = harness.fetchCalls.find(call => (
+        call.url === `${API_ROOT}/enrollment/cancel`
+        && call.options.keepalive === true
+    ));
+    assert.ok(cancel);
+});
+
+test('close does not cancel an unowned session after start response abort', async () => {
+    const harness = createHarness({ startResponseErrorAfterAbort: true, manualAudio: true });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(2);
+    await harness.beforeClose();
+    await enrolling;
+
+    assert.equal(harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/cancel`), false);
+});
+
+test('BFCache restore invalidates the pending enrollment workflow', async () => {
+    const startGate = deferred();
+    const harness = createHarness({ startGate });
+    await harness.initialize();
+
+    const enrolling = harness.emit('voice-identity-start');
+    await flush(4);
+    assert.ok(harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/start`));
+
+    await harness.dispatch('pageshow', { persisted: true });
+    startGate.resolve();
+    await enrolling;
+    await flush(2);
+
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/enrollment/segment`).length, 0);
+    assert.ok(harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/cancel`));
+});
+
+test('route recovery polling clears a transient unsupported status', async () => {
+    const harness = createHarness({
+        initialProfile: true,
+        initialRequested: true,
+        initialEffectiveReason: 'unsupported_asr_route',
+        routeRecoveryReadyAfter: 2,
+    });
+    await harness.initialize();
+    await flush(8);
+
+    assert.ok(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length >= 2);
+    assert.equal(harness.elements.get('voice-identity-status-dot').className, 'status-dot ready');
+});
+
+test('runtime off with a saved requested profile never starts route recovery polling', async () => {
+    const harness = createHarness({ initialProfile: true, initialRequested: true,
+        runtimeMode: 'off', initialEffectiveReason: 'runtime_degraded',
+        routeRecoveryReadyAfter: 1000000, manualRouteRecovery: true });
+    await harness.initialize();
+    await flush();
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length, 1);
+    assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+    assert.equal(harness.mediaRequests, 0);
+});
+
+test('switching runtime off while polling sleeps prevents the next status request', async () => {
+    const harness = createHarness({ initialProfile: true, initialRequested: true,
+        initialEffectiveReason: 'runtime_degraded', routeRecoveryReadyAfter: 1000000,
+        manualRouteRecovery: true });
+    await harness.initialize();
+    assert.equal(harness.pendingRouteRecoveryTimers(), 1);
+    harness.setRuntimeMode('off');
+    harness.dispatch('focus');
+    await flush();
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length, 2);
+    harness.fireRouteRecoveryTimer();
+    await flush();
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length, 2);
+    assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+    assert.equal(harness.mediaRequests, 0);
+});
+
+test('enabled route polling reaches ready without opening the microphone', async () => {
+    const harness = createHarness({ initialProfile: true, initialRequested: true,
+        initialEffectiveReason: 'runtime_degraded', routeRecoveryReadyAfter: 3,
+        manualRouteRecovery: true });
+    await harness.initialize();
+    for (let tick = 0; tick < 2; tick++) {
+        harness.fireRouteRecoveryTimer();
+        await flush();
+    }
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length, 3);
+    assert.equal(harness.elements.get('voice-identity-status-dot').className, 'status-dot ready');
+    assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+    assert.equal(harness.mediaRequests, 0);
+});
+
+test('closing the window while polling sleeps retires the next status request', async () => {
+    const harness = createHarness({ initialProfile: true, initialRequested: true,
+        initialEffectiveReason: 'runtime_degraded', routeRecoveryReadyAfter: 1000000,
+        manualRouteRecovery: true });
+    await harness.initialize();
+    await harness.beforeClose();
+    harness.fireRouteRecoveryTimer();
+    await flush();
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length, 1);
+    assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+});
+
+for (const reason of ['runtime_degraded', 'unsupported_asr_route']) {
+    test('new status epochs take over a sleeping route poll: ' + reason, async () => {
+        const harness = createHarness({ initialProfile: true, initialRequested: true,
+            initialEffectiveReason: reason, routeRecoveryReadyAfter: 3,
+            manualRouteRecovery: true });
+        await harness.initialize();
+        const filter = harness.elements.get('voice-identity-filter');
+        for (let changes = 0; changes < 3; changes += 1) {
+            filter.checked = false;
+            await harness.emit('voice-identity-filter', 'change');
+            filter.checked = true;
+            await harness.emit('voice-identity-filter', 'change');
+        }
+        assert.equal(harness.pendingRouteRecoveryTimers(), 1);
+        harness.fireRouteRecoveryTimer();
+        await flush();
+        assert.equal(harness.pendingRouteRecoveryTimers(), 1);
+        for (let tick = 0; tick < 2; tick += 1) {
+            harness.fireRouteRecoveryTimer();
+            await flush();
+        }
+        assert.equal(harness.elements.get('voice-identity-status-dot').className, 'status-dot ready');
+        assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+        assert.equal(harness.mediaRequests, 0);
+    });
+}
+
+test('a stale in-flight route read hands off without applying its old status', async () => {
+    const gate = deferred();
+    const harness = createHarness({ initialProfile: true, initialRequested: true,
+        initialEffectiveReason: 'runtime_degraded', routeRecoveryReadyAfter: 3,
+        manualRouteRecovery: true, statusGates: { 2: gate } });
+    await harness.initialize();
+    harness.fireRouteRecoveryTimer();
+    await flush();
+    const filter = harness.elements.get('voice-identity-filter');
+    filter.checked = false;
+    await harness.emit('voice-identity-filter', 'change');
+    filter.checked = true;
+    await harness.emit('voice-identity-filter', 'change');
+    gate.resolve(jsonResponse({ has_profile: true, requested_enabled: false,
+        effective_enabled: false, effective_reason: 'disabled', runtime_mode: 'off' }));
+    await flush();
+    assert.equal(filter.checked, true);
+    assert.equal(harness.pendingRouteRecoveryTimers(), 1);
+    harness.fireRouteRecoveryTimer();
+    await flush();
+    assert.equal(harness.pendingRouteRecoveryTimers(), 1);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length, 2);
+    harness.fireRouteRecoveryTimer();
+    await flush();
+    assert.equal(harness.elements.get('voice-identity-status-dot').className, 'status-dot ready');
+    assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+});
+
+test('a pending filter write settles before route recovery can reach ready', async () => {
+    const gate = deferred();
+    const harness = createHarness({ initialProfile: true, initialRequested: true,
+        initialEffectiveReason: 'runtime_degraded', routeRecoveryReadyAfter: 3,
+        manualRouteRecovery: true, filterGate: gate });
+    await harness.initialize();
+    const filter = harness.elements.get('voice-identity-filter');
+    filter.checked = false;
+    const write = harness.emit('voice-identity-filter', 'change');
+    await flush();
+    harness.fireRouteRecoveryTimer();
+    await flush();
+    assert.equal(filter.disabled, true);
+    assert.equal(harness.pendingRouteRecoveryTimers(), 1);
+    gate.resolve();
+    await write;
+    filter.checked = true;
+    await harness.emit('voice-identity-filter', 'change');
+    harness.fireRouteRecoveryTimer();
+    await flush();
+    assert.equal(harness.pendingRouteRecoveryTimers(), 1);
+    for (let tick = 0; tick < 2; tick += 1) {
+        harness.fireRouteRecoveryTimer();
+        await flush();
+    }
+    assert.equal(harness.elements.get('voice-identity-status-dot').className, 'status-dot ready');
+    assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+});
+
+test('route polling does not renew the deadline for the same status epoch', async () => {
+    const harness = createHarness({ initialProfile: true, initialRequested: true,
+        initialEffectiveReason: 'runtime_degraded', routeRecoveryReadyAfter: 1000000,
+        manualRouteRecovery: true });
+    await harness.initialize();
+    for (let tick = 0; tick < 14; tick += 1) {
+        harness.fireRouteRecoveryTimer();
+        await flush();
+    }
+    assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+    assert.equal(harness.mediaRequests, 0);
+});
+
+test('pending cancellation prevents route polling from taking over a new epoch', async () => {
+    const gate = deferred();
+    const harness = createHarness({ initialProfile: true, initialRequested: true,
+        initialEffectiveReason: 'runtime_degraded', routeRecoveryReadyAfter: 1000000,
+        manualRouteRecovery: true, autoAdvance: false, explicitCancelGate: gate });
+    await harness.initialize();
+    const enrolling = harness.emit('voice-identity-reenroll');
+    await flush();
+    assert.equal(harness.elements.get('voice-identity-next').hidden, false);
+    harness.emit('voice-identity-cancel');
+    await flush();
+    assert.ok(harness.fetchCalls.some(call => call.url === `${API_ROOT}/enrollment/cancel`));
+    const readsBeforeTick = harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length;
+    harness.fireRouteRecoveryTimer();
+    await flush();
+    assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+    assert.equal(harness.fetchCalls.filter(call => call.url === `${API_ROOT}/status`).length, readsBeforeTick);
+    gate.resolve();
+    await enrolling;
+    await flush();
+    assert.equal(harness.pendingRouteRecoveryTimers(), 0);
+});
+
+test('the one-click page keeps complete dark-theme overrides', () => {
+    for (const token of [
+        '--voice-ink: #e8f5fb',
+        '--voice-muted: #afc5d1',
+        '--voice-blue-dark: #8edcff',
+        '--voice-border: rgba(91, 215, 255, 0.28)',
+        '--voice-panel: rgba(27, 39, 48, 0.96)',
+        '--voice-danger: #ff8d9b',
+        '--voice-focus: #8edcff',
     ]) {
-        assert.match(darkBlock, new RegExp(`${property}:`));
+        assert.match(stylesheet, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     }
     assert.match(stylesheet, /\[data-theme="dark"\] \.secondary-button/);
     assert.match(stylesheet, /\[data-theme="dark"\] \.danger-button/);
-    const primaryButtonRule = stylesheet.match(
-        /body\.voice-identity-page \.primary-button,\s*body\.voice-identity-page \.record-button\s*\{([^}]*)\}/,
-    );
-    assert.ok(primaryButtonRule, 'Missing primary/record button color rule');
-    assert.match(primaryButtonRule[1], /(?:^|;)\s*color:\s*#082f45\s*;/);
-    const secondaryButtonRule = stylesheet.match(/\.secondary-button\s*\{([^}]*)\}/);
-    assert.ok(secondaryButtonRule, 'Missing light-theme secondary button rule');
-    assert.match(secondaryButtonRule[1], /(?:^|;)\s*color:\s*#075b80\s*;/);
-    const windowControlRule = windowControlsStylesheet.match(
-        /(?:^|\n)\.neko-window-control-btn\s*\{([^}]*)\}/,
-    );
-    assert.ok(windowControlRule, 'Missing shared window-control style');
-    assert.match(windowControlRule[1], /(?:^|;)\s*color:\s*#fff\s*;/);
-    assert.doesNotMatch(
-        stylesheet,
-        /\.voice-identity-header \.neko-window-control-btn\s*\{[^}]*\bcolor\s*:/,
-    );
-    assert.match(template, /id="voice-identity-timer" aria-hidden="true"/);
-    assert.match(template, /<body class="voice-identity-page">/);
-    assert.match(
-        template,
-        /class="voice-identity-header container-header page-title-bar"/,
-    );
-    assert.match(template, /class="close-page-btn"/);
-    assert.match(
-        stylesheet,
-        /html\[data-theme="dark"\] body\.voice-identity-page:not\(\.subtitle-web-host\):not\(\.subtitle-window-host\)/,
-    );
-    assert.match(
-        darkModeStylesheet,
-        /\[data-theme="dark"\] \.container-header img,[^}]*filter:\s*brightness\(0\.85\)/,
-    );
+    assert.match(darkModeStylesheet, /html\[data-theme="dark"\]/);
+    assert.match(template, /static\/css\/dark-mode\.css/);
+});
+
+test('old five-step endpoints and DOM contracts do not return', () => {
+    for (const retired of [
+        '/enrollment/verify',
+        '/enrollment/verify',
+        '/enrollment/commit',
+        'ready_to_commit',
+        'voice-identity-record',
+        'step-progress',
+    ]) {
+        assert.equal(source.includes(retired) || template.includes(retired), false, retired);
+    }
 });

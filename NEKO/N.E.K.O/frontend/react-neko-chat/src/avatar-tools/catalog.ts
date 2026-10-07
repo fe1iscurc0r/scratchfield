@@ -14,18 +14,24 @@ export {
 } from './profileInterpreter';
 
 export const AVATAR_TOOL_DEFINITION_IDS = ['lollipop', 'fist', 'hammer', 'rps'] as const;
+export const LOCAL_AVATAR_TOOL_ID_PATTERN = /^local-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const LOCAL_AVATAR_TOOL_IMAGE_ID_PATTERN = /^img-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const LOCAL_AVATAR_TOOL_INTERACTION_ID_PATTERN = /^ix-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const LOCAL_AVATAR_TOOL_STABLE_ID_MAX_LENGTH = 80;
 export const AVATAR_TOOL_VARIANT_IDS = ['primary', 'secondary', 'tertiary'] as const;
 export const AVATAR_TOOL_INTERACTION_INTENSITIES = ['normal', 'rapid', 'burst', 'easter_egg'] as const;
 export const AVATAR_TOOL_TOUCH_ZONES = ['ear', 'head', 'face', 'body'] as const;
 export const AVATAR_TOOL_RESERVED_PAYLOAD_FIELDS = [
   'interactionId', 'target', 'pointer', 'textContext', 'timestamp',
   'toolId', 'actionId', 'intensity', 'touchZone', 'clientX', 'clientY',
+  'changeIndex',
   'userGesture', 'avatarGesture', 'roundResult',
 ] as const;
 const AVATAR_TOOL_WIRE_IDENTIFIER_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const AVATAR_TOOL_WIRE_IDENTIFIER_MAX_LENGTH = 64;
 const AVATAR_TOOL_RESOURCE_MAX_COUNT = 16;
 const AVATAR_TOOL_EFFECT_ITEM_MAX_COUNT = 64;
+const AVATAR_TOOL_CUSTOM_GRAPH_MAX_DELAY_MS = 600_000;
 export const AVATAR_TOOL_ASSET_PATH_MAX_LENGTH = 2048;
 
 declare global {
@@ -40,6 +46,7 @@ function getReactChatAssetVersion(): string {
 }
 
 export function withAvatarToolAssetVersion(path: string, fallbackVersion = ''): string {
+  if (path.startsWith('/user_avatar_tools/') && hasValidAvatarToolAssetVersion(path)) return path;
   const version = getReactChatAssetVersion() || fallbackVersion.trim();
   if (!version || !path) return path;
   const hashIndex = path.indexOf('#');
@@ -77,12 +84,16 @@ export function hasValidAvatarToolAssetVersion(path: string): boolean {
   }
 }
 
-export type AvatarToolId = typeof AVATAR_TOOL_DEFINITION_IDS[number];
+export type BuiltInAvatarToolId = typeof AVATAR_TOOL_DEFINITION_IDS[number];
+export type LocalAvatarToolId = `local-${string}`;
+export type AvatarToolId = BuiltInAvatarToolId | LocalAvatarToolId;
 export type AvatarToolVariantId = typeof AVATAR_TOOL_VARIANT_IDS[number];
 export type AvatarToolInteractionIntensity = typeof AVATAR_TOOL_INTERACTION_INTENSITIES[number];
 export type AvatarToolTouchZone = typeof AVATAR_TOOL_TOUCH_ZONES[number];
 export type AvatarToolSoundId = string;
 export type AvatarToolEffectId = string;
+export type AvatarToolImageId = `img-${string}`;
+export type AvatarToolInteractionId = `ix-${string}`;
 
 export type AvatarToolRenderedAnchor = {
   x: number;
@@ -198,6 +209,7 @@ export type AvatarToolVariantSource = 'range' | 'outside' | 'primary';
 export type AvatarToolVisualDefinition = {
   initialVariant: AvatarToolVariantId;
   variants: Record<AvatarToolVariantId, AvatarToolVisualVariant>;
+  frames?: ReadonlyArray<AvatarToolVisualVariant>;
   presentation: {
     inRangeVariantSource: AvatarToolVariantSource;
     outsideVariantSource: AvatarToolVariantSource;
@@ -248,17 +260,10 @@ export type ProgressiveReleaseProfile = {
   };
 };
 
-export type PressReleaseProfile = {
+type PressReleaseProfileBase = {
   kind: 'press-release';
+  revision?: string;
   actionId: string;
-  pointerDown: {
-    rangeVariant: AvatarToolVariantId;
-    outsideVariant: AvatarToolVariantId;
-  };
-  pointerRelease: {
-    rangeVariant: AvatarToolVariantId;
-    outsideVariant: AvatarToolVariantId;
-  };
   burst: {
     key: string;
     windowMs: number;
@@ -268,13 +273,37 @@ export type PressReleaseProfile = {
   };
   touchZone: 'release';
   touchZones: ReadonlyArray<AvatarToolTouchZone>;
-  chance: {
+  feedback?: {
+    sound: AvatarToolSoundId;
+  };
+  chance?: {
     field: string;
     probability: number;
-    sound: AvatarToolSoundId;
     effect: AvatarToolEffectId;
+    sound?: AvatarToolSoundId;
   };
 };
+
+export type PressReleaseProfile = PressReleaseProfileBase & (
+  | {
+    pointerDown: {
+      rangeVariant: AvatarToolVariantId;
+      outsideVariant: AvatarToolVariantId;
+    };
+    pointerRelease: {
+      rangeVariant: AvatarToolVariantId;
+      outsideVariant: AvatarToolVariantId;
+    };
+    imageChange?: never;
+  }
+  | {
+    imageChange:
+      | { kind: 'press-swap' }
+      | { kind: 'click-advance' };
+    pointerDown?: never;
+    pointerRelease?: never;
+  }
+);
 
 export type LockedImpactProfile = {
   kind: 'locked-impact';
@@ -326,18 +355,65 @@ export type RoundChoiceProfile = {
   };
 };
 
+export type AvatarToolImageAction =
+  | { kind: 'keep' }
+  | { kind: 'show'; imageId: AvatarToolImageId };
+
+export type CustomGraphProfile = {
+  kind: 'custom-graph';
+  revision: string;
+  images: ReadonlyArray<{
+    id: AvatarToolImageId;
+    frameIndex: number;
+    hasMeaning: boolean;
+  }>;
+  initialImageId: AvatarToolImageId;
+  initialInteractionIds: ReadonlyArray<AvatarToolInteractionId>;
+  interactions: ReadonlyArray<{
+    id: AvatarToolInteractionId;
+    trigger:
+      | { kind: 'mouse-click' }
+      | { kind: 'after'; delayMs: number };
+    actions:
+      | { press: AvatarToolImageAction; release: AvatarToolImageAction }
+      | { complete: AvatarToolImageAction };
+  }>;
+  links: ReadonlyArray<{ from: AvatarToolInteractionId; to: AvatarToolInteractionId }>;
+  burst: {
+    key: string;
+    windowMs: number;
+    rapidThreshold: number;
+    normalIntensity: 'normal';
+    rapidIntensity: 'rapid';
+  };
+  touchZone: 'release';
+  touchZones: ReadonlyArray<AvatarToolTouchZone>;
+  feedback?: { sound: AvatarToolSoundId };
+  chance?: {
+    field: 'specialTriggered';
+    probability: number;
+    effect: AvatarToolEffectId;
+    sound?: AvatarToolSoundId;
+  };
+};
+
 export type AvatarToolInteractionProfile =
   | ProgressiveReleaseProfile
   | PressReleaseProfile
   | LockedImpactProfile
-  | RoundChoiceProfile;
+  | RoundChoiceProfile
+  | CustomGraphProfile;
 
 export type AvatarToolDefinition = {
-  definitionVersion: 1;
+  definitionVersion: 1 | 2 | 3;
   id: AvatarToolId;
   label: {
+    kind: 'i18n';
     key: string;
     fallback: string;
+  } | {
+    kind: 'literal';
+    value: string;
   };
   capability: {
     desktopVisual: boolean;
@@ -354,7 +430,7 @@ export type AvatarToolRegistration = {
   handlers: AvatarToolRuleHandlers;
 };
 
-function registerAvatarTool<const Definition extends AvatarToolDefinition>(
+export function registerAvatarTool<const Definition extends AvatarToolDefinition>(
   definition: Definition,
 ) {
   return {
@@ -466,6 +542,30 @@ function validateVisual(definition: AvatarToolDefinition) {
     assertFinite(definition, asset?.menuOffsetX, `visual.variants.${variant}.menuOffsetX`);
     assertFinite(definition, asset?.menuOffsetY, `visual.variants.${variant}.menuOffsetY`);
   });
+  if (definition.definitionVersion === 1 && visual.frames !== undefined) {
+    fail(definition, 'v1 visual must not contain frames');
+  }
+  if (definition.definitionVersion === 2 || definition.definitionVersion === 3) {
+    if (
+      !Array.isArray(visual.frames)
+      || visual.frames.length < (definition.definitionVersion === 2 ? 2 : 1)
+      || visual.frames.length > AVATAR_TOOL_RESOURCE_MAX_COUNT + 1
+    ) {
+      fail(definition, definition.definitionVersion === 2
+        ? 'v2 visual.frames must contain one default frame and 1 to 16 change frames'
+        : 'v3 visual.frames must contain between 1 and 17 image frames');
+    }
+    visual.frames.forEach((frame, index) => {
+      assertNonEmpty(definition, frame?.iconImagePath, `visual.frames[${index}].iconImagePath`);
+      assertNonEmpty(definition, frame?.pointerImagePath, `visual.frames[${index}].pointerImagePath`);
+      if (definition.capability.desktopVisual) {
+        assertDesktopAssetSource(definition, frame.iconImagePath, `visual.frames[${index}].iconImagePath`);
+        assertDesktopAssetSource(definition, frame.pointerImagePath, `visual.frames[${index}].pointerImagePath`);
+      }
+      assertFinite(definition, frame?.menuOffsetX, `visual.frames[${index}].menuOffsetX`);
+      assertFinite(definition, frame?.menuOffsetY, `visual.frames[${index}].menuOffsetY`);
+    });
+  }
   const presentation = visual.presentation;
   const sources = ['range', 'outside', 'primary'];
   if (!sources.includes(presentation?.inRangeVariantSource)) {
@@ -505,7 +605,7 @@ function validateVisual(definition: AvatarToolDefinition) {
 function validateSounds(definition: AvatarToolDefinition) {
   if (
     !Array.isArray(definition.sounds)
-    || definition.sounds.length === 0
+    || (definition.definitionVersion === 1 && definition.sounds.length === 0)
     || definition.sounds.length > AVATAR_TOOL_RESOURCE_MAX_COUNT
   ) {
     fail(definition, 'sounds must contain between 1 and 16 resources');
@@ -705,6 +805,159 @@ function validateInteractionReferences(definition: AvatarToolDefinition) {
   };
   const interaction = definition.interaction;
   assertNonEmpty(definition, interaction?.kind, 'interaction.kind');
+  if (interaction.kind === 'custom-graph') {
+    if (definition.definitionVersion !== 3) fail(definition, 'custom-graph requires definition v3');
+    if (!/^3-\d+$/.test(interaction.revision) || interaction.revision.length > 128) {
+      fail(definition, 'custom-graph revision must identify an authoritative v3 record');
+    }
+    const frames = definition.visual.frames ?? [];
+    if (interaction.images.length !== frames.length) {
+      fail(definition, 'custom-graph images must map every visual frame exactly once');
+    }
+    const imageIds = new Set<string>();
+    const frameIndices = new Set<number>();
+    interaction.images.forEach((image, index) => {
+      if (
+        image.id.length > LOCAL_AVATAR_TOOL_STABLE_ID_MAX_LENGTH
+        || !LOCAL_AVATAR_TOOL_IMAGE_ID_PATTERN.test(image.id)
+        || imageIds.has(image.id)
+      ) {
+        fail(definition, `interaction.images[${index}].id is invalid or duplicated`);
+      }
+      if (!Number.isSafeInteger(image.frameIndex) || image.frameIndex < 0 || image.frameIndex >= frames.length) {
+        fail(definition, `interaction.images[${index}].frameIndex is invalid`);
+      }
+      if (frameIndices.has(image.frameIndex)) {
+        fail(definition, `interaction.images[${index}].frameIndex is duplicated`);
+      }
+      if (typeof image.hasMeaning !== 'boolean') {
+        fail(definition, `interaction.images[${index}].hasMeaning must be boolean`);
+      }
+      imageIds.add(image.id);
+      frameIndices.add(image.frameIndex);
+    });
+    if (!imageIds.has(interaction.initialImageId)) {
+      fail(definition, 'custom-graph initialImageId must reference an image');
+    }
+    const interactionsById = new Map<string, CustomGraphProfile['interactions'][number]>();
+    const validateAction = (action: AvatarToolImageAction, field: string) => {
+      if (action?.kind === 'keep') return;
+      if (action?.kind === 'show' && imageIds.has(action.imageId)) return;
+      fail(definition, `${field} must keep or show a declared image`);
+    };
+    if (interaction.interactions.length === 0 || interaction.interactions.length > AVATAR_TOOL_RESOURCE_MAX_COUNT) {
+      fail(definition, 'custom-graph must contain between 1 and 16 interactions');
+    }
+    interaction.interactions.forEach((item, index) => {
+      if (
+        item.id.length > LOCAL_AVATAR_TOOL_STABLE_ID_MAX_LENGTH
+        || !LOCAL_AVATAR_TOOL_INTERACTION_ID_PATTERN.test(item.id)
+        || interactionsById.has(item.id)
+      ) {
+        fail(definition, `interaction.interactions[${index}].id is invalid or duplicated`);
+      }
+      if (item.trigger.kind === 'mouse-click') {
+        if (!('press' in item.actions) || !('release' in item.actions) || 'complete' in item.actions) {
+          fail(definition, `interaction.interactions[${index}] mouse click actions are invalid`);
+        }
+        validateAction(item.actions.press, `interaction.interactions[${index}].actions.press`);
+        validateAction(item.actions.release, `interaction.interactions[${index}].actions.release`);
+      } else if (item.trigger.kind === 'after') {
+        assertPositiveInteger(definition, item.trigger.delayMs, `interaction.interactions[${index}].trigger.delayMs`);
+        if (item.trigger.delayMs > AVATAR_TOOL_CUSTOM_GRAPH_MAX_DELAY_MS) {
+          fail(definition, `interaction.interactions[${index}].trigger.delayMs must not exceed 600000`);
+        }
+        if (!('complete' in item.actions) || 'press' in item.actions || 'release' in item.actions) {
+          fail(definition, `interaction.interactions[${index}] delay actions are invalid`);
+        }
+        validateAction(item.actions.complete, `interaction.interactions[${index}].actions.complete`);
+      } else {
+        fail(definition, `interaction.interactions[${index}].trigger is unsupported`);
+      }
+      interactionsById.set(item.id, item);
+    });
+    if (
+      interactionsById.size === 0
+      || interaction.initialInteractionIds.length === 0
+      || interaction.initialInteractionIds.length > AVATAR_TOOL_RESOURCE_MAX_COUNT
+    ) {
+      fail(definition, 'custom-graph requires interactions and an initial waiting position');
+    }
+    const initialIds = new Set(interaction.initialInteractionIds);
+    if (
+      initialIds.size !== interaction.initialInteractionIds.length
+      || interaction.initialInteractionIds.some(id => !interactionsById.has(id))
+    ) fail(definition, 'custom-graph initialInteractionIds are invalid');
+    const linkKeys = new Set<string>();
+    interaction.links.forEach((link, index) => {
+      const key = `${link.from}\u0000${link.to}`;
+      if (!interactionsById.has(link.from) || !interactionsById.has(link.to) || linkKeys.has(key)) {
+        fail(definition, `interaction.links[${index}] is invalid or duplicated`);
+      }
+      linkKeys.add(key);
+    });
+    if (interaction.initialInteractionIds.length + interaction.links.length > 32) {
+      fail(definition, 'custom-graph initial and interaction links must total at most 32');
+    }
+    const reachable = new Set<string>();
+    const queue = [...interaction.initialInteractionIds];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (reachable.has(id)) continue;
+      reachable.add(id);
+      interaction.links.forEach((link) => { if (link.from === id) queue.push(link.to); });
+    }
+    if (reachable.size !== interactionsById.size) {
+      fail(definition, 'custom-graph interactions must all be reachable');
+    }
+    const waitingPositions = [
+      interaction.initialInteractionIds,
+      ...interaction.interactions.map(item => interaction.links.filter(link => link.from === item.id).map(link => link.to)),
+    ];
+    waitingPositions.forEach((ids, index) => {
+      const candidates = ids.map(id => interactionsById.get(id)!);
+      if (candidates.filter(item => item.trigger.kind === 'mouse-click').length > 1) {
+        fail(definition, `custom-graph waiting position ${index} has ambiguous mouse clicks`);
+      }
+      const delays = candidates.flatMap(item => item.trigger.kind === 'after' ? [item.trigger.delayMs] : []);
+      if (new Set(delays).size !== delays.length) {
+        fail(definition, `custom-graph waiting position ${index} has ambiguous delays`);
+      }
+    });
+    assertNonEmpty(definition, interaction.burst.key, 'interaction.burst.key');
+    assertPositive(definition, interaction.burst.windowMs, 'interaction.burst.windowMs');
+    assertPositiveInteger(definition, interaction.burst.rapidThreshold, 'interaction.burst.rapidThreshold');
+    if (interaction.burst.normalIntensity !== 'normal' || interaction.burst.rapidIntensity !== 'rapid') {
+      fail(definition, 'custom-graph burst intensities are invalid');
+    }
+    if (interaction.touchZone !== 'release') fail(definition, 'custom-graph touchZone must be release');
+    assertTouchZones(definition, interaction.touchZones, 'interaction.touchZones');
+    if (interaction.feedback) requireSound(interaction.feedback.sound);
+    if (interaction.chance) {
+      if (interaction.chance.field !== 'specialTriggered') {
+        fail(definition, 'custom-graph chance field must be specialTriggered');
+      }
+      assertProbability(definition, interaction.chance.probability, 'interaction.chance.probability');
+      if (interaction.chance.probability <= 0) fail(definition, 'custom-graph chance probability must be positive');
+      requireEffect(interaction.chance.effect);
+      if (interaction.chance.sound) requireSound(interaction.chance.sound);
+      if (definition.effects.find(effect => effect.id === interaction.chance?.effect)?.kind !== 'random-scatter') {
+        fail(definition, 'custom-graph chance effect must reference random-scatter');
+      }
+    }
+    const referencedSounds = new Set([
+      interaction.feedback?.sound,
+      interaction.chance?.sound,
+    ].filter((value): value is string => !!value));
+    const referencedEffects = new Set(interaction.chance ? [interaction.chance.effect] : []);
+    if (definition.sounds.length !== referencedSounds.size || definition.sounds.some(sound => !referencedSounds.has(sound.id))) {
+      fail(definition, 'custom-graph sounds must match references exactly');
+    }
+    if (definition.effects.length !== referencedEffects.size || definition.effects.some(effect => !referencedEffects.has(effect.id))) {
+      fail(definition, 'custom-graph effects must match references exactly');
+    }
+    return;
+  }
   if (interaction.kind === 'progressive-release') {
     const stages = interaction.stages ?? [];
     const variants = stages.map(stage => stage.variant);
@@ -799,6 +1052,82 @@ function validateInteractionReferences(definition: AvatarToolDefinition) {
   assertIntensity(definition, interaction.burst.normalIntensity, 'interaction.burst.normalIntensity');
   assertIntensity(definition, interaction.burst.rapidIntensity, 'interaction.burst.rapidIntensity');
   assertTouchZones(definition, interaction.touchZones, 'interaction.touchZones');
+  if (interaction.kind === 'press-release') {
+    if (definition.definitionVersion === 1) {
+      if (!interaction.pointerDown || !interaction.pointerRelease || interaction.imageChange) {
+        fail(definition, 'v1 press-release requires pointer variant commands');
+      }
+      assertVariant(definition, interaction.pointerDown.rangeVariant, 'interaction.pointerDown.rangeVariant');
+      assertVariant(definition, interaction.pointerDown.outsideVariant, 'interaction.pointerDown.outsideVariant');
+      assertVariant(definition, interaction.pointerRelease.rangeVariant, 'interaction.pointerRelease.rangeVariant');
+      assertVariant(definition, interaction.pointerRelease.outsideVariant, 'interaction.pointerRelease.outsideVariant');
+    } else {
+      if (!interaction.imageChange || interaction.pointerDown || interaction.pointerRelease) {
+        fail(definition, 'v2 press-release requires imageChange without pointer variant commands');
+      }
+      if (!['press-swap', 'click-advance'].includes(interaction.imageChange.kind)) {
+        fail(definition, 'v2 interaction.imageChange.kind is unsupported');
+      }
+      const changeFrameCount = (definition.visual.frames?.length ?? 0) - 1;
+      if (interaction.imageChange.kind === 'press-swap' && changeFrameCount !== 1) {
+        fail(definition, 'press-swap requires exactly one change frame');
+      }
+      if (interaction.imageChange.kind === 'click-advance' && changeFrameCount < 1) {
+        fail(definition, 'click-advance requires at least one change frame');
+      }
+    }
+    if (definition.definitionVersion === 1 && !interaction.chance) {
+      fail(definition, 'v1 press-release requires interaction.chance');
+    }
+    if (interaction.feedback) requireSound(interaction.feedback.sound);
+    if (interaction.chance) {
+      assertNonEmpty(definition, interaction.chance.field, 'interaction.chance.field');
+      if (
+        interaction.chance.field.length > 64
+        || !/^[a-z][a-zA-Z0-9]*$/.test(interaction.chance.field)
+      ) {
+        fail(definition, 'interaction.chance.field must be a camel-case payload field of at most 64 characters');
+      }
+      if ((AVATAR_TOOL_RESERVED_PAYLOAD_FIELDS as readonly string[]).includes(interaction.chance.field)) {
+        fail(definition, 'interaction.chance.field conflicts with a reserved payload field');
+      }
+      assertProbability(definition, interaction.chance.probability, 'interaction.chance.probability');
+      const hasChanceSound = Object.prototype.hasOwnProperty.call(interaction.chance, 'sound');
+      if (definition.definitionVersion === 1 || hasChanceSound) {
+        assertWireIdentifier(definition, interaction.chance.sound, 'interaction.chance.sound');
+        requireSound(interaction.chance.sound as AvatarToolSoundId);
+      }
+      requireEffect(interaction.chance.effect);
+      if (definition.definitionVersion === 2) {
+        if (interaction.chance.field !== 'specialTriggered') {
+          fail(definition, 'v2 interaction.chance.field must be specialTriggered');
+        }
+        if (interaction.chance.probability <= 0) {
+          fail(definition, 'v2 interaction.chance.probability must be greater than zero');
+        }
+        const chanceEffect = definition.effects.find(effect => effect.id === interaction.chance?.effect);
+        if (chanceEffect?.kind !== 'random-scatter') {
+          fail(definition, 'v2 interaction.chance.effect must reference random-scatter');
+        }
+      }
+    }
+    const referencedSounds = new Set([
+      interaction.feedback?.sound,
+      interaction.chance?.sound,
+    ].filter((value): value is string => !!value));
+    const referencedEffects = new Set([
+      interaction.chance?.effect,
+    ].filter((value): value is string => !!value));
+    if (
+      definition.sounds.length !== referencedSounds.size
+      || definition.sounds.some(sound => !referencedSounds.has(sound.id))
+    ) fail(definition, 'press-release sounds must match references exactly');
+    if (
+      definition.effects.length !== referencedEffects.size
+      || definition.effects.some(effect => !referencedEffects.has(effect.id))
+    ) fail(definition, 'press-release effects must match references exactly');
+    return;
+  }
   assertNonEmpty(definition, interaction.chance.field, 'interaction.chance.field');
   if (
     interaction.chance.field.length > 64
@@ -810,15 +1139,6 @@ function validateInteractionReferences(definition: AvatarToolDefinition) {
     fail(definition, 'interaction.chance.field conflicts with a reserved payload field');
   }
   assertProbability(definition, interaction.chance.probability, 'interaction.chance.probability');
-  if (interaction.kind === 'press-release') {
-    assertVariant(definition, interaction.pointerDown.rangeVariant, 'interaction.pointerDown.rangeVariant');
-    assertVariant(definition, interaction.pointerDown.outsideVariant, 'interaction.pointerDown.outsideVariant');
-    assertVariant(definition, interaction.pointerRelease.rangeVariant, 'interaction.pointerRelease.rangeVariant');
-    assertVariant(definition, interaction.pointerRelease.outsideVariant, 'interaction.pointerRelease.outsideVariant');
-    requireSound(interaction.chance.sound);
-    requireEffect(interaction.chance.effect);
-    return;
-  }
   if (interaction.kind === 'locked-impact') {
     assertPositiveInteger(definition, interaction.burst.burstThreshold, 'interaction.burst.burstThreshold');
     assertIntensity(definition, interaction.burst.burstIntensity, 'interaction.burst.burstIntensity');
@@ -847,10 +1167,27 @@ function validateInteractionReferences(definition: AvatarToolDefinition) {
 
 export function validateAvatarToolDefinition(definition: AvatarToolDefinition): void {
   if (!definition || typeof definition !== 'object') throw new Error('Invalid avatar tool definition');
-  if (definition.definitionVersion !== 1) fail(definition, 'definitionVersion must be 1');
-  if (!AVATAR_TOOL_DEFINITION_IDS.includes(definition.id as never)) fail(definition, 'id is unsupported');
-  assertNonEmpty(definition, definition.label?.key, 'label.key');
-  assertNonEmpty(definition, definition.label?.fallback, 'label.fallback');
+  if (![1, 2, 3].includes(definition.definitionVersion)) {
+    fail(definition, 'definitionVersion must be 1, 2 or 3');
+  }
+  if (definition.definitionVersion === 1) {
+    if (!AVATAR_TOOL_DEFINITION_IDS.includes(definition.id as never)) fail(definition, 'v1 id is unsupported');
+    if (definition.label?.kind !== 'i18n') fail(definition, 'v1 label must be i18n');
+    assertNonEmpty(definition, definition.label.key, 'label.key');
+    assertNonEmpty(definition, definition.label.fallback, 'label.fallback');
+  } else {
+    if (!LOCAL_AVATAR_TOOL_ID_PATTERN.test(definition.id)) fail(definition, 'local definition id must be a UUID');
+    if (definition.label?.kind !== 'literal') fail(definition, 'local definition label must be literal');
+    assertNonEmpty(definition, definition.label.value, 'label.value');
+    if (definition.definitionVersion === 2) {
+      if (definition.interaction.kind !== 'press-release') fail(definition, 'v2 interaction must be press-release');
+      if (!/^\d+-\d+$/.test(definition.interaction.revision ?? '') || definition.interaction.revision!.length > 128) {
+        fail(definition, 'v2 interaction revision must identify the authoritative record');
+      }
+    } else if (definition.interaction.kind !== 'custom-graph') {
+      fail(definition, 'v3 interaction must be custom-graph');
+    }
+  }
   if (
     typeof definition.capability?.desktopVisual !== 'boolean'
     || typeof definition.capability?.desktopInteraction !== 'boolean'
@@ -885,6 +1222,7 @@ export const LOLLIPOP_AVATAR_TOOL_DEFINITION = {
   definitionVersion: 1,
   id: 'lollipop',
   label: {
+    kind: 'i18n',
     key: 'chat.toolLollipop',
     fallback: '棒棒糖',
   },
@@ -1000,6 +1338,7 @@ export const FIST_AVATAR_TOOL_DEFINITION = {
   definitionVersion: 1,
   id: 'fist',
   label: {
+    kind: 'i18n',
     key: 'chat.toolFist',
     fallback: '猫爪',
   },
@@ -1138,6 +1477,7 @@ export const HAMMER_AVATAR_TOOL_DEFINITION = {
   definitionVersion: 1,
   id: 'hammer',
   label: {
+    kind: 'i18n',
     key: 'chat.toolHammer',
     fallback: '锤子',
   },
@@ -1255,6 +1595,7 @@ export const RPS_AVATAR_TOOL_DEFINITION = {
   definitionVersion: 1,
   id: 'rps',
   label: {
+    kind: 'i18n',
     key: 'chat.toolRps',
     fallback: '猜拳',
   },

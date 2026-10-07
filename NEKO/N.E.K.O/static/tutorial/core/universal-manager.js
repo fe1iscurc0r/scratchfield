@@ -3464,6 +3464,7 @@ class UniversalTutorialManager {
     }
 
     async startAvatarFloatingGuideRound(day, options = {}) {
+        if (window.isNekoClickGuideActive) return false;
         const round = normalizeAvatarFloatingGuideRound(day);
         const source = options.source || 'manual';
         if (!this.isTutorialRunning && !window.isInTutorial && this._teardownPromise) {
@@ -3677,6 +3678,9 @@ class UniversalTutorialManager {
             return;
         }
 
+        if (window.NekoClickGuide?.handleStartup && await window.NekoClickGuide.handleStartup(this)) {
+            return;
+        }
         const hasSeen = this.hasSeenTutorial(this.currentPage);
         if (this.currentPage === 'home') {
             const directBootRound = this.getDirectAvatarFloatingTutorialBootRound();
@@ -4390,6 +4394,52 @@ function dispatchStartupGreetingReleaseWithoutManager(reason, detail = {}) {
     return releaseDetail;
 }
 
+function rearmStartupGreetingWithoutManager(reason, detail = {}) {
+    window.isNekoHomeTutorialPending = true;
+    const rearmDetail = Object.assign({
+        released: false,
+        page: 'unknown',
+        reason: reason || 'tutorial-manager-initializing',
+        timestamp: Date.now()
+    }, detail || {});
+    try {
+        window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = false;
+        delete window.__NEKO_STARTUP_GREETING_RELEASED__;
+        window.dispatchEvent(new CustomEvent(STARTUP_GREETING_RELEASE_EVENT, {
+            detail: rearmDetail
+        }));
+    } catch (error) {
+        console.warn('[Tutorial] 无管理器启动问候重新上锁失败:', error);
+    }
+    return rearmDetail;
+}
+
+function waitForActiveAutostartPromptClosed() {
+    const selector = '.modal-overlay-autostart-retention';
+    if (!document.querySelector(selector)) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = function () {
+            if (done) return;
+            done = true;
+            window.removeEventListener('neko:decision-prompt-closed', onPromptClosed);
+            resolve();
+        };
+        const onPromptClosed = function (event) {
+            const detail = event && event.detail ? event.detail : {};
+            if (detail.skin === 'autostart-retention') {
+                finish();
+            }
+        };
+        window.addEventListener('neko:decision-prompt-closed', onPromptClosed);
+        if (!document.querySelector(selector)) {
+            finish();
+        }
+    });
+}
+
 async function destroyUniversalTutorialManagerInstance(reason = 'destroy') {
     const manager = window.universalTutorialManager;
     if (!manager) return;
@@ -4415,7 +4465,12 @@ function bindUniversalTutorialManagerResizeRetry() {
         window.removeEventListener('resize', retryUniversalTutorialManagerInit);
         window.__universalTutorialManagerResizeRetryBound = false;
         if (window.__universalTutorialManagerInitialized) return;
-        initUniversalTutorialManager().then(function (initialized) {
+        rearmStartupGreetingWithoutManager('tutorial-manager-resize-init', {
+            viewportWidth: window.innerWidth
+        });
+        waitForActiveAutostartPromptClosed().then(function () {
+            return initUniversalTutorialManager();
+        }).then(function (initialized) {
             if (initialized !== false) {
                 window.__universalTutorialManagerInitialized = true;
             }

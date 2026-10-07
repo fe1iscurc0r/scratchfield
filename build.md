@@ -18,7 +18,7 @@
 
 ## 版本号约定（单一来源）
 
-**版本号的唯一来源是 annotated git tag（`vX.Y.Z`）**，与 `frontend/package.json` 的 `version` 必须一致。**CI（build-release.yml）同样校验**：tag 与 package.json 不一致时 release job 直接失败，打 tag 前务必先 bump `frontend/package.json`。
+**版本号的唯一来源是 annotated git tag（`vX.Y.Z`）**，与 `frontend/package.json` 的 `version` 必须一致。
 
 ```bash
 git tag -a v5.1.5 -m "陆墨 v5.1.5"    # 必须 annotated（git tag -a），不要用轻量 tag

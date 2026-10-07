@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 import inspect
+import json
 import shutil
 import zipfile
 
 import pytest
 
+from plugin.neko_plugin_cli.core import archive_utils
 from plugin.neko_plugin_cli.public import (
     build_bundle,
     build_plugin,
@@ -14,7 +16,13 @@ from plugin.neko_plugin_cli.public import (
     install_package,
     unpack_package,
 )
+from plugin.neko_plugin_cli.public.build import PluginBuilder
 from plugin.neko_plugin_cli.public.build_rules import BuildRuleSet, should_skip_path
+from plugin.server.infrastructure import packaged_metadata
+from plugin.neko_plugin_cli.public.pack_rules import (
+    PackRuleSet,
+    should_skip_path as should_skip_pack_path,
+)
 
 pytestmark = pytest.mark.plugin_unit
 
@@ -80,6 +88,97 @@ def _make_plugin_dir(tmp_path: Path, plugin_id: str = "demo_plugin") -> Path:
     return plugin_dir
 
 
+def _make_importable_plugin_dir(tmp_path: Path, plugin_id: str = "probe_plugin") -> Path:
+    """A plugin the metadata probe can really import: package, submodule and vendored dep."""
+    plugin_dir = tmp_path / plugin_id
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    (plugin_dir / "plugin.toml").write_text(
+        f'[plugin]\nid = "{plugin_id}"\nname = "Probe"\nversion = "1.0.0"\n'
+        f'entry = "plugins.{plugin_id}:Demo"\n',
+        encoding="utf-8",
+    )
+    (plugin_dir / "pyproject.toml").write_text(
+        f'[project]\nname = "{plugin_id}"\nversion = "1.0.0"\ndependencies = ["probedep>=1.0"]\n',
+        encoding="utf-8",
+    )
+    _write_vendor_dist(plugin_dir, "probedep", "1.0.0")
+    (plugin_dir / "vendor" / "probedep").mkdir()
+    (plugin_dir / "vendor" / "probedep" / "__init__.py").write_text(
+        'LABEL = "from vendor"\n', encoding="utf-8",
+    )
+    (plugin_dir / "child.py").write_text('VALUE = "from child"\n', encoding="utf-8")
+    (plugin_dir / "__init__.py").write_text(
+        "import probedep\n"
+        "from .child import VALUE\n"
+        "from plugin.sdk.plugin.decorators import plugin_entry\n"
+        "class Demo:\n"
+        "    @plugin_entry(id='hello', name=VALUE + ' ' + probedep.LABEL)\n"
+        "    def hello(self): return VALUE\n",
+        encoding="utf-8",
+    )
+    return plugin_dir
+
+
+@pytest.mark.parametrize("probe_succeeds", [False, True])
+def test_root_local_metadata_named_plugin_data_survives_packaging(tmp_path, monkeypatch, probe_succeeds):
+    from plugin.neko_plugin_cli.core import metadata_probe
+
+    source = _make_importable_plugin_dir(tmp_path / "source")
+    summary = packaged_metadata.source_stat_summary(source)
+    sidecar = source / "plugin.meta.local.json"
+    sidecar.write_text(json.dumps({
+        "schema_version": packaged_metadata.PACKAGED_METADATA_SCHEMA_VERSION,
+        "sdk_version": packaged_metadata.SDK_VERSION,
+        "source_sha256": packaged_metadata.compute_source_sha256(source),
+        "source_files": summary.names,
+        "source_bytes": summary.total_bytes,
+        "build_env": packaged_metadata.build_environment(),
+        "entries_config_sha256": "",
+        "entries": [{"id": "stale"}],
+        "handlers": {"probe_plugin.stale": {"event_type": "plugin_entry", "id": "stale"}},
+        "entry_methods": {"stale": "stale"},
+    }), encoding="utf-8")
+    source_bytes = sidecar.read_bytes()
+    if not probe_succeeds:
+        def failed_probe(*_args, **_kwargs):
+            raise metadata_probe.MetadataProbeError("optional dependency missing")
+
+        monkeypatch.setattr(metadata_probe, "derive_plugin_metadata", failed_probe)
+    result = build_plugin(source, out_file=tmp_path / "built.neko-plugin")
+    extracted = tmp_path / "extracted"
+    with zipfile.ZipFile(result.package_path) as archive:
+        member = "payload/plugins/probe_plugin/" + sidecar.name
+        assert archive.read(member) == source_bytes
+        archive.extractall(extracted)
+    loaded = packaged_metadata.read_packaged_metadata(extracted / "payload/plugins/probe_plugin")
+    if probe_succeeds:
+        assert loaded is not None
+        assert "probe_plugin.hello" in loaded.handlers
+        assert "probe_plugin.stale" not in loaded.handlers
+    else:
+        assert loaded is None
+    assert sidecar.read_bytes() == source_bytes
+
+
+def test_local_metadata_named_plugin_data_is_preserved_at_every_depth():
+    name = "plugin.meta.local.json"
+    rules = BuildRuleSet(include=["*"])
+    assert not should_skip_path(Path(name), is_dir=False, rules=rules)
+    assert not should_skip_path(Path("data") / name, is_dir=False, rules=rules)
+
+
+def _assert_probed_without_bytecode(package_path: Path, plugin_ids: list[str]) -> None:
+    with zipfile.ZipFile(package_path) as archive:
+        names = archive.namelist()
+        leaked = [name for name in names if "__pycache__" in name or name.endswith((".pyc", ".pyo"))]
+        assert leaked == []
+        for plugin_id in plugin_ids:
+            # 探测真的跑成了：没有元数据的包同样不会带 .pyc，那样这条断言就是空转。
+            meta = archive.read(f"payload/plugins/{plugin_id}/plugin.meta.json").decode("utf-8")
+            assert "from child from vendor" in meta
+            assert f"payload/plugins/{plugin_id}/vendor/probedep/__init__.py" in names
+
+
 def _write_vendor_dist(plugin_dir: Path, name: str, version: str) -> None:
     dist_dir = plugin_dir / "vendor" / f"{name.replace('-', '_')}-{version}.dist-info"
     dist_dir.mkdir(parents=True, exist_ok=True)
@@ -141,6 +240,27 @@ def _rewrite_package_member(package_path: Path, member_name: str, content: str) 
             dst.writestr(info, data)
 
 
+def _append_package_members(
+    package_path: Path,
+    members: list[tuple[str, bytes]],
+) -> None:
+    with zipfile.ZipFile(package_path, "a", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, content in members:
+            archive.writestr(name, content)
+
+
+def _wrap_package_in_parent_folder(package_path: Path) -> None:
+    entries: list[tuple[zipfile.ZipInfo, bytes]] = []
+    with zipfile.ZipFile(package_path) as source:
+        for info in source.infolist():
+            wrapped = zipfile.ZipInfo(f"extra-parent/{info.filename}")
+            wrapped.external_attr = info.external_attr
+            entries.append((wrapped, source.read(info.filename)))
+    with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as target:
+        for info, content in entries:
+            target.writestr(info, content)
+
+
 def test_public_root_exports_legacy_result_aliases() -> None:
     from plugin.neko_plugin_cli import public
     from plugin.neko_plugin_cli.public.models import PackResult, UnpackResult, UnpackedPlugin
@@ -182,6 +302,42 @@ def test_build_rules_keep_vendored_packages_named_build_or_dist() -> None:
     assert should_skip_path(Path("vendor/dist/__init__.py"), is_dir=False, rules=rules) is False
 
 
+def test_build_and_pack_rules_skip_dependency_sync_work_dirs() -> None:
+    build_rules = BuildRuleSet()
+    pack_rules = PackRuleSet()
+
+    for name in (".vendor.staging-0a1b2c3d", ".vendor.backup-0a1b2c3d"):
+        for path, is_dir in ((Path(name), True), (Path(name, "old.py"), False)):
+            assert should_skip_path(path, is_dir=is_dir, rules=build_rules) is True
+            assert should_skip_pack_path(path, is_dir=is_dir, rules=pack_rules) is True
+    marker = Path(".vendor.backup-0a1b2c3d.pending")
+    assert should_skip_path(marker, is_dir=False, rules=build_rules) is True
+    assert should_skip_pack_path(marker, is_dir=False, rules=pack_rules) is True
+    # An in-place --clean of a linked or mounted vendor/ stages inside it.
+    for path, is_dir in (
+        (Path("vendor", ".vendor.staging-0a1b2c3d"), True),
+        (Path("vendor", ".vendor.staging-0a1b2c3d", "half.py"), False),
+    ):
+        assert should_skip_path(path, is_dir=is_dir, rules=build_rules) is True
+        assert should_skip_pack_path(path, is_dir=is_dir, rules=pack_rules) is True
+    # Only exact generated names at the plugin root: a plugin's own
+    # look-alike directory, or one nested deeper, is plugin source.
+    for kept in (
+        # Only a backup has a pending marker; this name is never generated.
+        Path(".vendor.staging-0a1b2c3d.pending"),
+        Path(".vendor.backup-notes", "data.txt"),
+        Path(".vendor.staging-assets", "data.txt"),
+        Path("assets", ".vendor.backup-0a1b2c3d", "data.txt"),
+        # Only staging is ever created inside vendor/.
+        Path("vendor", ".vendor.backup-0a1b2c3d", "data.txt"),
+        # A plugin may ship its own files in vendor/bin, as on main.
+        Path("vendor", "bin", "tool"),
+        Path("vendor", "pkg", ".vendor.staging-0a1b2c3d", "data.txt"),
+    ):
+        assert should_skip_path(kept, is_dir=False, rules=build_rules) is False
+        assert should_skip_pack_path(kept, is_dir=False, rules=pack_rules) is False
+
+
 def test_build_plugin_writes_expected_profile_and_skips_runtime_artifacts(tmp_path: Path) -> None:
     plugin_dir = _make_plugin_dir(tmp_path)
     vendored_build = plugin_dir / "vendor" / "build"
@@ -218,6 +374,39 @@ def test_build_plugin_writes_expected_profile_and_skips_runtime_artifacts(tmp_pa
         dependency_text = archive.read("payload/dependencies.toml").decode("utf-8")
         assert 'python_requirements = ["httpx>=0.27", "pydantic>=2.0"]' in dependency_text
         assert 'vendor_path = "plugins/demo_plugin/vendor"' in dependency_text
+
+
+def test_build_plugin_metadata_probe_leaves_no_bytecode_in_package(tmp_path: Path) -> None:
+    plugin_dir = _make_importable_plugin_dir(tmp_path)
+    package_path = tmp_path / "probe_plugin.neko-plugin"
+
+    build_plugin(plugin_dir, package_path)
+
+    _assert_probed_without_bytecode(package_path, ["probe_plugin"])
+    assert inspect_package(package_path).payload_hash_verified is True
+
+
+def test_build_bundle_metadata_probe_leaves_no_bytecode_in_package(tmp_path: Path) -> None:
+    first = _make_importable_plugin_dir(tmp_path, "probe_one")
+    second = _make_importable_plugin_dir(tmp_path, "probe_two")
+    package_path = tmp_path / "probe.neko-bundle"
+
+    build_bundle([first, second], package_path, bundle_id="probe_bundle")
+
+    _assert_probed_without_bytecode(package_path, ["probe_one", "probe_two"])
+    assert inspect_package(package_path).payload_hash_verified is True
+
+
+def test_plugin_builder_default_import_mode_leaves_no_bytecode_in_package(tmp_path: Path) -> None:
+    # 直接用 PluginBuilder() 的调用方走普通导入，探测会往暂存目录写 __pycache__；
+    # 这些字节码同样不能进包。
+    plugin_dir = _make_importable_plugin_dir(tmp_path)
+    package_path = tmp_path / "probe_plugin.neko-plugin"
+
+    PluginBuilder().build_plugin(plugin_dir, package_path)
+
+    _assert_probed_without_bytecode(package_path, ["probe_plugin"])
+    assert inspect_package(package_path).payload_hash_verified is True
 
 
 def test_build_plugin_rejects_pyproject_dependencies_without_vendor(tmp_path: Path) -> None:
@@ -452,6 +641,214 @@ def test_inspect_package_fails_when_manifest_is_missing(tmp_path: Path) -> None:
         inspect_package(package_path)
 
 
+def test_inspect_package_explains_extra_parent_folder(tmp_path: Path) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    package_path = tmp_path / "nested.neko-plugin"
+    build_plugin(plugin_dir, package_path)
+    _wrap_package_in_parent_folder(package_path)
+
+    with pytest.raises(FileNotFoundError, match="extra parent folder"):
+        inspect_package(package_path)
+
+
+def test_inspect_package_rejects_case_equivalent_paths(tmp_path: Path) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    package_path = tmp_path / "case-collision.neko-plugin"
+    build_plugin(plugin_dir, package_path)
+    _append_package_members(
+        package_path,
+        [("payload/plugins/demo_plugin/RUNTIME.txt", b"shadow")],
+    )
+
+    with pytest.raises(ValueError, match="equivalent on common filesystems"):
+        inspect_package(package_path)
+
+
+def test_inspect_package_rejects_case_equivalent_implicit_directories(
+    tmp_path: Path,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    package_path = tmp_path / "implicit-directory-collision.neko-plugin"
+    build_plugin(plugin_dir, package_path)
+    _append_package_members(
+        package_path,
+        [
+            ("payload/plugins/demo_plugin/Config/a.py", b"a"),
+            ("payload/plugins/demo_plugin/config/b.py", b"b"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="directory paths that are equivalent"):
+        inspect_package(package_path)
+
+
+def test_inspect_package_rejects_file_directory_prefix_collision(tmp_path: Path) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    package_path = tmp_path / "prefix-collision.neko-plugin"
+    build_plugin(plugin_dir, package_path)
+    _append_package_members(
+        package_path,
+        [
+            ("payload/plugins/demo_plugin/collision", b"file"),
+            ("payload/plugins/demo_plugin/collision/child.txt", b"child"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="file/directory path conflict"):
+        inspect_package(package_path)
+
+
+def test_inspect_package_rejects_file_explicit_directory_prefix_collision(
+    tmp_path: Path,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    package_path = tmp_path / "explicit-directory-prefix-collision.neko-plugin"
+    build_plugin(plugin_dir, package_path)
+    _append_package_members(
+        package_path,
+        [
+            ("payload/plugins/demo_plugin/collision", b"file"),
+            ("payload/plugins/demo_plugin/collision/empty/", b""),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="file/directory path conflict"):
+        inspect_package(package_path)
+
+
+def test_inspect_package_enforces_global_entry_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_path = tmp_path / "too-many.neko-plugin"
+    with zipfile.ZipFile(package_path, "w") as archive:
+        archive.writestr("manifest.toml", b"x")
+        archive.writestr("other.txt", b"y")
+    monkeypatch.setattr(archive_utils, "MAX_ARCHIVE_ENTRIES", 1)
+
+    with pytest.raises(ValueError, match="too many entries"):
+        inspect_package(package_path)
+
+
+def test_inspect_package_enforces_global_uncompressed_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_path = tmp_path / "too-large.neko-plugin"
+    with zipfile.ZipFile(package_path, "w") as archive:
+        archive.writestr("manifest.toml", b"xx")
+    monkeypatch.setattr(archive_utils, "MAX_ARCHIVE_UNCOMPRESSED_BYTES", 1)
+
+    with pytest.raises(ValueError, match="expands to"):
+        inspect_package(package_path)
+
+
+@pytest.mark.parametrize(
+    ("attack", "expected_detail"),
+    [
+        ("compression_ratio", "compression ratio"),
+        ("oversized_member", "single-member limit"),
+    ],
+)
+def test_public_unpack_rejects_archive_bombs_before_reading_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    attack: str,
+    expected_detail: str,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    package_path = tmp_path / f"{attack}.neko-plugin"
+    build_plugin(plugin_dir, package_path)
+    bomb_member = "payload/plugins/demo_plugin/bomb.bin"
+    if attack == "compression_ratio":
+        content = b"\0" * (256 * 1024)
+        compression = zipfile.ZIP_DEFLATED
+    else:
+        content = b"x" * 2048
+        compression = zipfile.ZIP_STORED
+    with zipfile.ZipFile(package_path, "a") as archive:
+        archive.writestr(bomb_member, content, compress_type=compression)
+
+    if attack == "oversized_member":
+        monkeypatch.setattr(archive_utils, "MAX_ARCHIVE_MEMBER_BYTES", 1024)
+        monkeypatch.setattr(
+            archive_utils,
+            "MAX_ARCHIVE_COMPRESSION_RATIO",
+            1_000_000,
+        )
+    original_open = zipfile.ZipFile.open
+
+    def guarded_open(archive, member, *args, **kwargs):  # type: ignore[no-untyped-def]
+        member_name = member.filename if isinstance(member, zipfile.ZipInfo) else member
+        if member_name == bomb_member:
+            raise AssertionError("archive bomb payload must not be opened")
+        return original_open(archive, member, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", guarded_open)
+
+    with pytest.raises(ValueError, match=expected_detail):
+        unpack_package(
+            package_path,
+            plugins_root=tmp_path / "plugins",
+            profiles_root=tmp_path / "profiles",
+        )
+
+
+def test_inspection_streams_members_without_zipfile_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    package_path = tmp_path / "streamed.neko-plugin"
+    build_plugin(plugin_dir, package_path)
+
+    def forbidden_read(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("package members must use bounded streaming reads")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", forbidden_read)
+
+    assert inspect_package(package_path).package_id == "demo_plugin"
+
+
+@pytest.mark.parametrize(
+    "limit_name",
+    [
+        "MAX_ARCHIVE_TOML_BYTES",
+        "MAX_ARCHIVE_DISTRIBUTION_METADATA_BYTES",
+    ],
+)
+def test_inspection_bounds_small_metadata_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    limit_name: str,
+) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    package_path = tmp_path / "bounded-metadata.neko-plugin"
+    build_plugin(plugin_dir, package_path)
+    monkeypatch.setattr(archive_utils, limit_name, 16)
+
+    with pytest.raises(ValueError, match="16-byte read limit"):
+        inspect_package(package_path)
+
+
+def test_inspect_package_rejects_folder_manifest_id_mismatch(tmp_path: Path) -> None:
+    plugin_dir = _make_plugin_dir(tmp_path)
+    package_path = tmp_path / "identity-mismatch.neko-plugin"
+    build_plugin(plugin_dir, package_path)
+    plugin_toml = (plugin_dir / "plugin.toml").read_text(encoding="utf-8").replace(
+        'id = "demo_plugin"',
+        'id = "different_plugin"',
+    )
+    _rewrite_package_member(
+        package_path,
+        "payload/plugins/demo_plugin/plugin.toml",
+        plugin_toml,
+    )
+
+    with pytest.raises(ValueError, match="does not match plugin.toml id"):
+        inspect_package(package_path)
+
+
 def test_inspect_package_fails_when_plugin_toml_is_missing(tmp_path: Path) -> None:
     plugin_dir = _make_plugin_dir(tmp_path)
     package_path = tmp_path / "demo_plugin.neko-plugin"
@@ -633,3 +1030,67 @@ def test_build_metadata_does_not_store_absolute_source_paths(tmp_path: Path) -> 
 
     assert str(plugin_dir.resolve()) not in metadata
     assert 'paths = ["metadata_demo"]' in metadata
+
+
+def test_plugin_tree_walk_does_not_descend_into_sync_work_dirs(tmp_path, monkeypatch):
+    # A backup is retained when it holds a mount; build/pack must not walk it.
+    from plugin.neko_plugin_cli.core import build_rules
+
+    (tmp_path / ".vendor.backup-0a1b2c3d" / "deep").mkdir(parents=True)
+    (tmp_path / ".vendor.backup-0a1b2c3d.pending").touch()
+    (tmp_path / "vendor" / ".vendor.staging-1111abcd" / "deep").mkdir(parents=True)
+    (tmp_path / ".vendor.backup-notes").mkdir()
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "mod.py").write_text("x = 1", encoding="utf-8")
+    visited = []
+    real_walk = build_rules.os.walk
+
+    def walk(top, *args, **kwargs):
+        for entry in real_walk(top, *args, **kwargs):
+            visited.append(Path(entry[0]).relative_to(tmp_path))
+            yield entry
+
+    monkeypatch.setattr(build_rules.os, "walk", walk)
+    paths = build_rules.walk_plugin_tree(tmp_path)
+
+    pruned = {
+        Path(".vendor.backup-0a1b2c3d"),
+        Path("vendor", ".vendor.staging-1111abcd"),
+    }
+    assert not any(
+        path == root or root in path.parents for path in visited for root in pruned
+    )
+    assert paths == sorted(
+        path
+        for path in tmp_path.rglob("*")
+        if not any(
+            rel == root or root in rel.parents
+            for rel in [path.relative_to(tmp_path)]
+            for root in pruned
+        )
+    )
+
+
+@pytest.mark.parametrize("error", [OSError(5, "I/O error"), PermissionError(13, "denied")])
+def test_plugin_tree_walk_raises_like_rglob(tmp_path, monkeypatch, error):
+    # rglob skipped only denied directories; any other error must fail the
+    # build instead of silently dropping the subtree.
+    import os
+
+    from plugin.neko_plugin_cli.core import build_rules
+
+    (tmp_path / "broken").mkdir()
+    (tmp_path / "ok.py").write_text("x = 1", encoding="utf-8")
+    real_scandir = os.scandir
+
+    def scandir(path="."):
+        if Path(path) == tmp_path / "broken":
+            raise error
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    if isinstance(error, PermissionError):
+        assert tmp_path / "ok.py" in build_rules.walk_plugin_tree(tmp_path)
+    else:
+        with pytest.raises(OSError):
+            build_rules.walk_plugin_tree(tmp_path)

@@ -168,6 +168,7 @@ class StorageRootsMixin:
         self.mmd_dir = self.app_docs_dir / "mmd"
         self.mmd_animation_dir = self.mmd_dir / "animation"  # VMD动画文件目录
         self.pngtuber_dir = self.app_docs_dir / "pngtuber"
+        self.avatar_tools_dir = self.app_docs_dir / "avatar_tools"
         self.workshop_dir = self.app_docs_dir / "workshop"
         self._steam_workshop_path = None
         self._user_workshop_folder_persisted = False
@@ -180,11 +181,16 @@ class StorageRootsMixin:
         self._workshop_config_lock = threading.RLock()
 
         self._characters_cache: dict | None = None
-        self._characters_cache_mtime: float | None = None
+        # (st_mtime_ns, st_size) of the file the cache was loaded from; see
+        # characters._characters_file_signature.
+        self._characters_cache_mtime: tuple[int, int] | None = None
         self._characters_cache_path: str | None = None
         self._characters_dirty: bool = False
+        # Write-back backoff of a dirty cache; see CharactersMixin.load_characters.
+        self._characters_dirty_retry_at: float | None = None
+        self._characters_dirty_retry_delay: float = 0.0
         self._characters_cache_lock = threading.Lock()
-        self._characters_reload_lock = threading.Lock()
+        self._characters_reload_lock = threading.RLock()
 
         self.project_config_dir = self._get_project_config_directory()
         self.project_memory_dir = self._get_project_memory_directory()
@@ -771,6 +777,17 @@ class StorageRootsMixin:
         except Exception as e:
             print(f"Warning: Failed to create pngtuber directory: {e}", file=sys.stderr)
             return False
+
+    def ensure_avatar_tools_directory(self):
+        """Ensure the private local avatar-tool store exists."""
+        try:
+            if not self._ensure_app_docs_directory():
+                return False
+            self.avatar_tools_dir.mkdir(parents=True, exist_ok=True)
+            return True
+        except Exception as e:
+            print(f"Warning: Failed to create avatar tools directory: {e}", file=sys.stderr)
+            return False
         
     def ensure_chara_directory(self):
         """Ensure the character_cards directory under Documents exists"""
@@ -926,7 +943,7 @@ class StorageRootsMixin:
         except OSError as e:
             self._raise_local_state_file_error(operation, path, str(e), cause=e)
 
-    def _load_local_state_json_file(self, path, default_value, operation):
+    def _load_local_state_json_file(self, path, default_value, operation, *, tolerate_replace=False):
         path = Path(path)
         if path.exists() and not path.is_file():
             self._raise_local_state_file_error(
@@ -935,6 +952,9 @@ class StorageRootsMixin:
                 "state file target exists but is not a file",
             )
         try:
+            if tolerate_replace:
+                from utils.file_utils import read_json_tolerating_replace
+                return self._load_json_file(path, default_value, reader=read_json_tolerating_replace)
             return self._load_json_file(path, default_value)
         except OSError as e:
             self._raise_local_state_file_error(operation, path, str(e), cause=e)
@@ -972,9 +992,11 @@ class StorageRootsMixin:
             "tombstones": [],
         }
 
-    def _load_json_file(self, path, default_value=None):
+    def _load_json_file(self, path, default_value=None, *, reader=None):
         """Load an arbitrary JSON file; returns a copy of the default when the file is missing."""
         try:
+            if reader is not None:
+                return reader(path)
             with open(path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except FileNotFoundError:
@@ -991,16 +1013,28 @@ class StorageRootsMixin:
 
     def load_root_state(self, default_value=None):
         """Load root_state; returns the default state when missing."""
-        if default_value is None:
-            default_value = self.build_default_root_state()
-        state = self._load_local_state_json_file(
-            self.root_state_path,
-            default_value,
-            "loading root_state",
-        )
+        return self._apply_root_state_recovery_override(self.load_raw_root_state(default_value))
+
+    def _apply_root_state_recovery_override(self, state):
         if self._has_selected_root_unavailable_recovery_override():
             return self._build_selected_root_unavailable_recovery_state(state)
         return state
+
+    def load_root_state_with_raw(self, default_value=None):
+        """Return semantic and raw root state derived from the same disk read."""
+        state = self.load_raw_root_state(default_value, tolerate_replace=True)
+        return self._apply_root_state_recovery_override(state), deepcopy(state)
+
+    def load_raw_root_state(self, default_value=None, *, tolerate_replace=False):
+        """Load persisted root_state without applying the runtime recovery override."""
+        if default_value is None:
+            default_value = self.build_default_root_state()
+        return self._load_local_state_json_file(
+            self.root_state_path,
+            default_value,
+            "loading root_state",
+            tolerate_replace=tolerate_replace,
+        )
 
     def save_root_state(self, data):
         """Save root_state."""

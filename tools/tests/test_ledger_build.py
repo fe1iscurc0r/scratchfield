@@ -24,7 +24,7 @@ lb = _load()
 
 class TestPollinationExtraction:
     def test_round25_anchor_matches_source_table(self):
-        """验收锚点：轮25 的 P0/P1 与 docs/超限战轮25-*.md 原文表格一致。
+        """验收锚点：轮25 的 P0/P1 与 docs/授粉轮25-*.md 原文表格一致。
 
         工单验收文字写「P0=5/P1=4」，但原文表格实测 P0=4（RASPA3/porespy/
         PORMAKE/mofdscribe）、P1=4——**以原文为准**，本用例断言的就是与原文一致。

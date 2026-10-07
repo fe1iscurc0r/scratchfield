@@ -1,6 +1,6 @@
 # 射频大脑 M1 自测记录
 
-> 日期：2026-08-13 | 施工：实验田维护者（Hermes）
+> 日期：2026-08-13 | 施工：沈遥（Hermes）
 > 跑法：三个 phase 测试全跑通
 
 ## 实测特征数据（snr=20dB, seed=42）
@@ -252,7 +252,7 @@ device/                  # 输入抽象包
 
 ## 三 agent 联合评审 + 契约修复（2026-08-23）
 
-Phase7 交付后并行召集实验田维护者（liquid-dsp 调查）、杜赞（方案拍板）、铁锚（代码审查）。
+Phase7 交付后并行召集沈遥（liquid-dsp 调查）、杜赞（方案拍板）、铁锚（代码审查）。
 
 ### 铁锚审查（device/ 8 文件，0 CRITICAL / 1 HIGH / 4 MEDIUM / 5 LOW，评分 76/100）
 
@@ -270,7 +270,7 @@ Phase7 交付后并行召集实验田维护者（liquid-dsp 调查）、杜赞�
 
 修复后 Phase7 测试 **29/29 全绿**（原 21 + 新补 8），全量 **97 passed, 1 skipped**。
 
-### 实验田维护者调查（liquid-dsp 对拍 SKIPPED 根因）
+### 沈遥调查（liquid-dsp 对拍 SKIPPED 根因）
 
 - 根因：DLL 全 miss（`LIQUID_DSP_LIB` → `vendor/` → github_haul 全未命中），
   本机无编译链（无 gcc/MSYS2）。
@@ -305,7 +305,7 @@ Phase7 交付后并行召集实验田维护者（liquid-dsp 调查）、杜赞�
 
 ### 三 agent 第二轮评审（验证结果复核）
 
-实验田维护者指出验证盲区：caplog 验证 record 产生 ≠ 真实可见——rf_brain 无任何
+沈遥指出验证盲区：caplog 验证 record 产生 ≠ 真实可见——rf_brain 无任何
 handler 配置，root 走 lastResort 只放行 WARNING+，**info 摘要真实运行不可见**。
 杜赞拍板 + 铁锚复核后落地：
 

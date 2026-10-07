@@ -28,6 +28,7 @@ from system.llm_params import get_llm_params as _get_common_llm_params
 
 from . import naga_auth
 from .litellm_lazy import acompletion, litellm
+from apiserver.config import settings
 
 # 配置日志
 logger = logging.getLogger("LLMService")
@@ -211,7 +212,7 @@ class LLMService:
 
         if enabled is False:
             return
-        if enabled is None and os.environ.get("LUMO_ENABLE_THINKING", "1") == "0":
+        if enabled is None and not settings.enable_thinking():
             return
         extra_body = dict(call_params.get("extra_body") or {})
         extra_body.setdefault("enable_thinking", True)

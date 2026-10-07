@@ -2,7 +2,7 @@
 
 > 状态：待施工（2026-08-25 用户拍板：混合集成、集大之优点；许可松绑——AGPL 可吞 GPL；**独立组件 + 总线连接**）
 > 用途：把主流无线电软件的**核心优点授粉集成**成独立组件 radio_suite——rf_brain 解码骨架 + rsba1_adapter（705 控制，RS-BA1 逆向成果）+ hamlog（日志）+ 哨兵网格（采集）+ 独立 UI；通过总线与工具注册连接陆墨/Hermes/冥王峡谷，不塞进任何 AI 壳（陆墨是陆墨，无线电是无线电）
-> 读者：Trae（天选7）/ 实验田维护者 / 陆墨
+> 读者：Trae（天选7）/ 沈遥 / 陆墨
 > 依据：SPEC-18（科研增强）；rf_brain 解码器家族（aprs/psk31/ook）；rsba1_adapter（8 工具已建）；hamlog_adapter（已授粉，用户反馈"有很多问题"）；QEX《FT4/FT8 协议》（公开论文）
 
 ## 〇、一句话定位
@@ -82,7 +82,7 @@
 ```
 
 **总线约定**：
-- **控制/查询**：mcpserver 工具注册（agent-manifest.json，陆墨/执行侧直接调用）
+- **控制/查询**：mcpserver 工具注册（agent-manifest.json，陆墨/林楠直接调用）
 - **事件流**：ZMQ（复用 fusion_bus 模式 PUB/SUB）或 MQTT——信号到达、解码完成、QSO 记录、频谱帧
 - **数据**：SQLite（日志/频谱元数据）+ 文件（IQ/音频/图像）
 - **前端**：radio_suite 自带独立 UI（Web 面板），不并入 lumo 聊天界面；需要时事件推送给任意端
@@ -140,5 +140,5 @@ Y-02（FT8/WSPR，最贴 BG5GXO）→ Y-01（日志，用户反馈问题）→ Y
 
 ---
 
-*制定：实验田维护者（Hermes）· 2026-08-25*
+*制定：沈遥（Hermes）· 2026-08-25*
 *依据：SPEC-Writing-Standard-v2 + 同类软件对比调研 + 用户 8-25 拍板（混合集成/GPL 松绑）*

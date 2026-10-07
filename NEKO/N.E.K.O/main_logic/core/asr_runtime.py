@@ -7,16 +7,24 @@ delivery concerns. Provider sessions and endpointing remain encapsulated by
 
 from __future__ import annotations
 
+from main_logic.voice_turn.transcript_admission import assess_transcript, TranscriptDisposition
+
 import asyncio
+import bisect
 import json
+import math
+import os
 import struct
 import time
 from dataclasses import dataclass, replace
-from typing import Callable, ClassVar, Literal
+from typing import Any, Awaitable, Callable, ClassVar, Collection, Literal
 
 from websockets import exceptions as web_exceptions
 
-from main_logic.asr_client import get_asr_core_capabilities
+from main_logic.asr_client import (
+    VoiceIdentityActivationResult,
+    get_asr_core_capabilities,
+)
 from main_logic.asr_client.runtime import (
     ASR_CONNECT_TOTAL_BUDGET_SECONDS,
     AsrRuntimeCallbacks,
@@ -24,6 +32,7 @@ from main_logic.asr_client.runtime import (
     IndependentAsrRuntime,
     SpeakerShadowFactory,
 )
+from main_logic.asr_client.lifecycle import VoiceLifecycleState
 from main_logic.voice_input import (
     BuiltinVoiceInputConsumer,
     VoiceInputConsumerCapabilities,
@@ -35,24 +44,76 @@ from main_logic.voice_input.consumers import (
     CoreChatVoiceInputConsumer,
     GameVoiceInputConsumer,
 )
+from main_logic.voice_input.activation import (
+    ActivationDecision,
+    ActivationGeneration,
+    ActivationState,
+    AudioFrame,
+    OutputCommit,
+)
+from main_logic.voice_input.preview import preview_isolation_registry
+from .voice_readiness import VoiceReadinessControl
+from main_logic.voice_input.wake_word.transcript import (
+    _WakeNameCorrection,
+    correct_wake_name_prefix,
+)
 from main_logic.voice_turn.contracts import (
     AsrFailureEvent,
     AsrLifecycleNotification,
     AsrStatusEvent,
     AsrSubmitStatus,
+    PreserveUnsentPrefix,
     VoicePartialEvent,
     VoiceIngressToken,
     VoiceTranscriptEvent,
     VoiceTurnToken,
+)
+from main_logic.omni_realtime_client._response_arbiter import (
+    ResponseAdmissionRejected,
 )
 from main_logic.voice_turn.activity_evidence import RnnoiseEvidence
 from main_logic.voice_turn.audio_input import (
     ProcessedVoiceFrame,
     VoiceInputAudioPipeline,
 )
+from utils.conversation_settings_constants import (
+    normalize_independent_asr_provider_preference_handshake,
+)
+from utils.game_route_state import get_active_game_route_generation_identity
 from main_logic import core as _core_facade
 
 from ._shared import logger
+from .multimodal_turn import (
+    _MAX_PRERECORD_VISUAL_VALIDATIONS,
+    _MAX_LIVE_TURN_RECORDS,
+    _ONSET_TRUST_WINDOW_S,
+    MultimodalTurn,
+    _CoreMultimodalTurnRecord,
+    _IndependentVisualFrame,
+)
+from main_logic.voice_input.activation.wiring import (
+    VoiceSessionActivationFactory,
+    VoiceSessionActivationRouteContext,
+    VoiceSessionActivationRuntime,
+)
+
+
+@dataclass(eq=False, slots=True)
+class _VoiceActivationHandoff:
+    """One-use permission to move a live local authority to another transport."""
+
+    source_session: object
+    target_session: object
+    generation: ActivationGeneration
+    runtime: VoiceSessionActivationRuntime
+    deadline: float
+    context: tuple[object, ...]
+    sequence: int
+    irreversible: bool = False
+    settled: bool = False
+    consumed: bool = False
+    watchdog: asyncio.Task | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class _QueuedMicFrame:
@@ -70,6 +131,7 @@ class _QueuedMicFrame:
     source_rate_hz: int
     token: VoiceIngressToken
     received_at: float
+    captured_at: float
     audio_stream_epoch: int = 0
     ingress_sequence: int = 0
 
@@ -80,6 +142,7 @@ class _QueuedMicFrame:
         *,
         token: VoiceIngressToken,
         received_at: float | None = None,
+        captured_at: float | None = None,
         audio_stream_epoch: int = 0,
         ingress_sequence: int = 0,
     ) -> "_QueuedMicFrame":
@@ -108,6 +171,7 @@ class _QueuedMicFrame:
             source_rate_hz=source_rate_hz,
             token=token,
             received_at=time.monotonic() if received_at is None else received_at,
+            captured_at=time.time() if captured_at is None else captured_at,
             audio_stream_epoch=audio_stream_epoch,
             ingress_sequence=ingress_sequence,
         )
@@ -158,9 +222,33 @@ class _AudioDurationQueue:
 
 
 @dataclass(frozen=True, slots=True)
+class _VoiceInputPipelineFailure:
+    """One committed audio-preprocessing failure, as its notify phase sees it.
+
+    Everything the notify/revoke phase fences on, captured at commit time so
+    that phase can run without the pipeline transition lock. ``failure_token``
+    is the identity: it is replaced only by a NEWER commit, unlike
+    ``_voice_input_pipeline_failed``, which any pipeline replacement clears.
+    """
+
+    failure_token: object
+    independent_route: bool
+    provider: str
+    session_epoch: int
+    connection_id: str
+    lease_generation: int
+    transition_generation: int
+    route_operation_generation: int
+    session_ref: object
+    audio_epoch: int
+
+
+@dataclass(frozen=True, slots=True)
 class _HotSwapAudioFrame:
     pcm16: bytes
     token: VoiceIngressToken
+    received_at: float = 0.0
+    captured_at: float = 0.0
     speech_probability: float | None = None
     rnnoise_available: bool = False
     rnnoise_evidence: RnnoiseEvidence | None = None
@@ -224,9 +312,13 @@ class AsrRuntimeMixin:
         self._voice_lease_requires_abort = False
         self._voice_input_suppressed = True
         self._voice_input_suppression_reasons: set[str] = {"owner_none"}
-        self._voice_lease_resync_signal_state: tuple[str, int, bool, str] | None = (
-            None
-        )
+        self._voice_input_external_suppressions: set[str] = set()
+        self._voice_lease_resync_signal_state: (
+            tuple[str, int, bool, str, int] | None
+        ) = None
+        self._voice_lease_resync_delivery_state: (
+            tuple[object, set[str]] | None
+        ) = None
         self._audio_stream_queue = _AudioDurationQueue(
             capacity_us=2_000_000,
             max_frames=256,
@@ -241,10 +333,13 @@ class AsrRuntimeMixin:
         self.is_flushing_hot_swap_cache = False
         self._hot_swap_ingress_sequence = 0
         self._hot_swap_pending_sequences: set[int] = set()
+        self._voice_activation_pending_capture: dict[int, float] = {}
         self._hot_swap_sequence_progress = asyncio.Event()
         self._hot_swap_sequence_progress.set()
         self._omni_mic_audio_bytes = 0
+        self._voice_regression_trace_frames = 0
         self._asr_route_mode = "blocked"
+        self._visual_route_mode: Literal["native", "independent"] = "native"
         self._microphone_route_generation = 0
         self._asr_route_operation_generation = 0
         self._asr_notification_lock = asyncio.Lock()
@@ -253,18 +348,85 @@ class AsrRuntimeMixin:
         # has atomically exposed the replacement.
         self._core_voice_session_swap_lock = asyncio.Lock()
         self._core_voice_session_swap_barrier_timeout_s = 5.0
+        # 取消旧 listener 的等待上限。见 lifecycle.py：这里必须是"只等到期、不等
+        # 取消完成"的语义，否则一个吞掉 CancelledError 的 listener 会连带卡死
+        # swap lock。
+        self._core_voice_listener_cancel_timeout_s = 2.0
+        self._independent_visual_generation = 0
+        self._independent_visual_frame_ttl_s = 5.0
+        self._latest_independent_visual_frame: _IndependentVisualFrame | None = None
+        self._core_multimodal_turns: dict[str, _CoreMultimodalTurnRecord] = {}
+        self._prerecord_visual_validations: dict[asyncio.Task, float] = {}
+        # record 建立之前**已经校验完**的帧。单槽 _latest_independent_visual_frame
+        # 只留最新一张，所以光靠它救不回这段窗口里的开头/中间帧；任务栈也不行，
+        # 任务一完成就从栈里摘掉了。
+        self._prerecord_visual_frames: list[_IndependentVisualFrame] = []
+        self._voice_input_pipeline_transition_lock = asyncio.Lock()
         self._independent_asr_provider: str | None = None
         self._independent_asr_route_key: str | None = None
         self._independent_asr_handshake_override: bool | None = None
         self._speaker_shadow_factory: SpeakerShadowFactory | None = None
+        self._voice_session_activation_factory: VoiceSessionActivationFactory | None = None
+        # ``factory is None`` is intentionally not the policy bit.  It can mean
+        # either that the user disabled Owner activation or that protection was
+        # requested but its profile/runtime authority is temporarily
+        # unavailable.  Only the former may use the ordinary microphone route.
+        self._voice_session_activation_required = False
+        self._voice_session_activation_policy_revision = 0
+        self._voice_session_activation_authority_generation = ""
+        self._voice_session_activation_runtime: (
+            VoiceSessionActivationRuntime | None
+        ) = None
+        self._voice_session_activation_lock = asyncio.Lock()
+        self._voice_session_activation_profile_revision = 0
+        self._voice_session_activation_permission_revision = 0
+        self._voice_session_activation_sequence = 0
+        self._voice_session_activation_sample_cursor = 0
+        self._voice_session_activation_degraded = False
+        self._voice_session_activation_status: (
+            tuple[ActivationGeneration, ActivationState, str] | None
+        ) = None
+        self._voice_session_activation_status_revision = 0
+        self._voice_activation_bound_session: object | None = None
+        self._voice_activation_session_anchor: int | None = None
+        self._voice_activation_handoff: _VoiceActivationHandoff | None = None
+        self._voice_activation_delivery_revision = 0
+        self._wake_name_correction: _WakeNameCorrection | None = None
+        self._voice_activation_native_output_identity: (
+            tuple[ActivationGeneration, object, int | None] | None
+        ) = None
+        self._voice_activation_native_retirement: (
+            tuple[object, int | None, asyncio.Task[Any]] | None
+        ) = None
+        self._native_activation_idle_reconnect_identity: (
+            tuple[ActivationGeneration, int | None] | None
+        ) = None
+        self._native_activation_reconnect_timeout_s = 10.0
         self._voice_input_resource_optimization_handshake_override: bool | None = None
         self._voice_input_resource_optimization_session_value: bool | None = None
+        self._independent_asr_provider_preference_handshake_override: (
+            str | None
+        ) = None
+        self._independent_asr_provider_preference_session_value: str | None = None
         self._voice_input_noise_reduction_enabled = True
         self._voice_input_audio_pipeline = VoiceInputAudioPipeline(
             nr_enabled=self._voice_input_noise_reduction_enabled,
         )
+        self._core_asr_cleanup_tasks: set[asyncio.Task[Any]] = set()
         self._voice_input_pipeline_failed = False
-        self._blocked_text_mode_microphone_signalled = False
+        # Identity of the committed pipeline failure that owns the blocked
+        # route, if any. See _VoiceInputPipelineFailure.
+        self._voice_input_pipeline_failure_token: object | None = None
+        self._blocked_text_mode_microphone_signal_state: tuple[
+            int,
+            str,
+            int,
+            int,
+            object,
+        ] | None = None
+        self._blocked_text_mode_microphone_delivery_state: (
+            tuple[object, set[str]] | None
+        ) = None
         # Identity of the independent-ASR turn that owns the frontend's
         # singleton preview bubble, plus its last rendered text. Both are
         # stamped/refreshed from the ordered partial stream so a late final
@@ -282,8 +444,10 @@ class AsrRuntimeMixin:
             on_failure=self._handle_core_asr_failure,
             on_status=self._send_core_asr_status,
             on_lifecycle=self._send_core_asr_lifecycle,
+            capture_ingress_token=self._capture_ingress_token,
         )
         self._asr_runtime = IndependentAsrRuntime(callbacks)
+        preview_isolation_registry.register(self)
 
     def _init_voice_input_registry(self) -> None:
         """Install the manager-lifetime built-ins exactly once."""
@@ -293,6 +457,9 @@ class AsrRuntimeMixin:
         registry = VoiceInputRegistry()
         core_chat = CoreChatVoiceInputConsumer(
             session_ref=lambda: getattr(self, "session", None),
+            game_route_identity=lambda: get_active_game_route_generation_identity(
+                str(getattr(self, "lanlan_name", "core"))
+            ),
             on_prepare=lambda token, context: self._prepare_core_voice_turn(
                 token,
                 session_ref=context.session_ref,
@@ -302,6 +469,7 @@ class AsrRuntimeMixin:
             on_final_event=lambda event, context: self._dispatch_core_asr_transcript(
                 event,
                 session_ref=context.session_ref,
+                source_game_route_identity=context.source_game_route_identity,
             ),
             on_cancelled_event=self._cancel_core_chat_voice_turn,
         )
@@ -335,24 +503,58 @@ class AsrRuntimeMixin:
         self._init_voice_input_registry()
         if not hasattr(self, "_asr_route_operation_generation"):
             self._asr_route_operation_generation = 0
+        if not hasattr(self, "_visual_route_mode"):
+            self._visual_route_mode = (
+                "independent"
+                if getattr(self, "_asr_route_mode", "blocked") == "independent"
+                else "native"
+            )
         if not hasattr(self, "_asr_notification_lock"):
             self._asr_notification_lock = asyncio.Lock()
         if not hasattr(self, "_core_voice_session_swap_lock"):
             self._core_voice_session_swap_lock = asyncio.Lock()
         if not hasattr(self, "_core_voice_session_swap_barrier_timeout_s"):
             self._core_voice_session_swap_barrier_timeout_s = 5.0
+        if not hasattr(self, "_core_voice_listener_cancel_timeout_s"):
+            self._core_voice_listener_cancel_timeout_s = 2.0
+        if not hasattr(self, "_independent_visual_generation"):
+            self._independent_visual_generation = 0
+        if not hasattr(self, "_independent_visual_frame_ttl_s"):
+            self._independent_visual_frame_ttl_s = 5.0
+        if not hasattr(self, "_latest_independent_visual_frame"):
+            self._latest_independent_visual_frame = None
+        if not hasattr(self, "_core_multimodal_turns"):
+            self._core_multimodal_turns = {}
+        if not hasattr(self, "_prerecord_visual_validations"):
+            self._prerecord_visual_validations = {}
+        if not hasattr(self, "_prerecord_visual_frames"):
+            self._prerecord_visual_frames = []
+        if not hasattr(self, "_voice_input_pipeline_transition_lock"):
+            self._voice_input_pipeline_transition_lock = asyncio.Lock()
+        if not hasattr(self, "_voice_input_pipeline_failure_token"):
+            self._voice_input_pipeline_failure_token = None
         if not hasattr(self, "_voice_input_transition_generation"):
             self._voice_input_transition_generation = 0
         if not hasattr(self, "_voice_lease_resync_signal_state"):
             self._voice_lease_resync_signal_state = None
+        if not hasattr(self, "_voice_lease_resync_delivery_state"):
+            self._voice_lease_resync_delivery_state = None
         if not hasattr(self, "_voice_input_noise_reduction_enabled"):
             self._voice_input_noise_reduction_enabled = True
+        if not hasattr(self, "_core_asr_cleanup_tasks"):
+            self._core_asr_cleanup_tasks = set()
         if not hasattr(self, "_last_hot_swap_rebind_drop_log_time"):
             self._last_hot_swap_rebind_drop_log_time = 0.0
         if not hasattr(self, "_independent_asr_handshake_override"):
             self._independent_asr_handshake_override = None
         if not hasattr(self, "_speaker_shadow_factory"):
             self._speaker_shadow_factory = None
+        if not hasattr(self, "_voice_session_activation_required"):
+            self._voice_session_activation_required = False
+        if not hasattr(self, "_voice_session_activation_policy_revision"):
+            self._voice_session_activation_policy_revision = 0
+        if not hasattr(self, "_voice_input_external_suppressions"):
+            self._voice_input_external_suppressions = set()
         if not hasattr(
             self,
             "_voice_input_resource_optimization_handshake_override",
@@ -363,18 +565,670 @@ class AsrRuntimeMixin:
             "_voice_input_resource_optimization_session_value",
         ):
             self._voice_input_resource_optimization_session_value = None
+        if not hasattr(
+            self,
+            "_independent_asr_provider_preference_handshake_override",
+        ):
+            self._independent_asr_provider_preference_handshake_override = None
+        if not hasattr(
+            self,
+            "_independent_asr_provider_preference_session_value",
+        ):
+            self._independent_asr_provider_preference_session_value = None
         if not hasattr(self, "_core_asr_preview_turn_id"):
             self._core_asr_preview_turn_id = ""
         if not hasattr(self, "_core_asr_preview_text"):
             self._core_asr_preview_text = ""
         if not hasattr(self, "_core_asr_preview_turn_token"):
             self._core_asr_preview_turn_token = None
-        if not hasattr(self, "_blocked_text_mode_microphone_signalled"):
-            self._blocked_text_mode_microphone_signalled = False
+        if not hasattr(self, "_blocked_text_mode_microphone_signal_state"):
+            self._blocked_text_mode_microphone_signal_state = None
+        if not hasattr(self, "_blocked_text_mode_microphone_delivery_state"):
+            self._blocked_text_mode_microphone_delivery_state = None
         if not hasattr(self, "_voice_input_websocket"):
             self._voice_input_websocket = None
         if not hasattr(self, "_voice_lease_resync_suppressed"):
             self._voice_lease_resync_suppressed = False
+
+    def _stage_independent_visual_frame(
+        self,
+        image_b64: str,
+        *,
+        source: str,
+        request_id: str | None,
+        captured_at: float,
+    ) -> bool:
+        """Stage one validated live frame without sending it to any model."""
+
+        self._ensure_asr_runtime_state()
+        if (
+            self._asr_route_mode != "independent"
+            or not image_b64
+            or not isinstance(captured_at, (int, float))
+        ):
+            return False
+
+        ingress = self._capture_ingress_token()
+        previous = self._latest_independent_visual_frame
+        stable_captured_at = float(captured_at)
+        # screen/camera 各自跑独立的 fire-and-forget 校验任务，先捕获的那帧完全
+        # 可能后 staging。这两件事必须分开判：
+        #   - 「最新帧缓存」必须真的是最新的，乱序到达的旧帧不能顶掉它；
+        #   - 但那张旧帧仍然是本回合发声区间里的合法成员，抽样要收下它，
+        #     否则开头那张（正是用户开口时指的东西）会被后到的邻居顶掉。
+        supersedes_latest_cache = not (
+            previous is not None
+            and previous.session_epoch == ingress.session_epoch
+            and previous.route_generation == self._voice_input_transition_generation
+            and stable_captured_at <= previous.captured_at
+        )
+
+        self._independent_visual_generation += 1
+        frame = _IndependentVisualFrame(
+            image_b64=image_b64,
+            session_epoch=ingress.session_epoch,
+            route_generation=self._voice_input_transition_generation,
+            generation=self._independent_visual_generation,
+            captured_at=stable_captured_at,
+            source=str(source or "unknown"),
+            request_id=(str(request_id) if request_id is not None else None),
+        )
+        if supersedes_latest_cache:
+            self._latest_independent_visual_frame = frame
+        # 语义端点之后（lifecycle 进 DRAINING）到 provider final 派发之间，周期性
+        # 的截图任务还会继续落地。那些画面已经不是这段发声了。判据必须是回合自己
+        # 的端点截止时间而不是"当下的 lifecycle 状态"——校验任务并发跑，说话期间
+        # 拍到、端点之后才校验完的帧按状态判会被误杀。
+        self._mark_independent_asr_endpoint_if_sealed()
+        observed = False
+        for record in tuple(self._core_multimodal_turns.values()):
+            # 跳过已作废的记录：它们留着只是为了别把正在派发的那条 final 的**话**
+            # 弄丢，视觉所有权早已交给后继回合。喂给它们等于让新帧被一条不会再用图
+            # 的记录"吃掉"，当前这一轮反而收不到（而且 prerecord 暂存也不会武装）。
+            if record.invalidated.is_set():
+                continue
+            if record.accepts(frame):
+                record.observe(frame)
+                observed = True
+        # 判据是"当前这一轮还没建起来"，不是"一条记录都没有"：为了保住正在派发的
+        # 上一条 final，旧记录会被保留下来，dict 因此不再会空。
+        if not observed and self._active_multimodal_turn_record() is None:
+            # 语音确认到 _begin_core_multimodal_turn 之间还没有 record。这一帧已经
+            # 校验完了，任务栈救不了它（任务一完成就被摘掉），单槽缓存也只留最新
+            # 一张 —— 不留下来的话这段窗口里的开头/中间帧就永久丢了。
+            self._retain_prerecord_visual_frame(frame)
+        return supersedes_latest_cache or observed
+
+    def _current_turn_onset_for_prerecord(self) -> float | None:
+        """This turn's speech onset, when it is recent enough to be trusted.
+
+        Same trust window the record uses, so the buffer and the record agree
+        on where the turn began. Returns None when no usable onset exists --
+        then every retained frame stays a candidate, which is the old behaviour.
+        """
+        runtime = getattr(self, "_asr_runtime", None)
+        # 重叠期间优先读 _asr_pending_turn_onset_at：后继发声在前一轮还 DRAINING
+        # 时开口，它的边界先记在 pending 槽里，要等前一轮的 provider final 把那一
+        # 轮激活了才拷进 _asr_turn_onset_at。只读后者的话，整个重叠窗口里拿到的都
+        # 是**前一轮**的 onset —— 封口之后、后继开口之前的帧照样算「本轮的」，占满
+        # 有界缓冲，把后继真正的开头/中间帧挤掉。
+        onset = getattr(runtime, "_asr_pending_turn_onset_at", None)
+        if not isinstance(onset, (int, float)):
+            onset = getattr(runtime, "_asr_turn_onset_at", None)
+        if not isinstance(onset, (int, float)):
+            return None
+        age = time.monotonic() - float(onset)
+        if not 0.0 <= age <= _ONSET_TRUST_WINDOW_S:
+            return None
+        return float(onset)
+
+    def _retain_prerecord_visual_frame(
+        self,
+        frame: _IndependentVisualFrame,
+    ) -> None:
+        """Keep one already-validated frame until the onset-owned record exists."""
+
+        frames = self._prerecord_visual_frames
+        # 先按**本轮 onset** 裁掉开口之前的帧，再做有界抽稀。
+        #
+        # 这个缓冲会在屏幕/摄像头共享着、用户还没开口时就被闲置帧填满（8 张）。
+        # 抽稀刻意保留跨度大的两端，于是那些闲置帧很占位；等用户真开口、确认到
+        # 注册之间拍的几张挤进来时，它们和整段闲置历史一起被抽稀，随后建记录时
+        # 的 onset 过滤又把开口之前的全丢掉 —— 最后只剩最新那一张，这一轮的开头
+        # 和中间视图就没了。开口之前的帧本来就不属于这一轮，不该占它的名额。
+        onset = self._current_turn_onset_for_prerecord()
+        if onset is not None:
+            stale = [item for item in frames if item.captured_at < onset]
+            if stale:
+                frames[:] = [item for item in frames if item.captured_at >= onset]
+        # 按拍摄时间维护，不按落地顺序 —— 并发校验下两者不是一回事（这条判据在
+        # middle_candidates 上已经栽过一次，这里是同一个坑）。否则下面按"相邻跨度"
+        # 抽稀时，列表两端根本不是时间上的首尾，还可能删掉真正最早/最晚的那帧。
+        bisect.insort(
+            frames,
+            frame,
+            key=lambda item: (item.captured_at, item.generation),
+        )
+        # 有界。超限时**不能丢队头** —— 队头正是这段发声的开头（用户开口时指的东
+        # 西），丢掉它就等于把 record 建立前那段窗口的起点抹掉。改成丢掉"最冗余"
+        # 的内点（左右邻居跨度最小），两端保留；与 middle_candidates 的抽稀同一
+        # 判据，留下的仍然大致铺满整段。
+        while len(frames) > _MAX_PRERECORD_VISUAL_VALIDATIONS:
+            victim = min(
+                range(1, len(frames) - 1),
+                key=lambda index: (
+                    frames[index + 1].captured_at - frames[index - 1].captured_at,
+                    index,
+                ),
+            )
+            del frames[victim]
+
+    def _mark_independent_asr_endpoint_if_sealed(self) -> None:
+        """Stamp the endpoint cutoff on the active turn once ASR seals it.
+
+        Prefers the runtime's recorded seal instant (``_asr_turn_endpointed_at``)
+        over the moment Core happens to look. Sampling the lifecycle state can
+        only ever place the cutoff at an observation point, which drifts later
+        than the real endpoint and lets a frame captured in that gap pass as if
+        it belonged to the utterance. The recorded instant has no such drift.
+
+        Falls back to the observation time for a runtime that exposes the
+        lifecycle but not the timestamp, and leaves the cutoff unset when
+        neither is available (previous admit-everything behaviour).
+        """
+
+        runtime = getattr(self, "_asr_runtime", None)
+        endpointed_at = getattr(runtime, "_asr_turn_endpointed_at", None)
+        # live 字段在 PROVIDER_FINAL 时被清，所以它只可能描述**在飞的那一轮**，
+        # 用 started_at 当下界就够。保留副本则是跨轮存活的，必须更严 —— 见下。
+        live_endpoint = isinstance(endpointed_at, (int, float))
+        # 三类来源要分开，不能只分 live / 非 live：
+        #   live     —— 在飞那一轮的字段，PROVIDER_FINAL 会清；
+        #   retained —— 跨轮存活的保留副本，可能是**上一轮**的；
+        #   observed —— 两者都没有时按 DRAINING 当场取的 monotonic，它必然属于
+        #               本轮（就是此刻），不该套跨轮那条更严的判据。
+        retained_endpoint = False
+        if not live_endpoint:
+            # PROVIDER_FINAL 会把上面那个清掉，而 Core 要到 transcript 派发之后
+            # 才冻结这一轮 —— 冻结时读到的必然是 None。所以再读一个不随 final
+            # 清除的副本；上一轮的残值由下面 started_at 的比较排掉。
+            endpointed_at = getattr(
+                runtime,
+                "_asr_last_turn_endpointed_at",
+                None,
+            )
+            retained_endpoint = isinstance(endpointed_at, (int, float))
+            retained_key = getattr(
+                runtime,
+                "_asr_last_turn_endpointed_key",
+                None,
+            )
+        if not isinstance(endpointed_at, (int, float)):
+            lifecycle = getattr(runtime, "_asr_lifecycle", None)
+            state = getattr(getattr(lifecycle, "snapshot", None), "state", None)
+            if state is not VoiceLifecycleState.DRAINING:
+                return
+            endpointed_at = time.monotonic()
+        sealed_at = float(endpointed_at)
+        for record in self._core_multimodal_turns.values():
+            # 已作废的记录留着只是为了保住正在派发的那条 final 的话，它不会再交出
+            # 图；把后继回合的封口盖到它头上没有意义，也让状态更难读。
+            if record.invalidated.is_set() or record.endpoint_at is not None:
+                continue
+            # ⚠️ 判据不能用 started_at：overlap 的后继发声其起点**早于**上一轮封口
+            # （onset 是在上一轮还 ACTIVE 时记下的），拿 started_at 比会把上一轮的
+            # 封口绑成本轮的截止点，本轮之后拍的每一帧都被拒 —— 整轮退化成纯文本。
+            #
+            # 保留副本跨轮存活，所以要求它晚于 record **注册**的时刻：上一轮的封口
+            # 必然发生在本轮 record 建立之前。live 字段只描述在飞那一轮，仍用
+            # started_at，免得极短发声里 seal 抢在注册之前时反而绑不上。
+            if retained_endpoint and isinstance(retained_key, str):
+                # 保留副本跨轮存活，所以先问它**属于哪一轮**。
+                #
+                # 为什么不靠时间戳：monotonic 在 Windows 上是 ~15ms 粒度（本文件
+                # _begin_core_multimodal_turn 里已经为同一个原因退回过生成号判
+                # 据）。"上一轮的封口"和"本轮自己的封口"都可能与本轮 record 的注
+                # 册时刻相等，往任一个方向猜都会错：
+                #   猜"相等归上一轮"（严格 >）—— 本轮若在注册的同一 tick 里封口，
+                #     它自己的截止点被丢掉，endpoint_at 一直是 None，停口之后拍的
+                #     帧会被折进这条 transcript；
+                #   猜"相等归本轮"（>=）—— 上一轮的封口被盖到后继回合头上，本轮
+                #     之后拍的每一帧都过不了 accepts()，稍长的发声等开头那张过期
+                #     就整轮退化成纯文本。
+                # 带上身份就不用猜：runtime 封口时把回合键一并记下（同构于
+                # record.turn_id），这里直接判是不是同一轮。
+                floor_ok = retained_key == record.turn_id
+            elif retained_endpoint:
+                # 旧 runtime / 测试替身没有那个身份字段时的兼容回落：退回时间戳，
+                # 并把相等判给上一轮（丢掉本轮自己的截止点只是少一道过滤，把上一
+                # 轮的封口盖到后继头上则会让整轮退化成纯文本，后者更贵）。
+                floor_ok = sealed_at > record.registered_at
+            elif live_endpoint:
+                # live 字段只描述在飞的那一轮，用 started_at 当下界；取 >= 是为了
+                # 极短发声里 seal 抢在注册之前时仍绑得上。
+                floor_ok = sealed_at >= record.started_at
+            else:
+                # 当场观测：这个值就是此刻，必然属于本轮，沿用原判据即可。
+                floor_ok = sealed_at >= record.registered_at
+            if floor_ok:
+                record.endpoint_at = sealed_at
+
+    def _track_independent_visual_validation_task(
+        self,
+        task: asyncio.Task,
+        *,
+        captured_at: object,
+    ) -> bool:
+        """Bind one router-owned validation task to the active ASR turn."""
+
+        self._ensure_asr_runtime_state()
+        if (
+            self._asr_route_mode != "independent"
+            or not isinstance(task, asyncio.Task)
+            or not isinstance(captured_at, (int, float))
+        ):
+            return False
+        stable_captured_at = float(captured_at)
+        record = self._active_multimodal_turn_record()
+        if record is None:
+            # 语音确认到 _begin_core_multimodal_turn 之间还没有 record。直接丢掉
+            # 这个任务的话，短发声在 final 时看不到它、冻结成纯文本回合，而那一帧
+            # 校验完时 record 已经作废了。先暂存，等 record 建出来再挂上去。
+            self._stash_prerecord_visual_validation_task(task, stable_captured_at)
+            return False
+        if record.invalidated.is_set():
+            return False
+        ingress = self._capture_ingress_token()
+        if (
+            record.session_epoch != ingress.session_epoch
+            or record.route_generation != self._voice_input_transition_generation
+            or stable_captured_at < record.started_at
+        ):
+            return False
+        self._bind_visual_validation_task(record, task, stable_captured_at)
+        return True
+
+    @staticmethod
+    def _bind_visual_validation_task(
+        record: _CoreMultimodalTurnRecord,
+        task: asyncio.Task,
+        captured_at: float,
+    ) -> None:
+        record.pending_visual_validations[task] = captured_at
+
+        def discard(completed: asyncio.Task) -> None:
+            record.pending_visual_validations.pop(completed, None)
+
+        task.add_done_callback(discard)
+
+    def _active_multimodal_turn_record(self):
+        """Return the newest record that has not been superseded.
+
+        Once older records are retained (so an in-flight final keeps its
+        transcript), "whichever record comes first" no longer means "the
+        current turn" — the retained ones are still there, just invalidated.
+        """
+
+        active = [
+            record
+            for record in self._core_multimodal_turns.values()
+            if not record.invalidated.is_set()
+            # 已封口（endpoint_at 已打）的同样不算 active：它的 accepts() 会按
+            # 那个时刻挡掉之后拍的帧，而作废要等 provider final 回来、后继才能
+            # prepare。这段窗口里如果把它算作 active，后继发声的帧既进不了它、
+            # 又因为「有 active record」而不进 prerecord 缓冲，直接丢掉 ——
+            # 后继回合开头和中间的帧就永久没了，只剩单槽缓存那一张。
+            and record.endpoint_at is None
+        ]
+        if not active:
+            return None
+        return max(active, key=lambda record: record.registered_at)
+
+    def _stash_prerecord_visual_validation_task(
+        self,
+        task: asyncio.Task,
+        captured_at: float,
+    ) -> None:
+        """Hold one validation task until the onset-owned record exists."""
+
+        pending = self._prerecord_visual_validations
+        pending[task] = captured_at
+        # 有界：只可能积压「语音确认到 record 建立」这一小段窗口里的任务；仍然设
+        # 一个上限，免得 record 一直没建出来时无限增长。
+        #
+        # ⚠️ 淘汰方向与 _prerecord_visual_frames 一致：**不能丢最早的那个**。
+        # router 按拍摄顺序注册任务，最早那个就是这段发声的开头；丢了它之后，短发声
+        # 在 final 时等不到它，record 在那一帧落地前就作废了，抽样里正好缺掉"用户开
+        # 口时看到的东西"。改成丢「最冗余」的内点（左右邻居跨度最小），两端保留。
+        while len(pending) > _MAX_PRERECORD_VISUAL_VALIDATIONS:
+            ordered = sorted(pending.items(), key=lambda item: item[1])
+            victim = min(
+                range(1, len(ordered) - 1),
+                key=lambda index: (
+                    ordered[index + 1][1] - ordered[index - 1][1],
+                    index,
+                ),
+            )
+            pending.pop(ordered[victim][0], None)
+
+        def discard(completed: asyncio.Task) -> None:
+            self._prerecord_visual_validations.pop(completed, None)
+
+        task.add_done_callback(discard)
+
+    def _attach_prerecord_visual_validation_tasks(
+        self,
+        record: _CoreMultimodalTurnRecord,
+    ) -> None:
+        """Move eligible pre-record validation tasks onto the new record."""
+
+        stashed = self._prerecord_visual_validations
+        self._prerecord_visual_validations = {}
+        for task, captured_at in stashed.items():
+            if task.done() or captured_at < record.started_at:
+                continue
+            self._bind_visual_validation_task(record, task, captured_at)
+
+    async def _await_independent_visual_validation_tasks(
+        self,
+        turn_id: str,
+    ) -> None:
+        """Bound final-freeze on validations captured during this ASR turn."""
+
+        self._ensure_asr_runtime_state()
+        record = self._core_multimodal_turns.get(turn_id)
+        if record is None or record.invalidated.is_set():
+            return
+        freeze_at = time.monotonic()
+        if (
+            record.route_generation != self._voice_input_transition_generation
+            or record.session_epoch != self._capture_ingress_token().session_epoch
+        ):
+            return
+        eligible = [
+            task
+            for task, captured_at in record.pending_visual_validations.items()
+            if (
+                not task.done()
+                and record.started_at <= captured_at <= freeze_at
+                and freeze_at - captured_at
+                <= self._independent_visual_frame_ttl_s
+            )
+        ]
+        if not eligible:
+            return
+        remaining_ttl = max(
+            self._independent_visual_frame_ttl_s
+            - (freeze_at - record.pending_visual_validations[task])
+            for task in eligible
+        )
+        # Image validation is local/threaded work. Give an already-captured
+        # frame a short chance to join its transcript without holding the
+        # serial ASR final dispatcher behind a slow or wedged worker.
+        timeout = min(0.5, remaining_ttl)
+        if timeout <= 0:
+            return
+
+        all_validations = asyncio.gather(
+            *(asyncio.shield(task) for task in eligible),
+            return_exceptions=True,
+        )
+        invalidated = asyncio.create_task(record.invalidated.wait())
+        try:
+            await asyncio.wait(
+                {all_validations, invalidated},
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            if not all_validations.done():
+                all_validations.cancel()
+            if not invalidated.done():
+                invalidated.cancel()
+            await asyncio.gather(
+                all_validations,
+                invalidated,
+                return_exceptions=True,
+            )
+
+    def _begin_core_multimodal_turn(
+        self,
+        turn_id: str,
+        token: VoiceTurnToken,
+    ) -> None:
+        """Register raw-image ownership at the independent-ASR turn boundary."""
+
+        self._ensure_asr_runtime_state()
+        # The independent-ASR registry admits one Core chat utterance at a
+        # time. A newer prepare invalidates any older frame/text ownership
+        # synchronously, before candidate creation or provider awaits.
+        for previous in self._core_multimodal_turns.values():
+            previous.invalidated.set()
+        # ⚠️ 不能 clear()：上一条**已被接受**的 final 可能还在 dispatcher 里跑（比如
+        # 正卡在有界的视觉校验 join 上）。记录一没，它回来做身份自检时会认为世界已经
+        # 变了而直接 return —— 那句话既不落库也不提交，重叠发声等于抹掉用户完整的上
+        # 一轮。invalidated 已经置上，足以让它放弃**图**；话必须留住。
+        # 每条记录都在自己 dispatch 的 finally 里被 _abandon_core_voice_turn 按
+        # turn_id 移除。到不到上限，淘汰的判据都是**这条 final 派发完了没有**，不是
+        # 注册得早不早：挤掉一条还挂在 handle_input_transcript 上的 final，等于把用
+        # 户整句话丢掉。上限只对还没开始派发的记录（准备了却没等到 final 的回合）生
+        # 效，是内存兜底。
+        while len(self._core_multimodal_turns) >= _MAX_LIVE_TURN_RECORDS:
+            idle = [
+                key
+                for key, record in self._core_multimodal_turns.items()
+                if not record.dispatch_started
+            ]
+            if not idle:
+                # 全都在派发中。宁可让 dict 暂时超限也不丢数据 —— 真无限增长意味着
+                # 有 dispatch 卡死不返回，那是另一个 bug，不该在这里用丢用户发言来
+                # 掩盖它。
+                logger.warning(
+                    "[%s] %d independent ASR turn records are all mid-dispatch; "
+                    "keeping them past the cap rather than dropping a final",
+                    self.lanlan_name,
+                    len(self._core_multimodal_turns),
+                )
+                break
+            del self._core_multimodal_turns[
+                min(
+                    idle,
+                    key=lambda key: self._core_multimodal_turns[key].registered_at,
+                )
+            ]
+        # 所有权的起点是**语音确认那一刻**，不是这行代码执行的时刻：两者之间隔着
+        # _send_asr_lifecycle_state() 的投递 await，期间落地的帧是这段发声真正的
+        # 开头（用户开口时指的东西）。runtime 已经在每个 SPEECH_CONFIRMED 点记了
+        # _asr_turn_audio_started_at，直接用它；只有在它足够新（TTL 之内）时才采
+        # 信，免得残值把窗口往前拉到上一轮。
+        registered_at = time.monotonic()
+        started_at = registered_at
+        runtime = getattr(self, "_asr_runtime", None)
+        # 读 _asr_turn_onset_at 而不是 _asr_turn_audio_started_at：后者在两条
+        # SPEECH_CONFIRMED 路径上是 _send_asr_lifecycle_state() 投递完成之后才打
+        # 的，用它当起点会把投递窗口里拍的帧误判成不属于这段发声。
+        onset = getattr(runtime, "_asr_turn_onset_at", None)
+        if not isinstance(onset, (int, float)):
+            onset = getattr(runtime, "_asr_turn_audio_started_at", None)
+        # 这里判的是「这个 onset 是不是本回合的」，不是「帧新不新鲜」——帧的新鲜度
+        # 由 _snapshot_core_multimodal_turn 在冻结时另行 fail-closed。原来借用帧的
+        # 5 秒 TTL，会在**合法但迟到**的注册上误判：重叠发声排在一个 provider final
+        # 后面（该超时最长可到 40 秒），或 ASR 重连，都会让 onset 早于注册超过 5 秒。
+        # 一旦误判，started_at 退回注册时刻、prerecord 缓冲被清、真实开口以来的帧
+        # 全部不采纳 —— 明明屏幕/摄像头一直有输入，这一轮却退化成纯文本。
+        #
+        # 改用「一个回合等到建记录最长能等多久」为界：provider final 的最长超时
+        # （registry 里最大 40s）再留一倍余量。仍然拒绝未来时刻的 onset，也仍然
+        # 有生成号基线兜底「绝不复用上一轮的帧」。
+        onset_known = (
+            isinstance(onset, (int, float))
+            and 0.0 <= registered_at - float(onset)
+            <= _ONSET_TRUST_WINDOW_S
+        )
+        if onset_known:
+            started_at = float(onset)
+        record = _CoreMultimodalTurnRecord(
+            turn_id=turn_id,
+            session_epoch=token.ingress.session_epoch,
+            route_generation=self._voice_input_transition_generation,
+            start_image_generation=self._independent_visual_generation,
+            started_at=started_at,
+            registered_at=registered_at,
+        )
+        self._core_multimodal_turns[turn_id] = record
+        self._attach_prerecord_visual_validation_tasks(record)
+        # 缓存里那张如果就是在这个窗口里拍的，直接并进来。生成号基线同样要让开
+        # 它，否则 accepts() 会以 generation 为由把它挡在外面；而单槽缓存只留最新
+        # 一张，更早的本来就找不回来了。
+        #
+        # 只有拿到可信的 onset 时才这么做。拿不到时时间戳区分不了「上一轮的残帧」
+        # 和「本轮开头的帧」——monotonic 在 Windows 上是 ~15ms 粒度，注册时刻和刚
+        # 才那帧的拍摄时刻完全可能相等——此时必须退回生成号基线这条硬判据，
+        # 保住"绝不复用上一轮的帧"。
+        retained = self._prerecord_visual_frames
+        self._prerecord_visual_frames = []
+        latest = self._latest_independent_visual_frame
+        candidates = list(retained)
+        if latest is not None and all(
+            item.generation != latest.generation for item in candidates
+        ):
+            candidates.append(latest)
+        if onset_known:
+            eligible = [
+                item
+                for item in candidates
+                if item.session_epoch == record.session_epoch
+                and item.route_generation == record.route_generation
+                and item.captured_at >= record.started_at
+            ]
+            eligible.sort(key=lambda item: (item.captured_at, item.generation))
+            for item in eligible:
+                record.start_image_generation = min(
+                    record.start_image_generation,
+                    item.generation - 1,
+                )
+                record.observe(item)
+
+    def _snapshot_core_multimodal_turn(
+        self,
+        turn_id: str,
+        transcript: str,
+    ) -> MultimodalTurn | None:
+        """Freeze the frame owned by ``turn_id``; stale frames are fail-closed."""
+
+        self._ensure_asr_runtime_state()
+        record = self._core_multimodal_turns.get(turn_id)
+        if record is None:
+            return None
+        if record.invalidated.is_set():
+            # 记录留着只是为了别把这条 final 的**话**弄丢；后继 prepare 已经接管了
+            # 视觉所有权，这些帧属于新那一轮。返回 None = 走纯文本提交（这是正常的
+            # 无图路径，不是失败路径）。
+            return None
+        # 冻结前再采一次端点：staging 只在有帧落地时跑，最后一帧之后到 final 之间
+        # 的封口要在这里补上，否则截止值会漏。
+        self._mark_independent_asr_endpoint_if_sealed()
+        snapshot_at = time.monotonic()
+        if record.last_frame is None:
+            latest = self._latest_independent_visual_frame
+            if (
+                latest is not None
+                # 走 record.accepts 而不是自己再抄一遍条件：兜底路径同样要受端点
+                # 截止约束，否则端点之后拍的那张会从缓存溜进本回合。
+                and record.accepts(latest)
+                and snapshot_at - latest.captured_at
+                <= self._independent_visual_frame_ttl_s
+            ):
+                record.adopt_single_frame(latest)
+        newest = record.last_frame
+        if (
+            newest is None
+            or record.route_generation != self._voice_input_transition_generation
+            or newest.session_epoch != record.session_epoch
+            or newest.route_generation != record.route_generation
+            or newest.captured_at < record.started_at
+            # 只有最新那张要过 TTL：它回答的是"画面流还活着吗"。开头/中间那两张
+            # 本来就比 TTL 老（一次发声可以说很久），它们的有效性由"落在本回合
+            # 窗口内"保证，不该按新鲜度否掉。
+            or snapshot_at - newest.captured_at
+            > self._independent_visual_frame_ttl_s
+        ):
+            return None
+        frames = tuple(
+            frame for frame in record.sampled_frames() if record.accepts(frame)
+        )
+        if not frames:
+            return None
+        return MultimodalTurn(
+            turn_id=turn_id,
+            session_epoch=record.session_epoch,
+            route_generation=record.route_generation,
+            start_image_generation=record.start_image_generation,
+            image_generation=newest.generation,
+            captured_at=newest.captured_at,
+            images=tuple(frame.image_b64 for frame in frames),
+            transcript=transcript,
+            source=newest.source,
+            request_id=newest.request_id,
+        )
+    def _schedule_core_asr_cleanup(
+        self,
+        awaitable: Awaitable[Any],
+        *,
+        name: str,
+    ) -> asyncio.Task[Any]:
+        tasks = getattr(self, "_core_asr_cleanup_tasks", None)
+        if tasks is None:
+            tasks = set()
+            self._core_asr_cleanup_tasks = tasks
+        task = asyncio.create_task(awaitable, name=name)
+        tasks.add(task)
+        task.add_done_callback(
+            lambda completed: AsrRuntimeMixin._core_asr_cleanup_done(
+                self,
+                completed,
+            )
+        )
+        return task
+
+    def _core_asr_cleanup_done(self, task: asyncio.Task[Any]) -> None:
+        self._core_asr_cleanup_tasks.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error(
+                "[%s] Core ASR cleanup task %s failed error_type=%s",
+                self.lanlan_name,
+                task.get_name(),
+                type(error).__name__,
+            )
+
+    def _replace_voice_input_audio_pipeline(
+        self,
+        *,
+        nr_enabled: bool,
+    ) -> asyncio.Task[Any]:
+        stale_pipeline = self._voice_input_audio_pipeline
+        self._voice_input_audio_pipeline = VoiceInputAudioPipeline(
+            nr_enabled=nr_enabled,
+        )
+        self._voice_input_pipeline_failed = False
+
+        async def close_stale_pipeline() -> None:
+            try:
+                await stale_pipeline.close()
+            except Exception:
+                logger.warning(
+                    "[%s] voice input audio pipeline close failed",
+                    self.lanlan_name,
+                )
+
+        return AsrRuntimeMixin._schedule_core_asr_cleanup(
+            self,
+            close_stale_pipeline(),
+            name="core-voice-input-pipeline-close",
+        )
 
     def _begin_asr_route_operation(self) -> int:
         self._asr_route_operation_generation += 1
@@ -389,14 +1243,99 @@ class AsrRuntimeMixin:
     ) -> None:
         if mode not in {"native", "independent", "blocked"}:
             raise ValueError("MICROPHONE_ROUTE_INVALID")
+        leaving_blocked = self._asr_route_mode == "blocked" and mode != "blocked"
         if mode != self._asr_route_mode:
             self._microphone_route_generation += 1
         if mode != "blocked":
+            # A live route means no committed pipeline failure owns it any
+            # more, so release the ingress fail-closed latch here -- the one
+            # place that decides the route is usable again. Leaving it to the
+            # pipeline replacement instead is what let an unrelated toggle
+            # reopen ingress mid-failure.
+            self._voice_input_pipeline_failure_token = None
             # Re-arm the one-shot text-mode notice for the next episode, and
             # the lease-resync signal now that a live route exists again.
-            self._blocked_text_mode_microphone_signalled = False
+            self._blocked_text_mode_microphone_signal_state = None
+            self._blocked_text_mode_microphone_delivery_state = None
+            if leaving_blocked:
+                self._voice_lease_resync_signal_state = None
+            self._voice_lease_resync_delivery_state = None
             self._voice_lease_resync_suppressed = False
         self._asr_route_mode = mode
+
+        if mode != "blocked":
+            self._visual_route_mode = mode
+        visual_route_mode = self._visual_route_mode
+        self._sync_realtime_visual_delivery_mode(visual_route_mode)
+        if mode == "blocked" and visual_route_mode != "independent":
+            # A blocked route is unresolved, not permission to fall back to raw
+            # provider vision. Native mode clears the session fence, so re-arm
+            # it after restoring the remembered policy on a replacement session.
+            self._block_realtime_raw_visual_delivery()
+
+    def _block_realtime_raw_visual_delivery(self) -> None:
+        session = getattr(self, "session", None)
+        block_raw_visual_delivery = getattr(
+            session,
+            "block_raw_visual_delivery",
+            None,
+        )
+        if not callable(block_raw_visual_delivery):
+            return
+        try:
+            block_raw_visual_delivery()
+        except Exception as exc:
+            logger.warning(
+                "[%s] raw visual delivery fence failed: %s",
+                self.lanlan_name,
+                exc,
+            )
+
+    def _sync_realtime_visual_delivery_mode(
+        self,
+        route_mode: Literal["native", "independent", "blocked"],
+    ) -> None:
+        """Apply the ASR strategy to the session's provider-neutral visual policy."""
+
+        # Keep microphone ownership and visual delivery as separate contracts.
+        # Independent ASR never authorizes raw frames to ride the Realtime
+        # provider connection. Native audio keeps the session's established
+        # capability routing (raw native vision or its legacy fallback).
+        session = getattr(self, "session", None)
+        set_visual_delivery_mode = getattr(
+            session,
+            "set_visual_delivery_mode",
+            None,
+        )
+        if not callable(set_visual_delivery_mode):
+            return
+        if route_mode == "independent":
+            # Independent ASR owns raw frames in Core until transcript final.
+            # Arming the provider fence is sufficient; selecting the legacy
+            # external-description mode would reintroduce image annotation in
+            # an ordinary user conversation.
+            self._block_realtime_raw_visual_delivery()
+            return
+        if route_mode != "native":
+            return
+        try:
+            set_visual_delivery_mode("native")
+            allow_raw_visual_delivery = getattr(
+                session,
+                "allow_raw_visual_delivery",
+                None,
+            )
+            if callable(allow_raw_visual_delivery):
+                allow_raw_visual_delivery()
+        except Exception as exc:
+            # This setter only updates local session policy. A broken or stale
+            # session must not take the independent-ASR microphone route down.
+            self._block_realtime_raw_visual_delivery()
+            logger.warning(
+                "[%s] visual delivery mode sync failed: %s",
+                self.lanlan_name,
+                exc,
+            )
 
     def _capture_ingress_token(self, _lifecycle=None) -> VoiceIngressToken:
         return self._asr_runtime.capture_ingress_token(
@@ -479,6 +1418,54 @@ class AsrRuntimeMixin:
             or ingress_token == self._capture_ingress_token()
         )
 
+    def _independent_asr_transport_is_ready(self) -> bool:
+        runtime = getattr(self, "_asr_runtime", None)
+        session = getattr(runtime, "_asr_session", None)
+        return bool(session is not None and getattr(session, "is_ready", True))
+
+    def _voice_input_ready_is_current(
+        self,
+        source_identity: tuple[object, ...],
+        session_epoch: int,
+    ) -> bool:
+        return bool(
+            self._core_asr_operation_identity_matches(source_identity)
+            and session_epoch
+            == self._core_asr_identity_ingress_token(source_identity).session_epoch
+            and self._voice_lease_owner == "core"
+            and self._voice_lease_synchronized
+            and not self._voice_lease_hard_muted
+            and self._asr_route_mode == "independent"
+            and self._independent_asr_transport_is_ready()
+        )
+
+    def _voice_input_recovery_failure_is_current(
+        self,
+        source_identity: tuple[object, ...],
+        session_epoch: int,
+        failure_ingress_token: VoiceIngressToken | None = None,
+    ) -> bool:
+        # Failure cannot reuse the ready predicate: the transport is already
+        # dead, so requiring `_independent_asr_transport_is_ready()` would
+        # suppress the only event the frontend uses to enter `failed`.
+        current_token = self._core_asr_identity_ingress_token(source_identity)
+        if (
+            failure_ingress_token is not None
+            and (
+                failure_ingress_token.session_epoch != current_token.session_epoch
+                or failure_ingress_token.connection_id != current_token.connection_id
+                or failure_ingress_token.lease_generation
+                != current_token.lease_generation
+                or failure_ingress_token.route_generation
+                != current_token.route_generation
+            )
+        ):
+            return False
+        return bool(
+            self._core_asr_operation_identity_matches(source_identity)
+            and session_epoch == current_token.session_epoch
+        )
+
     def _ingress_token_matches(self, token: VoiceIngressToken) -> bool:
         return bool(
             token.connection_id == self._voice_lease_connection_id
@@ -487,6 +1474,8 @@ class AsrRuntimeMixin:
         )
 
     def _voice_input_accepts_pcm(self) -> bool:
+        if preview_isolation_registry.is_manager_isolated(self):
+            return False
         owner = self._voice_lease_owner
         active_identity = self._voice_input_registry.active_identity
         owner_has_target = bool(
@@ -507,6 +1496,927 @@ class AsrRuntimeMixin:
             and not self._voice_lease_hard_muted
             and not self._voice_lease_focus_suppressed
             and not self._voice_input_suppressed
+            and not getattr(self, "_voice_input_external_suppressions", set())
+        )
+
+    async def _handle_voice_identity_control(self, message: dict, *, connection_id: str) -> dict:
+        self._ensure_asr_runtime_state()
+        return await VoiceReadinessControl.handle(self, message, connection_id=connection_id)
+
+    async def set_voice_input_suppressed(
+        self,
+        reason: str,
+        *,
+        suppressed: bool,
+    ) -> None:
+        """Apply an application-level PCM gate without becoming a consumer."""
+
+        normalized = str(reason or "").strip()
+        if not normalized:
+            raise ValueError("suppression reason must be non-empty")
+        if type(suppressed) is not bool:
+            raise TypeError("suppressed must be bool")
+        reasons = getattr(self, "_voice_input_external_suppressions", None)
+        if reasons is None:
+            reasons = set()
+            self._voice_input_external_suppressions = reasons
+        changed = False
+        if suppressed:
+            if normalized not in reasons:
+                reasons.add(normalized)
+                changed = True
+        elif normalized in reasons:
+            reasons.discard(normalized)
+            changed = True
+        if not changed:
+            return
+        self._invalidate_voice_pcm_sync(normalized)
+        if suppressed:
+            if getattr(self, "_asr_route_mode", "blocked") == "native":
+                await self._reset_native_audio_turn(normalized)
+            else:
+                await self._abort_independent_asr(normalized)
+
+    async def set_speaker_verifier_factory(
+        self,
+        factory: SpeakerShadowFactory | None,
+        *,
+        activation_generation: str,
+    ) -> bool | VoiceIdentityActivationResult:
+        """Update future and active independent-ASR speaker verification."""
+
+        try:
+            updated = await self._asr_runtime.set_speaker_verifier_factory(
+                factory,
+                activation_generation=activation_generation,
+            )
+        except asyncio.CancelledError:
+            if factory is None:
+                self._speaker_shadow_factory = None
+            raise
+        if updated or factory is None:
+            self._speaker_shadow_factory = factory
+        if updated:
+            if (
+                factory is not None
+                and getattr(self, "_asr_route_mode", "blocked") != "independent"
+            ):
+                return VoiceIdentityActivationResult.UNSUPPORTED_ASR_ROUTE
+            return VoiceIdentityActivationResult.READY
+        close = getattr(factory, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+        return False
+
+    def require_voice_session_activation(
+        self,
+        *,
+        activation_generation: str,
+    ) -> int:
+        """Synchronously close microphone output while authority is replaced.
+
+        This operation only tightens the common PCM gate.  It deliberately has
+        no await so a newer required policy can invalidate an older factory
+        replacement even while that replacement is waiting on a session lock.
+        Reopening the route remains the responsibility of the serialized async
+        setter below.
+        """
+
+        if type(activation_generation) is not str or not activation_generation.strip():
+            raise ValueError("activation_generation must be a non-empty string")
+        self._ensure_asr_runtime_state()
+        previous_factory = self._voice_session_activation_factory
+        self._voice_session_activation_degraded = True
+        self._voice_session_activation_required = True
+        self._voice_session_activation_factory = None
+        self._voice_session_activation_authority_generation = activation_generation
+        self._voice_session_activation_policy_revision += 1
+        self._voice_session_activation_profile_revision += 1
+        self._voice_session_activation_permission_revision += 1
+        self._voice_session_activation_sequence = 0
+        self._voice_session_activation_sample_cursor = 0
+        self._voice_session_activation_status = None
+        self._invalidate_voice_pcm_sync("voice_session_activation_authority_revoke")
+        if previous_factory is not None:
+            try:
+                previous_factory.close()
+            except Exception:
+                logger.warning(
+                    "[%s] revoked voice-session activation factory close failed",
+                    self.lanlan_name,
+                )
+        return self._voice_session_activation_policy_revision
+
+    def voice_session_activation_policy_token(self) -> int:
+        """Return the synchronous fence required by an async authority write."""
+
+        self._ensure_asr_runtime_state()
+        return self._voice_session_activation_policy_revision
+
+    async def set_voice_session_activation_factory(
+        self,
+        factory: VoiceSessionActivationFactory | None,
+        *,
+        activation_generation: str,
+        activation_required: bool = False,
+        expected_policy_revision: int | None = None,
+    ) -> VoiceIdentityActivationResult:
+        """Replace the Owner activation authority for future microphone PCM."""
+
+        if type(activation_generation) is not str or not activation_generation.strip():
+            raise ValueError("activation_generation must be a non-empty string")
+        if type(activation_required) is not bool:
+            raise TypeError("activation_required must be bool")
+        if expected_policy_revision is not None and (
+            type(expected_policy_revision) is not int or expected_policy_revision < 0
+        ):
+            raise TypeError("expected_policy_revision must be a non-negative int or None")
+        if factory is not None and (
+            getattr(factory, "activation_generation", None) != activation_generation
+        ):
+            raise ValueError("activation factory generation does not match authority")
+        self._ensure_asr_runtime_state()
+        policy_revision = (
+            self._voice_session_activation_policy_revision
+            if expected_policy_revision is None
+            else expected_policy_revision
+        )
+        session_swap_lock = self._core_voice_session_swap_lock
+        try:
+            await asyncio.wait_for(
+                session_swap_lock.acquire(),
+                timeout=self._core_voice_session_swap_barrier_timeout_s,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[%s] voice-session activation authority replacement timed out "
+                "waiting for the Core session barrier",
+                self.lanlan_name,
+            )
+            return VoiceIdentityActivationResult.RUNTIME_DEGRADED
+        try:
+            if policy_revision != self._voice_session_activation_policy_revision:
+                return VoiceIdentityActivationResult.RUNTIME_DEGRADED
+            if (
+                factory is self._voice_session_activation_factory
+                and activation_generation
+                == self._voice_session_activation_authority_generation
+                and activation_required
+                is self._voice_session_activation_required
+                and not self._voice_session_activation_degraded
+            ):
+                return VoiceIdentityActivationResult.READY
+            if self._speaker_shadow_factory is not None:
+                # The component revokes its old logical authority before it
+                # awaits detector replacement. Close the common PCM gate for
+                # that entire transaction so no frame can slip through the
+                # factory-none branch while neither verifier is authoritative.
+                self._voice_session_activation_degraded = True
+                try:
+                    detached = await self._asr_runtime.set_speaker_verifier_factory(
+                        None,
+                        activation_generation=activation_generation,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    return VoiceIdentityActivationResult.RUNTIME_DEGRADED
+                if policy_revision != self._voice_session_activation_policy_revision:
+                    return VoiceIdentityActivationResult.RUNTIME_DEGRADED
+                if not detached:
+                    return VoiceIdentityActivationResult.RUNTIME_DEGRADED
+                self._speaker_shadow_factory = None
+            async with self._voice_session_activation_lock:
+                if policy_revision != self._voice_session_activation_policy_revision:
+                    return VoiceIdentityActivationResult.RUNTIME_DEGRADED
+                retired_generation = (
+                    self._capture_voice_session_activation_generation()
+                )
+                retired_idle_identity = (
+                    self._native_activation_idle_reconnect_identity
+                )
+                session_ref = getattr(self, "session", None)
+                connection_generation = getattr(
+                    session_ref,
+                    "_connection_generation",
+                    None,
+                )
+                previous_factory = self._voice_session_activation_factory
+                previous_runtime = self._voice_session_activation_runtime
+                self._voice_session_activation_factory = factory
+                self._voice_session_activation_required = activation_required
+                self._voice_session_activation_authority_generation = (
+                    activation_generation
+                    if factory is not None or activation_required
+                    else ""
+                )
+                self._voice_session_activation_runtime = None
+                self._voice_session_activation_profile_revision += 1
+                self._voice_session_activation_permission_revision += 1
+                self._voice_session_activation_sequence = 0
+                self._voice_session_activation_sample_cursor = 0
+                self._voice_session_activation_degraded = False
+                self._voice_session_activation_status = None
+                if (
+                    getattr(self, "session_closed_by_server", False)
+                    and self.session is session_ref
+                    and retired_idle_identity
+                    == (retired_generation, connection_generation)
+                ):
+                    self._native_activation_idle_reconnect_identity = (
+                        self._capture_voice_session_activation_generation(),
+                        connection_generation,
+                    )
+                else:
+                    self._native_activation_idle_reconnect_identity = None
+                prefix_entry = getattr(self, "_voice_activation_delivery_prefix", None)
+                if prefix_entry is not None:
+                    self._revoke_voice_activation_prefix(
+                        prefix_entry[0], "voice_session_activation_factory_replaced",
+                        notify_failure=False,
+                    )
+                prefix_cleanup = getattr(self, "_voice_activation_prefix_cleanup", None)
+                if (prefix_cleanup is not None and prefix_cleanup[1].done()
+                        and not prefix_cleanup[1].cancelled()
+                        and prefix_cleanup[1].exception() is None
+                        and prefix_cleanup[1].result() is None):
+                    # An existing authoritative abort already superseded the
+                    # scheduled quiet close; it owns recovery and its own fences.
+                    self._voice_activation_prefix_cleanup = None
+                    prefix_cleanup = None
+                if prefix_cleanup is not None:
+                    self._voice_session_activation_degraded = True
+                    reopen_profile_revision = self._voice_session_activation_profile_revision
+                    reopen_permission_revision = self._voice_session_activation_permission_revision
+                    reopen_core_identity = self._capture_core_asr_operation_identity()
+        finally:
+            session_swap_lock.release()
+        if previous_factory is not None and previous_factory is not factory:
+            try:
+                previous_factory.close()
+            except Exception:
+                logger.warning(
+                    "[%s] retired voice-session activation factory close failed",
+                    self.lanlan_name,
+                )
+        if previous_runtime is not None:
+            AsrRuntimeMixin._schedule_core_asr_cleanup(
+                self,
+                previous_runtime.close(),
+                name="voice-session-activation-retire",
+            )
+        if prefix_cleanup is not None:
+            receiver, cleanup_task = prefix_cleanup
+            try:
+                async with asyncio.timeout(2.0):
+                    retired = await asyncio.shield(cleanup_task)
+            except TimeoutError:
+                return VoiceIdentityActivationResult.RUNTIME_DEGRADED
+            current_core_identity = self._capture_core_asr_operation_identity()
+            expected_core_identity = (
+                *reopen_core_identity[:8],
+                replace(reopen_core_identity[8],
+                        audio_generation=(retired.audio_generation if retired else -1)),
+                *reopen_core_identity[9:],
+            )
+            if (
+                retired is None or self._asr_runtime is not receiver
+                or not receiver._runtime_identity_matches(retired)
+                or self._voice_activation_prefix_cleanup is not prefix_cleanup
+                or self._voice_session_activation_policy_revision != policy_revision
+                or self._voice_session_activation_factory is not factory
+                or self._voice_session_activation_profile_revision != reopen_profile_revision
+                or self._voice_session_activation_permission_revision != reopen_permission_revision
+                or current_core_identity != expected_core_identity
+                or receiver._asr_session is not None
+            ):
+                return VoiceIdentityActivationResult.RUNTIME_DEGRADED
+            if factory is not None or not activation_required:
+                self._voice_session_activation_degraded = False
+                self._voice_activation_prefix_cleanup = None
+        return VoiceIdentityActivationResult.READY
+
+    def _capture_voice_session_activation_generation(
+        self,
+    ) -> ActivationGeneration:
+        ingress = self._capture_ingress_token()
+        session = getattr(self, "session", None)
+        bound = self._voice_activation_bound_session
+        anchor = id(session)
+        ticket = self._voice_activation_handoff
+        # Arbitrary replacement still retires authority. Only an explicit,
+        # current handoff can preserve the local identity across promotion.
+        if session is bound:
+            anchor = self._voice_activation_session_anchor or id(session)
+        elif (
+            ticket is not None
+            and not ticket.consumed
+            and session is ticket.target_session
+            and bound is ticket.source_session
+            and self._voice_activation_handoff_context() == ticket.context
+            and asyncio.get_running_loop().time() < ticket.deadline
+        ):
+            anchor = self._voice_activation_session_anchor or id(bound)
+        return ActivationGeneration(
+            session_id=(
+                f"{self._voice_lease_connection_id}:"
+                f"{anchor}:"
+                f"{ingress.session_epoch}:{ingress.audio_generation}:"
+                f"{self._voice_lease_generation}:"
+                f"{self._voice_session_activation_policy_revision}:"
+                f"{id(self._voice_input_audio_pipeline)}"
+            ),
+            microphone=self._audio_stream_epoch,
+            route=self._microphone_route_generation,
+            profile=self._voice_session_activation_profile_revision,
+            permission=self._voice_session_activation_permission_revision,
+            input_owner=self._voice_lease_owner,
+        )
+
+    def _voice_activation_handoff_context(self) -> tuple[object, ...]:
+        return (
+            self._capture_ingress_token(),
+            self._audio_stream_epoch,
+            self._voice_lease_owner,
+            self._voice_lease_hard_muted,
+            self._voice_lease_focus_suppressed,
+            self._voice_session_activation_factory,
+            self._voice_session_activation_policy_revision,
+            self._voice_session_activation_profile_revision,
+            self._voice_session_activation_permission_revision,
+            self._voice_input_audio_pipeline,
+            self._asr_route_mode,
+            self._asr_route_operation_generation,
+            self._independent_asr_provider,
+        )
+
+    def _voice_activation_handoff_is_current(
+        self, ticket: _VoiceActivationHandoff, *, allow_promoted: bool = False
+    ) -> bool:
+        if not isinstance(ticket, _VoiceActivationHandoff):
+            return False
+        session = getattr(self, "session", None)
+        return bool(
+            self._voice_activation_handoff is ticket
+            and not ticket.consumed
+            and asyncio.get_running_loop().time() < ticket.deadline
+            and self._voice_session_activation_runtime is ticket.runtime
+            and self._voice_activation_handoff_context() == ticket.context
+            and self._voice_input_accepts_pcm()
+            and (
+                session is ticket.source_session
+                or (allow_promoted and session is ticket.target_session)
+            )
+        )
+
+    async def _begin_voice_activation_handoff(
+        self, target_session: object
+    ) -> _VoiceActivationHandoff | Literal[False] | None:
+        if self._voice_session_activation_factory is None:
+            return None
+        runtime = self._voice_session_activation_runtime
+        if runtime is None or runtime.state in {
+            ActivationState.UNAVAILABLE,
+            ActivationState.CLOSED,
+            ActivationState.DISABLED,
+        }:
+            # There is no live grant or output to carry. Normal lifecycle may
+            # still replace its connection; it must not manufacture ACTIVE.
+            return None
+        source = getattr(self, "session", None)
+        if (
+            source is None
+            or target_session is None
+            or source is target_session
+            or self._voice_activation_handoff is not None
+            or self._voice_session_activation_degraded
+            or not self._voice_input_accepts_pcm()
+            or runtime.generation != self._capture_voice_session_activation_generation()
+        ):
+            return False
+        if self._asr_route_mode == "native":
+            boundary = getattr(source, "can_handoff_voice_input", None)
+            if not callable(boundary) or boundary() is not True:
+                return False
+            if (
+                runtime.state is ActivationState.REPLAYING
+                and runtime.pending_output_bytes
+            ):
+                return False
+        ticket = _VoiceActivationHandoff(
+            source_session=source,
+            target_session=target_session,
+            generation=runtime.generation,
+            runtime=runtime,
+            deadline=asyncio.get_running_loop().time() + 5.0,
+            context=self._voice_activation_handoff_context(),
+            sequence=self._hot_swap_ingress_sequence,
+        )
+        self._voice_activation_handoff = ticket
+        try:
+            paused = await runtime.pause_output(ticket, deadline=ticket.deadline)
+            ticket.settled = paused
+            if not paused or not self._voice_activation_handoff_is_current(ticket):
+                await self._abort_voice_activation_handoff(
+                    ticket, reason="handoff_not_settled"
+                )
+                return False
+            if (
+                self._asr_route_mode == "native"
+                and source.can_handoff_voice_input() is not True
+            ):
+                await self._abort_voice_activation_handoff(
+                    ticket, reason="native_input_open"
+                )
+                return False
+            ticket.watchdog = AsrRuntimeMixin._schedule_core_asr_cleanup(
+                self,
+                self._expire_voice_activation_handoff(ticket),
+                name="voice-activation-handoff-deadline",
+            )
+            logger.info(
+                "Voice activation handoff begin sequence=%d source=%s target=%s "
+                "route=%s state=%s idle_deadline=%s pending_bytes=%d",
+                ticket.sequence,
+                id(source),
+                id(target_session),
+                self._asr_route_mode,
+                runtime.state.value,
+                runtime.idle_deadline,
+                runtime.pending_output_bytes,
+            )
+            return ticket
+        except BaseException:
+            await self._abort_voice_activation_handoff(
+                ticket, reason="handoff_begin_failed"
+            )
+            raise
+
+    async def _expire_voice_activation_handoff(
+        self, ticket: _VoiceActivationHandoff
+    ) -> None:
+        await asyncio.sleep(
+            max(0.0, ticket.deadline - asyncio.get_running_loop().time())
+        )
+        await self._abort_voice_activation_handoff(ticket, reason="handoff_timeout")
+
+    def _mark_voice_activation_handoff_irreversible(
+        self, ticket: _VoiceActivationHandoff
+    ) -> bool:
+        if not self._voice_activation_handoff_is_current(ticket) or not ticket.settled:
+            return False
+        ticket.irreversible = True
+        return True
+
+    async def _commit_voice_activation_handoff(
+        self, ticket: _VoiceActivationHandoff
+    ) -> bool:
+        if (
+            not self._voice_activation_handoff_is_current(ticket, allow_promoted=True)
+            or self.session is not ticket.target_session
+            or not ticket.settled
+            or ticket.runtime.state
+            in {ActivationState.UNAVAILABLE, ActivationState.CLOSED}
+        ):
+            await self._abort_voice_activation_handoff(
+                ticket, reason="handoff_commit_rejected"
+            )
+            return False
+        # Install the approved transport binding before resuming its writer.
+        # The local anchor, scorer, capture sequence and idle clock survive.
+        self._voice_activation_bound_session = ticket.target_session
+        self._voice_activation_delivery_revision += 1
+        self._preserve_wake_name_correction_after_delivery_revision()
+        try:
+            resumed = await ticket.runtime.resume_output(ticket)
+        except BaseException:
+            await self._abort_voice_activation_handoff(
+                ticket, reason="handoff_resume_failed"
+            )
+            raise
+        if not resumed or not self._voice_activation_handoff_is_current(
+            ticket, allow_promoted=True
+        ):
+            await self._abort_voice_activation_handoff(
+                ticket, reason="handoff_resume_stale"
+            )
+            return False
+        ticket.consumed = True
+        self._voice_activation_handoff = None
+        if ticket.watchdog is not None:
+            ticket.watchdog.cancel()
+        ticket.runtime.complete_output_handoff(ticket)
+        logger.info(
+            "Voice activation handoff complete sequence=%d source=%s target=%s "
+            "state=%s resumed=%s idle_deadline=%s pending_bytes=%d",
+            ticket.sequence,
+            id(ticket.source_session),
+            id(ticket.target_session),
+            ticket.runtime.state.value,
+            resumed,
+            ticket.runtime.idle_deadline,
+            ticket.runtime.pending_output_bytes,
+        )
+        return resumed
+
+    async def _abort_voice_activation_handoff(
+        self, ticket: _VoiceActivationHandoff, *, reason: str
+    ) -> None:
+        if self._voice_activation_handoff is not ticket or ticket.consumed:
+            return
+        can_restore = bool(
+            not ticket.irreversible
+            and ticket.settled
+            and getattr(self, "session", None) is ticket.source_session
+            and self._voice_session_activation_runtime is ticket.runtime
+            and self._voice_activation_handoff_context() == ticket.context
+            and self._voice_input_accepts_pcm()
+        )
+        ticket.consumed = True
+        self._voice_activation_handoff = None
+        if (
+            ticket.watchdog is not None
+            and ticket.watchdog is not asyncio.current_task()
+        ):
+            ticket.watchdog.cancel()
+        if not can_restore and self._voice_session_activation_runtime is ticket.runtime:
+            self._voice_session_activation_degraded = True
+        # A cancellation of lifecycle cleanup must not strand the sole writer
+        # after its owner ticket has been consumed. The tracked operation owns
+        # only this runtime, never a replacement read after an await.
+        cleanup = AsrRuntimeMixin._schedule_core_asr_cleanup(
+            self,
+            self._settle_voice_activation_abort(
+                ticket, restore=can_restore, reason=reason
+            ),
+            name="voice-activation-handoff-abort",
+        )
+        await asyncio.shield(cleanup)
+        logger.warning(
+            "Voice activation handoff aborted sequence=%d reason=%s restored=%s",
+            ticket.sequence,
+            reason,
+            can_restore,
+        )
+
+    async def _settle_voice_activation_abort(
+        self, ticket: _VoiceActivationHandoff, *, restore: bool, reason: str
+    ) -> None:
+        if (
+            restore
+            and self._voice_session_activation_runtime is ticket.runtime
+            and getattr(self, "session", None) is ticket.source_session
+            and self._voice_activation_handoff_context() == ticket.context
+            and self._voice_input_accepts_pcm()
+        ):
+            if await ticket.runtime.resume_output(ticket):
+                ticket.runtime.complete_output_handoff(ticket)
+        else:
+            await ticket.runtime.fail_output(ticket, reason)
+            if not ticket.settled:
+                await self._retire_unsafe_voice_activation_transport(
+                    ticket, reason=reason
+                )
+
+    async def _retire_unsafe_voice_activation_transport(
+        self, ticket: _VoiceActivationHandoff, *, reason: str
+    ) -> None:
+        """An uncertain write cannot leave a reusable partial input behind."""
+        if (
+            getattr(self, "session", None) is not ticket.source_session
+            or self._voice_session_activation_runtime is not ticket.runtime
+            or self._voice_activation_handoff_context() != ticket.context
+        ):
+            return
+        if self._asr_route_mode == "native":
+            identity = self._voice_activation_native_output_identity
+            if (
+                identity is None
+                or identity[0] != ticket.runtime.generation
+                or identity[1] is not ticket.source_session
+            ):
+                return
+            retirement = self._retire_native_voice_activation_session(
+                identity[1], connection_generation=identity[2]
+            )
+            if retirement is not None:
+                await asyncio.shield(retirement)
+        elif self._asr_route_mode == "independent":
+            # abort() revokes the captured ASR transport before its first I/O
+            # await; the blocked route also protects activation-disabled input.
+            receiver = self._asr_runtime
+            self._set_microphone_route("blocked")
+            operation_identity = self._capture_core_asr_operation_identity()
+            receiver_identity = receiver._capture_runtime_identity()
+
+            async def abort_captured_receiver() -> None:
+                if (
+                    self._asr_runtime is receiver
+                    and self._capture_core_asr_operation_identity()
+                    == operation_identity
+                    and receiver._runtime_identity_matches(receiver_identity)
+                ):
+                    await receiver.abort(reason, cleanup_timeout=1.0)
+
+            abort_task = AsrRuntimeMixin._schedule_core_asr_cleanup(
+                self,
+                abort_captured_receiver(),
+                name="voice-activation-unsafe-independent-abort",
+            )
+            done, _ = await asyncio.wait({abort_task}, timeout=1.0)
+            if not done:
+                abort_task.cancel()
+
+    def _retire_native_voice_activation_session(
+        self, source: object, *, connection_generation: int | None
+    ) -> asyncio.Task[Any] | None:
+        """Fence reuse synchronously, then retire only the captured connection."""
+        def connection_is_current() -> bool:
+            return bool(
+                source is not None
+                and getattr(self, "session", None) is source
+                and getattr(source, "_connection_generation", None) == connection_generation
+            )
+
+        if not connection_is_current():
+            return None
+        retirement = self._voice_activation_native_retirement
+        if (
+            retirement is not None
+            and retirement[0] is source
+            and retirement[1] == connection_generation
+        ):
+            return retirement[2]
+        self.session_closed_by_server = True
+        # A failed write is never eligible for idle-timeout replay recovery.
+        self._native_activation_idle_reconnect_identity = None
+
+        async def retire() -> None:
+            if not connection_is_current():
+                return
+            close = getattr(source, "close", None)
+            if callable(close):
+                async def close_captured_connection() -> None:
+                    # Scheduling close is another handoff: a reconnect may win
+                    # before this task starts running.
+                    if connection_is_current():
+                        await close()
+
+                close_task = AsrRuntimeMixin._schedule_core_asr_cleanup(
+                    self, close_captured_connection(), name="voice-activation-unsafe-native-close"
+                )
+                done, _ = await asyncio.wait({close_task}, timeout=1.0)
+                if not done:
+                    close_task.cancel()
+            recover = getattr(self, "handle_connection_error", None)
+            if (
+                callable(recover)
+                and connection_is_current()
+            ):
+                # Existing lifecycle recovery owns listener/TTS teardown. Its
+                # generation check also rejects a same-object reconnect while
+                # the callback is waiting for the manager lock.
+                AsrRuntimeMixin._schedule_core_asr_cleanup(
+                    self,
+                    recover(
+                        json.dumps({
+                            "code": "CHARACTER_DISCONNECTED",
+                            "details": {"connection_generation": connection_generation},
+                        }),
+                        expected_session=source,
+                    ),
+                    name="voice-activation-unsafe-native-recovery",
+                )
+
+        task = AsrRuntimeMixin._schedule_core_asr_cleanup(
+            self, retire(), name="voice-activation-unsafe-native-retire"
+        )
+        self._voice_activation_native_retirement = (source, connection_generation, task)
+        return task
+
+    def _voice_activation_capture_watermark(self) -> float | None:
+        return min(self._voice_activation_pending_capture.values(), default=None)
+
+    async def _prepare_voice_session_activation_runtime(
+        self,
+        runtime: VoiceSessionActivationRuntime,
+        generation: ActivationGeneration,
+    ) -> None:
+        try:
+            await runtime.prepare()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "[%s] voice-session activation preparation failed",
+                self.lanlan_name,
+            )
+            try:
+                await runtime.mark_unavailable("prepare_failed")
+            finally:
+                if (
+                    self._voice_session_activation_runtime is runtime
+                    and self._capture_voice_session_activation_generation()
+                    == generation
+                ):
+                    # Detach before close so CLOSED cannot supersede the
+                    # terminal UNAVAILABLE decision or trigger an immediate
+                    # retry on the next microphone frame.
+                    self._voice_session_activation_runtime = None
+                    self._voice_session_activation_degraded = True
+                    await runtime.close()
+                else:
+                    await runtime.close()
+            return
+        if (
+            self._voice_session_activation_runtime is not runtime
+            or self._capture_voice_session_activation_generation() != generation
+        ):
+            await runtime.close()
+
+    def _on_voice_session_activation_status(
+        self,
+        generation: ActivationGeneration,
+        decision: ActivationDecision,
+    ) -> None:
+        if (
+            self._voice_session_activation_runtime is None
+            or self._capture_voice_session_activation_generation() != generation
+        ):
+            return
+        self._voice_session_activation_degraded = (
+            decision.state is ActivationState.UNAVAILABLE
+        )
+        status = (generation, decision.state, decision.reason)
+        if (
+            decision.reason == "wake_word_detected"
+            and decision.state is ActivationState.REPLAYING
+            and self._asr_route_mode == "independent"
+            and status != self._voice_session_activation_status
+        ):
+            self._wake_name_correction = _WakeNameCorrection(
+                generation=generation,
+                runtime=self._voice_session_activation_runtime,
+                delivery_revision=self._voice_activation_delivery_revision,
+            )
+        elif (
+            decision.reason == "owner_confirmed"
+            or decision.state not in {ActivationState.REPLAYING, ActivationState.ACTIVE}
+        ):
+            self._wake_name_correction = None
+        if decision.reason in {"owner_confirmed", "wake_word_detected"}:
+            self._voice_activation_delivery_batch = (
+                getattr(self, "_voice_activation_delivery_batch", 0) + 1
+            )
+        if decision.state is ActivationState.UNAVAILABLE:
+            self._revoke_voice_activation_prefix(generation, decision.reason)
+            if self._asr_route_mode == "native" and decision.reason.startswith("output_"):
+                # Local output was dropped or its send outcome is unknown.
+                # The provider may still own an incomplete utterance; disabling
+                # activation must not reopen that same contaminated connection.
+                identity = self._voice_activation_native_output_identity
+                if identity is not None and identity[0] == generation:
+                    self._retire_native_voice_activation_session(
+                        identity[1], connection_generation=identity[2]
+                    )
+        status = (generation, decision.state, decision.reason)
+        if status == self._voice_session_activation_status:
+            return
+        previous_status = self._voice_session_activation_status
+        if previous_status is None or previous_status[:2] != status[:2]:
+            log_status = (
+                logger.warning
+                if decision.state is ActivationState.UNAVAILABLE
+                else logger.info
+            )
+            log_status(
+                "Voice activation state=%s reason=%s microphone=%s route=%s",
+                decision.state.value,
+                decision.reason,
+                generation.microphone,
+                generation.route,
+            )
+        self._voice_session_activation_status = status
+        self._voice_session_activation_status_revision += 1
+        status_revision = self._voice_session_activation_status_revision
+        AsrRuntimeMixin._schedule_core_asr_cleanup(
+            self,
+            self._send_voice_session_activation_status(
+                generation,
+                decision,
+                status_revision,
+            ),
+            name="voice-session-activation-status",
+        )
+
+    def _revoke_voice_activation_prefix(
+        self,
+        generation: ActivationGeneration,
+        reason: str,
+        *,
+        notify_failure: bool = True,
+    ) -> None:
+        """Stop downstream admission before scheduling asynchronous cleanup."""
+        entry = getattr(self, "_voice_activation_delivery_prefix", None)
+        if entry is None or entry[0] != generation:
+            return
+        receiver = self._asr_runtime
+        prefix = entry[2]
+        session = receiver._asr_session
+        write_attempted = getattr(session, "transport_write_attempted", None)
+        failure_code = (
+            "ASR_INPUT_DELIVERY_UNCERTAIN"
+            if session is not None and write_attempted is not False
+            else "ASR_INPUT_DELIVERY_FAILED"
+        )
+        if not receiver.invalidate_protected_prefix(prefix, stop=notify_failure):
+            return
+        if notify_failure:
+            self._set_microphone_route("blocked")
+        operation_identity = self._capture_core_asr_operation_identity()
+        expected_operation_identity = operation_identity
+        receiver_identity = receiver._capture_runtime_identity()
+        source_runtime = self._voice_session_activation_runtime
+
+        def still_current() -> bool:
+            return (
+                self._asr_runtime is receiver
+                and self._voice_session_activation_runtime is source_runtime
+                and self._capture_core_asr_operation_identity() == expected_operation_identity
+            )
+
+        async def finish_revoke() -> Any:
+            nonlocal expected_operation_identity
+            if not still_current() or not receiver._runtime_identity_matches(
+                receiver_identity
+            ):
+                return None
+            # Our abort advances the receiver's audio generation once. Rebase
+            # only that expected mutation; every external authority stays fenced.
+            ingress = AsrRuntimeMixin._core_asr_identity_ingress_token(operation_identity)
+            expected_operation_identity = (
+                *operation_identity[:8],
+                replace(ingress, audio_generation=ingress.audio_generation + 1),
+                *operation_identity[9:],
+            )
+            await receiver.abort(reason, cleanup_timeout=1.0)
+            owned_after_abort = (
+                still_current()
+                and receiver._asr_start_generation == receiver_identity.start_generation + 1
+                and receiver._asr_lifecycle is receiver_identity.lifecycle
+                and receiver._asr_detector is receiver_identity.detector
+                and receiver._asr_session is None
+            )
+            if notify_failure and owned_after_abort:
+                await self._send_voice_control_status(
+                    json.dumps({"code": failure_code}),
+                    still_current=still_current,
+                )
+            return receiver._capture_runtime_identity() if owned_after_abort else None
+
+        cleanup = AsrRuntimeMixin._schedule_core_asr_cleanup(
+            self,
+            finish_revoke(),
+            name="voice-activation-prefix-revoke",
+        )
+        if not notify_failure:
+            self._voice_activation_prefix_cleanup = (receiver, cleanup)
+
+    async def _send_voice_session_activation_status(
+        self,
+        generation: ActivationGeneration,
+        decision: ActivationDecision,
+        status_revision: int,
+    ) -> None:
+        if (
+            self._capture_voice_session_activation_generation() != generation
+            or self._voice_session_activation_status_revision != status_revision
+        ):
+            return
+        await self._send_voice_control_status(
+            json.dumps(
+                {
+                    "code": "VOICE_SESSION_ACTIVATION_STATE",
+                    "details": {
+                        "state": decision.state.value,
+                        "reason": decision.reason,
+                        "session_id": generation.session_id,
+                        "microphone_generation": generation.microphone,
+                        "route_generation": generation.route,
+                        "profile_revision": generation.profile,
+                        "permission_revision": generation.permission,
+                        "revision": status_revision,
+                    },
+                }
+            ),
+            still_current=(
+                lambda: self._capture_voice_session_activation_generation()
+                == generation
+                and self._voice_session_activation_status_revision == status_revision
+            ),
         )
 
     def set_independent_asr_handshake(self, value: object) -> None:
@@ -533,6 +2443,20 @@ class AsrRuntimeMixin:
             value if isinstance(value, bool) else None
         )
 
+    def set_independent_asr_provider_preference_handshake(
+        self,
+        value: object,
+    ) -> None:
+        """Pin one session's independent-ASR provider choice from start_session.
+
+        An absent field defers to the persisted setting; a malformed one is
+        treated as "auto" (follow the Core route).
+        """
+        self._ensure_asr_runtime_state()
+        self._independent_asr_provider_preference_handshake_override = (
+            normalize_independent_asr_provider_preference_handshake(value)
+        )
+
     async def _start_independent_asr_if_enabled(
         self,
         input_mode: str,
@@ -540,6 +2464,7 @@ class AsrRuntimeMixin:
         preserve_hot_swap_audio: bool = False,
         handshake_override=...,
         resource_optimization_override=...,
+        provider_preference_override=...,
         connect_budget_seconds: float | None = None,
     ) -> None:
         """Resolve the microphone route for one session start.
@@ -562,6 +2487,10 @@ class AsrRuntimeMixin:
         (Codex P2).
         """
         self._ensure_asr_runtime_state()
+        if input_mode == "audio" and preview_isolation_registry.is_manager_isolated(self):
+            await self._send_voice_control_status(json.dumps({
+                "code": "VOICE_INPUT_PREVIEW_BUSY", "details": {"reason": "preview_busy"}}))
+            return
         operation_generation = self._begin_asr_route_operation()
         await self._close_independent_asr(
             next_route_mode="blocked",
@@ -663,6 +2592,13 @@ class AsrRuntimeMixin:
                     )
                 )
                 return
+            # The persisted choice cannot be read, but the handshake still
+            # requires independent ASR. Fail closed for raw visual delivery
+            # before any later failure handling or callback can run.
+            if not core_start_is_current():
+                return
+            self._visual_route_mode = "independent"
+            self._sync_realtime_visual_delivery_mode("independent")
             await self._fail_closed_voice_route(
                 "asr_settings_unreadable",
                 operation_generation=operation_generation,
@@ -677,20 +2613,20 @@ class AsrRuntimeMixin:
         if not core_start_is_current():
             return
         nr_enabled = settings.get("noiseReductionEnabled", True) is not False
-        self._voice_input_noise_reduction_enabled = nr_enabled
-        if self._voice_input_audio_pipeline.nr_enabled != nr_enabled:
-            stale_pipeline = self._voice_input_audio_pipeline
-            self._voice_input_audio_pipeline = VoiceInputAudioPipeline(
-                nr_enabled=nr_enabled,
-            )
-            self._voice_input_pipeline_failed = False
-            try:
-                await stale_pipeline.close()
-            except Exception:
-                logger.warning(
-                    "[%s] voice input audio pipeline close failed",
-                    self.lanlan_name,
+        pipeline_cleanup = None
+        async with self._voice_input_pipeline_transition_lock:
+            if not core_start_is_current():
+                return
+            if self._voice_input_audio_pipeline.nr_enabled != nr_enabled:
+                pipeline_cleanup = AsrRuntimeMixin._replace_voice_input_audio_pipeline(
+                    self,
+                    nr_enabled=nr_enabled,
                 )
+            # Publish the DSP contract only after replacement succeeds. A
+            # constructor failure leaves both the old pipeline and its contract.
+            self._voice_input_noise_reduction_enabled = nr_enabled
+        if pipeline_cleanup is not None:
+            await asyncio.shield(pipeline_cleanup)
             if not core_start_is_current():
                 return
         # Prefer this operation's own snapshot; a concurrent start_session can
@@ -740,6 +2676,43 @@ class AsrRuntimeMixin:
             self._voice_input_resource_optimization_session_value = (
                 resolved_optimization_value
             )
+        # Same precedence as the resource-optimization choice: this start's own
+        # handshake snapshot, else the accepted session value (internal
+        # re-entries such as hot swap), else the shared handshake field, else
+        # the persisted setting. The handshake wins because the persisted value
+        # is stale while the settings POST is still in flight or has failed.
+        if provider_preference_override is ...:
+            provider_preference_handshake = getattr(
+                self,
+                "_independent_asr_provider_preference_session_value",
+                None,
+            )
+            if provider_preference_handshake is None:
+                provider_preference_handshake = getattr(
+                    self,
+                    "_independent_asr_provider_preference_handshake_override",
+                    None,
+                )
+        else:
+            provider_preference_handshake = (
+                normalize_independent_asr_provider_preference_handshake(
+                    provider_preference_override
+                )
+            )
+        provider_preference = (
+            provider_preference_handshake
+            if provider_preference_handshake is not None
+            else normalize_independent_asr_provider_preference_handshake(
+                settings.get("independentAsrProviderPreference", "auto")
+            )
+        )
+        if provider_preference_override is not ...:
+            # Only an accepted start_session supplies this argument; internal
+            # provider restarts reuse its resolved value instead of the shared
+            # field that a losing or deduplicated request may have overwritten.
+            self._independent_asr_provider_preference_session_value = (
+                provider_preference
+            )
         if not enabled:
             self._set_microphone_route("native")
             await self._send_core_asr_status(
@@ -750,6 +2723,11 @@ class AsrRuntimeMixin:
                 )
             )
             return
+        # Close the raw-image path as soon as the independent-ASR choice is
+        # authoritative. Provider connection may take seconds or fail; neither
+        # window may let screen/camera or callback images reach Realtime raw.
+        self._visual_route_mode = "independent"
+        self._sync_realtime_visual_delivery_mode("independent")
         if (
             connect_budget_seconds is not None
             and connect_budget_seconds < ASR_CONNECT_TOTAL_BUDGET_SECONDS
@@ -772,6 +2750,11 @@ class AsrRuntimeMixin:
             # asr_client factory maps it per provider and falls back to
             # automatic detection when it is unset or unsupported.
             "user_language": getattr(self, "user_language", None),
+            # Provider choice ("auto" follows the Core route): handshake first,
+            # persisted setting as the fallback. The route capability check
+            # above already ran, so a Core without independent-ASR support
+            # never reaches this preference.
+            "provider_preference": provider_preference,
         }
         if self._speaker_shadow_factory is not None:
             start_kwargs["speaker_shadow_factory"] = self._speaker_shadow_factory
@@ -840,6 +2823,7 @@ class AsrRuntimeMixin:
         remaining_deadline_seconds: float,
         handshake_override=...,
         resource_optimization_override=...,
+        provider_preference_override=...,
     ) -> None:
         """Re-decide the microphone route for a deduplicated same-mode start.
 
@@ -905,8 +2889,43 @@ class AsrRuntimeMixin:
             input_mode,
             handshake_override=handshake_override,
             resource_optimization_override=resource_optimization_override,
+            provider_preference_override=provider_preference_override,
             connect_budget_seconds=remaining_deadline_seconds,
         )
+
+    def _hold_owed_wrap_up_for_voice_turn(self, turn_id: str) -> None:
+        """Hold the offline reply's owed wrap-up until voice turn ``turn_id`` ends.
+
+        Set right before the turn interrupts the offline reply: the
+        interrupted reply's task can end inside that interruption's awaits,
+        and its idle notification must not pay the wrap-up while the user is
+        still speaking. One hold at a time: a newer voice turn takes it over.
+        See ``TurnMixin._voice_turn_holds_owed_wrap_up``.
+        """
+        self._voice_turn_wrap_up_hold = turn_id
+
+    def _release_voice_turn_wrap_up_hold(self, turn_id: str | None) -> None:
+        """Voice turn ``turn_id`` ended (None: every turn): release its hold.
+
+        Then settle the owed wrap-up in a task of its own: the turn's reply,
+        if it had one, has returned (its completion paid it), and one that
+        ended without a reply leaves nothing else to pay it. Also when the
+        ending task is being cancelled: the transcript worker is cancelled on
+        ASR errors, detaches and transport aborts too, with the offline
+        session alive and idle (a torn-down one pays nothing, see
+        ``_settle_owed_turn_wrap_up``). A hold another turn has taken over is
+        left alone.
+        """
+        hold = getattr(self, "_voice_turn_wrap_up_hold", None)
+        if hold is None or (turn_id is not None and hold != turn_id):
+            return
+        self._voice_turn_wrap_up_hold = None
+        if not getattr(self, "_turn_wrap_up_owed", False):
+            return
+        settle = getattr(self, "_settle_owed_turn_wrap_up", None)
+        fire_task = getattr(self, "_fire_task", None)
+        if callable(settle) and callable(fire_task):
+            fire_task(settle())
 
     def _abandon_core_voice_turn(
         self,
@@ -914,6 +2933,17 @@ class AsrRuntimeMixin:
         *,
         session_ref: object | None = None,
     ) -> None:
+        self._release_voice_turn_wrap_up_hold(turn_id)
+        turns = getattr(self, "_core_multimodal_turns", None)
+        if turns is not None:
+            if turn_id is None:
+                for record in turns.values():
+                    record.invalidated.set()
+                turns.clear()
+            else:
+                record = turns.pop(turn_id, None)
+                if record is not None:
+                    record.invalidated.set()
         target_session = (
             session_ref if session_ref is not None else getattr(self, "session", None)
         )
@@ -928,9 +2958,38 @@ class AsrRuntimeMixin:
                 self.lanlan_name,
             )
 
-    async def _abort_independent_asr(self, reason: str) -> None:
-        await self._asr_runtime.abort(reason)
-        self._invalidate_voice_pcm_sync(reason)
+    async def _abort_independent_asr(
+        self,
+        reason: str,
+        *,
+        still_current: Callable[[], bool] | None = None,
+    ) -> None:
+        """Abort the independent run and drop the audio that belonged to it.
+
+        ``still_current`` is for callers that no longer hold the pipeline
+        transition lock across this: ``self._asr_runtime.abort`` is an await,
+        and a session restart or route replacement landing inside it installs
+        a NEW route. Invalidating afterwards would then clear the successor's
+        queued and hot-swap audio and drop its microphone input. Re-checked
+        after the await for exactly that reason -- checking only on entry
+        would leave the window this argument exists to close.
+        """
+
+        if still_current is not None and not still_current():
+            return
+        correction = self._current_wake_name_correction()
+        keep_turns = await self._asr_runtime.abort(reason)
+        if still_current is not None and not still_current():
+            return
+        if (
+            correction is not None
+            and self._wake_name_correction is correction
+            and correction.turn_token in keep_turns
+        ):
+            # abort may advance audio generation before Core tears down the
+            # activation. Preserve eligibility captured before that await.
+            correction.preserved_final = True
+        self._invalidate_voice_pcm_sync(reason, keep_turns=keep_turns)
         await self._voice_input_registry.wait_idle()
 
     async def _reset_native_audio_turn(
@@ -1026,7 +3085,6 @@ class AsrRuntimeMixin:
         del next_route_mode
         provider = self._independent_asr_provider
         omni_audio_bytes = self._omni_mic_audio_bytes
-        pipeline = self._voice_input_audio_pipeline
         self._set_microphone_route("blocked")
         if not preserve_hot_swap_audio:
             self._invalidate_voice_pcm_sync("independent_asr_close")
@@ -1034,28 +3092,52 @@ class AsrRuntimeMixin:
             self._voice_input_registry.invalidate_utterance(
                 reason="independent_asr_close",
             )
-        await self._voice_input_registry.wait_idle()
-        self._voice_input_audio_pipeline = VoiceInputAudioPipeline(
-            nr_enabled=self._voice_input_noise_reduction_enabled,
+        async def finish_close() -> None:
+            async with self._voice_input_pipeline_transition_lock:
+                if not self._asr_route_operation_matches(operation_generation):
+                    return
+                pipeline_cleanup = (
+                    AsrRuntimeMixin._replace_voice_input_audio_pipeline(
+                        self,
+                        nr_enabled=self._voice_input_noise_reduction_enabled,
+                    )
+                )
+            self._independent_asr_provider = None
+            self._independent_asr_route_key = None
+            await self._voice_input_registry.wait_idle()
+            # A successor start advances the route generation and installs its
+            # own cancellation-safe close before its first suspension. Once
+            # that happens, this retired operation must not re-read the shared
+            # runtime and close the successor it no longer owns.
+            if self._asr_route_operation_matches(operation_generation):
+                await self._asr_runtime.close()
+            await asyncio.shield(pipeline_cleanup)
+            if omni_audio_bytes:
+                logger.info(
+                    "[%s] microphone route metrics provider=%s omni_mic_audio_bytes=%d",
+                    self.lanlan_name,
+                    provider or "blocked",
+                    omni_audio_bytes,
+                )
+
+        close_cleanup = self._schedule_core_asr_cleanup(
+            finish_close(),
+            name="core-independent-asr-close",
         )
-        self._voice_input_pipeline_failed = False
-        self._independent_asr_provider = None
-        self._independent_asr_route_key = None
-        await self._asr_runtime.close()
-        try:
-            await pipeline.close()
-        except Exception:
-            logger.warning(
-                "[%s] voice input audio pipeline close failed",
-                self.lanlan_name,
-            )
-        if omni_audio_bytes:
-            logger.info(
-                "[%s] microphone route metrics provider=%s omni_mic_audio_bytes=%d",
-                self.lanlan_name,
-                provider or "blocked",
-                omni_audio_bytes,
-            )
+        # 这段发声窗口的原图只对这一条路由有意义。它们此前唯一的清理点是**下一个**
+        # 回合开始时（_begin_core_multimodal_turn），所以屏幕共享着、还没开口就结束
+        # 这一集的话，最多 8 张满尺寸 base64 原图会一直挂在常驻的角色管理器上；下
+        # 一集 ASR 起步时缓冲区里还掺着上一集的帧，把这一集自己开头的帧挤出上限。
+        # 路由身份边界就是它们的生命周期终点。
+        #
+        # 这里是同步清（此函数从顶部的 operation_generation 检查到这一行没有任何
+        # await，create_task 也还没让出控制权），所以不需要再自证身份；provider /
+        # route_key 的置空、_asr_runtime.close()、管线关闭与指标日志则一律交给 main
+        # 的 finish_close()——它带 transition lock 和 operation_generation 围栏，能
+        # 区分同一条连接上的后继回合，比在这里再抄一遍精确。
+        self._prerecord_visual_frames = []
+        self._latest_independent_visual_frame = None
+        await asyncio.shield(close_cleanup)
 
     async def apply_voice_input_noise_reduction(self, enabled: bool) -> bool:
         """Make a mid-session noise-reduction toggle reach the live microphone.
@@ -1083,27 +3165,48 @@ class AsrRuntimeMixin:
 
         self._ensure_asr_runtime_state()
         nr_enabled = bool(enabled)
-        self._voice_input_noise_reduction_enabled = nr_enabled
-        if self._voice_input_audio_pipeline.nr_enabled == nr_enabled:
-            return False
-        stale_pipeline = self._voice_input_audio_pipeline
-        self._voice_input_audio_pipeline = VoiceInputAudioPipeline(
-            nr_enabled=nr_enabled,
+        transition_lock = getattr(
+            self,
+            "_voice_input_pipeline_transition_lock",
+            None,
         )
-        self._voice_input_pipeline_failed = False
-        try:
-            await stale_pipeline.close()
-        except Exception:
-            logger.warning(
-                "[%s] voice input audio pipeline close failed",
-                self.lanlan_name,
-            )
-        return True
+        if transition_lock is None:
+            transition_lock = asyncio.Lock()
+            self._voice_input_pipeline_transition_lock = transition_lock
+
+        async def transition() -> bool:
+            async with transition_lock:
+                if self._voice_input_audio_pipeline.nr_enabled == nr_enabled:
+                    self._voice_input_noise_reduction_enabled = nr_enabled
+                    return False
+                pipeline_cleanup = (
+                    AsrRuntimeMixin._replace_voice_input_audio_pipeline(
+                        self,
+                        nr_enabled=nr_enabled,
+                    )
+                )
+                # Registry/PCM gates read this field as the installed contract,
+                # never as intent. Keep the old value if construction fails.
+                self._voice_input_noise_reduction_enabled = nr_enabled
+            await asyncio.shield(pipeline_cleanup)
+            return True
+
+        transition_task = AsrRuntimeMixin._schedule_core_asr_cleanup(
+            self,
+            transition(),
+            name="core-voice-input-pipeline-transition",
+        )
+        return await asyncio.shield(transition_task)
 
     async def _reconcile_independent_asr_after_core_change(self) -> None:
         self._ensure_asr_runtime_state()
         core_type = str(getattr(self, "core_api_type", "") or "").strip().lower()
         if core_type == self._independent_asr_route_key:
+            # A same-provider hot swap can promote a fresh Realtime session
+            # while the microphone route key remains unchanged. Reapply the
+            # current abstract route so the replacement inherits the visual
+            # delivery policy without restarting ASR or touching PCM routing.
+            self._set_microphone_route(self._asr_route_mode)
             return
         await self._start_independent_asr_if_enabled(
             str(getattr(self, "input_mode", "audio") or "audio"),
@@ -1155,7 +3258,13 @@ class AsrRuntimeMixin:
             reason,
         )
 
-    async def _send_voice_control_status(self, message: str) -> None:
+    async def _send_voice_control_status(
+        self,
+        message: str,
+        *,
+        progress: tuple[object, set[str]] | None = None,
+        still_current: Callable[[], bool] | None = None,
+    ) -> tuple[bool, bool]:
         """Send a mic control-plane status to the current AND voice sockets.
 
         ``self.websocket`` is the newest socket, which is not necessarily the
@@ -1167,12 +3276,47 @@ class AsrRuntimeMixin:
         The extra delivery is getattr-guarded rather than folded into
         ``send_status``: that signature is doubled by a large number of focused
         tests, and narrow manager doubles do not carry the notify mixin at all.
+        The returned pair records each plane independently so episode retries
+        can skip a plane that already accepted this exact status.
+
+        ``still_current`` is re-evaluated between the two planes. The display
+        send is an await, and a microphone takeover completing inside it makes
+        the voice-owner lookup below resolve the SUCCESSOR's socket -- which
+        would hand the new active recorder a notice about the episode it just
+        replaced. The post-send episode check at the call sites cannot help:
+        it only withholds the ledger commit, and a delivered status cannot be
+        retracted.
         """
 
-        await self.send_status(message)
+        if progress is None:
+            progress = (None, set())
+        delivered_planes = progress[1]
+        if "display_delivered" not in delivered_planes:
+            if await self.send_status(message):
+                delivered_planes.add("display_delivered")
+        if "voice_owner_settled" in delivered_planes:
+            return "display_delivered" in delivered_planes, True
+        if still_current is not None and not still_current():
+            # Do not settle the voice plane either: this episode is over, and
+            # the caller drops its ledger rather than committing it.
+            return "display_delivered" in delivered_planes, False
+        voice_owner_resolver = getattr(self, "_voice_owner_socket", None)
+        voice_owner_socket = (
+            voice_owner_resolver() if callable(voice_owner_resolver) else None
+        )
         send_to_voice_owner = getattr(self, "_send_to_voice_owner", None)
-        if callable(send_to_voice_owner):
-            await send_to_voice_owner({"type": "status", "message": message})
+        if voice_owner_socket is None or not callable(send_to_voice_owner):
+            delivered_planes.add("voice_owner_settled")
+            return "display_delivered" in delivered_planes, True
+        delivered_socket = await send_to_voice_owner(
+            {"type": "status", "message": message}
+        )
+        if delivered_socket is voice_owner_socket:
+            delivered_planes.add("voice_owner_settled")
+        return (
+            "display_delivered" in delivered_planes,
+            "voice_owner_settled" in delivered_planes,
+        )
 
     async def _maybe_signal_voice_lease_resync(self) -> None:
         """Nudge a client whose PCM is dropped only because no lease is set.
@@ -1184,6 +3328,47 @@ class AsrRuntimeMixin:
         quiet while every later lease change re-arms it.
         """
 
+        async with self._asr_notification_lock:
+            signal_state = self._voice_lease_resync_episode()
+            if signal_state is None:
+                self._voice_lease_resync_delivery_state = None
+                return
+            if signal_state == self._voice_lease_resync_signal_state:
+                return
+            progress = self._voice_lease_resync_delivery_state
+            if progress is None or progress[0] != signal_state:
+                progress = (signal_state, set())
+                self._voice_lease_resync_delivery_state = progress
+            await self._send_voice_control_status(
+                still_current=(
+                    lambda: self._voice_lease_resync_episode() == signal_state
+                ),
+                message=json.dumps(
+                    {
+                        "code": "VOICE_INPUT_LEASE_RESYNC_REQUIRED",
+                        "details": {
+                            "reason": (
+                                "lease_unsynchronized"
+                                if not signal_state[2]
+                                else "owner_none"
+                            ),
+                        }
+                    }
+                ),
+                progress=progress,
+            )
+            if self._voice_lease_resync_episode() != signal_state:
+                return
+            if {
+                "display_delivered",
+                "voice_owner_settled",
+            }.issubset(progress[1]):
+                self._voice_lease_resync_signal_state = signal_state
+                self._voice_lease_resync_delivery_state = None
+
+    def _voice_lease_resync_episode(
+        self,
+    ) -> tuple[str, int, bool, str, int] | None:
         if self._voice_lease_resync_suppressed:
             # The backend revoked this lease on purpose (fail-closed route, or
             # a text session took over). Asking the client to resync would make
@@ -1191,37 +3376,21 @@ class AsrRuntimeMixin:
             # exactly the lease we just dropped -- a revoke/resync ping-pong.
             # Deliberately not keyed on route == "blocked": blocked is also the
             # legitimate cold-start placeholder, where the signal IS wanted.
-            return
+            return None
         if (
             self._voice_lease_hard_muted
             or self._voice_lease_focus_suppressed
             or self._voice_lease_owner == "game"
         ):
-            return
+            return None
         if self._voice_lease_synchronized and self._voice_lease_owner != "none":
-            return
-        signal_state = (
+            return None
+        return (
             self._voice_lease_connection_id,
             self._voice_lease_generation,
             self._voice_lease_synchronized,
             self._voice_lease_owner,
-        )
-        if signal_state == self._voice_lease_resync_signal_state:
-            return
-        self._voice_lease_resync_signal_state = signal_state
-        await self._send_voice_control_status(
-            json.dumps(
-                {
-                    "code": "VOICE_INPUT_LEASE_RESYNC_REQUIRED",
-                    "details": {
-                        "reason": (
-                            "lease_unsynchronized"
-                            if not self._voice_lease_synchronized
-                            else "owner_none"
-                        ),
-                    },
-                }
-            ),
+            self._microphone_route_generation,
         )
 
     async def _maybe_signal_blocked_text_mode_microphone(self) -> None:
@@ -1238,26 +3407,84 @@ class AsrRuntimeMixin:
         cleared whenever the route leaves ``blocked``.
         """
 
-        if str(getattr(self, "input_mode", "audio") or "audio") != "text":
-            return
-        if self._blocked_text_mode_microphone_signalled:
-            return
-        self._blocked_text_mode_microphone_signalled = True
-        await self._send_voice_control_status(
-            json.dumps(
-                {
-                    "code": "VOICE_INPUT_BLOCKED_TEXT_SESSION",
-                    "details": {"reason": "text_session_active"},
-                }
-            ),
+        async with self._asr_notification_lock:
+            signal_state = self._blocked_text_mode_microphone_episode()
+            if signal_state is None:
+                self._blocked_text_mode_microphone_delivery_state = None
+                return
+            if signal_state == self._blocked_text_mode_microphone_signal_state:
+                return
+            progress = self._blocked_text_mode_microphone_delivery_state
+            if progress is None or progress[0] != signal_state:
+                progress = (signal_state, set())
+                self._blocked_text_mode_microphone_delivery_state = progress
+            await self._send_voice_control_status(
+                message=json.dumps(
+                    {
+                        "code": "VOICE_INPUT_BLOCKED_TEXT_SESSION",
+                        "details": {"reason": "text_session_active"},
+                    }
+                ),
+                progress=progress,
+                still_current=(
+                    lambda: self._blocked_text_mode_microphone_episode()
+                    == signal_state
+                ),
+            )
+            if self._blocked_text_mode_microphone_episode() != signal_state:
+                return
+            if {
+                "display_delivered",
+                "voice_owner_settled",
+            }.issubset(progress[1]):
+                self._blocked_text_mode_microphone_signal_state = signal_state
+                self._blocked_text_mode_microphone_delivery_state = None
+
+    def _blocked_text_mode_microphone_episode(
+        self,
+    ) -> tuple[int, str, int, int, object] | None:
+        if (
+            str(getattr(self, "input_mode", "audio") or "audio") != "text"
+            or self._asr_route_mode != "blocked"
+        ):
+            return None
+        return (
+            self._asr_route_operation_generation,
+            self._voice_lease_connection_id,
+            self._voice_lease_generation,
+            self._microphone_route_generation,
+            getattr(self, "session", None),
         )
 
     async def _enqueue_audio_stream_data(self, message: dict) -> None:
         self._ensure_asr_runtime_state()
+        if (
+            self._voice_session_activation_required
+            and self._voice_session_activation_factory is None
+        ):
+            # Revoked/unavailable authority cannot collect input for a future
+            # factory (or a later explicit disable) to adopt from this queue.
+            return
+        if (
+            self._voice_input_pipeline_failed
+            # The same latch the ingress worker checks, one step earlier.
+            # Nothing below this line closes during the failure notice on a
+            # NATIVE route: that route never reaches _abort_independent_asr,
+            # so the voice PCM sync is never invalidated, and
+            # _voice_input_accepts_pcm is lease-only -- it reads neither the
+            # route mode nor this latch. So while a backpressured status send
+            # holds the failure open, the client's PCM kept filling the
+            # bounded queue, and overflowing it takes the QueueFull path,
+            # which aborts the run all over again.
+            or getattr(self, "_voice_input_pipeline_failure_token", None)
+            is not None
+        ):
+            return
         if not self._voice_input_accepts_pcm():
             await self._maybe_signal_voice_lease_resync()
             return
         token = self._capture_ingress_token()
+        activation_guarded = self._voice_session_activation_factory is not None
         ingress_sequence = self._reserve_hot_swap_ingress_sequence()
         sequence_owned = True
         try:
@@ -1269,8 +3496,13 @@ class AsrRuntimeMixin:
             )
         except ValueError:
             self._complete_hot_swap_ingress_sequence(ingress_sequence)
-            logger.warning("[%s] invalid microphone ingress frame", self.lanlan_name)
+            logger.warning(
+                "[%s] invalid microphone ingress frame route=%s",
+                self.lanlan_name,
+                self._asr_route_mode,
+            )
             return
+        self._voice_activation_pending_capture[ingress_sequence] = frame.received_at
         self._ensure_audio_stream_worker()
         try:
             self._audio_stream_queue.put_nowait(frame)
@@ -1279,6 +3511,17 @@ class AsrRuntimeMixin:
             try:
                 await asyncio.sleep(0)
                 if not self._ingress_token_matches(frame.token):
+                    # Activation authority is bound to the route that
+                    # captured the PCM. QueueFull yields once, so a hot swap
+                    # can replace that route before this retry; never rebind
+                    # such a frame across either side of an activation
+                    # factory transition.
+                    if (
+                        activation_guarded
+                        or self._voice_session_activation_factory is not None
+                    ):
+                        self._audio_stream_dropped_total += 1
+                        return
                     rebound = self._rebind_hot_swap_ingress_token(
                         frame.token,
                         audio_stream_epoch=frame.audio_stream_epoch,
@@ -1339,6 +3582,12 @@ class AsrRuntimeMixin:
             try:
                 token = frame.token
                 if not self._ingress_token_matches(token):
+                    # Voice-session activation authority is tied to the
+                    # capture route. Audio queued before a hot swap must not
+                    # be rebound and used to authorize the replacement route.
+                    if self._voice_session_activation_factory is not None:
+                        self._audio_stream_dropped_total += 1
+                        continue
                     rebound = self._rebind_hot_swap_ingress_token(
                         token,
                         audio_stream_epoch=frame.audio_stream_epoch,
@@ -1352,6 +3601,8 @@ class AsrRuntimeMixin:
                     ingress_token=token,
                     audio_stream_epoch=frame.audio_stream_epoch,
                     ingress_sequence=frame.ingress_sequence,
+                    received_at=frame.received_at,
+                    captured_at=frame.captured_at,
                 )
             except asyncio.CancelledError:
                 raise
@@ -1369,6 +3620,7 @@ class AsrRuntimeMixin:
         self._hot_swap_ingress_sequence += 1
         sequence = self._hot_swap_ingress_sequence
         self._hot_swap_pending_sequences.add(sequence)
+        self._voice_activation_pending_capture[sequence] = time.monotonic()
         self._hot_swap_sequence_progress.clear()
         return sequence
 
@@ -1376,6 +3628,7 @@ class AsrRuntimeMixin:
         if sequence <= 0:
             return
         self._hot_swap_pending_sequences.discard(sequence)
+        self._voice_activation_pending_capture.pop(sequence, None)
         self._hot_swap_sequence_progress.set()
 
     def _hot_swap_cutoff_complete(self, cutoff: int) -> bool:
@@ -1413,6 +3666,72 @@ class AsrRuntimeMixin:
         audio_epoch: int,
         pipeline_ref: VoiceInputAudioPipeline,
     ) -> None:
+        """Commit the failure under the lock, notify and revoke outside it.
+
+        The lock is shared with session start, independent-ASR close and the
+        noise-reduction toggle, and the notify/revoke phase below ends in
+        ``_fail_closed_voice_route`` -- which writes to the frontend socket.
+        A backpressured client would otherwise hold every one of those
+        recovery operations behind an unrelated write.
+
+        What the lock still has to cover is the COMMIT: validating that this
+        failure is the live state and stamping it, so two failures cannot both
+        decide they own the route. Everything after that is fenced by the
+        stamp instead, which is why it can leave the lock -- see
+        ``_voice_input_pipeline_failure_token``.
+        """
+
+        async with self._voice_input_pipeline_transition_lock:
+            committed = self._commit_voice_input_pipeline_failure(
+                ingress_token=ingress_token,
+                session_ref=session_ref,
+                audio_epoch=audio_epoch,
+                pipeline_ref=pipeline_ref,
+            )
+        if committed is None:
+            return
+        await self._finish_voice_input_pipeline_failure(committed)
+
+    async def _fail_voice_input_pipeline_locked(
+        self,
+        *,
+        ingress_token: VoiceIngressToken,
+        session_ref: object,
+        audio_epoch: int,
+        pipeline_ref: VoiceInputAudioPipeline,
+    ) -> None:
+        """Caller already holds the transition lock; commit and finish here.
+
+        Kept as the locked-caller entry point. The finish phase runs with the
+        lock still held, so a caller that needs the whole failure serialized
+        against its own pipeline work still gets that.
+        """
+
+        committed = self._commit_voice_input_pipeline_failure(
+            ingress_token=ingress_token,
+            session_ref=session_ref,
+            audio_epoch=audio_epoch,
+            pipeline_ref=pipeline_ref,
+        )
+        if committed is None:
+            return
+        await self._finish_voice_input_pipeline_failure(committed)
+
+    def _commit_voice_input_pipeline_failure(
+        self,
+        *,
+        ingress_token: VoiceIngressToken,
+        session_ref: object,
+        audio_epoch: int,
+        pipeline_ref: VoiceInputAudioPipeline,
+    ) -> _VoiceInputPipelineFailure | None:
+        """Validate and stamp one pipeline failure. Synchronous on purpose.
+
+        No await between the validation above and the writes below, so this
+        whole step is atomic against the event loop and the lock only has to
+        span the call itself.
+        """
+
         if (
             self._voice_input_pipeline_failed
             or ingress_token != self._capture_ingress_token()
@@ -1421,7 +3740,7 @@ class AsrRuntimeMixin:
             or self._voice_input_audio_pipeline is not pipeline_ref
             or not self.is_active
         ):
-            return
+            return None
         source_session_epoch = ingress_token.session_epoch
         source_connection_id = ingress_token.connection_id
         source_lease_generation = ingress_token.lease_generation
@@ -1429,9 +3748,20 @@ class AsrRuntimeMixin:
         route_operation_generation = self._asr_route_operation_generation
         source_session_ref = session_ref
         source_audio_epoch = audio_epoch
-        source_pipeline_ref = pipeline_ref
         source_route_mode = self._asr_route_mode
         self._voice_input_pipeline_failed = True
+        # The commit's own identity. `_voice_input_pipeline_failed` says
+        # "frames are being dropped right now" and ANY pipeline replacement
+        # clears it -- including a noise-reduction toggle, which does not end
+        # the blocked route or revoke anything. Testing that flag in the
+        # predicate below is what made the notify/revoke phase unable to leave
+        # the lock: a toggle landing in the middle cleared it, the predicate
+        # went False, the revoke was skipped, and the route stayed blocked
+        # with the lease never revoked (commit 94c26715). The token is cleared
+        # by nothing except a NEWER commit, so the predicate can ask about
+        # this failure instead of about the world.
+        failure_token = object()
+        self._voice_input_pipeline_failure_token = failure_token
         independent_route = source_route_mode == "independent"
         source_provider = (
             self._independent_asr_provider
@@ -1441,25 +3771,67 @@ class AsrRuntimeMixin:
         self._set_microphone_route("blocked")
         self._clear_audio_stream_queue("audio_preprocessing_failed")
         self.hot_swap_audio_cache.clear()
-        if independent_route:
-            await self._abort_independent_asr("audio_preprocessing_failed")
+        return _VoiceInputPipelineFailure(
+            failure_token=failure_token,
+            independent_route=independent_route,
+            provider=source_provider,
+            session_epoch=source_session_epoch,
+            connection_id=source_connection_id,
+            lease_generation=source_lease_generation,
+            transition_generation=voice_transition_generation,
+            route_operation_generation=route_operation_generation,
+            session_ref=source_session_ref,
+            audio_epoch=source_audio_epoch,
+        )
+
+    async def _finish_voice_input_pipeline_failure(
+        self,
+        failure: "_VoiceInputPipelineFailure",
+    ) -> None:
+        """Abort the ASR run, tell the client, revoke the lease.
+
+        Runs outside the pipeline transition lock. Everything here is fenced
+        on ``failure.failure_token`` instead, so a concurrent session restart
+        or noise-reduction toggle is free to take the lock while a
+        backpressured frontend socket is still absorbing the status send.
+        """
+
+        if failure.independent_route:
+            await self._abort_independent_asr(
+                "audio_preprocessing_failed",
+                # This phase runs without the pipeline transition lock, so a
+                # restart can install a newer route while the abort is in
+                # flight; its audio is not this failure's to clear.
+                still_current=lambda: self._asr_route_operation_matches(
+                    failure.route_operation_generation
+                ),
+            )
+
         def preprocessing_failure_is_current() -> bool:
             # The route-operation generation is deliberately NOT repeated here:
             # _fail_closed_voice_route fences on it already, with the identical
             # comparison, and re-checks it after the status send too.
+            #
+            # The pipeline REF is not repeated either, for the same reason the
+            # failure flag is not: a noise-reduction toggle replaces the
+            # pipeline without ending the blocked route, and treating that as
+            # "someone else owns this now" is precisely how the revoke went
+            # missing. A start or a close does replace the pipeline and DOES
+            # invalidate this failure -- both advance the route operation
+            # generation, which _fail_closed_voice_route already checks.
             return not (
-                not self._voice_input_pipeline_failed
-                or self._voice_lease_connection_id != source_connection_id
-                or self._voice_lease_generation != source_lease_generation
+                self._voice_input_pipeline_failure_token
+                is not failure.failure_token
+                or self._voice_lease_connection_id != failure.connection_id
+                or self._voice_lease_generation != failure.lease_generation
                 or (
                     self._voice_input_transition_generation
-                    != voice_transition_generation
+                    != failure.transition_generation
                 )
                 or self._capture_ingress_token().session_epoch
-                != source_session_epoch
-                or self.session is not source_session_ref
-                or self._audio_stream_epoch != source_audio_epoch
-                or self._voice_input_audio_pipeline is not source_pipeline_ref
+                != failure.session_epoch
+                or self.session is not failure.session_ref
+                or self._audio_stream_epoch != failure.audio_epoch
                 or not self.is_active
                 or self._asr_route_mode != "blocked"
                 or (
@@ -1467,7 +3839,7 @@ class AsrRuntimeMixin:
                     or self._independent_asr_route_key
                     or "unknown"
                 )
-                != source_provider
+                != failure.provider
             )
 
         # Ingress backstop. _voice_input_pipeline_failed already drops frames,
@@ -1477,12 +3849,12 @@ class AsrRuntimeMixin:
         # would clear the voice socket and leave the notice with no target.
         await self._fail_closed_voice_route(
             "audio_preprocessing_failed",
-            operation_generation=route_operation_generation,
+            operation_generation=failure.route_operation_generation,
             still_current=preprocessing_failure_is_current,
             status=AsrStatusEvent(
                 code="ASR_AUDIO_PREPROCESSING_FAILED",
-                provider=source_provider,
-                session_epoch=source_session_epoch,
+                provider=failure.provider,
+                session_epoch=failure.session_epoch,
             ),
         )
 
@@ -1493,17 +3865,43 @@ class AsrRuntimeMixin:
         ingress_token: VoiceIngressToken,
         audio_stream_epoch: int | None = None,
         ingress_sequence: int | None = None,
+        received_at: float | None = None,
+        captured_at: float | None = None,
     ) -> None:
+        audio_received_at = (
+            float(received_at)
+            if isinstance(received_at, (int, float)) and received_at >= 0
+            else time.monotonic()
+        )
         sequence_owned = ingress_sequence is None
         if ingress_sequence is None:
             ingress_sequence = self._reserve_hot_swap_ingress_sequence()
+        self._voice_activation_pending_capture[ingress_sequence] = audio_received_at
         if audio_stream_epoch is None:
             audio_stream_epoch = self._audio_stream_epoch
-        if self._voice_input_pipeline_failed:
+        if (
+            self._voice_input_pipeline_failed
+            # The flag alone stopped being the whole answer once the notify
+            # phase left the transition lock. ANY pipeline replacement clears
+            # it -- a noise-reduction toggle included -- and a toggle can now
+            # land while a backpressured status send is still in flight, i.e.
+            # while this failure still owns a blocked route whose lease has
+            # not been revoked yet. Frames would then be parsed, queued and
+            # run through the replacement DSP until _route_microphone_audio
+            # discards them, refilling the bounded queue and tripping ingress
+            # backpressure during what must stay a fail-closed interval.
+            # The token is cleared only when the route is live again.
+            or getattr(self, "_voice_input_pipeline_failure_token", None)
+            is not None
+        ):
             if sequence_owned:
                 self._complete_hot_swap_ingress_sequence(ingress_sequence)
             return
         if not self._ingress_token_matches(ingress_token):
+            if self._voice_session_activation_factory is not None:
+                if sequence_owned:
+                    self._complete_hot_swap_ingress_sequence(ingress_sequence)
+                return
             rebound = self._rebind_hot_swap_ingress_token(
                 ingress_token,
                 audio_stream_epoch=audio_stream_epoch,
@@ -1518,9 +3916,17 @@ class AsrRuntimeMixin:
         audio_epoch = audio_stream_epoch
         pipeline_ref = self._voice_input_audio_pipeline
         voice_owner = self._voice_lease_owner
+        activation_generation = (
+            self._capture_voice_session_activation_generation()
+            if self._voice_session_activation_factory is not None
+            else None
+        )
         try:
             if not isinstance(data, list):
-                logger.error("Microphone input rejected: expected a PCM sample list")
+                logger.error(
+                    "Microphone input rejected: expected a PCM sample list route=%s",
+                    self._asr_route_mode,
+                )
                 return
             audio_bytes = struct.pack(f"<{len(data)}h", *data)
             declared_rate_hz = message.get("sample_rate_hz")
@@ -1530,8 +3936,9 @@ class AsrRuntimeMixin:
                 source_rate_hz = int(declared_rate_hz)
             else:
                 logger.error(
-                    "Microphone input rejected: unsupported sample rate %r",
+                    "Microphone input rejected: unsupported sample rate %r route=%s",
                     declared_rate_hz,
+                    self._asr_route_mode,
                 )
                 return
             try:
@@ -1551,6 +3958,11 @@ class AsrRuntimeMixin:
                 return
             if not processed_frame.pcm16:
                 return
+            audio_captured_at = (
+                float(captured_at)
+                if isinstance(captured_at, (int, float)) and captured_at > 0
+                else time.time()
+            )
             if (
                 not self.is_active
                 or self._audio_stream_epoch != audio_epoch
@@ -1559,6 +3971,8 @@ class AsrRuntimeMixin:
             ):
                 return
             if not self._ingress_token_matches(ingress_token):
+                if self._voice_session_activation_factory is not None:
+                    return
                 rebound = self._rebind_hot_swap_ingress_token(
                     ingress_token,
                     audio_stream_epoch=audio_epoch,
@@ -1570,6 +3984,30 @@ class AsrRuntimeMixin:
                 self.session is not session_ref
                 or self._voice_input_audio_pipeline is not pipeline_ref
             )
+            activation_guarded = self._voice_session_activation_factory is not None
+            if activation_guarded:
+                # Keep local activity/idle decisions alive while the transport
+                # writer is paused. There is only one PCM owner in this mode:
+                # the activation queue, never the legacy hot-swap replay cache.
+                if self._voice_input_audio_pipeline is not pipeline_ref:
+                    return
+                if self.session is not session_ref:
+                    if (
+                        activation_generation
+                        != self._capture_voice_session_activation_generation()
+                    ):
+                        return
+                await self._route_microphone_audio(
+                    processed_frame.pcm16,
+                    sample_rate_hz=processed_frame.sample_rate_hz,
+                    speech_probability=processed_frame.speech_probability,
+                    rnnoise_available=processed_frame.rnnoise_available,
+                    rnnoise_evidence=processed_frame.rnnoise_evidence,
+                    ingress_token=ingress_token,
+                    received_at=audio_received_at,
+                    captured_at=audio_captured_at,
+                )
+                return
             cache_for_hot_swap = False
             async with self.hot_swap_cache_lock:
                 hot_swap_barrier = (
@@ -1588,6 +4026,8 @@ class AsrRuntimeMixin:
                             rnnoise_evidence=processed_frame.rnnoise_evidence,
                             audio_stream_epoch=audio_epoch,
                             ingress_sequence=ingress_sequence,
+                            received_at=audio_received_at,
+                            captured_at=audio_captured_at,
                         )
                     )
             if cache_for_hot_swap:
@@ -1611,13 +4051,21 @@ class AsrRuntimeMixin:
                 rnnoise_available=processed_frame.rnnoise_available,
                 rnnoise_evidence=processed_frame.rnnoise_evidence,
                 ingress_token=ingress_token,
+                received_at=audio_received_at,
+                captured_at=audio_captured_at,
             )
         except struct.error:
-            logger.error("Microphone input rejected: invalid PCM samples")
+            logger.error(
+                "Microphone input rejected: invalid PCM samples route=%s",
+                self._asr_route_mode,
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.error("Microphone preprocessing or ASR routing failed")
+            logger.error(
+                "Microphone preprocessing or ASR routing failed route=%s",
+                self._asr_route_mode,
+            )
         finally:
             if sequence_owned:
                 self._complete_hot_swap_ingress_sequence(ingress_sequence)
@@ -1631,19 +4079,537 @@ class AsrRuntimeMixin:
         rnnoise_available: bool | None = None,
         rnnoise_evidence: RnnoiseEvidence | None = None,
         ingress_token: VoiceIngressToken | None = None,
+        received_at: float | None = None,
+        captured_at: float | None = None,
     ) -> bool:
+        if preview_isolation_registry.is_manager_isolated(self):
+            return True
+        if os.environ.get("NEKO_VOICE_REGRESSION_TRACE") == "1":
+            self._voice_regression_trace_frames = (
+                getattr(self, "_voice_regression_trace_frames", 0) + 1
+            )
+            if self._voice_regression_trace_frames % 100 == 0:
+                logger.info(
+                    "[%s] voice-regression-trace frames=%d route=%s "
+                    "voice_factory=%s voice_required=%s independent=%s "
+                    "session_closed=%s",
+                    self.lanlan_name,
+                    self._voice_regression_trace_frames,
+                    self._asr_route_mode,
+                    self._voice_session_activation_factory is not None,
+                    self._voice_session_activation_required,
+                    self._asr_route_mode == "independent",
+                    bool(getattr(self, "session_closed_by_server", False)),
+                )
+        if self._voice_session_activation_degraded:
+            return True
+        factory = self._voice_session_activation_factory
+        if factory is None or getattr(factory, "enforce", True) is False:
+            # Shadow is observational: use ordinary delivery without creating
+            # an activation writer, protected prefix, or replay retry policy.
+            if factory is None and self._voice_session_activation_required:
+                # Requested protection without a usable authority is a
+                # deliberate fail-closed state.  Consuming the local frame here
+                # prevents both native and independent-ASR downstream sends.
+                return True
+            if (
+                self._asr_route_mode == "native"
+                and getattr(self, "session_closed_by_server", False)
+            ):
+                generation = self._capture_voice_session_activation_generation()
+                idle_identity = getattr(
+                    self,
+                    "_native_activation_idle_reconnect_identity",
+                    None,
+                )
+                token = ingress_token or self._capture_native_ingress_token()
+                if idle_identity is not None and idle_identity[0] == generation:
+                    reconnected = (
+                        await self._reconnect_native_voice_session_for_activation(
+                            generation,
+                            token,
+                        )
+                    )
+                    if (
+                        not reconnected
+                        or self._voice_session_activation_factory is not factory
+                        or self._capture_voice_session_activation_generation()
+                        != generation
+                    ):
+                        return True
+            await self._route_microphone_audio_unfiltered(
+                pcm16,
+                sample_rate_hz=sample_rate_hz,
+                speech_probability=speech_probability,
+                rnnoise_available=rnnoise_available,
+                rnnoise_evidence=rnnoise_evidence,
+                ingress_token=ingress_token,
+                captured_at=captured_at,
+            )
+            return True
+
+        expected_noise_reduction = getattr(
+            factory,
+            "noise_reduction_enabled",
+            None,
+        )
+        if (
+            expected_noise_reduction is not None
+            and self._voice_input_noise_reduction_enabled
+            is not expected_noise_reduction
+        ):
+            # A factory may be installed while an inactive manager still has
+            # its construction-time pipeline.  Session start/settings owns the
+            # DSP write; until that exact contract lands, both ASR routes stay
+            # closed and no candidate/replay runtime is created.
+            return True
+
+        if expected_noise_reduction is True and rnnoise_available is not True:
+            # The configured flag alone cannot prove that native RNNoise ran.
+            # Revoke even an active/in-flight verifier before accepting fallback
+            # PCM into a profile enrolled in the denoised domain. Explicit
+            # retry/factory replacement owns recovery from this degraded state.
+            self._voice_session_activation_degraded = True
+            runtime = self._voice_session_activation_runtime
+            identity = self._voice_activation_native_output_identity
+            if (
+                self._asr_route_mode == "native"
+                and runtime is not None
+                and runtime.output_inflight
+                and identity is not None
+                and identity[0] == self._capture_voice_session_activation_generation()
+            ):
+                # Invalidation cancels the writer and clears its identity. Fence
+                # the captured connection first: disabling activation must not
+                # append ordinary PCM to an unsettled native utterance.
+                self._retire_native_voice_activation_session(
+                    identity[1], connection_generation=identity[2],
+                )
+            self._invalidate_voice_pcm_sync("audio_processing_unavailable")
+            generation = self._capture_voice_session_activation_generation()
+            decision = ActivationDecision(
+                ActivationState.UNAVAILABLE, "audio_processing_unavailable",
+            )
+            self._voice_session_activation_status = (
+                generation, decision.state, decision.reason,
+            )
+            self._voice_session_activation_status_revision += 1
+            AsrRuntimeMixin._schedule_core_asr_cleanup(
+                self,
+                self._send_voice_session_activation_status(
+                    generation, decision,
+                    self._voice_session_activation_status_revision,
+                ),
+                name="voice-session-activation-dsp-unavailable",
+            )
+            return True
+
+        async with self._voice_session_activation_lock:
+            if (
+                self._voice_session_activation_degraded
+                or factory is not self._voice_session_activation_factory
+            ):
+                return True
+            generation = self._capture_voice_session_activation_generation()
+            runtime = self._voice_session_activation_runtime
+            if runtime is None or runtime.generation != generation:
+                if runtime is not None:
+                    AsrRuntimeMixin._schedule_core_asr_cleanup(
+                        self,
+                        runtime.close(),
+                        name="voice-session-activation-generation-retire",
+                    )
+
+                self._voice_activation_bound_session = getattr(self, "session", None)
+                self._voice_activation_session_anchor = id(self._voice_activation_bound_session)
+                generation = self._capture_voice_session_activation_generation()
+
+                async def output(frame: AudioFrame) -> OutputCommit:
+                    return await self._route_voice_session_activation_output(
+                        frame,
+                        generation,
+                    )
+
+                try:
+                    runtime = factory.create(
+                        generation,
+                        output,
+                        status_callback=lambda decision: (
+                            self._on_voice_session_activation_status(
+                                generation,
+                                decision,
+                            )
+                        ),
+                    )
+                except Exception:
+                    self._voice_session_activation_degraded = True
+                    logger.warning(
+                        "[%s] voice-session activation runtime creation failed",
+                        self.lanlan_name,
+                    )
+                    decision = ActivationDecision(
+                        ActivationState.UNAVAILABLE,
+                        "runtime_creation_failed",
+                    )
+                    self._voice_session_activation_status = (
+                        generation,
+                        decision.state,
+                        decision.reason,
+                    )
+                    self._voice_session_activation_status_revision += 1
+                    AsrRuntimeMixin._schedule_core_asr_cleanup(
+                        self,
+                        self._send_voice_session_activation_status(
+                            generation,
+                            decision,
+                            self._voice_session_activation_status_revision,
+                        ),
+                        name="voice-session-activation-runtime-unavailable",
+                    )
+                    return True
+                self._voice_session_activation_runtime = runtime
+                set_progress = getattr(runtime, "set_capture_progress_provider", None)
+                if callable(set_progress):
+                    set_progress(self._voice_activation_capture_watermark)
+                self._voice_session_activation_sequence = 0
+                self._voice_session_activation_sample_cursor = 0
+                AsrRuntimeMixin._schedule_core_asr_cleanup(
+                    self,
+                    self._prepare_voice_session_activation_runtime(runtime, generation),
+                    name="voice-session-activation-prepare",
+                )
+
+            sample_count = len(pcm16) // 2
+            sequence = self._voice_session_activation_sequence
+            sample_start = self._voice_session_activation_sample_cursor
+            self._voice_session_activation_sequence += 1
+            self._voice_session_activation_sample_cursor += sample_count
+            frame = AudioFrame(
+                sequence=sequence,
+                sample_start=sample_start,
+                sample_end=sample_start + sample_count,
+                captured_at=(
+                    float(received_at)
+                    if isinstance(received_at, (int, float)) and received_at >= 0
+                    else time.monotonic()
+                ),
+                sample_rate=sample_rate_hz,
+                pcm=pcm16,
+                generation=generation,
+                context=VoiceSessionActivationRouteContext(
+                    speech_probability=speech_probability,
+                    rnnoise_available=rnnoise_available,
+                    rnnoise_evidence=rnnoise_evidence,
+                    ingress_token=ingress_token,
+                    captured_at=captured_at,
+                ),
+            )
+            await runtime.feed(
+                frame,
+                voice_activity=self._voice_session_activation_has_speech(
+                    pcm16,
+                    speech_probability=speech_probability,
+                    rnnoise_available=rnnoise_available,
+                    rnnoise_evidence=rnnoise_evidence,
+                ),
+            )
+        return True
+
+    async def _route_voice_session_activation_output(
+        self,
+        frame: AudioFrame,
+        generation: ActivationGeneration,
+    ) -> OutputCommit:
+        if (
+            preview_isolation_registry.is_manager_isolated(self)
+            or frame.generation != generation
+            or self._capture_voice_session_activation_generation() != generation
+            or self._voice_session_activation_degraded
+        ):
+            return OutputCommit.NOT_SENT
+        context = frame.context
+        if not isinstance(context, VoiceSessionActivationRouteContext):
+            return OutputCommit.NOT_SENT
+        ticket = self._voice_activation_handoff
+        if ticket is not None and ticket.settled:
+            return OutputCommit.NOT_SENT
+        delivery_revision = self._voice_activation_delivery_revision
+        prefix = None
+        if self._asr_route_mode == "independent":
+            ingress = context.ingress_token or self._capture_ingress_token()
+            batch = getattr(self, "_voice_activation_delivery_batch", 0)
+            entry = getattr(self, "_voice_activation_delivery_prefix", None)
+            if (
+                entry is None
+                or entry[:2] != (generation, batch)
+                or entry[2].ingress != ingress
+            ):
+                prefix = PreserveUnsentPrefix(
+                    ingress=ingress,
+                    batch_id=(
+                        f"activation-{generation.microphone}-{generation.route}-"
+                        f"{generation.profile}-{generation.permission}-{batch}-"
+                        f"{frame.sequence}"
+                    ),
+                    start_sequence=frame.sequence,
+                )
+                self._voice_activation_delivery_prefix = (generation, batch, prefix)
+            else:
+                prefix = entry[2]
+        if (
+            self._asr_route_mode == "native"
+            and getattr(self, "session_closed_by_server", False)
+            and not await self._reconnect_native_voice_session_for_activation(
+                generation,
+                context.ingress_token,
+            )
+        ):
+            return OutputCommit.NOT_SENT
+        if self._asr_route_mode == "native":
+            # The activation sink has one writer. Retain its actual transport
+            # identity through completion/cancellation and backlog overflow;
+            # a later status callback must never sample a successor connection.
+            # Capture after the supported idle reconnect, before the send await.
+            source = self.session
+            self._voice_activation_native_output_identity = (
+                (generation, source, getattr(source, "_connection_generation", None))
+                if source is not None
+                else None
+            )
+        committed = await self._route_microphone_audio_unfiltered(
+            frame.pcm,
+            sample_rate_hz=frame.sample_rate,
+            speech_probability=context.speech_probability,
+            rnnoise_available=context.rnnoise_available,
+            rnnoise_evidence=context.rnnoise_evidence,
+            ingress_token=context.ingress_token,
+            captured_at=context.captured_at,
+            preserve_prefix=prefix,
+            require_output_commit=True,
+        )
+        if (
+            self._capture_voice_session_activation_generation() != generation
+            or self._voice_activation_delivery_revision != delivery_revision
+        ):
+            return (
+                OutputCommit.UNKNOWN
+                if committed is not OutputCommit.NOT_SENT
+                else committed
+            )
+        return committed
+
+    async def _reconnect_native_voice_session_for_activation(
+        self,
+        generation: ActivationGeneration,
+        ingress_token: VoiceIngressToken | None,
+    ) -> bool:
+        """Reconnect one idle native Provider before authorized replay.
+
+        The idle marker is installed only by the classified lifecycle callback.
+        Ordinary disconnects remain fail-closed. The activation writer is the
+        sole caller, while the Core session-swap lock excludes replacement of
+        the same Provider during the in-place reconnect.
+        """
+
+        session_ref = getattr(self, "session", None)
+        token = ingress_token or self._capture_native_ingress_token()
+        idle_identity = getattr(
+            self,
+            "_native_activation_idle_reconnect_identity",
+            None,
+        )
+
+        def operation_is_current(*, require_idle_generation: bool = True) -> bool:
+            if not (
+                self._capture_voice_session_activation_generation() == generation
+                and self.session is session_ref
+                and self._asr_route_mode == "native"
+                and token == self._capture_native_ingress_token()
+                and self._voice_lease_owner == "core"
+                and self._voice_input_accepts_pcm()
+            ):
+                return False
+            if not require_idle_generation:
+                return True
+            return bool(
+                idle_identity
+                == (
+                    generation,
+                    getattr(session_ref, "_connection_generation", None),
+                )
+                and getattr(self, "session_closed_by_server", False)
+            )
+
+        connect = getattr(session_ref, "connect", None)
+        restart_listener = getattr(
+            self,
+            "_restart_message_handler_after_session_reconnect",
+            None,
+        )
+        if (
+            session_ref is None
+            or not callable(connect)
+            or not callable(restart_listener)
+            or not operation_is_current()
+        ):
+            return False
+
+        session_swap_lock = self._core_voice_session_swap_lock
+        try:
+            await asyncio.wait_for(
+                session_swap_lock.acquire(),
+                timeout=self._core_voice_session_swap_barrier_timeout_s,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[%s] native activation reconnect timed out waiting for the "
+                "Core session barrier",
+                self.lanlan_name,
+            )
+            return False
+
+        try:
+            if not operation_is_current():
+                return False
+
+            # The idle callback runs inside the old receive loop. It returns
+            # before OmniRealtimeClient closes that socket, so wait for the
+            # loop to finish its own bounded close before attaching a successor.
+            previous_listener = getattr(self, "message_handler_task", None)
+            if (
+                previous_listener is not None
+                and previous_listener is not asyncio.current_task()
+                and not previous_listener.done()
+            ):
+                done, _pending = await asyncio.wait(
+                    {previous_listener},
+                    timeout=getattr(
+                        self,
+                        "_core_voice_listener_cancel_timeout_s",
+                        2.0,
+                    ),
+                )
+                if not done or not operation_is_current():
+                    return False
+
+            try:
+                await asyncio.wait_for(
+                    connect(
+                        str(getattr(session_ref, "instructions", "") or ""),
+                        native_audio=True,
+                    ),
+                    timeout=getattr(
+                        self,
+                        "_native_activation_reconnect_timeout_s",
+                        10.0,
+                    ),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "[%s] native activation reconnect failed: %s",
+                    self.lanlan_name,
+                    exc,
+                )
+                if operation_is_current(require_idle_generation=False):
+                    close = getattr(session_ref, "close", None)
+                    if callable(close):
+                        try:
+                            await asyncio.wait_for(
+                                close(),
+                                timeout=getattr(
+                                    self,
+                                    "_core_voice_listener_cancel_timeout_s",
+                                    2.0,
+                                ),
+                            )
+                        except Exception:
+                            pass
+                    self.session_closed_by_server = True
+                    self._native_activation_idle_reconnect_identity = (
+                        generation,
+                        getattr(session_ref, "_connection_generation", None),
+                    )
+                return False
+
+            if not operation_is_current(require_idle_generation=False):
+                return False
+
+            # Lower the old idle latch before the replacement listener can
+            # publish a newer disconnect. A newer callback will install its own
+            # generation-stamped marker and raise the latch again.
+            if (
+                getattr(self, "_native_activation_idle_reconnect_identity", None)
+                == idle_identity
+            ):
+                self._native_activation_idle_reconnect_identity = None
+            self.session_closed_by_server = False
+            if not await restart_listener(session_ref):
+                if operation_is_current(require_idle_generation=False):
+                    self.session_closed_by_server = True
+                    self._native_activation_idle_reconnect_identity = (
+                        generation,
+                        getattr(session_ref, "_connection_generation", None),
+                    )
+                return False
+            return operation_is_current(require_idle_generation=False)
+        finally:
+            session_swap_lock.release()
+
+    @staticmethod
+    def _voice_session_activation_has_speech(
+        pcm16: bytes,
+        *,
+        speech_probability: float | None,
+        rnnoise_available: bool | None = None,
+        rnnoise_evidence: RnnoiseEvidence | None = None,
+    ) -> bool:
+        probability_is_authoritative = True
+        if rnnoise_available is False:
+            probability_is_authoritative = False
+        if rnnoise_evidence is not None and (
+            rnnoise_evidence.available and rnnoise_evidence.frame_count <= 0
+        ):
+            probability_is_authoritative = False
+        if probability_is_authoritative and isinstance(
+            speech_probability, (int, float)
+        ) and math.isfinite(float(speech_probability)):
+            return float(speech_probability) >= 0.5
+        samples = memoryview(pcm16).cast("h")
+        if not samples:
+            return False
+        energy = sum(int(sample) * int(sample) for sample in samples) / len(samples)
+        return energy >= (0.008 * 32768.0) ** 2
+
+    async def _route_microphone_audio_unfiltered(
+        self,
+        pcm16: bytes,
+        *,
+        sample_rate_hz: int,
+        speech_probability: float | None = None,
+        rnnoise_available: bool | None = None,
+        rnnoise_evidence: RnnoiseEvidence | None = None,
+        ingress_token: VoiceIngressToken | None = None,
+        captured_at: float | None = None,
+        preserve_prefix: PreserveUnsentPrefix | None = None,
+        require_output_commit: bool = False,
+    ) -> OutputCommit:
         route_mode = self._asr_route_mode
         if not self._voice_input_accepts_pcm():
-            return True
+            return OutputCommit.NOT_SENT
         if route_mode == "native":
             if getattr(self, "session_closed_by_server", False):
-                return True
+                return OutputCommit.NOT_SENT
             token = ingress_token or self._capture_native_ingress_token()
             session_ref = self.session
+            connection_generation = getattr(session_ref, "_connection_generation", None)
 
             def native_send_is_current() -> bool:
                 return bool(
                     self.session is session_ref
+                    and getattr(session_ref, "_connection_generation", None)
+                    == connection_generation
                     and self._asr_route_mode == "native"
                     and token == self._capture_native_ingress_token()
                     and self._voice_lease_owner == "core"
@@ -1651,10 +4617,10 @@ class AsrRuntimeMixin:
                 )
 
             if not native_send_is_current():
-                return True
+                return OutputCommit.NOT_SENT
             stream_audio = getattr(session_ref, "stream_audio", None)
             if not callable(stream_audio):
-                return True
+                return OutputCommit.NOT_SENT
             if getattr(session_ref, "_fatal_error_occurred", False):
                 # After an Omni fatal error (1011 / response timeout) the
                 # session is doomed; stop feeding it microphone PCM, with
@@ -1669,21 +4635,51 @@ class AsrRuntimeMixin:
                         self.lanlan_name,
                     )
                     self.last_audio_send_error_time = now
-                return True
+                return OutputCommit.NOT_SENT
             try:
-                await stream_audio(pcm16)
+                if isinstance(session_ref, _core_facade.OmniRealtimeClient):
+                    if require_output_commit:
+                        written = await stream_audio(
+                            pcm16,
+                            captured_at=captured_at,
+                            raise_on_error=True,
+                            require_output_commit=True,
+                        )
+                    else:
+                        await stream_audio(
+                            pcm16,
+                            captured_at=captured_at,
+                        )
+                        written = None
+                else:
+                    await stream_audio(pcm16)
+                    written = None
+                if require_output_commit and written is False:
+                    return OutputCommit.NOT_SENT
                 if not native_send_is_current():
-                    return True
+                    return OutputCommit.UNKNOWN
+                if require_output_commit and written is None:
+                    return OutputCommit.LOCAL_ACCEPTED
                 self._record_omni_microphone_audio(len(pcm16))
+                return OutputCommit.TRANSPORT_WRITTEN
             except asyncio.CancelledError:
                 raise
             except web_exceptions.ConnectionClosedOK:
-                if not native_send_is_current():
-                    return True
-                self.session_closed_by_server = True
+                activation_factory = getattr(
+                    self, "_voice_session_activation_factory", None
+                )
+                if (
+                    native_send_is_current()
+                    and (
+                        activation_factory is None
+                        or getattr(activation_factory, "enforce", True)
+                    )
+                ):
+                    self.session_closed_by_server = True
+                return OutputCommit.UNKNOWN
             except (web_exceptions.ConnectionClosed, AttributeError) as exc:
                 if not native_send_is_current():
-                    return True
+                    return OutputCommit.UNKNOWN
                 self.session_closed_by_server = True
                 now = time.monotonic()
                 if now - getattr(self, "last_audio_send_error_time", 0.0) > getattr(
@@ -1695,9 +4691,10 @@ class AsrRuntimeMixin:
                         exc,
                     )
                     self.last_audio_send_error_time = now
+                return OutputCommit.UNKNOWN
             except Exception as exc:
                 if not native_send_is_current():
-                    return True
+                    return OutputCommit.UNKNOWN
                 message = str(exc).lower()
                 if "no close frame" in message or "connection closed" in message:
                     self.session_closed_by_server = True
@@ -1711,19 +4708,22 @@ class AsrRuntimeMixin:
                         exc,
                     )
                     self.last_audio_send_error_time = now
-            return True
+                return OutputCommit.UNKNOWN
         if route_mode != "independent":
             self._set_microphone_route("blocked")
             await self._maybe_signal_blocked_text_mode_microphone()
-            return True
+            return OutputCommit.NOT_SENT
         token = ingress_token or self._capture_ingress_token()
         if not self._ingress_token_matches(token):
-            return True
+            return OutputCommit.NOT_SENT
         route_mode = self._asr_route_mode
         voice_transition_generation = self._voice_input_transition_generation
         route_operation_generation = self._asr_route_operation_generation
         provider = self._independent_asr_provider
         owner = self._voice_lease_owner
+        submit_options = (
+            {"preserve_prefix": preserve_prefix} if preserve_prefix is not None else {}
+        )
         result = await self._asr_runtime.submit(
             ProcessedVoiceFrame(
                 pcm16=pcm16,
@@ -1733,6 +4733,7 @@ class AsrRuntimeMixin:
                 rnnoise_evidence=rnnoise_evidence,
             ),
             ingress_token=token,
+            **submit_options,
         )
         submit_is_current = bool(
             token == self._capture_ingress_token()
@@ -1745,12 +4746,15 @@ class AsrRuntimeMixin:
             and self._independent_asr_provider == provider
         )
         if not submit_is_current:
-            return True
+            return OutputCommit.UNKNOWN
         if result.status is AsrSubmitStatus.UNAVAILABLE:
             self._set_microphone_route("blocked")
             self._clear_audio_stream_queue("independent_asr_unavailable")
             self.hot_swap_audio_cache.clear()
-        return True
+            return OutputCommit.NOT_SENT
+        if result.status is AsrSubmitStatus.STALE:
+            return OutputCommit.NOT_SENT
+        return OutputCommit.LOCAL_ACCEPTED
 
     def _record_omni_microphone_audio(self, byte_count: int) -> None:
         byte_count = int(byte_count)
@@ -1808,6 +4812,10 @@ class AsrRuntimeMixin:
                     frame = audio_frames[index]
                     token = frame.token
                     if not self._ingress_token_matches(token):
+                        if self._voice_session_activation_factory is not None:
+                            self._audio_stream_dropped_total += 1
+                            index += 1
+                            continue
                         rebound = self._rebind_hot_swap_ingress_token(
                             token,
                             audio_stream_epoch=frame.audio_stream_epoch,
@@ -1855,6 +4863,8 @@ class AsrRuntimeMixin:
                             rnnoise_available=frame.rnnoise_available,
                             rnnoise_evidence=frame.rnnoise_evidence,
                             ingress_token=token,
+                            received_at=frame.received_at,
+                            captured_at=audio_frames[batch_end - 1].captured_at,
                         )
                     except asyncio.CancelledError:
                         damaged_frames.extend(audio_frames[index:])
@@ -1931,10 +4941,53 @@ class AsrRuntimeMixin:
                     "ingress_backpressure"
                 )
 
-    def _invalidate_voice_pcm_sync(self, reason: str) -> None:
-        self._voice_input_registry.invalidate_utterance(reason=reason)
+    def _invalidate_voice_pcm_sync(
+        self,
+        reason: str,
+        *,
+        keep_turns: Collection[VoiceTurnToken] = (),
+    ) -> None:
+        correction = self._current_wake_name_correction()
+        if correction is not None and correction.turn_token in keep_turns:
+            # The activation may close, but this pinned final still owns its
+            # one-shot correction. Never transfer it to the next turn.
+            correction.preserved_final = True
+        else:
+            self._wake_name_correction = None
+        self._voice_input_registry.invalidate_utterance(
+            reason=reason, keep=keep_turns,
+        )
         self._clear_audio_stream_queue(reason)
         self.hot_swap_audio_cache.clear()
+        self._native_activation_idle_reconnect_identity = None
+        self._voice_activation_pending_capture.clear()
+        ticket = self._voice_activation_handoff
+        if ticket is not None:
+            ticket.consumed = True
+            self._voice_activation_handoff = None
+            if ticket.watchdog is not None:
+                ticket.watchdog.cancel()
+        self._voice_activation_bound_session = None
+        self._voice_activation_session_anchor = None
+        self._voice_activation_native_output_identity = None
+        self._voice_activation_delivery_revision += 1
+        activation_runtime = self._voice_session_activation_runtime
+        if activation_runtime is not None:
+            self._voice_session_activation_runtime = None
+            self._voice_session_activation_permission_revision += 1
+            self._voice_session_activation_sequence = 0
+            self._voice_session_activation_sample_cursor = 0
+            self._voice_session_activation_status = None
+            AsrRuntimeMixin._schedule_core_asr_cleanup(
+                self,
+                activation_runtime.close(),
+                name=f"voice-session-activation-invalidate-{reason}",
+            )
+        prefix_entry = getattr(self, "_voice_activation_delivery_prefix", None)
+        if prefix_entry is not None:
+            self._revoke_voice_activation_prefix(
+                prefix_entry[0], reason, notify_failure=False,
+            )
 
     async def _apply_voice_lease_state(
         self,
@@ -1947,6 +5000,7 @@ class AsrRuntimeMixin:
     ) -> None:
         self._ensure_asr_runtime_state()
         self._voice_input_transition_generation += 1
+        transition_snapshot = self._voice_input_transition_generation
         previous = (
             self._voice_lease_owner,
             self._voice_lease_hard_muted,
@@ -1981,6 +5035,27 @@ class AsrRuntimeMixin:
         self._voice_input_suppressed = bool(reasons)
         self._invalidate_voice_pcm_sync(reason)
         current = (owner, hard_muted, focus_suppressed)
+        if (
+            owner == "core"
+            and not hard_muted
+            and not focus_suppressed
+            and (previous[1] or previous[2])
+            and reason in {"hard_unmute", "focus_resume", "lease_sync"}
+            and self._asr_route_mode == "independent"
+            and self._voice_input_transition_generation == transition_snapshot
+            and self._voice_lease_owner == "core"
+            and not self._voice_lease_hard_muted
+            and not self._voice_lease_focus_suppressed
+        ):
+            logger.info(
+                "[voice-recovery] unmute_requested owner=%s route=%s "
+                "lease_generation=%s route_generation=%s session_epoch=%s",
+                owner,
+                self._asr_route_mode,
+                self._voice_lease_generation,
+                self._microphone_route_generation,
+                getattr(self._asr_runtime, "_asr_session_epoch", -1),
+            )
         should_abort = (
             force_abort or self._voice_lease_requires_abort or previous != current
         )
@@ -2008,6 +5083,26 @@ class AsrRuntimeMixin:
         elif should_abort:
             await self._asr_runtime.abort(reason)
             await self._voice_input_registry.wait_idle()
+            # Hard mute deliberately aborts the old transport.  The matching
+            # unmute transition must explicitly resume the independent ASR
+            # lifecycle; otherwise the frontend remains in recovery forever
+            # because no new transport can emit a ready status.
+            if (
+                owner == "core"
+                and not hard_muted
+                and not focus_suppressed
+                and (previous[1] or previous[2])
+                and reason in {"hard_unmute", "focus_resume", "lease_sync"}
+                and self._asr_route_mode == "independent"
+                and self._voice_input_transition_generation == transition_snapshot
+                and self._voice_lease_owner == "core"
+                and not self._voice_lease_hard_muted
+                and not self._voice_lease_focus_suppressed
+            ):
+                logger.info("[voice-recovery] restart_requested reason=%s lease_generation=%s", reason, self._voice_lease_generation)
+                restart = getattr(self._asr_runtime, "_ensure_transport_restart_task", None)
+                if callable(restart):
+                    restart()
 
     async def _suspend_independent_voice_input_for_game(self) -> None:
         await self._apply_voice_lease_state(
@@ -2129,6 +5224,19 @@ class AsrRuntimeMixin:
                 notified = True
         if status is not None:
             await self._send_core_asr_status(status)
+            # The first send can deliver the display plane while the
+            # voice-owner plane is still unsettled. Give that recovery notice
+            # one bounded follow-up while the lease is current; after revoke,
+            # the identity fence must reject stale callbacks.
+            if (
+                status.code
+                in {
+                    "ASR_INDEPENDENT_FAILED",
+                    "ASR_INDEPENDENT_PROVIDER_UNAVAILABLE",
+                }
+                and operation_is_current()
+            ):
+                await self._send_core_asr_status(status)
             notified = True
         if notified and not operation_is_current():
             return False
@@ -2303,11 +5411,89 @@ class AsrRuntimeMixin:
         return True
 
     async def _handle_core_asr_turn_abandoned(self, token: VoiceTurnToken) -> None:
-        self._voice_input_registry.invalidate_utterance(
-            token,
-            reason="asr_turn_abandoned",
-        )
+        self._clear_wake_name_correction(self._wake_name_correction_for_turn(token))
+        try:
+            await self._send_core_asr_preview_clear(
+                f"asr-{token.ingress.session_epoch}-{token.turn_id}"
+            )
+        finally:
+            # The token, rather than current preview ownership, owns the pause.
+            # Even cancellation during notification must release that old debt.
+            self._voice_input_registry.invalidate_utterance(
+                token,
+                reason="asr_turn_abandoned",
+            )
         await self._voice_input_registry.wait_idle()
+
+    def _independent_asr_user_turn_active(self) -> bool:
+        """Expose a provider-neutral user-turn gate to Core collaborators."""
+        if getattr(self, "_asr_route_mode", "blocked") != "independent":
+            return False
+        runtime = getattr(self, "_asr_runtime", None)
+        lifecycle = getattr(runtime, "_asr_lifecycle", None)
+        state = getattr(getattr(lifecycle, "snapshot", None), "state", None)
+        pending_delivery = getattr(
+            runtime,
+            "has_pending_transcript_delivery",
+            None,
+        )
+        return (
+            state
+            in {
+                VoiceLifecycleState.PREWARMING,
+                VoiceLifecycleState.ACTIVE,
+                VoiceLifecycleState.DRAINING,
+            }
+            or callable(pending_delivery)
+            and pending_delivery()
+        )
+
+    def _current_wake_name_correction(self) -> _WakeNameCorrection | None:
+        ticket = self._wake_name_correction
+        if ticket is None:
+            return None
+        if ticket.preserved_final:
+            if (
+                self._asr_route_mode == "independent"
+                and ticket.turn_token is not None
+                and ticket.turn_token.ingress.session_epoch == self._capture_ingress_token().session_epoch
+                and self._ingress_token_matches(ticket.turn_token.ingress)
+            ):
+                return ticket
+            self._clear_wake_name_correction(ticket)
+            return None
+        status = self._voice_session_activation_status
+        if (
+            self._asr_route_mode != "independent"
+            or self._voice_session_activation_runtime is not ticket.runtime
+            or self._voice_activation_delivery_revision != ticket.delivery_revision
+            or self._capture_voice_session_activation_generation() != ticket.generation
+            or status is None
+            or status[0] != ticket.generation
+            or status[1] not in {ActivationState.REPLAYING, ActivationState.ACTIVE}
+        ):
+            self._clear_wake_name_correction(ticket)
+            return None
+        return ticket
+
+    def _wake_name_correction_for_turn(
+        self, token: VoiceTurnToken,
+    ) -> _WakeNameCorrection | None:
+        ticket = self._current_wake_name_correction()
+        return ticket if ticket is not None and ticket.turn_token == token else None
+
+    def _clear_wake_name_correction(
+        self, ticket: _WakeNameCorrection | None,
+    ) -> None:
+        # Cleanup after an await belongs only to the ticket captured before it.
+        if ticket is not None and self._wake_name_correction is ticket:
+            self._wake_name_correction = None
+
+    def _preserve_wake_name_correction_after_delivery_revision(self) -> None:
+        """Keep a live wake ticket valid across an in-place session handoff."""
+        ticket = self._wake_name_correction
+        if ticket is not None and ticket.runtime is self._voice_session_activation_runtime:
+            ticket.delivery_revision = self._voice_activation_delivery_revision
 
     async def _prepare_voice_input_turn(self, token: VoiceTurnToken) -> bool:
         self._ensure_asr_runtime_state()
@@ -2321,9 +5507,20 @@ class AsrRuntimeMixin:
             or not self._voice_input_accepts_pcm()
         ):
             return False
-        if not self._voice_input_registry.begin_utterance(token):
-            return False
-        return await self._voice_input_registry.prepare_utterance(token)
+        ticket = self._current_wake_name_correction()
+        if ticket is not None and ticket.turn_token is None:
+            ticket.turn_token = token
+        else:
+            ticket = None
+        prepared = False
+        try:
+            if not self._voice_input_registry.begin_utterance(token):
+                return False
+            prepared = await self._voice_input_registry.prepare_utterance(token)
+            return prepared
+        finally:
+            if not prepared:
+                self._clear_wake_name_correction(ticket)
 
     async def _dispatch_voice_input_partial(
         self,
@@ -2334,8 +5531,13 @@ class AsrRuntimeMixin:
     async def _dispatch_voice_input_final(
         self,
         event: VoiceTranscriptEvent,
-    ) -> None:
-        result = await self._voice_input_registry.dispatch_final(event)
+    ) -> bool:
+        ticket = self._wake_name_correction_for_turn(event.turn_token)
+        try:
+            result = await self._voice_input_registry.dispatch_final(event)
+        finally:
+            # Empty finals and non-Core consumers never enter Core's callback.
+            self._clear_wake_name_correction(ticket)
         if result is VoiceInputDispatchResult.CALLBACK_FAILED:
             await self._send_core_asr_status(
                 AsrStatusEvent(
@@ -2351,6 +5553,7 @@ class AsrRuntimeMixin:
                 event.turn_token.ingress.session_epoch,
                 event.turn_token.turn_id,
             )
+        return result is VoiceInputDispatchResult.DELIVERED
 
     async def _cancel_core_chat_voice_turn(
         self,
@@ -2358,6 +5561,9 @@ class AsrRuntimeMixin:
         reason: str,
     ) -> None:
         del reason
+        self._clear_wake_name_correction(
+            self._wake_name_correction_for_turn(context.token)
+        )
         try:
             await self._send_core_asr_preview_clear(context.external_turn_id)
         finally:
@@ -2386,6 +5592,12 @@ class AsrRuntimeMixin:
             return False
         transition_generation = self._voice_input_transition_generation
         external_turn_id = f"asr-{token.ingress.session_epoch}-{token.turn_id}"
+        logger.info(
+            "[voice-chain] stage=asr_turn_prepare turn_id=%s session_epoch=%s provider=independent_asr",
+            external_turn_id,
+            token.ingress.session_epoch,
+        )
+        self._begin_core_multimodal_turn(external_turn_id, token)
         previous_preview_turn_id = self._core_asr_preview_turn_id
         previous_preview_turn_token = self._core_asr_preview_turn_token
         previous_preview_text = self._core_asr_preview_text
@@ -2406,14 +5618,52 @@ class AsrRuntimeMixin:
             )
 
         prepare = getattr(session_ref, "prepare_external_voice_turn", None)
+        arbiter = getattr(session_ref, "_response_arbiter", None)
+        runtime = getattr(self, "_asr_runtime", None)
+        capture_identity = getattr(runtime, "_capture_runtime_identity", None)
+        identity = capture_identity(ingress_token=token.ingress, turn_token=token) if callable(capture_identity) else None
+        pause_owner_alive = None
+        if arbiter is not None and not getattr(session_ref, "_is_gemini", False):
+            def pause_owner_alive(owner):
+                lifecycle = getattr(runtime, "_asr_lifecycle", None)
+                return bool(
+                    owner == external_turn_id
+                    and operation_is_current()
+                    and runtime is self._asr_runtime
+                    and identity is not None
+                    and runtime._runtime_identity_matches(identity)
+                    and lifecycle is not None
+                    and lifecycle.snapshot.state is VoiceLifecycleState.ACTIVE
+                    and lifecycle.snapshot.turn_id == token.turn_id
+                    and runtime._asr_turn_prepared
+                )
+
+            pause_owner_alive.pause_owner = external_turn_id
+            arbiter.pause_owner_alive = pause_owner_alive
         preparation_succeeded = False
         try:
             if callable(prepare):
-                await prepare(turn_id=external_turn_id)
+                reconnected = await prepare(turn_id=external_turn_id)
+                if reconnected is True and not await (
+                    self._restart_message_handler_after_session_reconnect(
+                        session_ref
+                    )
+                ):
+                    if abandon_on_failure:
+                        self._abandon_core_voice_turn(
+                            external_turn_id,
+                            session_ref=session_ref,
+                        )
+                    return False
             else:
-                interrupt = getattr(session_ref, "handle_interruption", None)
-                if callable(interrupt):
-                    await interrupt()
+                # Offline: close the reply this voice turn interrupted before
+                # handle_new_message clears its text buffer. Its wrap-up is
+                # owed and held by this turn: paid by its reply's completion,
+                # or settled when the turn ends without one
+                # (_abandon_core_voice_turn), never while the user is still
+                # speaking.
+                self._hold_owed_wrap_up_for_voice_turn(external_turn_id)
+                await self._interrupt_offline_reply(session_ref)
             if not operation_is_current():
                 if abandon_on_failure:
                     self._abandon_core_voice_turn(
@@ -2424,6 +5674,11 @@ class AsrRuntimeMixin:
             await self.handle_new_message()
             if operation_is_current():
                 preparation_succeeded = True
+                logger.info(
+                    "[voice-chain] stage=asr_turn_ready turn_id=%s session_epoch=%s",
+                    external_turn_id,
+                    token.ingress.session_epoch,
+                )
                 return True
             if abandon_on_failure:
                 self._abandon_core_voice_turn(
@@ -2450,8 +5705,19 @@ class AsrRuntimeMixin:
                 "[%s] independent ASR turn preparation failed",
                 self.lanlan_name,
             )
+            logger.info(
+                "[voice-chain] stage=asr_turn_prepare_failed turn_id=%s session_epoch=%s",
+                external_turn_id,
+                token.ingress.session_epoch,
+            )
             return False
         finally:
+            if (
+                not preparation_succeeded
+                and arbiter is not None
+                and getattr(arbiter, "pause_owner_alive", None) is pause_owner_alive
+            ):
+                arbiter.pause_owner_alive = None
             if (
                 not preparation_succeeded
                 and self._core_asr_preview_turn_id == external_turn_id
@@ -2460,6 +5726,10 @@ class AsrRuntimeMixin:
                 self._core_asr_preview_turn_id = previous_preview_turn_id
                 self._core_asr_preview_turn_token = previous_preview_turn_token
                 self._core_asr_preview_text = previous_preview_text
+            if not preparation_succeeded:
+                record = self._core_multimodal_turns.pop(external_turn_id, None)
+                if record is not None:
+                    record.invalidated.set()
 
     async def _submit_core_voice_turn(
         self,
@@ -2480,6 +5750,12 @@ class AsrRuntimeMixin:
 
         if session_ref is None:
             session_ref = self.session
+        if getattr(self, "response_backend", "realtime") == "offline_vlm":
+            # A failed promotion-time TTS initialization leaves the Offline
+            # conversation/listener usable. Retry the external TTS lifecycle on
+            # every later independent-ASR turn before asking it to generate;
+            # never push this concern into the general Offline stream_text path.
+            await self.ensure_tts_pipeline_alive()
         submit = getattr(session_ref, "submit_external_voice_turn", None)
         if callable(submit):
             await submit(text, turn_id=turn_id)
@@ -2491,11 +5767,20 @@ class AsrRuntimeMixin:
         event: VoiceTranscriptEvent,
         *,
         session_ref: object | None = None,
-    ) -> None:
+        source_game_route_identity: tuple[str, str, str] | None = None,
+    ) -> bool | None:
         token = event.turn_token.ingress
         external_turn_id = f"asr-{token.session_epoch}-{event.turn_token.turn_id}"
+        logger.info(
+            "[voice-chain] stage=asr_transcript_dispatch turn_id=%s session_epoch=%s provider=%s text_len=%d",
+            external_turn_id,
+            token.session_epoch,
+            event.provider,
+            len(event.text.strip()),
+        )
         if session_ref is None:
             session_ref = getattr(self, "session", None)
+        prepared_session_ref = session_ref
         transition_generation = self._voice_input_transition_generation
         try:
             if (
@@ -2504,7 +5789,17 @@ class AsrRuntimeMixin:
                 or session_ref is None
             ):
                 return
-            if not event.text.strip():
+            ticket = self._wake_name_correction_for_turn(event.turn_token)
+            self._clear_wake_name_correction(ticket)
+            # Admission judges the original ASR text and evidence. Correction
+            # only changes an accepted turn's text, never its admission policy.
+            admission = assess_transcript(
+                event.text, event.evidence, is_voice_source=True, final=True,
+            )
+            if admission.disposition is TranscriptDisposition.REJECT:
+                logger.info("[voice-admission] turn_id=%s decision=reject reason=%s",
+                            external_turn_id, admission.reason)
+            if not event.text.strip() or admission.disposition is TranscriptDisposition.REJECT:
                 # An empty final still completed the turn provider-side (e.g.
                 # the OpenAI/Step stalled-item timeouts): Core deliberately
                 # injects no user_transcript for empty text, yet the frontend
@@ -2514,11 +5809,56 @@ class AsrRuntimeMixin:
                 # next turn.
                 await self._send_core_asr_preview_clear(external_turn_id)
                 return
+            if ticket is not None:
+                event = replace(event, text=correct_wake_name_prefix(event.text))
+            # A normal pending hot-swap may already be caching the conversation.
+            # Snapshot it before handle_input_transcript appends this final: the
+            # handoff candidate receives the prior context here, while the raw
+            # transcript itself is submitted exactly once with its image below.
+            cached_turns_before_final = [
+                dict(item)
+                for item in (
+                    getattr(self, "message_cache_for_new_session", None) or []
+                )
+                if isinstance(item, dict)
+            ]
+            turn_record = self._core_multimodal_turns.get(external_turn_id)
+            if turn_record is not None:
+                # 从这里到本函数的 finally（_abandon_core_voice_turn 按 turn_id 摘
+                # 掉它）之间，这条记录是**在派发中**的，后继的 prepare 不能挤掉它。
+                turn_record.dispatch_started = True
+                await self._await_independent_visual_validation_tasks(
+                    external_turn_id
+                )
+                if (
+                    self._core_multimodal_turns.get(external_turn_id)
+                    is not turn_record
+                    or transition_generation
+                    != self._voice_input_transition_generation
+                    or self._voice_lease_owner != "core"
+                    or not self._ingress_token_matches(token)
+                ):
+                    return
+            multimodal_turn = self._snapshot_core_multimodal_turn(
+                external_turn_id,
+                event.text,
+            )
+            transcript_kwargs = {
+                "is_voice_source": True,
+                "source": "independent_asr",
+                "metadata": {"provider": event.provider},
+            }
+            transcript_kwargs["source_game_route_identity"] = (
+                source_game_route_identity
+            )
             accepted = await self.handle_input_transcript(
                 event.text,
-                is_voice_source=True,
-                source="independent_asr",
-                metadata={"provider": event.provider},
+                **transcript_kwargs,
+            )
+            logger.info(
+                "[voice-chain] stage=asr_transcript_accepted turn_id=%s accepted=%s",
+                external_turn_id,
+                accepted,
             )
             def route_still_core() -> bool:
                 """The route-identity half, re-checkable across an await.
@@ -2535,6 +5875,12 @@ class AsrRuntimeMixin:
                     == self._voice_input_transition_generation
                     and self._voice_lease_owner == "core"
                     and self._ingress_token_matches(token)
+                    and (
+                        multimodal_turn is None
+                        or turn_record is None
+                        or self._core_multimodal_turns.get(external_turn_id)
+                        is turn_record
+                    )
                 )
 
             operation_still_current = route_still_core()
@@ -2551,6 +5897,47 @@ class AsrRuntimeMixin:
                     # the preview bubble and the clear must not remove it.
                     await self._send_core_asr_preview_clear(external_turn_id)
                 return
+            def visual_ownership_lost() -> bool:
+                """Whether a successor has taken this turn's frames since the freeze.
+
+                Deliberately kept out of ``route_still_core()``: losing the
+                frames must downgrade this turn to text, never drop the user's
+                sentence. Re-checkable, because every await between the freeze
+                and the provider call is another chance for a successor to
+                prepare -- the transcript send, preview restoration, the swap
+                barrier, replacement-session preparation.
+                """
+                return turn_record is not None and turn_record.invalidated.is_set()
+
+            def note_visual_ownership_lost() -> None:
+                logger.info(
+                    "[%s] independent ASR turn %s superseded after freeze; "
+                    "submitting transcript without its frames",
+                    self.lanlan_name,
+                    external_turn_id,
+                )
+
+            if multimodal_turn is not None and visual_ownership_lost():
+                note_visual_ownership_lost()
+                multimodal_turn = None
+            if getattr(self, "response_backend", "realtime") == "offline_vlm":
+                # handle_input_transcript historically keys voice display off
+                # the session class. After a main-session VLM promotion the
+                # input is still voice/independent-ASR even though the answering
+                # client is Offline, so preserve the same frontend event here.
+                websocket_ref = getattr(self, "websocket", None)
+                send_json = getattr(websocket_ref, "send_json", None)
+                if callable(send_json):
+                    try:
+                        await send_json({
+                            "type": "user_transcript",
+                            "text": event.text.strip(),
+                        })
+                    except Exception:
+                        logger.warning(
+                            "[%s] Offline VLM voice transcript delivery failed",
+                            self.lanlan_name,
+                        )
             await self._restore_core_asr_preview_after_final(
                 external_turn_id,
                 session_epoch=token.session_epoch,
@@ -2572,6 +5959,7 @@ class AsrRuntimeMixin:
             # the promoted replacement. Bound the wait so the serial transcript
             # dispatcher cannot be held forever by a stuck swap.
             session_swap_lock = self._core_voice_session_swap_lock
+            handoff_target = None
             try:
                 await asyncio.wait_for(
                     session_swap_lock.acquire(),
@@ -2602,16 +5990,132 @@ class AsrRuntimeMixin:
                         None,
                     )
                     if callable(prepare):
-                        await prepare(turn_id=external_turn_id)
+                        reconnected = await prepare(turn_id=external_turn_id)
+                        if reconnected is True and not await (
+                            self._restart_message_handler_after_session_reconnect(
+                                session_ref
+                            )
+                        ):
+                            return
                     if not route_still_core() or self.session is not session_ref:
                         return
+                if multimodal_turn is None:
+                    await self._submit_core_voice_turn(
+                        event.text,
+                        turn_id=external_turn_id,
+                        session_ref=session_ref,
+                    )
+                else:
+                    get_delivery = getattr(
+                        session_ref,
+                        "get_multimodal_turn_delivery",
+                        None,
+                    )
+                    delivery = (
+                        get_delivery() if callable(get_delivery) else None
+                    )
+                    delivery_value = str(
+                        getattr(delivery, "value", delivery) or "handoff_required"
+                    )
+                    if delivery_value == "direct_atomic":
+                        submit_multimodal = getattr(
+                            session_ref,
+                            "submit_multimodal_turn",
+                            None,
+                        )
+                        if not callable(submit_multimodal):
+                            raise RuntimeError(
+                                "DIRECT_MULTIMODAL_SUBMIT_UNAVAILABLE"
+                            )
+                        if visual_ownership_lost():
+                            # 上面那次检查之后还隔着传 transcript、恢复预览、抢
+                            # swap 闸几段 await。这是**真正调用 provider 之前**的
+                            # 最后一个同步点。
+                            note_visual_ownership_lost()
+                            multimodal_turn = None
+                            await self._submit_core_voice_turn(
+                                event.text,
+                                turn_id=external_turn_id,
+                                session_ref=session_ref,
+                            )
+                        else:
+                            try:
+                                await submit_multimodal(
+                                    multimodal_turn.transcript,
+                                    multimodal_turn.images,
+                                    turn_id=multimodal_turn.turn_id,
+                                    # The channel frozen with these frames,
+                                    # not the one the session is on now: a
+                                    # session-side read drifts to the next
+                                    # utterance's channel across the trim /
+                                    # queue / send awaits.
+                                    source=multimodal_turn.source,
+                                    # Gemini 那条路在真正送出之前还有一段
+                                    # 压缩 await，后继发声可以在其中拿走帧。
+                                    # 与 Offline 交接同源的判据。
+                                    visual_still_owned=(
+                                        lambda: not visual_ownership_lost()
+                                    ),
+                                )
+                            except ResponseAdmissionRejected:
+                                # provider 侧的取代判据（后继回合已经 prepare，
+                                # arbiter 的 admission 闸把这张 ticket 拒了）比
+                                # Core 的 invalidated 更晚也更权威。被拒时已提交
+                                # 的 item 已经删干净，provider 侧不留痕迹 ——
+                                # 但这一轮的**话**不能跟着帧一起消失。与
+                                # visual_ownership_lost 那三处同一判据：丢帧降级
+                                # 成纯文本，绝不丢用户的句子。
+                                logger.info(
+                                    "[%s] independent ASR turn %s lost its "
+                                    "provider admission window; submitting "
+                                    "transcript without its frames",
+                                    self.lanlan_name,
+                                    external_turn_id,
+                                )
+                                multimodal_turn = None
+                                await self._submit_core_voice_turn(
+                                    event.text,
+                                    turn_id=external_turn_id,
+                                    session_ref=session_ref,
+                                )
+                    else:
+                        # Candidate connect must happen outside the swap lock so
+                        # the healthy Realtime session remains usable until the
+                        # replacement is ready.
+                        handoff_target = session_ref
+            finally:
+                session_swap_lock.release()
+            if handoff_target is not None and visual_ownership_lost():
+                # 交接本身还要连一个候选会话，比直接提交更长。释放 swap 闸之后再
+                # 确认一次所有权，否则整段交接都在替后继那一轮搬帧。
+                note_visual_ownership_lost()
+                handoff_target = None
+                multimodal_turn = None
                 await self._submit_core_voice_turn(
                     event.text,
                     turn_id=external_turn_id,
                     session_ref=session_ref,
                 )
-            finally:
-                session_swap_lock.release()
+            if handoff_target is not None:
+                delivered = await self._handoff_to_offline_vlm_and_submit(
+                    multimodal_turn,
+                    expected_session=handoff_target,
+                    prepared_session=prepared_session_ref,
+                    operation_is_current=route_still_core,
+                    cached_turns_before_final=cached_turns_before_final,
+                    # 交接内部还有连候选会话、promote、起 TTS、同步工具一长串
+                    # await。所有权判据必须跟着进去，而且**不能**并进
+                    # operation_is_current —— 那个谓词为假会整轮放弃，丢帧只该
+                    # 降级成纯文本。
+                    visual_still_owned=lambda: not visual_ownership_lost(),
+                )
+                if not delivered and route_still_core():
+                    await self.send_status(json.dumps({
+                        "code": "ASR_MULTIMODAL_TURN_FAILED",
+                        "details": {"stage": "offline_vlm_handoff"},
+                    }))
+                return bool(delivered)
+            return True
         finally:
             self._abandon_core_voice_turn(
                 external_turn_id,
@@ -2624,6 +6128,12 @@ class AsrRuntimeMixin:
         *,
         remember: bool = True,
     ) -> None:
+        admission = assess_transcript(event.text, event.evidence, is_voice_source=True, final=False)
+        if admission.disposition is TranscriptDisposition.HOLD:
+            return
+        preview_owner = self._core_asr_preview_turn_token
+        if event.evidence is not None and preview_owner is not None and preview_owner != event.turn_token:
+            return
         if (
             event.session_epoch != self._capture_ingress_token().session_epoch
             or self._voice_lease_owner != "core"
@@ -2757,12 +6267,10 @@ class AsrRuntimeMixin:
         route_operation_generation = self._asr_route_operation_generation
 
         def failure_is_current() -> bool:
-            return bool(
-                self._core_asr_operation_identity_matches(source_identity)
-                and event.session_epoch
-                == self._core_asr_identity_ingress_token(
-                    source_identity
-                ).session_epoch
+            return self._voice_input_recovery_failure_is_current(
+                source_identity,
+                event.session_epoch,
+                event.ingress_token,
             )
 
         async with self._asr_notification_lock:
@@ -2811,28 +6319,255 @@ class AsrRuntimeMixin:
             still_current=lambda: self._core_asr_operation_identity_matches(
                 post_transition_identity
             ),
+            status=(
+                AsrStatusEvent(
+                    code=event.code,
+                    provider=event.provider,
+                    session_epoch=event.session_epoch,
+                    reason=event.reason,
+                    # The failure token was validated before this handler's
+                    # own independent -> blocked transition. Rebase only its
+                    # route generation to that transition so the status still
+                    # carries the original lease/session identity while a
+                    # competing route change remains fenced.
+                    ingress_token=(
+                        replace(
+                            event.ingress_token,
+                            route_generation=(
+                                self._core_asr_identity_ingress_token(
+                                    post_transition_identity
+                                ).route_generation
+                            ),
+                        )
+                        if event.ingress_token is not None
+                        else None
+                    ),
+                )
+                if event.code in {
+                    "ASR_INPUT_DELIVERY_FAILED",
+                    "ASR_INPUT_DELIVERY_UNCERTAIN",
+                    "ASR_INDEPENDENT_FAILED",
+                    "ASR_INDEPENDENT_PROVIDER_UNAVAILABLE",
+                }
+                else None
+            ),
         )
+
+    def _asr_recovery_notice_is_current(self, event) -> bool:
+        """Recovery notices retain their captured lease, including after failure."""
+        return event.recovery_id is None or (
+            event.lease_generation is not None
+            and event.lease_generation == self._voice_lease_generation
+            and event.route_generation is not None
+            and event.route_generation == self._capture_ingress_token().route_generation
+            and self._voice_lease_owner == "core"
+            and not self._voice_lease_hard_muted
+        )
+
+    @staticmethod
+    def _asr_recovery_notice_details(event) -> dict:
+        if event.recovery_id is None:
+            return {}
+        return {
+            "recovery_id": event.recovery_id,
+            "lease_generation": event.lease_generation,
+            "route_generation": event.route_generation,
+            "session_epoch": (
+                event.recovery_session_epoch
+                if event.recovery_session_epoch is not None else event.session_epoch
+            ),
+            "buffering": event.buffering,
+        }
 
     async def _send_core_asr_status(self, event: AsrStatusEvent) -> None:
         source_identity = self._capture_core_asr_operation_identity()
         async with self._asr_notification_lock:
+            current_token = self._core_asr_identity_ingress_token(source_identity)
             if (
                 not self._core_asr_operation_identity_matches(source_identity)
                 or event.session_epoch
-                != self._core_asr_identity_ingress_token(source_identity).session_epoch
+                != current_token.session_epoch
+                or (
+                    event.ingress_token is not None
+                    and event.code
+                    in {
+                        "ASR_INDEPENDENT_FAILED",
+                        "ASR_INDEPENDENT_PROVIDER_UNAVAILABLE",
+                    }
+                    and not self._voice_input_recovery_failure_is_current(
+                        source_identity,
+                        event.session_epoch,
+                        event.ingress_token,
+                    )
+                )
             ):
                 return
-            await self._send_voice_control_status(
+            if not self._asr_recovery_notice_is_current(event):
+                return
+            delivery_failure = event.code in {
+                "ASR_INPUT_DELIVERY_FAILED", "ASR_INPUT_DELIVERY_UNCERTAIN",
+            }
+            # Independent-ASR failures can arrive through two notification
+            # paths for the same runtime event: the failure callback emits the
+            # status before revoking the lease, then the worker callback may
+            # publish its queued status after that callback returns.  Keep the
+            # pre-revoke ordering, but keep separate per-plane delivery
+            # ledgers for the primary and recovery notices.  A retry can then
+            # fill only the plane that failed, while the route-operation
+            # generation lets a later recovery episode reuse the same session
+            # epoch without being hidden by an old ledger.
+            independent_failure_notice = None
+            independent_failure_progress = None
+            if event.code in {
+                "ASR_INDEPENDENT_FAILED",
+                "ASR_INDEPENDENT_PROVIDER_UNAVAILABLE",
+            }:
+                independent_failure_notice = (
+                    event.code,
+                    event.provider,
+                    event.session_epoch,
+                    self._asr_route_operation_generation,
+                )
+                stored_progress = getattr(
+                    self, "_voice_independent_failure_delivery", None
+                )
+                if (
+                    stored_progress is None
+                    or stored_progress[0] != independent_failure_notice
+                ):
+                    stored_progress = (
+                        independent_failure_notice,
+                        {"primary": set(), "recovery": set()},
+                    )
+                    self._voice_independent_failure_delivery = stored_progress
+                independent_failure_progress = stored_progress[1]
+                if all(
+                    plane in independent_failure_progress["primary"]
+                    for plane in ("display_delivered", "voice_owner_settled")
+                ) and all(
+                    plane in independent_failure_progress["recovery"]
+                    for plane in ("display_delivered", "voice_owner_settled")
+                ):
+                    return
+            # The failure callback may rebase the token's route generation
+            # while moving the route to ``blocked``.  The subsequent worker
+            # status still carries the original token, so using the full
+            # event/operation identity here would treat one failure as two
+            # notices.  Session epoch plus code/provider is the stable
+            # identity of one runtime failure; a later recovery creates a
+            # new epoch before it can reuse this key.
+            notice = (event.code, event.provider, event.session_epoch)
+            if (delivery_failure
+                    and getattr(self, "_voice_delivery_failure_notice", None) == notice):
+                return
+            status_details = {
+                "provider": event.provider,
+                "session_epoch": event.session_epoch,
+            }
+            if event.reason:
+                status_details["reason"] = event.reason
+            if event.code in {
+                "ASR_INDEPENDENT_FAILED",
+                "ASR_INDEPENDENT_PROVIDER_UNAVAILABLE",
+            }:
+                status_details["lease_generation"] = (
+                    event.ingress_token.lease_generation
+                    if event.ingress_token is not None
+                    else self._voice_lease_generation
+                )
+            delivered = await self._send_voice_control_status(
                 json.dumps(
                     {
                         "code": event.code,
                         "details": {
-                            "provider": event.provider,
-                            "session_epoch": event.session_epoch,
+                            **status_details,
+                            **self._asr_recovery_notice_details(event),
                         },
                     }
                 ),
+                progress=(None, independent_failure_progress["primary"])
+                if independent_failure_progress is not None
+                else None,
+                still_current=lambda: (
+                    self._core_asr_operation_identity_matches(source_identity)
+                    and self._asr_recovery_notice_is_current(event)
+                ),
             )
+            if (delivery_failure and any(delivered)
+                    and self._core_asr_operation_identity_matches(source_identity)):
+                self._voice_delivery_failure_notice = notice
+            if event.code == "ASR_INDEPENDENT_READY":
+                logger.info("[voice-recovery] transport_ready session_epoch=%s", event.session_epoch)
+                # A transport-ready callback is not sufficient on its own:
+                # the lease or route may have changed while the ASR task was
+                # connecting.  Only advertise readiness for the currently
+                # owned, unmuted independent route and a live session.
+                ready_allowed = self._voice_input_ready_is_current(
+                    source_identity,
+                    event.session_epoch,
+                )
+                if not ready_allowed:
+                    logger.info("[voice-recovery] ready_suppressed session_epoch=%s", event.session_epoch)
+                    return
+                # Re-capture immediately before emission to fence changes
+                # made while preparing the notification.
+                if not self._voice_input_ready_is_current(
+                    source_identity,
+                    event.session_epoch,
+                ):
+                    logger.info("[voice-recovery] ready_suppressed_stale session_epoch=%s", event.session_epoch)
+                    return
+                logger.info("[voice-recovery] ready_emitting session_epoch=%s lease_generation=%s", event.session_epoch, self._voice_lease_generation)
+                await self._send_voice_control_status(
+                    json.dumps({"code": "VOICE_INPUT_READY", "details": {"session_epoch": event.session_epoch, "lease_generation": self._voice_lease_generation}}),
+                    still_current=lambda: self._voice_input_ready_is_current(
+                        source_identity,
+                        event.session_epoch,
+                    ),
+                )
+            elif event.code in {"ASR_INDEPENDENT_FAILED", "ASR_INDEPENDENT_PROVIDER_UNAVAILABLE"}:
+                logger.info("[voice-recovery] failure session_epoch=%s code=%s", event.session_epoch, event.code)
+                # The original status send above is an await; re-check before
+                # publishing the recovery-failure identity used by the frontend.
+                recovery_lease_generation = (
+                    event.ingress_token.lease_generation
+                    if event.ingress_token is not None
+                    else self._voice_lease_generation
+                )
+                if not self._voice_input_recovery_failure_is_current(
+                    source_identity,
+                    event.session_epoch,
+                    event.ingress_token,
+                ):
+                    logger.info(
+                        "[voice-recovery] failure_suppressed_stale session_epoch=%s lease_generation=%s",
+                        event.session_epoch,
+                        recovery_lease_generation,
+                    )
+                    return
+                logger.info(
+                    "[voice-recovery] failure_emitting session_epoch=%s lease_generation=%s",
+                    event.session_epoch,
+                    recovery_lease_generation,
+                )
+                await self._send_voice_control_status(
+                    json.dumps(
+                        {
+                            "code": "VOICE_INPUT_RECOVERY_FAILED",
+                            "details": {
+                                "session_epoch": event.session_epoch,
+                                "lease_generation": recovery_lease_generation,
+                                "reason": "ASR_INDEPENDENT_FAILED",
+                            },
+                        }
+                    ),
+                    progress=(None, independent_failure_progress["recovery"]),
+                    still_current=lambda: self._voice_input_recovery_failure_is_current(
+                        source_identity,
+                        event.session_epoch,
+                        event.ingress_token,
+                    ) and self._asr_recovery_notice_is_current(event),
+                )
 
     async def _send_core_asr_lifecycle(
         self,
@@ -2846,6 +6581,8 @@ class AsrRuntimeMixin:
                 != self._core_asr_identity_ingress_token(source_identity).session_epoch
             ):
                 return
+            if not self._asr_recovery_notice_is_current(event):
+                return
             await self._send_voice_control_status(
                 json.dumps(
                     {
@@ -2855,8 +6592,14 @@ class AsrRuntimeMixin:
                             "state": event.state,
                             "route_mode": self._asr_route_mode,
                             "session_epoch": event.session_epoch,
+                            **({"reason": event.reason} if event.reason else {}),
+                            **self._asr_recovery_notice_details(event),
                         },
                     }
+                ),
+                still_current=lambda: (
+                    self._core_asr_operation_identity_matches(source_identity)
+                    and self._asr_recovery_notice_is_current(event)
                 ),
             )
 

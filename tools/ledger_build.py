@@ -4,7 +4,7 @@
 复刻 2026-09-07 手工总台账（docs/2026-09-07-授粉日报论文-总台账.md）为常驻机制。
 
 三线数据源（**只读扫描**）：
-  授粉线：docs/ 下文件名匹配 `超限战轮|授粉报告` 的 md
+  授粉线：docs/ 下文件名匹配 `授粉轮|授粉报告` 的 md
           —— 轮次表从文件名提日期、从正文表格行 `✅ P0/P1/P2` 计数
   日报线：docs/gitee-stars-backfill-YYYY-MM-DD.json（条目数）
   论文线：~/research/papers/（progress.txt 统计行 + digests/full 计数）——
@@ -32,7 +32,7 @@ DOCS = REPO_ROOT / "docs"
 PAPERS_DIR = Path.home() / "research" / "papers"
 
 DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
-ROUND_RE = re.compile(r"超限战轮(\d+)")
+ROUND_RE = re.compile(r"授粉轮(\d+)")
 P0_RE = re.compile(r"✅\s*\*\*?P0\*\*?|✅\s*P0")
 P1_RE = re.compile(r"✅\s*\*\*?P1\*\*?|✅\s*P1")
 P2_RE = re.compile(r"✅\s*\*\*?P2\*\*?|✅\s*P2")
@@ -43,7 +43,7 @@ P2_RE = re.compile(r"✅\s*\*\*?P2\*\*?|✅\s*P2")
 def scan_pollination(since: str | None) -> list[dict]:
     rows = []
     files = sorted(p for p in DOCS.glob("*.md")
-                   if re.search(r"超限战轮|授粉报告", p.name))
+                   if re.search(r"授粉轮|授粉报告", p.name))
     for f in files:
         text = f.read_text(encoding="utf-8", errors="ignore")
         m = DATE_RE.search(f.name)
@@ -55,7 +55,7 @@ def scan_pollination(since: str | None) -> list[dict]:
         title = re.match(r"^#\s+(.+)", text)
         if title:
             angle = title.group(1).strip().lstrip("# ").strip()
-            angle = re.sub(r"^超限战轮\d+\s*[·—-]?\s*", "", angle)
+            angle = re.sub(r"^授粉轮\d+\s*[·—-]?\s*", "", angle)
             angle = angle.replace("授粉报告", "").strip(" —·")
         p0, p1, p2 = (len(P0_RE.findall(text)), len(P1_RE.findall(text)),
                       len(P2_RE.findall(text)))

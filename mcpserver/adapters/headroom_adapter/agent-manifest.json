@@ -3,7 +3,7 @@
   "displayName": "上下文压缩（headroom）",
   "version": "0.34.0",
   "description": "LLM 上下文压缩，两级择优：① 结构保真 pass（vendor UniversalCompressor，json/code/log 自动识别 + 去重，无损，重复日志实测 ratio 0.30）；② 词元级 pass（Kompress-v2 ModernBERT token 分类，**有损**，JSON 实测 ratio 0.64，热调用 ~0.3s）。上游 vendor/top5/headroom（Apache-2.0）。权重 onnx/kompress-fp32.onnx（572MB）+ answerdotai/ModernBERT-base tokenizer 走 hf-mirror.com 预取到本地 HF 缓存；仓库自带的 int8-wo 产物与本地 onnxruntime 1.20.1 不兼容（MatMulNBits 仅支持 4bit）故钉死 fp32；权重未缓存时自动退化为纯结构模式（不发网络请求）。",
-  "author": "实验田维护者",
+  "author": "沈遥",
   "agentType": "mcp",
   "entryPoint": {
     "module": "mcpserver.adapters.headroom_adapter.agent",

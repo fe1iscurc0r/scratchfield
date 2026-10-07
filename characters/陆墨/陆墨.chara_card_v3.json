@@ -47,7 +47,7 @@
       ]
     },
     "character_version": "1.0.0",
-    "creator": "遥（实验田维护者）",
+    "creator": "遥（沈遥）",
     "creator_notes": "材料科研伴侣。严谨为核、柔软为壳。科研模式下自动切换严谨语气。禁止自称博士/指挥官等任何游戏角色身份。",
     "extensions": {
       "depth_prompt": {

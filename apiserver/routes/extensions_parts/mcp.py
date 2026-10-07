@@ -358,8 +358,22 @@ async def get_mcp_tasks_offline(status: str | None = None):
 
 @router.get("/mcp/services")
 def get_mcp_services(agent_id: str | None = None):
-    """列出所有 MCP 服务并检查可用性（同步端点，由 FastAPI 在线程池中执行）"""
+    """列出所有 MCP 服务并检查可用性（同步端点，由 FastAPI 在线程池中执行）
+
+    工单204 任务二：每个服务带 `domain` 字段，返回体附 `by_domain` 分组
+    （radio / material / agent / memory / general）供前端工具面板直接消费。
+    """
     services: list[dict[str, Any]] = []
+
+    # 域分组（延迟 import，避免路由模块与 registry 的加载顺序耦合）
+    try:
+        from mcpserver.mcp_registry import get_service_domain, list_services_by_domain
+    except Exception:  # noqa: BLE001 - 域分组不可用时降级为不分组（不影响主列表）
+        def get_service_domain(_n: str) -> str:
+            return "general"
+
+        def list_services_by_domain() -> dict[str, list[str]]:
+            return {}
 
     # 1. 内置 agent（扫描 mcpserver 下所有 agent-manifest.json，与 mcp_registry 一致）
     #    启用状态由装配策略决定：缺省（config.json 无 mcp_server.assembly）= 全启用。
@@ -378,6 +392,7 @@ def get_mcp_services(agent_id: str | None = None):
         req_missing, req_optional_missing, _req_all = _assembly_check_requirements(req)
         entry: dict[str, Any] = {
             "name": agent_name,
+            "domain": get_service_domain(agent_name),
             "display_name": manifest.get("displayName", agent_name),
             "description": manifest.get("description", ""),
             "source": "builtin",
@@ -428,6 +443,7 @@ def get_mcp_services(agent_id: str | None = None):
         clean_config = {k: v for k, v in cfg.items() if not k.startswith("_")}
         services.append({
             "name": name,
+            "domain": get_service_domain(name),
             "display_name": display_name,
             "description": description,
             "source": "mcporter",
@@ -440,7 +456,12 @@ def get_mcp_services(agent_id: str | None = None):
         })
 
     return JSONResponse(
-        content={"status": "success", "services": services},
+        content={
+            "status": "success",
+            "services": services,
+            # 域分组（工单204 任务二）：{radio: [...], material: [...], ...}
+            "by_domain": list_services_by_domain(),
+        },
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 

@@ -287,7 +287,7 @@ class TestVaultIndexStartup(unittest.TestCase):
 
 
 class TestParallelRecall(unittest.TestCase):
-    """测试双路并行召回（实验田维护者终审③修复）"""
+    """测试双路并行召回（沈遥终审③修复）"""
 
     def test_uses_asyncio_gather(self):
         """_query_rag_standalone 应使用 asyncio.gather 真正并行"""
@@ -310,7 +310,7 @@ class TestParallelRecall(unittest.TestCase):
 
 
 class TestStaleDataCleanup(unittest.TestCase):
-    """测试增量索引旧数据清理（实验田维护者终审①修复）"""
+    """测试增量索引旧数据清理（沈遥终审①修复）"""
 
     def test_delete_by_metadata_exists(self):
         """RAGService 应有 delete_by_metadata 方法"""
@@ -345,7 +345,7 @@ class TestStaleDataCleanup(unittest.TestCase):
 
 
 class TestStateLock(unittest.TestCase):
-    """测试 VaultIndexer 状态锁（实验田维护者终审④修复）"""
+    """测试 VaultIndexer 状态锁（沈遥终审④修复）"""
 
     def test_state_lock_exists(self):
         """VaultIndexer 应有 _state_lock"""
@@ -365,7 +365,7 @@ class TestStateLock(unittest.TestCase):
 
 
 class TestStatsSkippedCalculation(unittest.TestCase):
-    """测试 stats[skipped] 计算正确性（实验田维护者终审②修复）"""
+    """测试 stats[skipped] 计算正确性（沈遥终审②修复）"""
 
     def test_skipped_formula_no_deleted_subtraction(self):
         """skipped 计算不应减去 deleted"""

@@ -61,6 +61,6 @@ mcpserver/rf_brain/
 ├── decision/      # LLM 决策路由
 ├── feedback/      # 反馈学习环
 ├── mesh/          # LoRa mesh（Trae 已交基础）
-├── doa/           # MUSIC 测向（实验田维护者已交原型）
+├── doa/           # MUSIC 测向（沈遥已交原型）
 └── device/        # IC-705 / SDR 输入抽象
 ```

@@ -6,7 +6,7 @@
 > Integration hell isn't an accident — it's a feature. We pull inspiration from others, pollinate it into our own soil, and grow it into something ours.
 > We don't slap a logo on other people's work — every component carries a fusion report: origin, license, modifications, acceptance. In black and white.
 
-**scratchfield** (实验田, "The Experimental Field") — a showcase of integration engineering built on the **Pollination** methodology, plus a plugin marketplace. Active development happens in a private working repo; this repo is the public showcase, updated by milestone snapshots. **Current snapshot: 2026-09-30.**
+**scratchfield** (实验田, "The Experimental Field") — a showcase of integration engineering built on the **Pollination** methodology, plus a plugin marketplace. Active development happens in a private working repo; this repo is the public showcase, updated by milestone snapshots. **Current snapshot: 2026-10-07.**
 
 ## What is this
 
@@ -89,4 +89,4 @@ AGPL-3.0 (see LICENSE). Commercial use in closed source requires separate author
 
 ---
 
-Maintained by fe1iscurc0r · The Experimental Field, snapshot updates (2026-09-30)
+Maintained by fe1iscurc0r · The Experimental Field, snapshot updates (2026-10-07)
