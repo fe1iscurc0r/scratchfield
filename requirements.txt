@@ -31,7 +31,7 @@ APScheduler>=3.11.0
 
 # ---------- 系统 / 工具 ----------
 numpy>=2.4.6
-sgp4>=2.23  # 云台 TLE 轨道预报（mcpserver/ptz_service/tracking.py）。MIT 许可（© 2012-2016 Brandon Rhodes）。
+sgp4>=2.27  # 云台 TLE 轨道预报（mcpserver/ptz_service/tracking.py）。MIT 许可（© 2012-2016 Brandon Rhodes）。
             # 缺失时 tracking_source=sgp4 会在建任务阶段直接拒绝（reason=no_propagator），
             # 不会静默退化成简化圆轨道——那是 W130-03 明令禁止的行为。
 h5py>=3.16.0  # channel2world HDF5 数据存储（radio_brain/channel2world）
