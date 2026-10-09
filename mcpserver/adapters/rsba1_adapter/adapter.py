@@ -73,7 +73,10 @@ def _candidate_src_paths() -> list:
 
 
 def _rsba1_found() -> bool:
-    return importlib.util.find_spec("rsba1") is not None
+    try:  # 工单224：find_spec 对不可导入父包会抛异常而非返 None
+        return importlib.util.find_spec("rsba1") is not None
+    except (ImportError, ValueError):
+        return False
 
 
 def _import_rsba1(module: str = "rsba1.radio_link") -> Any:
