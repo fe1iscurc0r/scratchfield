@@ -51,15 +51,19 @@ def parse_raman_vendor(data: bytes, fmt: str) -> pd.DataFrame:
     ramanspy 返回 SpectralContainer（spectral_axis + spectral_data 3D），
     这里降维取第一个光谱/第一帧，输出两列 DataFrame（x=cm⁻¹, y=intensity）。
     """
+    # 工单225 病一：fmt 白名单校验必须先于 ramanspy 懒加载——校验本身不需要该包，
+    # 若先 import 则 CI 最小安装（无 ramanspy）下 unknown fmt 会抛 ModuleNotFoundError
+    # 而非预期的 ValueError（上游 737d43fa 引入时即带病，v5.2.5 前被 conftest 跳过掩盖）。
+    if fmt not in ("witec", "renishaw", "horiba"):
+        raise ValueError(f"不支持的厂商格式：{fmt}（支持 witec/renishaw/horiba）")
+
     import ramanspy as rp
 
     loader = {
         "witec": rp.load.witec,
         "renishaw": rp.load.renishaw,
         "horiba": rp.load.labspec,
-    }.get(fmt)
-    if loader is None:
-        raise ValueError(f"不支持的厂商格式：{fmt}（支持 witec/renishaw/horiba）")
+    }[fmt]
     import tempfile
     from pathlib import Path
 

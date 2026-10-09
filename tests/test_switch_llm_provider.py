@@ -10,11 +10,22 @@ from pathlib import Path
 
 import pytest
 
+# 工单225 病二修复：原实现 sys.path.insert(0, ROOT/"tools") 会让 pytest 全量跑时
+# tools/tests/（台账验证子包，有自己的 __init__.py）抢走顶层 "tests" 命名空间——
+# 之后所有 `from tests.test_agentic_loop_flow import ...`（7 个测试文件的既有模式）
+# 解析到 tools/tests 而炸 ModuleNotFoundError。
+# 修法：不再污染 sys.path，改 importlib 按文件路径加载 tools 脚本（同 tools/tests 自己的姿势）。
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tools"))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-import switch_llm_provider as S  # noqa: E402
+import importlib.util
+
+_spec = importlib.util.spec_from_file_location(
+    "switch_llm_provider", ROOT / "tools" / "switch_llm_provider.py")
+S = importlib.util.module_from_spec(_spec)
+sys.modules["switch_llm_provider"] = S  # dataclass 装饰器需要模块已在 sys.modules
+_spec.loader.exec_module(S)
 
 
 @pytest.fixture()
