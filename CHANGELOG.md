@@ -3,6 +3,26 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式，
 版本号遵守 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [5.2.5]
+
+> 2026-10-05 · scratchfield（展示仓）首发 · 本条为补记（2026-10-09，原断档于 5.1.6）
+
+首个三平台正式发布版本（Win / macOS arm64 / Linux AppImage），CI 全自动构建出包。
+
+### Added
+- **配置页 Tab 化**（卷181）：ConfigView 拆分 Tab 组件，新增 AudioTab（629 行）与 ModelTab（383 行），替换原单页配置
+- **发布管线完善**：build-release.yml 三平台构建（PyInstaller 后端 + electron-builder 前端），release 自动落草稿、人工发布
+
+### Fixed
+- **CI 修复三连**：build 步对齐发布口径（--skip-openclaw）；package-lock 同步；AudioTab/ModelTab 拆分时未随工单提交导致构建失败，自悬空 commit 捞回完整版
+- **发布修复**（首发验收发现）：安装包版本与 tag 断裂 → CI 新增版本一致性防线；产物名非 ASCII 前缀被 asset 上传剥掉 → artifactName ASCII 化（Lumo-*）
+- package.json 补 repository 字段，修 electron-builder publish null.provider 崩溃
+
+### Changed
+- release 标题与 CI artifact 命名统一为「陆墨 Lumo」（Lumo-*）
+
+> v5.2.0–v5.2.4 tag 存在但未形成正式发布（CI 红/草稿废弃），无独立条目；详见发布实录 skill 文档。
+
 ## [5.1.6]
 
 总线能力体系收刀：分类 → 深检 → 装配策略 → 依赖预检 → 前端消费全链路。
