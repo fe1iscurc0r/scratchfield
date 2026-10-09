@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from system.config import logger
 from system.cors_config import apply_local_cors
+import threading
 
 
 @asynccontextmanager
@@ -238,11 +239,16 @@ async def chains_suggest(window: str = "7d", top_n: int = 5):
 _CHAIN_EXECUTOR = None
 
 
+_CHAIN_EXECUTOR_lock = threading.Lock()
+
+
 def _get_chain_executor(cls, call_fn):
     """复用一个执行器实例（保持 run 历史可查）。"""
     global _CHAIN_EXECUTOR
     if _CHAIN_EXECUTOR is None:
-        _CHAIN_EXECUTOR = cls(call_fn)
+        with _CHAIN_EXECUTOR_lock:
+            if _CHAIN_EXECUTOR is None:
+                _CHAIN_EXECUTOR = cls(call_fn)
     return _CHAIN_EXECUTOR
 
 

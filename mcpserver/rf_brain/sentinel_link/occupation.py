@@ -236,10 +236,15 @@ class OccupationDetector:
 _detector: OccupationDetector | None = None
 
 
+_detector_lock = threading.Lock()
+
+
 def get_detector() -> OccupationDetector:
     global _detector
     if _detector is None:
-        _detector = OccupationDetector()
+        with _detector_lock:
+            if _detector is None:
+                _detector = OccupationDetector()
     return _detector
 
 

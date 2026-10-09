@@ -626,6 +626,8 @@ from .routes.appearance import router as appearance_router
 from .routes.apps import router as apps_router
 from .routes.auth import router as auth_router
 from .routes.bus_dump import router as bus_dump_router  # W119-01: 总线可观测 dump
+from .routes.eda_ingest import router as eda_ingest_router  # 工单217: EDA parasite-export 接收端
+from .routes.knowledge_openai import router as knowledge_openai_router  # 工单217-A: 知识检索型 OpenAI 兼容端点
 from .routes.channels import router as channels_router  # 渠道网关层：多渠道消息入口
 from .routes.chat import router as chat_router
 from .routes.data_tools import router as data_tools_router
@@ -667,6 +669,8 @@ app.include_router(papers_router)  # W-02: 文献管理器
 app.include_router(lumo_event_router)
 app.include_router(telemetry_router)
 app.include_router(bus_dump_router)  # W119-01: GET /debug/dump/bus[/events]
+app.include_router(eda_ingest_router)  # 工单217: POST /api/eda/ingest
+app.include_router(knowledge_openai_router)  # 工单217-A: POST /v1/knowledge/chat/completions
 app.include_router(rag_router)
 app.include_router(radio_router)  # X-01: IC-705 CI-V 串口控制面板 + HamLog 联动
 app.include_router(persona_router)

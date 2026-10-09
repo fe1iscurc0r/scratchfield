@@ -134,8 +134,13 @@ class DeviceStateStore:
 _store: DeviceStateStore | None = None
 
 
+_store_lock = threading.Lock()
+
+
 def get_device_state_store() -> DeviceStateStore:
     global _store
     if _store is None:
-        _store = DeviceStateStore()
+        with _store_lock:
+            if _store is None:
+                _store = DeviceStateStore()
     return _store

@@ -7,6 +7,7 @@ import os
 import platform
 import subprocess
 from typing import Dict, List, Optional
+import threading
 
 logger = logging.getLogger("AppScanner")
 
@@ -296,10 +297,15 @@ class ComprehensiveAppScanner:
 _comprehensive_scanner: ComprehensiveAppScanner | None = None
 
 
+_comprehensive_scanner_lock = threading.Lock()
+
+
 def get_comprehensive_scanner() -> ComprehensiveAppScanner:
     global _comprehensive_scanner
     if _comprehensive_scanner is None:
-        _comprehensive_scanner = ComprehensiveAppScanner()
+        with _comprehensive_scanner_lock:
+            if _comprehensive_scanner is None:
+                _comprehensive_scanner = ComprehensiveAppScanner()
     return _comprehensive_scanner
 
 

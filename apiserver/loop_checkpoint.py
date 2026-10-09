@@ -184,8 +184,13 @@ class LoopCheckpoint:
 _cp: LoopCheckpoint | None = None
 
 
+_cp_lock = threading.Lock()
+
+
 def get_loop_checkpoint(store_dir: str | Path | None = None) -> LoopCheckpoint:
     global _cp
     if _cp is None:
-        _cp = LoopCheckpoint(store_dir)
+        with _cp_lock:
+            if _cp is None:
+                _cp = LoopCheckpoint(store_dir)
     return _cp

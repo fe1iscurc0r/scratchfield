@@ -3,6 +3,7 @@ import json  # JSON #
 import os  # 操作系统 #
 import platform  # 平台检测 #
 from typing import Dict, List, Optional  # 类型 #
+import threading
 
 # 平台特定导入
 if platform.system() == 'Windows':
@@ -204,11 +205,16 @@ class RegistryAppScanner:
 # 全局实例 #
 _registry_scanner = None
 
+_registry_scanner_lock = threading.Lock()
+
+
 def get_registry_scanner() -> RegistryAppScanner:
     """获取全局注册表扫描器实例 #"""
     global _registry_scanner
     if _registry_scanner is None:
-        _registry_scanner = RegistryAppScanner()
+        with _registry_scanner_lock:
+            if _registry_scanner is None:
+                _registry_scanner = RegistryAppScanner()
     return _registry_scanner
 
 def refresh_registry_apps():

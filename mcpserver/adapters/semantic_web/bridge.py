@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from mcpserver.adapters.semantic_web.engine import SemanticEngine
+import threading
 
 # 本模块自带的科研域本体（数据文件，非代码）
 _ONTOLOGY_TTL = str(Path(__file__).resolve().parent / "ontology.ttl")
@@ -135,11 +136,16 @@ class SemanticBridge:
 _BRIDGE: SemanticBridge | None = None
 
 
+_BRIDGE_lock = threading.Lock()
+
+
 def get_bridge() -> SemanticBridge:
     """返回进程内共享的桥实例（首次调用时懒加载）。"""
     global _BRIDGE
     if _BRIDGE is None:
-        _BRIDGE = SemanticBridge()
+        with _BRIDGE_lock:
+            if _BRIDGE is None:
+                _BRIDGE = SemanticBridge()
     return _BRIDGE
 
 

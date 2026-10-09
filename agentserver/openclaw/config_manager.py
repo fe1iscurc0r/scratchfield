@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from .state_paths import get_openclaw_config_path, get_openclaw_state_dir
+import threading
 
 logger = logging.getLogger("openclaw.config")
 
@@ -406,9 +407,14 @@ class OpenClawConfigManager:
 _config_manager: OpenClawConfigManager | None = None
 
 
+_config_manager_lock = threading.Lock()
+
+
 def get_openclaw_config_manager() -> OpenClawConfigManager:
     """获取全局配置管理器实例"""
     global _config_manager
     if _config_manager is None:
-        _config_manager = OpenClawConfigManager()
+        with _config_manager_lock:
+            if _config_manager is None:
+                _config_manager = OpenClawConfigManager()
     return _config_manager

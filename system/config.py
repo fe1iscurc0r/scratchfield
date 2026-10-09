@@ -12,6 +12,8 @@ import os
 import re
 import secrets
 import sys
+import tempfile
+import time
 
 try:
     import tomllib
@@ -25,6 +27,7 @@ from typing import Any, Dict, List, Optional
 import json5  # 支持带注释的JSON解析
 from charset_normalizer import from_path
 from pydantic import BaseModel, Field, field_validator
+import threading
 
 IS_PACKAGED: bool = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
 
@@ -128,6 +131,52 @@ def get_config_path() -> str:
     return str(get_data_dir() / "config.json")
 
 
+def atomic_write_json(path: str | os.PathLike, data: Any, *, indent: int = 2,
+                      retries: int = 20) -> None:
+    """原子写 JSON —— **全仓唯一的 config 落盘入口**（工单222 任务二）。
+
+    步骤：同目录 tempfile → 写入 → flush + fsync → `os.replace`（同分区 rename 原子）。
+    这样任何时刻读者看到的都是完整文件，不会读到写一半的截断内容。
+
+    Windows 注意：并发 `os.replace` 到同一目标会抛 `PermissionError(WinError 5)`；
+    进程内已由 `config_manager` 的 RLock 串行化，这里的短退避重试只是兜底，
+    同时把失败显式抛出（**不静默吞掉**，旧实现吞异常导致并发下静默丢更新）。
+
+    Args:
+        path: 目标文件路径（父目录必须存在，或由调用方创建）。
+        data: 可 JSON 序列化对象。
+        indent: 缩进（默认 2，保持与既有 config.json 一致）。
+        retries: `os.replace` 的重试次数。
+
+    Raises:
+        OSError: 重试耗尽仍失败（调用方决定如何上报）。
+    """
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp", prefix=".config_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=indent)
+            fh.flush()
+            os.fsync(fh.fileno())
+        last_err: Exception | None = None
+        for attempt in range(max(1, retries)):
+            try:
+                os.replace(tmp_path, target)
+                return
+            except OSError as e:  # Windows 并发 rename / 读者持有句柄时争抢
+                last_err = e
+                # 退避上限 0.2s：极端争抢下总等待约 2s（20 次），足够避开瞬时句柄冲突
+                time.sleep(min(0.01 * (attempt + 1), 0.2))
+        raise last_err if last_err else OSError("atomic_write_json: replace 失败")
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def _get_project_config_template_paths(config_path: str) -> list[Path]:
     """返回可用于初始化运行时配置的模板候选路径。"""
     runtime_dir = Path(config_path).parent
@@ -219,8 +268,9 @@ def sync_source_config_to_runtime() -> bool:
         if not changed:
             return False
 
-        with open(target, "w", encoding="utf-8") as target_file:
-            json.dump(merged_config, target_file, ensure_ascii=False, indent=2)
+        # 工单222 任务二：改走全仓唯一原子写入口（原为 open(target,"w") + json.dump，
+        # 非原子、与 config_manager 的原子路径标准分裂）
+        atomic_write_json(target, merged_config)
 
         print(f"已同步源码配置结构: {source} → {target}")
         return True
@@ -1415,11 +1465,16 @@ CHARACTERS_DIR: Path = Path(__file__).parent.parent / "characters"
 _prompt_manager = None
 
 
+_prompt_manager_lock = threading.Lock()
+
+
 def get_prompt_manager() -> PromptManager:
     """获取全局提示词管理器实例"""
     global _prompt_manager
     if _prompt_manager is None:
-        _prompt_manager = PromptManager()
+        with _prompt_manager_lock:
+            if _prompt_manager is None:
+                _prompt_manager = PromptManager()
     return _prompt_manager
 
 

@@ -15,17 +15,23 @@ import logging
 from typing import Any
 
 from mcpserver.rf_brain.spectrum_events import SpectrumEventCache
+import threading
 
 logger = logging.getLogger(__name__)
 
 _cache: SpectrumEventCache | None = None
 
 
+_cache_lock = threading.Lock()
+
+
 def get_cache() -> SpectrumEventCache:
     """进程级单例缓存（跨调用保持事件状态）。"""
     global _cache
     if _cache is None:
-        _cache = SpectrumEventCache()
+        with _cache_lock:
+            if _cache is None:
+                _cache = SpectrumEventCache()
     return _cache
 
 

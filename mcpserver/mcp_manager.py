@@ -16,6 +16,7 @@ from mcpserver.mcp_registry import (
 )
 from mcpserver.telemetry import get_breaker, record_tool_call
 from system.config import logger
+import threading
 
 # B5 工具级可观测：{service_name: {calls, latency_sum, errors, last_call}}
 _TOOL_METRICS: dict[str, dict[str, Any]] = {}
@@ -207,8 +208,13 @@ class MCPManager:
 _MCP_MANAGER: MCPManager | None = None
 
 
+_MCP_MANAGER_lock = threading.Lock()
+
+
 def get_mcp_manager() -> MCPManager:
     global _MCP_MANAGER
     if _MCP_MANAGER is None:
-        _MCP_MANAGER = MCPManager()
+        with _MCP_MANAGER_lock:
+            if _MCP_MANAGER is None:
+                _MCP_MANAGER = MCPManager()
     return _MCP_MANAGER

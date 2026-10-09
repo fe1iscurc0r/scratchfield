@@ -1,6 +1,7 @@
 """OpenClaw 网关、任务与 agent_browser 运行时（卷190-A1：从 extensions.py 纯搬移）。"""
 """OpenClaw 技能市场、MCP 服务、技能导入、文件上传、旅行、记忆、搜索代理路由"""
 
+from .market import _get_market_items_status
 import html
 import json
 import logging

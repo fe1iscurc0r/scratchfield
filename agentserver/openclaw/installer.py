@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from .state_paths import get_openclaw_config_path, get_openclaw_state_dir
+import threading
 
 logger = logging.getLogger("openclaw.installer")
 
@@ -764,9 +765,14 @@ class OpenClawInstaller:
 _installer: OpenClawInstaller | None = None
 
 
+_installer_lock = threading.Lock()
+
+
 def get_openclaw_installer() -> OpenClawInstaller:
     """获取全局安装器实例"""
     global _installer
     if _installer is None:
-        _installer = OpenClawInstaller()
+        with _installer_lock:
+            if _installer is None:
+                _installer = OpenClawInstaller()
     return _installer

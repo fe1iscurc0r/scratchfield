@@ -3,16 +3,20 @@ from __future__ import annotations
 
 from .common import *  # noqa: F401,F403
 from .common import logger  # noqa: F401
+import threading
 
 _search_http_client: httpx.AsyncClient | None = None
+_search_http_client_lock = threading.Lock()
 
 
 def _get_search_client() -> httpx.AsyncClient:
-    """搜索代理共享 httpx 客户端"""
+    """搜索代理共享 httpx 客户端（工单222 任务三：并发首建加锁，防重复建连）。"""
 
     global _search_http_client
     if _search_http_client is None or _search_http_client.is_closed:
-        _search_http_client = httpx.AsyncClient(timeout=30.0, proxy=None)
+        with _search_http_client_lock:
+            if _search_http_client is None or _search_http_client.is_closed:
+                _search_http_client = httpx.AsyncClient(timeout=30.0, proxy=None)
     return _search_http_client
 
 

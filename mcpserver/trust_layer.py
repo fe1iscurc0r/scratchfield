@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+import threading
 
 # 已知可信源（按前缀匹配，不区分大小写）
 TRUSTED_SOURCES: tuple[str, ...] = (
@@ -190,8 +191,13 @@ class TrustScorer:
 _scorer: TrustScorer | None = None
 
 
+_scorer_lock = threading.Lock()
+
+
 def get_trust_scorer() -> TrustScorer:
     global _scorer
     if _scorer is None:
-        _scorer = TrustScorer()
+        with _scorer_lock:
+            if _scorer is None:
+                _scorer = TrustScorer()
     return _scorer

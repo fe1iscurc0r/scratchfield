@@ -436,10 +436,15 @@ class TelemetryManager:
 _telemetry_manager: TelemetryManager | None = None
 
 
+_telemetry_manager_lock = threading.Lock()
+
+
 def get_telemetry_manager() -> TelemetryManager:
     global _telemetry_manager
     if _telemetry_manager is None:
-        _telemetry_manager = TelemetryManager()
+        with _telemetry_manager_lock:
+            if _telemetry_manager is None:
+                _telemetry_manager = TelemetryManager()
     return _telemetry_manager
 
 

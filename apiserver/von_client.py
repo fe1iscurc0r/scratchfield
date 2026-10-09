@@ -313,11 +313,16 @@ class VonClient:
 _default_client: VonClient | None = None
 
 
+_default_client_lock = threading.Lock()
+
+
 def get_von_client() -> VonClient:
     """获取全局 VonClient 单例。"""
     global _default_client
     if _default_client is None:
-        _default_client = VonClient()
+        with _default_client_lock:
+            if _default_client is None:
+                _default_client = VonClient()
     return _default_client
 
 

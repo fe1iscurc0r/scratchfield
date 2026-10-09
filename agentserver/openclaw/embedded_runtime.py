@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .state_paths import get_openclaw_config_path, get_openclaw_state_dir
+import threading
 
 logger = logging.getLogger("openclaw.runtime")
 
@@ -1000,9 +1001,14 @@ class EmbeddedRuntime:
 _runtime: EmbeddedRuntime | None = None
 
 
+_runtime_lock = threading.Lock()
+
+
 def get_embedded_runtime() -> EmbeddedRuntime:
     """获取全局 EmbeddedRuntime 单例"""
     global _runtime
     if _runtime is None:
-        _runtime = EmbeddedRuntime()
+        with _runtime_lock:
+            if _runtime is None:
+                _runtime = EmbeddedRuntime()
     return _runtime

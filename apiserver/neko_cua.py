@@ -10,17 +10,23 @@ from typing import Any, Optional
 
 import httpx
 from apiserver.config import settings
+import threading
 
 NEKO_AGENT_BASE = settings.neko_agent_base()
 NEKO_EXEC_TOKEN = settings.neko_exec_token()
 
 _client: httpx.AsyncClient | None = None
+_client_lock = threading.Lock()
 
 
 def _get_client() -> httpx.AsyncClient:
+    """懒建 httpx 客户端（工单222 任务三：并发首建加锁，避免重复建连与连接泄漏）。"""
     global _client
     if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(base_url=NEKO_AGENT_BASE.rstrip("/"), timeout=60.0)
+        with _client_lock:
+            if _client is None or _client.is_closed:
+                _client = httpx.AsyncClient(
+                    base_url=NEKO_AGENT_BASE.rstrip("/"), timeout=60.0)
     return _client
 
 

@@ -122,9 +122,14 @@ class MessageQueue:
 _message_queue: MessageQueue | None = None
 
 
+_message_queue_lock = threading.Lock()
+
+
 def get_message_queue() -> MessageQueue:
     """获取或创建消息队列单例"""
     global _message_queue
     if _message_queue is None:
-        _message_queue = MessageQueue()
+        with _message_queue_lock:
+            if _message_queue is None:
+                _message_queue = MessageQueue()
     return _message_queue

@@ -320,10 +320,15 @@ class ChannelRegistry:
 _registry: ChannelRegistry | None = None
 
 
+_registry_lock = threading.Lock()
+
+
 def get_channel_registry() -> ChannelRegistry:
     global _registry
     if _registry is None:
-        _registry = ChannelRegistry()
+        with _registry_lock:
+            if _registry is None:
+                _registry = ChannelRegistry()
     return _registry
 
 

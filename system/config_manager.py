@@ -7,7 +7,6 @@
 import json
 import os
 import sys
-import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -22,11 +21,18 @@ import json5  # 支持带注释的JSON解析
 from .config import (
     VERSION,
     add_config_listener,
+    atomic_write_json,
     bootstrap_config_from_example,
     detect_file_encoding,
     get_config_path,
     hot_reload_config,
 )
+
+# 工单222 任务二：config 读-改-写全程互斥锁。
+# 三处调用方（routes/system.py、naga_control.py、naga_auth.py / routes/auth.py）都在同一
+# 进程内，故进程内 RLock 足够；用 RLock 是为了允许 _load_config_file 内的迁移写回嵌套加锁。
+# 依据：并发实测（20 线程同时 update_config 不同字段）在无锁时丢失 19/20 更新。
+_CONFIG_RMW_LOCK = threading.RLock()
 
 
 class ConfigManager:
@@ -180,37 +186,40 @@ class ConfigManager:
         """
         try:
             print(f"开始更新配置，共 {len(updates)} 项...")  # 去除Emoji #
-            
-            # 验证配置文件存在性
-            config_path = get_config_path()
-            bootstrap_config_from_example(config_path)
-            if not os.path.exists(config_path):
-                print(f"❌ 配置文件不存在: {config_path}")
-                print(f"❌ 当前工作目录: {os.getcwd()}")
-                print(f"❌ 配置文件父目录: {Path(__file__).parent.parent}")
-                return False
-            
-            # 加载当前配置
-            config_data = self._load_config_file(config_path)
-            if config_data is None:
-                return False
-            
-            # 递归更新配置
-            self._recursive_update(config_data, updates)
-            
-            # 保存配置
-            if not self._save_config_file(config_path, config_data):
-                return False
-            
-            # 触发热更新
+
+            # 工单222 任务二：读-改-写三步必须在同一把锁内，否则并发调用互相覆盖
+            # （实测无锁时 20 线程各写一个字段 → 只落盘 1 个，丢 19 个）。
+            with _CONFIG_RMW_LOCK:
+                # 验证配置文件存在性
+                config_path = get_config_path()
+                bootstrap_config_from_example(config_path)
+                if not os.path.exists(config_path):
+                    print(f"❌ 配置文件不存在: {config_path}")
+                    print(f"❌ 当前工作目录: {os.getcwd()}")
+                    print(f"❌ 配置文件父目录: {Path(__file__).parent.parent}")
+                    return False
+
+                # 加载当前配置
+                config_data = self._load_config_file(config_path)
+                if config_data is None:
+                    return False
+
+                # 递归更新配置
+                self._recursive_update(config_data, updates)
+
+                # 保存配置
+                if not self._save_config_file(config_path, config_data):
+                    return False
+
+            # 触发热更新（放在锁外：热重载本身回调业务代码，避免锁内调用外部逻辑）
             hot_reload_config()
-            
+
             # 等待配置重新加载完成
             time.sleep(0.1)
-            
+
             print(f"配置更新成功: {len(updates)} 项")  # 去除Emoji #
             return True
-            
+
         except Exception as e:
             print(f"配置更新失败: {e}")  # 去除Emoji #
             return False
@@ -314,21 +323,13 @@ class ConfigManager:
         return data
     
     def _save_config_file(self, config_path: str, config_data: dict[str, Any]) -> bool:
-        """原子保存配置文件（先写临时文件再 rename，防止写入中途崩溃导致截断）"""
+        """原子保存配置文件。
+
+        工单222 任务二：写入机制收口到 `system.config.atomic_write_json`（全仓唯一入口），
+        本函数只负责把底层异常转成 bool（保持既有调用方契约）。
+        """
         try:
-            dir_path = os.path.dirname(config_path)
-            fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp', prefix='.config_')
-            try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                    json.dump(config_data, f, ensure_ascii=False, indent=2)
-                os.replace(tmp_path, config_path)
-            except BaseException:
-                # 写入或 rename 失败，清理临时文件
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
+            atomic_write_json(config_path, config_data)
             return True
         except Exception as e:
             print(f"保存配置文件失败: {e}")

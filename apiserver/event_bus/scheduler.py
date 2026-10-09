@@ -121,30 +121,37 @@ class Scheduler:
 
 
 _scheduler: Scheduler | None = None
+_scheduler_lock = threading.Lock()
 
 
 def get_scheduler(bus: EventBus | None = None) -> Scheduler | None:
-    """进程级单例（读 config.bus.scheduler.ticks）。"""
+    """进程级单例（读 config.bus.scheduler.ticks）。
+
+    工单222 任务三：并发首建加锁（原为裸 check-then-set，两线程可各建一个
+    Scheduler → 定时任务重复注册）。
+    """
     global _scheduler
     if _scheduler is None:
-        target_bus = bus
-        if target_bus is None:
-            try:
-                from . import get_bus
+        with _scheduler_lock:
+            if _scheduler is None:
+                target_bus = bus
+                if target_bus is None:
+                    try:
+                        from . import get_bus
 
-                target_bus = get_bus()
-            except Exception:  # noqa: BLE001
-                return None
-        ticks: List[str] = list(DEFAULT_TICKS)
-        try:
-            from system.config import get_config
+                        target_bus = get_bus()
+                    except Exception:  # noqa: BLE001
+                        return None
+                ticks: List[str] = list(DEFAULT_TICKS)
+                try:
+                    from system.config import get_config
 
-            cfg_ticks = getattr(get_config().bus.scheduler, "ticks", None)
-            if cfg_ticks:
-                ticks = [str(t) for t in cfg_ticks]
-        except Exception as e:  # noqa: BLE001 - 配置不可用时用默认档位
-            logger.debug("[scheduler] 读取配置失败，用默认档位: %s", e)
-        _scheduler = Scheduler(target_bus, ticks=ticks)
+                    cfg_ticks = getattr(get_config().bus.scheduler, "ticks", None)
+                    if cfg_ticks:
+                        ticks = [str(t) for t in cfg_ticks]
+                except Exception as e:  # noqa: BLE001 - 配置不可用时用默认档位
+                    logger.debug("[scheduler] 读取配置失败，用默认档位: %s", e)
+                _scheduler = Scheduler(target_bus, ticks=ticks)
     return _scheduler
 
 

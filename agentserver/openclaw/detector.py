@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from .state_paths import get_openclaw_config_path, get_openclaw_state_dir
+import threading
 
 logger = logging.getLogger("openclaw.detector")
 
@@ -273,11 +274,16 @@ class OpenClawDetector:
 _detector: OpenClawDetector | None = None
 
 
+_detector_lock = threading.Lock()
+
+
 def get_openclaw_detector() -> OpenClawDetector:
     """获取全局检测器实例"""
     global _detector
     if _detector is None:
-        _detector = OpenClawDetector()
+        with _detector_lock:
+            if _detector is None:
+                _detector = OpenClawDetector()
     return _detector
 
 

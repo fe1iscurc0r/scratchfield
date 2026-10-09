@@ -305,6 +305,10 @@ carpet/N.E.K.O/config/core_config.json
 
 # NEKO 人格运行时数据（carpet 镜像目录，由 NEKO 启动时生成）
 carpet/N.E.K.O/memory/
+# 插件运行时配置与会话状态（工单220：运行时产物不入库；资源文件 vrm/卡面保留）
+carpet/N.E.K.O/plugins/
+carpet/N.E.K.O/social_session.json
+carpet/N.E.K.O/config/.telemetry_branch
 
 # 调试与验证脚本目录（含本地凭证，如 Neo4j 密码；保留本地文件但不入库）
 scripts/debug/

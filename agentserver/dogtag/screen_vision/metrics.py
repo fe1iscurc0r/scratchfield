@@ -7,6 +7,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
+import threading
 
 
 @dataclass
@@ -229,9 +230,14 @@ class ProactiveVisionMetrics:
 _metrics: ProactiveVisionMetrics = None
 
 
+_metrics_lock = threading.Lock()
+
+
 def get_metrics() -> ProactiveVisionMetrics:
     """获取Metrics单例"""
     global _metrics
     if _metrics is None:
-        _metrics = ProactiveVisionMetrics()
+        with _metrics_lock:
+            if _metrics is None:
+                _metrics = ProactiveVisionMetrics()
     return _metrics

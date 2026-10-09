@@ -72,6 +72,7 @@ def _build_market_item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _get_market_items_status() -> dict[str, Any]:
+    from .openclaw import MARKET_ITEMS  # 延迟导入：openclaw 顶部引用本模块，运行时才解析
     return {
         "openclaw": {
             "skills_dir": str(OPENCLAW_SKILLS_DIR),

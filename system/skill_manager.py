@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from system.config import get_data_dir, strip_prompt_comment_lines
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -343,11 +344,16 @@ class SkillManager:
 _skill_manager: SkillManager | None = None
 
 
+_skill_manager_lock = threading.Lock()
+
+
 def get_skill_manager() -> SkillManager:
     """获取全局 Skill 管理器实例"""
     global _skill_manager
     if _skill_manager is None:
-        _skill_manager = SkillManager()
+        with _skill_manager_lock:
+            if _skill_manager is None:
+                _skill_manager = SkillManager()
     return _skill_manager
 
 

@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Dict, List, Optional
 
 from .models import DogTag, DutyStatus, TriggerType
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +72,14 @@ class DogTagRegistry:
 _registry: DogTagRegistry | None = None
 
 
+_registry_lock = threading.Lock()
+
+
 def get_dogtag_registry() -> DogTagRegistry:
     """获取或创建全局注册表单例"""
     global _registry
     if _registry is None:
-        _registry = DogTagRegistry()
+        with _registry_lock:
+            if _registry is None:
+                _registry = DogTagRegistry()
     return _registry

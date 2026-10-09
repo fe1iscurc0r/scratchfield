@@ -31,12 +31,24 @@ matplotlib.use("Agg")  # 无 GUI 后端，服务器/测试环境可用
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from ..naga_auth import require_local_auth
 from . import eln as eln_module
+
+# 工单220：pandas 顶层导入占冷启动 ~660ms，且仅 16 处使用点全在请求处理函数内 →
+# 改为惰性导入（类型注解用 TYPE_CHECKING；运行时首次调用自动加载，行为零变化）。
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+
+def _pd():
+    import pandas
+
+    return pandas
 
 router = APIRouter(prefix="/api/data-tools", tags=["data-tools"])
 logger = logging.getLogger(__name__)
@@ -64,7 +76,7 @@ def _sample_tga() -> str:
     """样例 TGA：温度 / 质量%，标注样例。"""
     temp = np.linspace(30, 800, 100)
     mass = 100 - (temp / 800) ** 2 * 15 + np.sin(temp / 50) * 0.3
-    df = pd.DataFrame({"Temperature_C": temp, "Weight_pct": mass})
+    df = _pd().DataFrame({"Temperature_C": temp, "Weight_pct": mass})
     return "# 样例 TGA 数据（自造，非实测）\n" + df.to_csv(index=False)
 
 
@@ -78,7 +90,7 @@ def _sample_dsc() -> str:
         + 0.02 * temp
         + np.random.default_rng(42).normal(0, 0.05, len(temp))
     )
-    df = pd.DataFrame({"Temperature_C": temp, "HeatFlow_mW": heatflow})
+    df = _pd().DataFrame({"Temperature_C": temp, "HeatFlow_mW": heatflow})
     return "# 样例 DSC 数据（自造，非实测）\n" + df.to_csv(index=False)
 
 
@@ -96,7 +108,7 @@ def _sample_xrd() -> str:
     for center, amp, width in peaks:
         intensity += amp * np.exp(-((two_theta - center) ** 2) / (2 * width**2))
     intensity += rng.normal(0, 2.0, len(two_theta))  # 噪声基底
-    df = pd.DataFrame({"TwoTheta_deg": two_theta, "Intensity": intensity})
+    df = _pd().DataFrame({"TwoTheta_deg": two_theta, "Intensity": intensity})
     return "# 样例 XRD 数据（自造，非实测）\n" + df.to_csv(index=False)
 
 
@@ -126,7 +138,7 @@ def detect_delimiter(text: str) -> str:
     best, best_cols = ",", -1
     for d in _DELIMITERS:
         try:
-            df = pd.read_csv(io.StringIO(text), sep=d, comment="#", engine="python")
+            df = _pd().read_csv(io.StringIO(text), sep=d, comment="#", engine="python")
             if df.shape[1] > best_cols:
                 best, best_cols = d, df.shape[1]
         except Exception:
@@ -134,12 +146,12 @@ def detect_delimiter(text: str) -> str:
     return best
 
 
-def parse_dataframe(text: str) -> tuple[pd.DataFrame, str]:
+def parse_dataframe(text: str) -> tuple[_pd().DataFrame, str]:
     """解析文本为 DataFrame，返回 (df, 分隔符)。"""
     text = text.lstrip("\ufeff")  # 去掉 BOM
     delim = detect_delimiter(text)
     try:
-        df = pd.read_csv(io.StringIO(text), sep=delim, comment="#", engine="python")
+        df = _pd().read_csv(io.StringIO(text), sep=delim, comment="#", engine="python")
     except Exception as e:  # pragma: no cover - 防御路径
         raise HTTPException(status_code=400, detail=f"无法解析数据：{e}") from e
     if df.shape[1] < 2:
@@ -150,7 +162,7 @@ def parse_dataframe(text: str) -> tuple[pd.DataFrame, str]:
 # ============ 预处理 ============
 
 
-def preprocess_tga(df: pd.DataFrame, x_col: str, y_col: str) -> pd.DataFrame:
+def preprocess_tga(df: _pd().DataFrame, x_col: str, y_col: str) -> _pd().DataFrame:
     """TGA 基线扣除：质量扣除起始基线，使曲线从 100% 起算。"""
     out = df.copy()
     baseline = out[y_col].iloc[0]
@@ -158,7 +170,7 @@ def preprocess_tga(df: pd.DataFrame, x_col: str, y_col: str) -> pd.DataFrame:
     return out
 
 
-def preprocess_dsc(df: pd.DataFrame, x_col: str, y_col: str, mass_mg: float | None = None) -> pd.DataFrame:
+def preprocess_dsc(df: _pd().DataFrame, x_col: str, y_col: str, mass_mg: float | None = None) -> _pd().DataFrame:
     """DSC 归一化：热流除以样品质量（缺省时 min-max 归一化到 [0,1]）。"""
     out = df.copy()
     if mass_mg and mass_mg > 0:
@@ -170,7 +182,7 @@ def preprocess_dsc(df: pd.DataFrame, x_col: str, y_col: str, mass_mg: float | No
     return out
 
 
-def preprocess_xrd(df: pd.DataFrame, x_col: str, y_col: str, smooth_window: int = 0) -> pd.DataFrame:
+def preprocess_xrd(df: _pd().DataFrame, x_col: str, y_col: str, smooth_window: int = 0) -> _pd().DataFrame:
     """XRD 平滑（可选）：移动平均，窗口为奇数。smooth_window<=1 表示不平滑。"""
     out = df.copy()
     if smooth_window and smooth_window > 1:
@@ -181,7 +193,7 @@ def preprocess_xrd(df: pd.DataFrame, x_col: str, y_col: str, smooth_window: int 
     return out
 
 
-def preprocess_raman(df: pd.DataFrame, x_col: str, y_col: str) -> pd.DataFrame:
+def preprocess_raman(df: _pd().DataFrame, x_col: str, y_col: str) -> _pd().DataFrame:
     """拉曼预处理链（懒加载 tools.raman_utils）：去尖峰→SavGol→ASLS 基线→MinMax。"""
     import sys
     from pathlib import Path
@@ -199,12 +211,12 @@ def preprocess_raman(df: pd.DataFrame, x_col: str, y_col: str) -> pd.DataFrame:
 
 def preprocess(
     data_type: str,
-    df: pd.DataFrame,
+    df: _pd().DataFrame,
     x_col: str,
     y_col: str,
     mass_mg: float | None = None,
     smooth_window: int = 0,
-) -> pd.DataFrame:
+) -> _pd().DataFrame:
     """按数据类型分派预处理。"""
     if data_type == "tga":
         return preprocess_tga(df, x_col, y_col)
@@ -221,7 +233,7 @@ def preprocess(
 
 
 def plot_curve(
-    df: pd.DataFrame,
+    df: _pd().DataFrame,
     x_col: str,
     y_col: str,
     data_type: str,
@@ -279,8 +291,8 @@ async def parse_file(
     """上传文件 → 探测分隔符 → 返回表头 + 前 10 行预览。"""
     raw = (await file.read()).decode("utf-8", errors="replace")
     df, delim = parse_dataframe(raw)
-    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-    preview = df.head(10).where(pd.notna(df.head(10)), None)
+    numeric_cols = [c for c in df.columns if _pd().api.types.is_numeric_dtype(df[c])]
+    preview = df.head(10).where(_pd().notna(df.head(10)), None)
     return {
         "ok": True,
         "filename": file.filename,
@@ -314,7 +326,7 @@ async def plot_file(
     if x_col not in df.columns or y_col not in df.columns:
         raise HTTPException(status_code=400, detail=f"列不存在：{x_col}/{y_col}")
     for col in (x_col, y_col):
-        if not pd.api.types.is_numeric_dtype(df[col]):
+        if not _pd().api.types.is_numeric_dtype(df[col]):
             raise HTTPException(status_code=400, detail=f"列 {col} 不是数值列")
 
     processed = preprocess(data_type=data_type, df=df, x_col=x_col, y_col=y_col, mass_mg=mass_mg, smooth_window=smooth_window)

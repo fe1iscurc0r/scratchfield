@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .state_paths import get_openclaw_state_dir
+import threading
 
 logger = logging.getLogger("openclaw.client")
 
@@ -1526,11 +1527,16 @@ class OpenClawClient:
 _openclaw_client: OpenClawClient | None = None
 
 
+_openclaw_client_lock = threading.Lock()
+
+
 def get_openclaw_client(config: OpenClawConfig | None = None) -> OpenClawClient:
     """获取全局 OpenClaw 客户端实例"""
     global _openclaw_client
     if _openclaw_client is None:
-        _openclaw_client = OpenClawClient(config)
+        with _openclaw_client_lock:
+            if _openclaw_client is None:
+                _openclaw_client = OpenClawClient(config)
     return _openclaw_client
 
 

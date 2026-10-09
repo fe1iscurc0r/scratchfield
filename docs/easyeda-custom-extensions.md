@@ -7,6 +7,11 @@
 HW-06 寄生链通道B的第一块砖。菜单「寄生链」（原理图/PCB 页）：
 - **导出文档源码**：`getDocumentSource()` → 存本地 `.esch/.epcb`
 - **推送到管线**：当前文档元信息+源码打包 POST 到可配置 URL（默认 `http://127.0.0.1:8765/ingest`）——云服 RAG/寄生参数提取直接吃；这同时就是 knowledge-base 对接 scratchpad 的实际通道（云服起个接收端即可）
+  - ✅ **云服接收端已落地（工单217）**：`POST http://<apiserver>:8000/api/eda/ingest`。
+    扩展侧配置改两处：①管线地址改为云服地址；②请求头加 `X-EDA-Token: <token>`（服务端
+    `EDA_INGEST_TOKEN` 环境变量同值；未设时回落 `LUMO_PROXY_TOKEN`）。
+    落盘 `<user_data>/eda_ingest/`，同内容 hash 幂等；发事件 `lumo.eda.document_ingested`
+    （`/debug/dump/bus/events` 可查）。测试见 `tests/test_eda_ingest.py`。
 - **配置管线地址**：URL 存 sys_Storage（扩展配置）
 - 依赖：原理图/PCB 页面激活；推送需外部交互=是
 

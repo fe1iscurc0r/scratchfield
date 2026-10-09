@@ -10,6 +10,7 @@ import time
 from typing import Any, Dict, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -153,9 +154,14 @@ class WebSocketManager:
 _ws_manager: WebSocketManager = None
 
 
+_ws_manager_lock = threading.Lock()
+
+
 def get_websocket_manager() -> WebSocketManager:
     """获取WebSocket管理器单例"""
     global _ws_manager
     if _ws_manager is None:
-        _ws_manager = WebSocketManager()
+        with _ws_manager_lock:
+            if _ws_manager is None:
+                _ws_manager = WebSocketManager()
     return _ws_manager

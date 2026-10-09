@@ -243,8 +243,13 @@ class HILEvaluator:
 _evaluator: HILEvaluator | None = None
 
 
+_evaluator_lock = threading.Lock()
+
+
 def get_hil_evaluator(rules_path: str | Path | None = None) -> HILEvaluator:
     global _evaluator
     if _evaluator is None:
-        _evaluator = HILEvaluator(rules_path)
+        with _evaluator_lock:
+            if _evaluator is None:
+                _evaluator = HILEvaluator(rules_path)
     return _evaluator

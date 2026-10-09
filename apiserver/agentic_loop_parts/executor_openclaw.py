@@ -29,23 +29,30 @@ from system.config import get_config, get_data_dir, get_server_port
 
 logger = logging.getLogger("apiserver.agentic_tool_loop")  # 保持原日志通道名
 from .markers import *  # noqa: F401,F403
+import threading
 
 # ---------------------------------------------------------------------------
 # OpenClaw 共享客户端与可用性预检
 # ---------------------------------------------------------------------------
 
 _shared_openclaw_client: httpx.AsyncClient | None = None
+_shared_openclaw_client_lock = threading.Lock()
 
 
 
 def _get_openclaw_client() -> httpx.AsyncClient:
-    """获取或创建共享的 httpx 客户端（避免每次调用都新建连接）"""
+    """获取或创建共享的 httpx 客户端（避免每次调用都新建连接）。
+
+    工单222 任务三：并发首建加锁，防重复建连/连接泄漏。
+    """
     global _shared_openclaw_client
     if _shared_openclaw_client is None or _shared_openclaw_client.is_closed:
-        _shared_openclaw_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout=150.0, connect=10.0),
-            proxy=None,  # localhost 请求不走系统代理
-        )
+        with _shared_openclaw_client_lock:
+            if _shared_openclaw_client is None or _shared_openclaw_client.is_closed:
+                _shared_openclaw_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(timeout=150.0, connect=10.0),
+                    proxy=None,  # localhost 请求不走系统代理
+                )
     return _shared_openclaw_client
 
 

@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -397,6 +398,7 @@ _VISION_BASE_URL = os.environ.get(
 _VISION_MODEL = os.environ.get("LUMO_VISION_MODEL", "qwen3.7-plus")
 
 _vision_client = None
+_vision_client_lock = threading.Lock()
 
 
 def _messages_contain_image(messages: list[ChatMessage]) -> bool:
@@ -430,10 +432,15 @@ def _resolve_vision_api_key() -> str:
 
 
 def _get_vision_client():
+    """视觉上游共享 httpx 客户端（工单222 任务三：并发首建加锁）。"""
     global _vision_client
     import httpx
+
     if _vision_client is None or _vision_client.is_closed:
-        _vision_client = httpx.AsyncClient(base_url=_VISION_BASE_URL, timeout=120.0)
+        with _vision_client_lock:
+            if _vision_client is None or _vision_client.is_closed:
+                _vision_client = httpx.AsyncClient(
+                    base_url=_VISION_BASE_URL, timeout=120.0)
     return _vision_client
 
 

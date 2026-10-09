@@ -29,6 +29,7 @@ from system.llm_params import get_llm_params as _get_common_llm_params
 from . import naga_auth
 from .litellm_lazy import acompletion, litellm
 from apiserver.config import settings
+import threading
 
 # 配置日志
 logger = logging.getLogger("LLMService")
@@ -592,11 +593,16 @@ class LLMService:
 _llm_service: LLMService | None = None
 
 
+_llm_service_lock = threading.Lock()
+
+
 def get_llm_service() -> LLMService:
     """获取全局LLM服务实例"""
     global _llm_service
     if _llm_service is None:
-        _llm_service = LLMService()
+        with _llm_service_lock:
+            if _llm_service is None:
+                _llm_service = LLMService()
     return _llm_service
 
 

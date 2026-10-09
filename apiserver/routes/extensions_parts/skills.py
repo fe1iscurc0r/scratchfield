@@ -1,6 +1,7 @@
 """技能目录、导入、克隆与删除（卷190-A1：从 extensions.py 纯搬移）。"""
 """OpenClaw 技能市场、MCP 服务、技能导入、文件上传、旅行、记忆、搜索代理路由"""
 
+from .market import _hub_base_url
 import html
 import json
 import logging

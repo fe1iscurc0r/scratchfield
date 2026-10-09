@@ -12,6 +12,7 @@ from .bus import EventBus, EventHandler, InProcessEventBus, WaterfallHandler, is
 from .disposable import Disposable, DisposableList
 from .event_store import EventStore, build_envelope, get_event_store
 from .topics import Topics
+import threading
 
 __all__ = [
     "Disposable",
@@ -31,9 +32,14 @@ __all__ = [
 _bus: InProcessEventBus | None = None
 
 
+_bus_lock = threading.Lock()
+
+
 def get_bus() -> InProcessEventBus:
     """总线单例：整个进程只有一条总线，所有组件共享。"""
     global _bus
     if _bus is None:
-        _bus = InProcessEventBus()
+        with _bus_lock:
+            if _bus is None:
+                _bus = InProcessEventBus()
     return _bus

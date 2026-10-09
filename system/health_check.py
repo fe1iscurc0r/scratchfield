@@ -9,6 +9,7 @@ import socket
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -551,11 +552,16 @@ class HealthChecker:
 _health_checker: HealthChecker | None = None
 
 
+_health_checker_lock = threading.Lock()
+
+
 def get_health_checker() -> HealthChecker:
     """获取健康检查器单例"""
     global _health_checker
     if _health_checker is None:
-        _health_checker = HealthChecker()
+        with _health_checker_lock:
+            if _health_checker is None:
+                _health_checker = HealthChecker()
     return _health_checker
 
 

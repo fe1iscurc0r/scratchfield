@@ -271,8 +271,13 @@ class KnowledgeDriver:
 _driver: KnowledgeDriver | None = None
 
 
+_driver_lock = threading.Lock()
+
+
 def get_knowledge_driver(db_path: str | Path | None = None) -> KnowledgeDriver:
     global _driver
     if _driver is None:
-        _driver = KnowledgeDriver(db_path)
+        with _driver_lock:
+            if _driver is None:
+                _driver = KnowledgeDriver(db_path)
     return _driver
