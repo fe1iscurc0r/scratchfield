@@ -1326,8 +1326,19 @@ class McpFuncNameSanitizeTests(unittest.TestCase):
                 return _EmptyStream()
 
             events: list[str] = []
+            # 工单226 病三真身：_get_llm_params 的装配链走 system.llm_params.get_llm_params
+            # → system.config.get_config（独立导入，apiserver 的 patch 罩不住）。
+            # CI 干净环境真配置是模板 "your-api-key"（PLACEHOLDER 黑名单）→ 闸门 yield
+            # "未配置本地模型 API 密钥" + return → acompletion 零调用 → attempts=0 != 3。
+            # 本机有真 key 则假绿。修法 A：补 patch 装配链源头的 get_config。
+            import system.llm_params as _sys_llm_params
+
+            class _SysSettings:
+                api = _LlmApiSettings()
+
             with (
                 patch("apiserver.llm_service.get_config", lambda: _LlmSettings()),
+                patch.object(_sys_llm_params, "get_config", lambda: _SysSettings(), create=True),
                 patch("apiserver.llm_service.naga_auth.should_use_model_gateway", lambda: False),
                 patch("apiserver.llm_service.acompletion", _fake_acompletion),
             ):
