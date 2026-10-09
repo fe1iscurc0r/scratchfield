@@ -3,6 +3,6 @@
 # Python 3.11+，Windows x64 / Linux x86_64
 
 llama-cpp-python>=0.3.35
-mcp>=1.0.0
+mcp>=2.3.0
 capstone>=5.0.9
 PyYAML>=6.0
