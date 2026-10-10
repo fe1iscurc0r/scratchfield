@@ -16,7 +16,7 @@ dependencies = [
     "requests>=2.32.0",
     "python-multipart>=0.0.32",
     # ---------- Web 服务 ----------
-    "fastapi>=0.115.0",
+    "fastapi>=0.142.2",
     "uvicorn>=0.52.4",
     "sse-starlette>=2.3.0",
     "httpx[socks]>=0.28.1",
