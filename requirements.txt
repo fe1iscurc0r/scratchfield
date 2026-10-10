@@ -5,13 +5,13 @@
 # ---------- 核心 / 配置 ----------
 charset-normalizer>=3.4.0
 json5>=0.15.0
-PyYAML>=6.0.2
-pydantic>=2.11.0
+PyYAML>=6.0.3
+pydantic>=2.13.5
 requests>=2.32.0
 python-multipart>=0.0.32
 
 # ---------- Web 服务 ----------
-fastapi>=0.115.0
+fastapi>=0.142.2
 uvicorn>=0.52.4
 sse-starlette>=2.3.0
 httpx[socks]>=0.28.1
@@ -19,7 +19,7 @@ websockets>=17.0.1
 
 # ---------- LLM / 对话 ----------
 openai>=3.8.0
-litellm>=1.104.0
+litellm>=1.80.0
 tiktoken>=0.11.0
 langchain-openai>=1.1.0
 langchain-community>=0.3.30
@@ -41,7 +41,7 @@ psutil>=7.1.0
 emoji>=2.16.0
 cryptography>=46.0.0
 setproctitle>=1.3.5
-watchfiles>=1.2.0
+watchfiles>=1.3.0
 
 # ---------- 语音 / 音频 ----------
 edge-tts>=7.0.0
@@ -71,7 +71,7 @@ anthropic>=0.42.0
 rdflib>=7.0.0  # semantic_web MCP adapter (SPARQL/RDF)
 
 # ---------- memclaw 跨 Agent 记忆总线（mcpserver/adapters/memclaw_adapter）----------
-aiosqlite>=0.22.0  # SqliteBackend standalone 后端必需（缺则外壳工具直接跳过）
+aiosqlite>=0.22.1  # SqliteBackend standalone 后端必需（缺则外壳工具直接跳过）
 
 # ---------- glyco 糖链信息学（mcpserver/glyco，工单203 任务二）----------
 glypy>=1.0.17  # 糖链结构解析/质量/树（Apache-2.0；实测仅 2 包：glypy+hjson）
