@@ -71,7 +71,7 @@ anthropic>=0.42.0
 rdflib>=7.0.0  # semantic_web MCP adapter (SPARQL/RDF)
 
 # ---------- memclaw 跨 Agent 记忆总线（mcpserver/adapters/memclaw_adapter）----------
-aiosqlite>=0.22.0  # SqliteBackend standalone 后端必需（缺则外壳工具直接跳过）
+aiosqlite>=0.22.1  # SqliteBackend standalone 后端必需（缺则外壳工具直接跳过）
 
 # ---------- glyco 糖链信息学（mcpserver/glyco，工单203 任务二）----------
 glypy>=1.0.17  # 糖链结构解析/质量/树（Apache-2.0；实测仅 2 包：glypy+hjson）
