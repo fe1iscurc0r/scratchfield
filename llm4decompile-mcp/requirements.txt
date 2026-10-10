@@ -5,4 +5,4 @@
 llama-cpp-python>=0.3.35
 mcp>=2.3.0
 capstone>=5.0.9
-PyYAML>=6.0
+PyYAML>=6.0.3
