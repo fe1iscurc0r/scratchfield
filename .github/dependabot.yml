@@ -38,6 +38,16 @@ updates:
     #     CVE 仅影响 dev 构建链，生产构建不受影响。
     ignore:
       - dependency-name: "sprintf-js"
+      # pixi.js：v8 与 pixi-live2d-display@0.4.0 硬不兼容（其 peerDependencies
+      # 要求 @pixi/*: ^6，且无 v8 兼容的稳定版）——大版本升级会直接炸前端类型闸门，
+      # 导致发版构建连续失败（2026-10-09 v5.2.6/5.2.7/5.2.8 三连红，PR #159 引入）。
+      # 只挡 major；6.x 的 minor/patch 照常收。
+      - dependency-name: "pixi.js"
+        update-types: ["version-update:semver-major"]
+      # typescript：7.x 是 Go 原生重写版，vue-tsc/@volar 工具链兼容性未验证
+      # （PR #39 曾提 5.9.3 → 7.0.2）。需要时人工评估后手动升。
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
