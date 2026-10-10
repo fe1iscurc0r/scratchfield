@@ -54,7 +54,7 @@ dependencies = [
     "watchfiles>=1.2.0",
     # ---------- 语音 / 音频 ----------
     "edge-tts>=7.0.0",
-    "sounddevice>=0.5.0",
+    "sounddevice>=0.5.6",
     # ---------- 知识图谱 GRAG / 兼容层 ----------
     "py2neo>=2021.2.3",
     "neo4j>=5.0.0",
