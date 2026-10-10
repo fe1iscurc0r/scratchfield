@@ -41,7 +41,7 @@ psutil>=7.1.0
 emoji>=2.16.0
 cryptography>=46.0.0
 setproctitle>=1.3.5
-watchfiles>=1.2.0
+watchfiles>=1.3.0
 
 # ---------- 语音 / 音频 ----------
 edge-tts>=7.0.0
