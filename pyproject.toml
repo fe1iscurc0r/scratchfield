@@ -95,7 +95,7 @@ local-tts = [
 # Docling 主力（中文 OCR/表格结构/图像提取）+ MarkItDown 降级
 pdf2md = [
     "docling>=2.125.0",
-    "markitdown[pdf]>=0.1.7",
+    "markitdown[pdf]>=0.1.8",
 ]
 # 卷163：法学判例本地导入管线（domains/law/importers/case_import）
 # - .docx：python-docx（本卷唯一新增依赖，工单已授权）
