@@ -45,13 +45,38 @@ updates:
       - dependency-name: "pixi.js"
         update-types: ["version-update:semver-major"]
       # typescript：7.x 是 Go 原生重写版，vue-tsc/@volar 工具链兼容性未验证
-      # （PR #39 曾提 5.9.3 → 7.0.2）。需要时人工评估后手动升。
+      # （2026-10-10 展示仓 PR #39 曾提 5.9.3 → 7.0.2）。需要时人工评估后手动升。
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
 
+  # Python 依赖（uv 生态）——与上面的 pip 条目并存：
+  #   pip 条目只改 pyproject/requirements 的版本下限，**不会更新 uv.lock**，
+  #   导致 lock 与清单脱节（实测：#236 aiohttp>=3.14.4 vs lock 3.14.3；
+  #   #239 cryptography>=50.0.2 vs lock 50.0.1 —— 合并即让 uv lock --check 失败）。
+  #   uv 生态条目直接维护 uv.lock，从机制上消灭这类脱节。
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    assignees:
+      - "fe1iscurc0r"
   # GitHub Actions
+  # ⚠️ 2026-10-10 起暂停本生态的**版本更新**（open-pull-requests-limit: 0）：
+  #   dependabot 的 actions 更新器在本仓持续以 `unknown_error` 失败
+  #   （实测日志：Updating actions/setup-node from 4 to 7 后 -> record_update_job_unknown_error，
+  #    同一轮里 upload-artifact / configure-pages / setup-python / deploy-pages 均报 unknown_error），
+  #   每周产出一次红灯 run。这是 GitHub 侧更新器的问题，仓库配置无法消除。
+  #   安全更新不受此限（仍会自动开 PR）。恢复方法：把 0 改为非 0。
   - package-ecosystem: "github-actions"
     directory: "/"
+    open-pull-requests-limit: 0
     schedule:
       interval: "monthly"
     labels:
