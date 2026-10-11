@@ -14,6 +14,21 @@ updates:
       - "python"
     assignees:
       - "fe1iscurc0r"
+    # 与主仓同源的例外（**dependabot 的 ignore 按生态环境独立**，两个条目各要一份）：
+    #   · litellm 1.84.0–1.105.x 元数据钉 openai<3.0.0，与本仓 openai 下限互斥 → uv 更新器每轮以 "No solution found" 收场、整个 run 变红（2026-10-10 实测）。
+    #     上游 BerriAI/litellm PR #44927 已 merged（改成 openai<4.0.0）但未发布 → 只挡坏窗口，1.106.0 发布后会自动可提，届时删掉本规则。
+    #   · websockets 17.x 被 docling-slim[standard]（<17.0）挡住。
+    ignore:
+      - dependency-name: "litellm"
+        versions: [">=1.84.0,<1.106.0"]
+      - dependency-name: "websockets"
+        update-types: ["version-update:semver-major"]
+    # 分组：minor/patch 收成一个 PR（避免一次开一堆）
+    groups:
+      pip-minor-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # 前端依赖 (npm)
   - package-ecosystem: "npm"
@@ -67,6 +82,22 @@ updates:
       - "python"
     assignees:
       - "fe1iscurc0r"
+    # 与主仓同源的例外（**dependabot 的 ignore 按生态环境独立**，两个条目各要一份）：
+    #   · litellm 1.84.0–1.105.x 元数据钉 openai<3.0.0，与本仓 openai 下限互斥 → uv 更新器每轮以 "No solution found" 收场、整个 run 变红（2026-10-10 实测）。
+    #     上游 BerriAI/litellm PR #44927 已 merged（改成 openai<4.0.0）但未发布 → 只挡坏窗口，1.106.0 发布后会自动可提，届时删掉本规则。
+    #   · websockets 17.x 被 docling-slim[standard]（<17.0）挡住。
+    ignore:
+      - dependency-name: "litellm"
+        versions: [">=1.84.0,<1.106.0"]
+      - dependency-name: "websockets"
+        update-types: ["version-update:semver-major"]
+    # 分组：minor/patch 收成一个 PR（避免一次开一堆）
+    groups:
+      uv-minor-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
   # GitHub Actions
   # ⚠️ 2026-10-10 起暂停本生态的**版本更新**（open-pull-requests-limit: 0）：
   #   dependabot 的 actions 更新器在本仓持续以 `unknown_error` 失败
