@@ -35,7 +35,7 @@ sgp4>=2.27  # 云台 TLE 轨道预报（mcpserver/ptz_service/tracking.py）。M
             # 缺失时 tracking_source=sgp4 会在建任务阶段直接拒绝（reason=no_propagator），
             # 不会静默退化成简化圆轨道——那是 W130-03 明令禁止的行为。
 h5py>=3.16.0  # channel2world HDF5 数据存储（radio_brain/channel2world）
-pandas>=2.2.0
+pandas>=3.0.6
 pillow>=11.0.0
 psutil>=7.1.0
 emoji>=2.16.0

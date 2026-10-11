@@ -43,7 +43,7 @@ dependencies = [
     # （2026-10-01 补录）此前 scipy 仅经 docling-slim[standard]（pdf2md extra）传递进锁，
     # 干净环境不带 extra 时该 import 链崩。下限=审计时实测版。
     "scipy>=1.18.0",
-    "pandas>=2.2.0",
+    "pandas>=3.0.6",
     "pillow>=11.0.0",
     "psutil>=7.1.0",
     "emoji>=2.16.0",
