@@ -15,7 +15,7 @@ fastapi>=0.142.2
 uvicorn>=0.52.4
 sse-starlette>=2.3.0
 httpx[socks]>=0.28.1
-websockets>=17.0.1
+websockets>=17.2
 
 # ---------- LLM / 对话 ----------
 openai>=3.8.0
