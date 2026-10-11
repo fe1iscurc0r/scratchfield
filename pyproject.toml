@@ -20,11 +20,11 @@ dependencies = [
     "uvicorn>=0.52.4",
     "sse-starlette>=2.3.0",
     "httpx[socks]>=0.28.1",
-    # 上限与 docling-slim[standard] (pdf2md extra) 的 websockets>=14.0,<17.0 对齐，
+    # 上限与 docling-slim[standard] (pdf2md extra) 的 websockets>=17.2,<18.0 对齐，
     # 否则根 uv.lock 无法重求解（卷161 死锁第一层）。
     # 代码面已核实仅用稳定 API：connect/extra_headers/ConnectionClosed/serve/
     # ping_interval（openai_adapter.py:122、openclaw/ws_client.py:64、qqbot.py:132）。
-    "websockets>=14.0,<17.0",
+    "websockets>=17.2,<18.0",
     # ---------- LLM / 对话 ----------
     "openai>=3.8.0",
     "anthropic>=0.42.0",
