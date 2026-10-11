@@ -207,7 +207,7 @@ ignore = [
 
 [dependency-groups]
 build = [
-    "pyinstaller>=6.18.0",
+    "pyinstaller>=6.22.3",
 ]
 test = [
     "google-genai>=2.22.0",
