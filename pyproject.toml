@@ -89,7 +89,7 @@ local-tts = [
     "onnxruntime>=1.20.1",
     "espeakng-loader>=0.2.4",
     "phonemizer-fork>=3.3.2",
-    "misaki-fork[zh]>=0.9.0",
+    "misaki-fork[zh]>=0.9.6",
 ]
 # 论文 PDF → Markdown 管线（mcpserver/adapters/pdf2md_adapter，台账⑤）
 # Docling 主力（中文 OCR/表格结构/图像提取）+ MarkItDown 降级
