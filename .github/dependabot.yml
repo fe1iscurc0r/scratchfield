@@ -24,6 +24,26 @@ updates:
       - dependency-name: "websockets"
         update-types: ["version-update:semver-major"]
     # 分组：minor/patch 收成一个 PR（避免一次开一堆）
+    # 与主仓同源的大版本忽略（**两处各要一份**，dependabot 的 ignore 按生态环境独立）：
+    #   · anthropic 0.x→1.x：1.x 引入 httpx2，需先验证 litellm 的 anthropic provider；
+    #   · pandas 2.x→3.x：CoW 默认开启 + 字符串 dtype 变更，需单独回归；
+    #   · websockets 全量：本仓 requirements.txt 的 websockets>=17.0.1 与 pyproject 的 >=14.0,<17.0 相互矛盾（docling-slim 卡 <17.0），在清单对齐前先全停。
+    ignore:
+      - dependency-name: "anthropic"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pandas"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "websockets"
+    # 与主仓同源的大版本忽略（**两处各要一份**，dependabot 的 ignore 按生态环境独立）：
+    #   · anthropic 0.x→1.x：1.x 引入 httpx2，需先验证 litellm 的 anthropic provider；
+    #   · pandas 2.x→3.x：CoW 默认开启 + 字符串 dtype 变更，需单独回归；
+    #   · websockets 全量：本仓 requirements.txt 的 websockets>=17.0.1 与 pyproject 的 >=14.0,<17.0 相互矛盾（docling-slim 卡 <17.0），在清单对齐前先全停。
+    ignore:
+      - dependency-name: "anthropic"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pandas"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "websockets"
     groups:
       pip-minor-patch:
         applies-to: version-updates
