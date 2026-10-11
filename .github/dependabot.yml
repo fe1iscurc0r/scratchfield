@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Python 依赖 (pip/uv)
+  # Python 依赖 (pip) —— 下限对齐；lock 由下面的 uv 条目维护
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
@@ -14,41 +14,30 @@ updates:
       - "python"
     assignees:
       - "fe1iscurc0r"
-    # 与主仓同源的例外（**dependabot 的 ignore 按生态环境独立**，两个条目各要一份）：
-    #   · litellm 1.84.0–1.105.x 元数据钉 openai<3.0.0，与本仓 openai 下限互斥 → uv 更新器每轮以 "No solution found" 收场、整个 run 变红（2026-10-10 实测）。
-    #     上游 BerriAI/litellm PR #44927 已 merged（改成 openai<4.0.0）但未发布 → 只挡坏窗口，1.106.0 发布后会自动可提，届时删掉本规则。
-    #   · websockets 17.x 被 docling-slim[standard]（<17.0）挡住。
-    ignore:
-      - dependency-name: "litellm"
-        versions: [">=1.83.1,<1.106.0"]
-      - dependency-name: "websockets"
-        update-types: ["version-update:semver-major"]
-    # 分组：minor/patch 收成一个 PR（避免一次开一堆）
-    # 与主仓同源的大版本忽略（**两处各要一份**，dependabot 的 ignore 按生态环境独立）：
-    #   · anthropic 0.x→1.x：1.x 引入 httpx2，需先验证 litellm 的 anthropic provider；
-    #   · pandas 2.x→3.x：CoW 默认开启 + 字符串 dtype 变更，需单独回归；
-    #   · websockets 全量：本仓 requirements.txt 的 websockets>=17.0.1 与 pyproject 的 >=14.0,<17.0 相互矛盾（docling-slim 卡 <17.0），在清单对齐前先全停。
-    ignore:
-      - dependency-name: "anthropic"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "pandas"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "websockets"
-    # 与主仓同源的大版本忽略（**两处各要一份**，dependabot 的 ignore 按生态环境独立）：
-    #   · anthropic 0.x→1.x：1.x 引入 httpx2，需先验证 litellm 的 anthropic provider；
-    #   · pandas 2.x→3.x：CoW 默认开启 + 字符串 dtype 变更，需单独回归；
-    #   · websockets 全量：本仓 requirements.txt 的 websockets>=17.0.1 与 pyproject 的 >=14.0,<17.0 相互矛盾（docling-slim 卡 <17.0），在清单对齐前先全停。
-    ignore:
-      - dependency-name: "anthropic"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "pandas"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "websockets"
     groups:
       pip-minor-patch:
         applies-to: version-updates
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # litellm：**1.83.1~1.84.0rc1 双硬钉**（openai==2.30.0/2.24.0/2.33.0 且 tiktoken==0.12.0，逐版本实查 PyPI 元数据），1.84.x~1.105.x 钉 openai<3.0.0 —— 与本仓 openai/tiktoken 下限互斥。
+      #   上游 BerriAI/litellm PR #44927 已 merged（openai<4.0.0）但**未发布**；
+      #   1.106.0 正式发布后 dependabot 会自动提，届时删掉本规则。
+      #   复核命令：uv lock --upgrade-package litellm && uv lock --check
+      - dependency-name: "litellm"
+        versions: [">=1.83.1,<1.106.0"]
+      # websockets：**全量忽略**——本仓 requirements.txt 的 websockets>=17.0.1 与 pyproject 的
+      #   >=14.0,<17.0 相互矛盾（docling-slim[standard] 卡 <17.0），清单对齐落地前先全停。
+      - dependency-name: "websockets"
+      # anthropic 0.x→1.x：1.x 引入 httpx2，需先验证 litellm 的 anthropic provider。
+      - dependency-name: "anthropic"
+        update-types: ["version-update:semver-major"]
+      # pandas 2.x→3.x：CoW 默认开启 + 字符串 dtype 变更，需单独回归。
+      - dependency-name: "pandas"
+        update-types: ["version-update:semver-major"]
+      # tokenizers：transformers 5.3.0 卡 tokenizers<=0.23.0，>=0.23.2 不可满足。
+      - dependency-name: "tokenizers"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   # 前端依赖 (npm)
   - package-ecosystem: "npm"
@@ -64,31 +53,20 @@ updates:
       - "javascript"
     assignees:
       - "fe1iscurc0r"
-    # sprintf-js：无可用修复版本，显式忽略（否则每周触发
-    # security_update_not_found 失败 run，见 2026-10-06 run 37433906386）。
-    #   引入链（实测 2026-10-06）：
-    #     app-builder-lib → @electron/get → global-agent → roarr@2.15.4 → sprintf-js@1.1.3
-    #   结论：该链是 electron-builder 的合法 optional 依赖（非死重），无法拔除；
-    #     sprintf-js 1.1.3 为末版（上游停更），不存在可升级版本。
-    #     CVE 仅影响 dev 构建链，生产构建不受影响。
     ignore:
+      # sprintf-js：无可用修复版本（末版 1.1.3，上游停更）。引入链（实测 2026-10-06）：
+      #   app-builder-lib → @electron/get → global-agent → roarr@2.15.4 → sprintf-js@1.1.3，
+      #   属 electron-builder 的合法 optional 依赖；CVE 仅影响 dev 构建链。
       - dependency-name: "sprintf-js"
-      # pixi.js：v8 与 pixi-live2d-display@0.4.0 硬不兼容（其 peerDependencies
-      # 要求 @pixi/*: ^6，且无 v8 兼容的稳定版）——大版本升级会直接炸前端类型闸门，
-      # 导致发版构建连续失败（2026-10-09 v5.2.6/5.2.7/5.2.8 三连红，PR #159 引入）。
-      # 只挡 major；6.x 的 minor/patch 照常收。
+      # pixi.js：v8 与 pixi-live2d-display@0.4.0 硬不兼容（peer 要求 @pixi/*: ^6，无 v8 兼容版），
+      #   大版本升级会炸前端类型闸门 → 发版构建失败（v5.2.6/5.2.7/5.2.8 三连红的根因）。
       - dependency-name: "pixi.js"
         update-types: ["version-update:semver-major"]
-      # typescript：7.x 是 Go 原生重写版，vue-tsc/@volar 工具链兼容性未验证
-      # （2026-10-10 展示仓 PR #39 曾提 5.9.3 → 7.0.2）。需要时人工评估后手动升。
+      # typescript：7.x 是 Go 原生重写版，vue-tsc/@volar 兼容性未验证（PR #39 曾提 7.0.2）。
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
 
-  # Python 依赖（uv 生态）——与上面的 pip 条目并存：
-  #   pip 条目只改 pyproject/requirements 的版本下限，**不会更新 uv.lock**，
-  #   导致 lock 与清单脱节（实测：#236 aiohttp>=3.14.4 vs lock 3.14.3；
-  #   #239 cryptography>=50.0.2 vs lock 50.0.1 —— 合并即让 uv lock --check 失败）。
-  #   uv 生态条目直接维护 uv.lock，从机制上消灭这类脱节。
+  # Python 依赖（uv 生态）—— 直接维护 uv.lock，与 pip 条目并存
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
@@ -102,29 +80,24 @@ updates:
       - "python"
     assignees:
       - "fe1iscurc0r"
-    # 与主仓同源的例外（**dependabot 的 ignore 按生态环境独立**，两个条目各要一份）：
-    #   · litellm 1.84.0–1.105.x 元数据钉 openai<3.0.0，与本仓 openai 下限互斥 → uv 更新器每轮以 "No solution found" 收场、整个 run 变红（2026-10-10 实测）。
-    #     上游 BerriAI/litellm PR #44927 已 merged（改成 openai<4.0.0）但未发布 → 只挡坏窗口，1.106.0 发布后会自动可提，届时删掉本规则。
-    #   · websockets 17.x 被 docling-slim[standard]（<17.0）挡住。
-    ignore:
-      - dependency-name: "litellm"
-        versions: [">=1.83.1,<1.106.0"]
-      - dependency-name: "websockets"
-        update-types: ["version-update:semver-major"]
-    # 分组：minor/patch 收成一个 PR（避免一次开一堆）
     groups:
       uv-minor-patch:
         applies-to: version-updates
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # ⚠️ 与 pip 条目同源的例外（**dependabot 的 ignore 按生态环境独立，两处各要一份**）：
+      - dependency-name: "litellm"
+        versions: [">=1.83.1,<1.106.0"]
+      - dependency-name: "websockets"
+      - dependency-name: "anthropic"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pandas"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "tokenizers"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
-  # GitHub Actions
-  # ⚠️ 2026-10-10 起暂停本生态的**版本更新**（open-pull-requests-limit: 0）：
-  #   dependabot 的 actions 更新器在本仓持续以 `unknown_error` 失败
-  #   （实测日志：Updating actions/setup-node from 4 to 7 后 -> record_update_job_unknown_error，
-  #    同一轮里 upload-artifact / configure-pages / setup-python / deploy-pages 均报 unknown_error），
-  #   每周产出一次红灯 run。这是 GitHub 侧更新器的问题，仓库配置无法消除。
-  #   安全更新不受此限（仍会自动开 PR）。恢复方法：把 0 改为非 0。
+  # GitHub Actions —— 更新器在本仓持续 unknown_error，暂停版本更新（安全更新不受影响）
   - package-ecosystem: "github-actions"
     directory: "/"
     open-pull-requests-limit: 0
