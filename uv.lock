@@ -1721,7 +1721,7 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.80.0" },
     { name = "markitdown", extras = ["pdf"], marker = "extra == 'pdf2md'", specifier = ">=0.1.8" },
     { name = "matplotlib", specifier = ">=3.8.0" },
-    { name = "misaki-fork", extras = ["zh"], marker = "extra == 'local-tts'", specifier = ">=0.9.0" },
+    { name = "misaki-fork", extras = ["zh"], marker = "extra == 'local-tts'", specifier = ">=0.9.6" },
     { name = "mss", specifier = ">=10.1.0" },
     { name = "neo4j", specifier = ">=5.0.0" },
     { name = "numpy", specifier = ">=2.4.6" },
