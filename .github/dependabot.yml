@@ -20,7 +20,7 @@ updates:
     #   · websockets 17.x 被 docling-slim[standard]（<17.0）挡住。
     ignore:
       - dependency-name: "litellm"
-        versions: [">=1.84.0,<1.106.0"]
+        versions: [">=1.83.1,<1.106.0"]
       - dependency-name: "websockets"
         update-types: ["version-update:semver-major"]
     # 分组：minor/patch 收成一个 PR（避免一次开一堆）
@@ -108,7 +108,7 @@ updates:
     #   · websockets 17.x 被 docling-slim[standard]（<17.0）挡住。
     ignore:
       - dependency-name: "litellm"
-        versions: [">=1.84.0,<1.106.0"]
+        versions: [">=1.83.1,<1.106.0"]
       - dependency-name: "websockets"
         update-types: ["version-update:semver-major"]
     # 分组：minor/patch 收成一个 PR（避免一次开一堆）
