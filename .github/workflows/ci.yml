@@ -56,6 +56,15 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Guard · Lumo 运行时接线（WO-250/251 静态硬线）
+        # 纯标准库、零依赖、~0.1s，查五项：
+        #   ① 包内 runtime 接入（_bundled_runtime_bin）② 本机硬编码清零（trae-cn / python-sdk）
+        #   ③ NEKO 失败可诊断（无裸 return False）④ 开发模式不被注入污染（app.isPackaged 守护）
+        #   ⑤ build.py / electron-builder.yml 未被误改
+        # ⚠️ 本 job 受 ENABLE_LINT 闸门控制：闸门未开时本 step 同样不跑 —— 不等于"检查通过"。
+        #    本地等价命令：python scripts/verify-runtime-env-wiring.py --ci
+        run: python scripts/verify-runtime-env-wiring.py --ci
+
       - name: Install lint tools
         run: |
           pip install ruff
@@ -106,7 +115,17 @@ jobs:
           pip install --no-cache-dir pytest numpy
 
       - name: Run smoke layer
-        run: pytest -m smoke -q --junitxml=build/test-results/smoke-junit.xml
+        # ⚠️ 2026-10-17 修正（开闸后首次真跑暴露）：**显式给文件**，不用 `pytest -m smoke` 全树收集。
+        # 原因：`-m smoke` 只过滤用例、**仍会 import tests/ 下所有测试模块**；而本 job 刻意只装
+        # pytest + numpy（见上一步），于是 31 个模块因缺 fastapi / apiserver 等直接 collection error，
+        # 真正的 smoke 用例一条都跑不到。显式路径与上面「依赖面收窄」的口径一致。
+        # 若新增 smoke 用例，请连同其依赖一起走 uv（现在入下面三个文件之外需先评估依赖面）。
+        run: |
+          pytest -m smoke -q \
+            tests/test_mcp_assembly_policy.py \
+            tests/test_governance_rings.py \
+            tests/test_verify_entrypoint.py \
+            --junitxml=build/test-results/smoke-junit.xml
 
       - name: Upload junit artifact
         if: always()
