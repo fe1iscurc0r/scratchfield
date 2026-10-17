@@ -146,6 +146,20 @@ function resolveDevPython(cwd: string): string | null {
   return null
 }
 
+/**
+ * 解析包内运行时路径（WO-250 §3.1）。
+ *
+ * 发行包把便携 Node / Python 解到 `<resources>/runtime/<name>`；
+ * 找不到返回 null，由调用方决定是否降级。
+ */
+function resolveRuntimeBin(name: 'node' | 'python'): string | null {
+  const base = join(process.resourcesPath, 'runtime', name)
+  const candidates = process.platform === 'win32'
+    ? [join(base, `${name}.exe`), join(base, 'bin', `${name}.exe`)]
+    : [join(base, 'bin', name)]
+  return candidates.find(candidate => existsSync(candidate)) ?? null
+}
+
 export function startBackend(): void {
   let cmd: string
   let args: string[]
@@ -180,6 +194,28 @@ export function startBackend(): void {
   appendBackendLog(`[Backend] Command: ${cmd} ${args.join(' ')}`)
 
   const env: Record<string, string | undefined> = { ...process.env, PYTHONUNBUFFERED: '1' }
+
+  // WO-250 §3.1：打包态把「包内 runtime」显式指给后端（开发态不注入，保留 ps1 / venv 的既有选择）。
+  // 命中与未命中都写日志面板，避免"点了没反应且日志无线索"。
+  if (app.isPackaged) {
+    const bundledNode = resolveRuntimeBin('node')
+    if (bundledNode) {
+      env.LUMO_FUSION_NODE = bundledNode
+      appendBackendLog(`[Runtime] node → ${bundledNode}`)
+    }
+    else {
+      appendBackendLog(`[Runtime] node 未找到（已查找 ${join(process.resourcesPath, 'runtime', 'node')}）`)
+    }
+
+    const bundledPython = resolveRuntimeBin('python')
+    if (bundledPython) {
+      env.LUMO_FUSION_PYTHON = bundledPython
+      appendBackendLog(`[Runtime] python → ${bundledPython}`)
+    }
+    else {
+      appendBackendLog(`[Runtime] python 未找到（已查找 ${join(process.resourcesPath, 'runtime', 'python')}）`)
+    }
+  }
 
   const useDebugConsole = process.platform === 'win32' && shouldOpenDebugConsole()
 

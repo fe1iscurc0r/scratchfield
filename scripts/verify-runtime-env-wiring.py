@@ -141,7 +141,8 @@ def check_5_build_intact() -> None:
             continue
         rel = path.relative_to(PROJECT_ROOT)
         try:
-            rel.read_text(encoding="utf-8", errors="ignore")
+            # WO-250 修：此处原读 `rel`（相对路径，依赖 CWD==项目根才不炸）→ 改读绝对 `path`
+            path.read_text(encoding="utf-8", errors="ignore")
         except Exception as e:
             issues.append(f"{rel} 读取失败: {e}")
     if issues:
