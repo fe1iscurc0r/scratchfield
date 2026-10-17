@@ -1,0 +1,24 @@
+# 本地提交守卫（可选启用）
+#
+#   pip install pre-commit && pre-commit install
+#
+# 设计：只用 local hook，不引外部 repo（免供应链与版本漂移）。
+# 目的：把「运行时接线 / 硬编码回归」这类问题挡在提交前 ——
+#       不依赖 GitHub Actions 是否可调度（见 docs/ci-闸门恢复清单-2026-10-17.md）。
+repos:
+  - repo: local
+    hooks:
+      # WO-250/251 的静态硬线：改了 launcher / electron 就必须 5/5 PASS
+      - id: lumo-runtime-wiring-guard
+        name: Lumo 运行时接线守卫（WO-250/251）
+        entry: python scripts/verify-runtime-env-wiring.py --ci
+        language: system
+        pass_filenames: false
+        files: ^(mcpserver/agent_open_launcher/|frontend/electron/)
+
+      # 兜底：改动的 Python 文件必须能编译（语法级，不跑测试）
+      - id: python-compile-guard
+        name: 改动的 py 必须能编译
+        entry: python -m py_compile
+        language: system
+        types: [python]
