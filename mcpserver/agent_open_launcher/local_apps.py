@@ -61,6 +61,21 @@ def _process_running(keyword: str, proc_names: tuple[str, ...] | None = None) ->
         return False
 
 
+def _bundled_runtime_bin(name: str) -> str | None:
+    """包内 runtime 里的可执行文件（打包态 = ``<resources>/runtime/<name>``）。
+
+    WO-250 §3.2：发行包自带便携 Node / Python，后端进程位于 ``<resources>/backend``
+    ⇒ ``Path(sys.executable).resolve().parents[1]`` 即 ``<resources>``。
+    开发态该目录不存在 → 返回 None，不影响 ps1 / venv 的既有选择。
+    """
+    exe = name + (".exe" if sys.platform == "win32" else "")
+    base = Path(sys.executable).resolve().parents[1] / "runtime" / name
+    for cand in (base / exe, base / "bin" / exe):
+        if cand.exists():
+            return str(cand)
+    return None
+
+
 def _find_python() -> str | None:
     """Python 解释器探测：环境变量 > 当前进程解释器 > 已知路径。
 
@@ -70,10 +85,20 @@ def _find_python() -> str | None:
         p = os.environ.get(var, "").strip()
         if p and Path(p).exists():
             return p
+    # 包内 runtime 排在 sys.executable 之前：打包态 sys.executable 是后端二进制，不是解释器
+    bundled = _bundled_runtime_bin("python")
+    if bundled:
+        return bundled
     if sys.executable and Path(sys.executable).exists():
         return sys.executable
-    fallback = Path(os.environ.get("USERPROFILE", "")) / "python-sdk" / "python3.13.2" / "python.exe"
-    return str(fallback) if fallback.exists() else None
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    for d in path_dirs:
+        if not d:
+            continue
+        cand = Path(d) / ("python.exe" if sys.platform == "win32" else "python3")
+        if cand.exists():
+            return str(cand)
+    return None
 
 
 def _find_node() -> str | None:
@@ -81,14 +106,18 @@ def _find_node() -> str | None:
         p = os.environ.get(var, "").strip()
         if p and Path(p).exists():
             return p
-    candidates = [
-        Path(os.environ.get("USERPROFILE", "")) / ".trae-cn" / "binaries" / "node" / "versions" / "24.18.0" / "node.exe",
-    ]
+    # 删除说明：此处曾有两条本机开发期的写死路径（.trae-cn / python-sdk），
+    # 生产环境永不成立、只会误导排查（WO-250 §3.2）；包内 runtime 已由下面接管。
+    bundled = _bundled_runtime_bin("node")
+    if bundled:
+        return bundled
     path_dirs = os.environ.get("PATH", "").split(os.pathsep)
-    candidates.extend(Path(d) / ("node.exe" if sys.platform == "win32" else "node") for d in path_dirs if d)
-    for c in candidates:
-        if c.exists():
-            return str(c)
+    for d in path_dirs:
+        if not d:
+            continue
+        cand = Path(d) / ("node.exe" if sys.platform == "win32" else "node")
+        if cand.exists():
+            return str(cand)
     return None
 
 
@@ -111,12 +140,24 @@ def get_launch_status() -> dict:
     }
 
 
-def _start_neko_shell(env: dict, log_dir: Path) -> bool:
-    """启动桌宠窗口（node electron/cli.js）。node/electron 缺失时返回 False。"""
+def _start_neko_shell(env: dict, log_dir: Path) -> tuple[bool, str]:
+    """启动桌宠窗口（node electron/cli.js），返回 ``(ok, reason)``。
+
+    WO-250 §3.3：**禁止裸 return False** —— 缺 node / 缺组件 / 缺 node_modules 三种情况
+    必须给出可读 reason，由 launch_neko() 透传到界面与日志。
+    """
+    reason = ""
     node_exe = _find_node()
+    if not node_exe:
+        reason = "未找到 Node 运行时（已查找：包内 runtime / LUMO_FUSION_NODE / 系统 PATH）"
+        return False, reason
+    if not _NEKO_SHELL_DIR.exists():
+        reason = f"NEKO 桌宠组件未安装：未找到 {_NEKO_SHELL_DIR.name}（请到组件中心获取）"
+        return False, reason
     shell_cli = _NEKO_SHELL_DIR / "node_modules" / "electron" / "cli.js"
-    if not (node_exe and shell_cli.exists()):
-        return False
+    if not shell_cli.exists():
+        reason = "组件未完成初始化：neko-electron-shell 缺少 node_modules（请运行 npm install --legacy-peer-deps）"
+        return False, reason
     shell_log = open(log_dir / "neko_shell.log", "ab")
     subprocess.Popen(
         [node_exe, str(shell_cli), "."],
@@ -124,7 +165,7 @@ def _start_neko_shell(env: dict, log_dir: Path) -> bool:
         stdout=shell_log, stderr=subprocess.STDOUT,
         creationflags=_DETACHED_FLAGS, close_fds=True,
     )
-    return True
+    return True, ""
 
 
 def launch_neko() -> dict:
@@ -155,15 +196,14 @@ def launch_neko() -> dict:
 
     if port_up:
         # 端口已在（wrapper 存活），只补拉桌宠窗口
-        shell_started = _start_neko_shell(env, log_dir)
+        shell_started, shell_reason = _start_neko_shell(env, log_dir)
         if shell_started:
             return {"status": "success",
                     "message": f"NEKO Main Server 已在运行（端口 {_NEKO_MAIN_PORT}），已补拉桌宠窗口，稍候几秒即会出现在桌面",
                     "data": {"neko": "shell_started", "main_port": _NEKO_MAIN_PORT}}
         return {"status": "error",
-                "message": "NEKO Main Server 已在运行，但桌宠窗口启动失败（未找到 node 或 neko-electron-shell 依赖未装，"
-                           "可在 neko-electron-shell 目录运行 npm install --legacy-peer-deps 补齐）",
-                "data": {"neko": "shell_start_failed"}}
+                "message": f"NEKO Main Server 已在运行，但桌宠窗口启动失败：{shell_reason}",
+                "data": {"neko": "shell_start_failed", "reason": shell_reason}}
 
     if not _WRAPPER.exists():
         return {"status": "error", "message": f"NEKO wrapper 不存在: {_WRAPPER}", "data": {}}
@@ -180,14 +220,14 @@ def launch_neko() -> dict:
     )
 
     # 桌宠 shell：node 缺失时不阻断，仅提示（wrapper/Main Server 是核心链路）
-    shell_started = _start_neko_shell(env, log_dir)
+    shell_started, shell_reason = _start_neko_shell(env, log_dir)
 
     msg = ("NEKO 已启动（wrapper + 桌宠窗口）。Main Server 就绪约需 10-30 秒，"
            "在 NEKO 设置中选择「陆墨（本地人格代理）」即可对话" if shell_started else
-           "NEKO wrapper 已启动，但桌宠窗口未启动（未找到 node 或 electron 依赖未装，"
-           "可手动运行 lumo_fusion.ps1 补齐）。Main Server 就绪约需 10-30 秒")
+           f"NEKO wrapper 已启动，但桌宠窗口未启动：{shell_reason}。Main Server 就绪约需 10-30 秒")
     return {"status": "success", "message": msg,
             "data": {"wrapper_pid": "detached", "shell_started": shell_started,
+                     "shell_reason": shell_reason,
                      "main_port": _NEKO_MAIN_PORT, "log": str(log_dir / "neko_wrapper.log")}}
 
 
