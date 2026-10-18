@@ -5,6 +5,7 @@ from .common import *  # noqa: F401,F403
 from .common import Modules, _now_iso, logger  # noqa: F401
 from .lifecycle import app  # noqa: F401
 
+
 @app.get("/health")
 async def health_check():
     """健康检查"""

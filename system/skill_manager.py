@@ -19,6 +19,7 @@ skills/
 
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +28,6 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from system.config import get_data_dir, strip_prompt_comment_lines
-import threading
 
 logger = logging.getLogger(__name__)
 

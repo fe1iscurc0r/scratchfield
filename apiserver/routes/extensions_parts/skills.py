@@ -1,7 +1,6 @@
 """技能目录、导入、克隆与删除（卷190-A1：从 extensions.py 纯搬移）。"""
 """OpenClaw 技能市场、MCP 服务、技能导入、文件上传、旅行、记忆、搜索代理路由"""
 
-from .market import _hub_base_url
 import html
 import json
 import logging
@@ -21,13 +20,7 @@ from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
 import yaml
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-
 from agentserver.openclaw.state_paths import get_openclaw_config_path, get_openclaw_state_dir
-from apiserver import naga_auth
-from apiserver.api_server import FileUploadResponse, _call_agentserver
 from apiserver.mcp_assembly import (
     KNOWN_FAMILIES,
     KNOWN_TIERS,
@@ -48,9 +41,16 @@ from apiserver.mcp_assembly import (
     set_policy as _assembly_set_policy,
 )
 from apiserver.telemetry import emit_telemetry
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+from apiserver import naga_auth
+from apiserver.api_server import FileUploadResponse, _call_agentserver
 from system.config import get_config, get_data_dir
 
 from .common import *  # noqa: F401,F403
+from .market import _hub_base_url
 
 router = APIRouter()
 

@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import Any
 
 from mcpserver.rf_brain.spectrum_events import SpectrumEventCache
-import threading
 
 logger = logging.getLogger(__name__)
 

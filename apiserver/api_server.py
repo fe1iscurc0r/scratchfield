@@ -67,6 +67,8 @@ _vlm_sessions: set = set()
 
 # 导入配置系统
 try:
+    from system.config_manager import get_config_snapshot, update_config  # 导入配置管理
+
     from system.config import (  # 使用新的配置系统  # 导入提示词仓库
         AI_NAME,
         VERSION,  # 版本号（唯一来源：pyproject.toml）
@@ -75,19 +77,19 @@ try:
         get_config,
         get_prompt,
     )
-    from system.config_manager import get_config_snapshot, update_config  # 导入配置管理
 except ImportError:
     import os
     import sys
 
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from system.config_manager import get_config_snapshot, update_config  # 导入配置管理
+
     from system.config import (  # 导入提示词仓库
         VERSION,  # 版本号（唯一来源：pyproject.toml）
         build_context_supplement,
         build_system_prompt,
         get_config,  # 使用新的配置系统
     )
-    from system.config_manager import get_config_snapshot, update_config  # 导入配置管理
 
 # 对话核心功能已集成到apiserver
 
@@ -183,13 +185,14 @@ async def lifespan(app: FastAPI):
         # M3.1a EventBus v2 消费者热插拔注册（lumo_state → lumo_proactive 顺序：
         # emit 时 state 先同步更新快照，proactive 再读最新快照触发搭话决策）
         try:
-            from apiserver.event_bus import get_bus
             from apiserver.event_bus.handlers import (
                 register_proactive_consumer,
                 register_state_consumer,
             )
             from apiserver.routes.lumo_proactive import get_decider
             from apiserver.routes.lumo_state import get_state_store
+
+            from apiserver.event_bus import get_bus
 
             _bus = get_bus()
             register_state_consumer(_bus, get_state_store())
@@ -255,6 +258,7 @@ async def lifespan(app: FastAPI):
             # 渠道网关层：多渠道消息入口（channels 段配置；默认只开 webhook 零风险）
             try:
                 from apiserver.channels import init_channels_from_config
+
                 from system.config import get_config as _get_config
 
                 _ch_cfg = {}
@@ -502,9 +506,9 @@ async def sync_auth_token(request: Request, call_next):
 
 # 挂载静态文件
 from fastapi.staticfiles import StaticFiles as _StaticFiles
+from system.live2d_assets import CUSTOM_LIVE2D_DIR as _CUSTOM_LIVE2D_DIR
 
 from system.config import CHARACTERS_DIR as _CHARACTERS_DIR
-from system.live2d_assets import CUSTOM_LIVE2D_DIR as _CUSTOM_LIVE2D_DIR
 
 if _CHARACTERS_DIR.exists():
     app.mount("/characters", _StaticFiles(directory=str(_CHARACTERS_DIR)), name="characters")
@@ -626,8 +630,6 @@ from .routes.appearance import router as appearance_router
 from .routes.apps import router as apps_router
 from .routes.auth import router as auth_router
 from .routes.bus_dump import router as bus_dump_router  # W119-01: 总线可观测 dump
-from .routes.eda_ingest import router as eda_ingest_router  # 工单217: EDA parasite-export 接收端
-from .routes.knowledge_openai import router as knowledge_openai_router  # 工单217-A: 知识检索型 OpenAI 兼容端点
 from .routes.channels import router as channels_router  # 渠道网关层：多渠道消息入口
 from .routes.chat import router as chat_router
 from .routes.data_tools import router as data_tools_router
@@ -637,8 +639,10 @@ from .routes.device import (
 )
 from .routes.device import router as device_router  # W131-05: 设备状态感知
 from .routes.domains import router as domains_router  # 卷162: 领域包机制（/api/domains）
+from .routes.eda_ingest import router as eda_ingest_router  # 工单217: EDA parasite-export 接收端
 from .routes.eln import router as eln_router
 from .routes.extensions import router as extensions_router
+from .routes.knowledge_openai import router as knowledge_openai_router  # 工单217-A: 知识检索型 OpenAI 兼容端点
 from .routes.law_cases import router as law_cases_router  # 卷163: 法学判例导入
 from .routes.lumo_event import router as lumo_event_router
 from .routes.lumo_proxy import router as lumo_proxy_router

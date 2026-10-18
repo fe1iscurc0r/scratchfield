@@ -1,9 +1,32 @@
 """agent_server_parts.search —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import logger  # noqa: F401
 import threading
+
+from .common import (
+    Any,
+    Dict,
+    EmbeddedRuntime,
+    FastAPI,
+    HTTPException,
+    Modules,
+    Optional,
+    add_config_listener,
+    apply_local_cors,
+    asynccontextmanager,
+    asyncio,
+    config,
+    datetime,
+    emit_local_telemetry,
+    get_embedded_runtime,
+    get_openclaw_client,
+    httpx,
+    logger,  # noqa: F401
+    logging,
+    os,
+    set_openclaw_config,
+    sys,
+)
 
 _search_http_client: httpx.AsyncClient | None = None
 _search_http_client_lock = threading.Lock()

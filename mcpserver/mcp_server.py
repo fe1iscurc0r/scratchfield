@@ -5,15 +5,15 @@
 
 import asyncio
 import json
+import threading
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from system.cors_config import apply_local_cors
 
 from system.config import logger
-from system.cors_config import apply_local_cors
-import threading
 
 
 @asynccontextmanager
@@ -197,8 +197,9 @@ async def chains_list():
 @app.post("/chains/run")
 async def chains_run(req: ChainRunRequest):
     """执行一条链：顺序 + 插值 + 重试 + 失败短路（返回含部分结果）。"""
-    from mcpserver.mcp_manager import get_mcp_manager
     from mcpserver.workflow.chains import ChainExecutor, get_chain
+
+    from mcpserver.mcp_manager import get_mcp_manager
 
     chain = get_chain(req.chain)
     if chain is None:

@@ -263,7 +263,7 @@ def main() -> int:
         "",
     ]
     (OUT_DIR / "__init__.py").write_bytes(
-        '"""agent_server_parts —— agent_server 拆分产物（工单204 任务一）。"""\n'.encode("utf-8"))
+        '"""agent_server_parts —— agent_server 拆分产物（工单204 任务一）。"""\n'.encode())
     SRC.write_bytes("\n".join(shell).encode("utf-8"))
     print(f"  薄入口已重写: {SRC.relative_to(ROOT)}")
     return 0

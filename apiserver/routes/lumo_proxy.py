@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -31,7 +32,6 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
-import threading
 
 logger = logging.getLogger(__name__)
 
@@ -512,9 +512,10 @@ async def persona_chat_completions(
         return await _vision_forward(request)
 
     # 延迟 import 避免循环依赖
-    from apiserver.llm_service import get_llm_service
     from apiserver.message_manager import message_manager
     from apiserver.routes.chat import _supports_function_calling
+
+    from apiserver.llm_service import get_llm_service
     from system.config import (
         build_context_supplement,
         build_system_prompt,

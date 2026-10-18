@@ -133,7 +133,7 @@ def main() -> int:
         print("=" * 78)
         print(f"{m['path']}  LOC={m['loc']}  函数={m['funcs']}  类={m['classes']}  "
               f"**被 {m['import_degree']} 个文件 import**")
-        print(f"  最长函数 Top5: " + ", ".join(f"{n}({L}行)" for n, L in m["longest"]))
+        print("  最长函数 Top5: " + ", ".join(f"{n}({L}行)" for n, L in m["longest"]))
         print(f"  被谁 import（前 12）: {m['importers'][:12]}")
     if "--json" in sys.argv:
         out = Path("C:/Users/ASUS/AppData/Local/Temp/w222/monolith_metrics.json")

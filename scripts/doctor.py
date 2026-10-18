@@ -62,7 +62,7 @@ def check_python() -> tuple[str, str, str]:
     v = sys.version_info
     if PY_OK:
         return OK, f"Python {v.major}.{v.minor}.{v.micro}", ""
-    if (3, 13) <= v[:2]:
+    if v[:2] >= (3, 13):
         return (FAIL, f"Python {v.major}.{v.minor}（要求 >=3.12,<3.13）",
                 "pyproject.toml 的 requires-python 锁在 3.12——请用 uv 装对应解释器："
                 "`uv python install 3.12`")

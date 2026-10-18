@@ -1,10 +1,33 @@
 """agent_server_parts.heartbeat —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import Modules, logger  # noqa: F401
+from .common import (  # noqa: F401
+    Any,
+    Dict,
+    EmbeddedRuntime,
+    FastAPI,
+    HTTPException,
+    Modules,
+    Optional,
+    add_config_listener,
+    apply_local_cors,
+    asynccontextmanager,
+    asyncio,
+    config,
+    datetime,
+    emit_local_telemetry,
+    get_embedded_runtime,
+    get_openclaw_client,
+    httpx,
+    logger,
+    logging,
+    os,
+    set_openclaw_config,
+    sys,
+)
 from .dogtag import dogtag_conversation_event  # noqa: F401
 from .lifecycle import app  # noqa: F401
+
 
 @app.post("/heartbeat/conversation_event")
 async def heartbeat_conversation_event(payload: dict[str, Any]):
@@ -29,6 +52,8 @@ async def get_heartbeat_config():
 async def update_heartbeat_config(payload: dict[str, Any]):
     """更新心跳系统配置（含重新注册职责）"""
     try:
+        from agentserver.dogtag.duties.heartbeat_duty import create_heartbeat_duty
+
         from agentserver.dogtag import (
             HeartbeatConfig,
             create_heartbeat_executor,
@@ -36,7 +61,6 @@ async def update_heartbeat_config(payload: dict[str, Any]):
             load_heartbeat_config,
             save_heartbeat_config,
         )
-        from agentserver.dogtag.duties.heartbeat_duty import create_heartbeat_duty
 
         old_config = load_heartbeat_config()
         config_dict = old_config.model_dump()
@@ -67,8 +91,9 @@ async def enable_heartbeat(payload: dict[str, Any]):
     try:
         enabled = payload.get("enabled", True)
 
-        from agentserver.dogtag import get_dogtag_registry, load_heartbeat_config, save_heartbeat_config
         from agentserver.dogtag.models import DutyStatus
+
+        from agentserver.dogtag import get_dogtag_registry, load_heartbeat_config, save_heartbeat_config
 
         cfg = load_heartbeat_config()
         cfg.enabled = enabled

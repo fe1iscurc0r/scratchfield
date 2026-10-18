@@ -1,9 +1,32 @@
 """agent_server_parts.vision —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import Modules, logger  # noqa: F401
+from .common import (  # noqa: F401
+    Any,
+    Dict,
+    EmbeddedRuntime,
+    FastAPI,
+    HTTPException,
+    Modules,
+    Optional,
+    add_config_listener,
+    apply_local_cors,
+    asynccontextmanager,
+    asyncio,
+    config,
+    datetime,
+    emit_local_telemetry,
+    get_embedded_runtime,
+    get_openclaw_client,
+    httpx,
+    logger,
+    logging,
+    os,
+    set_openclaw_config,
+    sys,
+)
 from .lifecycle import app  # noqa: F401
+
 
 @app.get("/proactive_vision/config")
 async def get_proactive_vision_config():
@@ -22,6 +45,8 @@ async def get_proactive_vision_config():
 async def update_proactive_vision_config(payload: dict[str, Any]):
     """更新主动视觉系统配置"""
     try:
+        from agentserver.dogtag.duties.screen_vision_duty import create_screen_vision_duty
+
         from agentserver.dogtag import (
             ProactiveVisionConfig,
             create_proactive_analyzer,
@@ -29,7 +54,6 @@ async def update_proactive_vision_config(payload: dict[str, Any]):
             load_proactive_config,
             save_proactive_config,
         )
-        from agentserver.dogtag.duties.screen_vision_duty import create_screen_vision_duty
 
         # 加载当前配置并备份到内存（用于回滚）
         old_config_backup = load_proactive_config()
@@ -79,8 +103,9 @@ async def enable_proactive_vision(payload: dict[str, Any]):
     try:
         enabled = payload.get("enabled", True)
 
-        from agentserver.dogtag import get_dogtag_registry, load_proactive_config, save_proactive_config
         from agentserver.dogtag.models import DutyStatus
+
+        from agentserver.dogtag import get_dogtag_registry, load_proactive_config, save_proactive_config
 
         config = load_proactive_config()
         config.enabled = enabled

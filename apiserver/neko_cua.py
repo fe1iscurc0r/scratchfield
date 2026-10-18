@@ -6,11 +6,11 @@
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any, Optional
 
 import httpx
 from apiserver.config import settings
-import threading
 
 NEKO_AGENT_BASE = settings.neko_agent_base()
 NEKO_EXEC_TOKEN = settings.neko_exec_token()

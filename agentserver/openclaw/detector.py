@@ -6,11 +6,11 @@ OpenClaw 状态检测器
 
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from .state_paths import get_openclaw_config_path, get_openclaw_state_dir
-import threading
 
 logger = logging.getLogger("openclaw.detector")
 
