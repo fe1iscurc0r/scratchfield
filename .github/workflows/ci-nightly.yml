@@ -44,7 +44,7 @@ jobs:
         run: pip install --no-cache-dir uv
 
       - name: Sync deps
-        run: uv sync --group build
+        run: uv sync --group build --group test   # ⚠️ 2026-10-17：pytest 在 test 组，只 sync build 会让 `uv run pytest` 报 "Failed to spawn: pytest"
 
       - name: Run core layer
         run: uv run pytest -m core -q --junitxml=build/test-results/core-junit.xml
@@ -73,7 +73,7 @@ jobs:
         run: pip install --no-cache-dir uv
 
       - name: Sync deps
-        run: uv sync --group build
+        run: uv sync --group build --group test   # ⚠️ 2026-10-17：pytest 在 test 组，只 sync build 会让 `uv run pytest` 报 "Failed to spawn: pytest"
 
       # full 层 = tests/ 全量（未标注文件默认 full；NEKO 等已在 pyproject
       # norecursedirs 收集期排除）
