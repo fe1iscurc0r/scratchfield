@@ -1,9 +1,32 @@
 """agent_server_parts.lifecycle —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import Modules, logger  # noqa: F401
+from .common import (  # noqa: F401
+    Any,
+    Dict,
+    EmbeddedRuntime,
+    FastAPI,
+    HTTPException,
+    Modules,
+    Optional,
+    add_config_listener,
+    apply_local_cors,
+    asynccontextmanager,
+    asyncio,
+    config,
+    datetime,
+    emit_local_telemetry,
+    get_embedded_runtime,
+    get_openclaw_client,
+    httpx,
+    logger,
+    logging,
+    os,
+    set_openclaw_config,
+    sys,
+)
 from .session import _interrupt_travel_sessions, _resume_open_travel_sessions  # noqa: F401
+
 
 async def _start_gateway_if_port_free(runtime: EmbeddedRuntime) -> bool:
     """主 Gateway 仅按主端口状态判定是否需要启动。"""
@@ -83,8 +106,6 @@ async def lifespan(app: FastAPI):
     try:
         # 初始化 OpenClaw 客户端 - 三层回退策略
         try:
-            from agentserver.openclaw import OpenClawConfig as ClientOpenClawConfig
-            from agentserver.openclaw import detect_openclaw
             from agentserver.openclaw.llm_config_bridge import (
                 ensure_gateway_local_mode,
                 ensure_gateway_port,
@@ -93,6 +114,9 @@ async def lifespan(app: FastAPI):
                 ensure_openclaw_config,
                 inject_naga_llm_config,
             )
+
+            from agentserver.openclaw import OpenClawConfig as ClientOpenClawConfig
+            from agentserver.openclaw import detect_openclaw
 
             embedded_runtime = get_embedded_runtime()
             logger.info(f"OpenClaw 运行时模式: {embedded_runtime.runtime_mode}")
@@ -189,6 +213,9 @@ async def lifespan(app: FastAPI):
 
         # 初始化军牌系统（统一后台任务调度）
         try:
+            from agentserver.dogtag.duties.heartbeat_duty import create_heartbeat_duty
+            from agentserver.dogtag.duties.screen_vision_duty import create_screen_vision_duty
+
             from agentserver.dogtag import (
                 create_dogtag_scheduler,
                 create_heartbeat_executor,
@@ -198,8 +225,6 @@ async def lifespan(app: FastAPI):
                 load_heartbeat_config,
                 load_proactive_config,
             )
-            from agentserver.dogtag.duties.heartbeat_duty import create_heartbeat_duty
-            from agentserver.dogtag.duties.screen_vision_duty import create_screen_vision_duty
 
             # 1. 初始化子组件
             pv_config = load_proactive_config()

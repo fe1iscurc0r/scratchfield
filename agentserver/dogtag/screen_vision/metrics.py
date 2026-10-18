@@ -3,11 +3,11 @@
 提供Prometheus风格的性能指标
 """
 
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
-import threading
 
 
 @dataclass

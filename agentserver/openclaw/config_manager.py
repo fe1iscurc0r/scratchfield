@@ -8,13 +8,13 @@ OpenClaw 配置管理器
 import json
 import logging
 import secrets
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from .state_paths import get_openclaw_config_path, get_openclaw_state_dir
-import threading
 
 logger = logging.getLogger("openclaw.config")
 

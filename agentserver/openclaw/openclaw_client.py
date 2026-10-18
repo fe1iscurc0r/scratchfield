@@ -13,6 +13,7 @@ API 端点:
 
 import json
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -23,7 +24,6 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .state_paths import get_openclaw_state_dir
-import threading
 
 logger = logging.getLogger("openclaw.client")
 

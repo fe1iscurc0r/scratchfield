@@ -18,18 +18,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # litellm 首次 import 约 8.9s，占启动时间 75% —— 改走懒加载代理（卷191-B2）
 # 真实 import 推迟到首次 LLM 调用，见 apiserver/litellm_lazy.py
-from fastapi import FastAPI, HTTPException
+import threading
 
-from system.config import get_config
+from apiserver.config import settings
+from fastapi import FastAPI, HTTPException
 from system.config_value_utils import is_placeholder_api_key
 from system.llm_params import build_model_name as _build_common_model_name
 from system.llm_params import get_access_token, get_gateway_url, should_use_gateway
 from system.llm_params import get_llm_params as _get_common_llm_params
 
+from system.config import get_config
+
 from . import naga_auth
 from .litellm_lazy import acompletion, litellm
-from apiserver.config import settings
-import threading
 
 # 配置日志
 logger = logging.getLogger("LLMService")

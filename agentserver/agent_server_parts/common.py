@@ -1,7 +1,6 @@
 """agent_server_parts.common —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-
 """
 陆墨独立服务 - 通过OpenClaw执行任务
 提供意图识别和OpenClaw任务调度功能
@@ -9,46 +8,21 @@ from __future__ import annotations
 
 
 import asyncio
-
-
 import logging
-
-
 import os
-
-
 import sys
-
-
 from contextlib import asynccontextmanager
-
-
 from datetime import datetime
-
-
 from typing import Any, Dict, Optional
 
-
 import httpx
-
-
-from fastapi import FastAPI, HTTPException
-
-
-from agentserver.openclaw import get_openclaw_client, set_openclaw_config
-
-
-from agentserver.openclaw.embedded_runtime import EmbeddedRuntime, get_embedded_runtime
-
-
 from agentserver.telemetry_client import emit_local_telemetry
-
-
-from system.config import add_config_listener, config
-
-
+from fastapi import FastAPI, HTTPException
 from system.cors_config import apply_local_cors
 
+from agentserver.openclaw import get_openclaw_client, set_openclaw_config
+from agentserver.openclaw.embedded_runtime import EmbeddedRuntime, get_embedded_runtime
+from system.config import add_config_listener, config
 
 logger = logging.getLogger(__name__)
 

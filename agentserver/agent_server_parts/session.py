@@ -1,8 +1,31 @@
 """agent_server_parts.session —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import Modules, logger  # noqa: F401
+from .common import (  # noqa: F401
+    Any,
+    Dict,
+    EmbeddedRuntime,
+    FastAPI,
+    HTTPException,
+    Modules,
+    Optional,
+    add_config_listener,
+    apply_local_cors,
+    asynccontextmanager,
+    asyncio,
+    config,
+    datetime,
+    emit_local_telemetry,
+    get_embedded_runtime,
+    get_openclaw_client,
+    httpx,
+    logger,
+    logging,
+    os,
+    set_openclaw_config,
+    sys,
+)
+
 
 def _track_travel_task(session_id: str, task: asyncio.Task) -> None:
     Modules.travel_tasks[session_id] = task

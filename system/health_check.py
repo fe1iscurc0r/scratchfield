@@ -6,10 +6,10 @@
 import asyncio
 import logging
 import socket
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
-import threading
 
 logger = logging.getLogger(__name__)
 

@@ -6,11 +6,11 @@ WebSocket 连接管理器
 import asyncio
 import json
 import logging
+import threading
 import time
 from typing import Any, Dict, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
-import threading
 
 logger = logging.getLogger(__name__)
 

@@ -21,15 +21,16 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
-
-from apiserver import naga_auth
 from apiserver.agent_directory import format_agent_directory_text, resolve_agent_descriptor
 from apiserver.tool_schemas import resolve_mcp_func_name
+
+from apiserver import naga_auth
 from system.config import get_config, get_data_dir, get_server_port
 
 logger = logging.getLogger("apiserver.agentic_tool_loop")  # 保持原日志通道名
-from .markers import *  # noqa: F401,F403
 import threading
+
+from .markers import *  # noqa: F401,F403
 
 # ---------------------------------------------------------------------------
 # OpenClaw 共享客户端与可用性预检

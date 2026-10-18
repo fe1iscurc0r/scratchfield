@@ -1,9 +1,10 @@
 # M4 Speak Test Script - Using debug endpoint
 # Usage: python test_m4_speak.py "你好，这是 M4 测试"
 
-import requests
 import json
 import sys
+
+import requests
 
 BASE_URL = "http://127.0.0.1:48911"
 

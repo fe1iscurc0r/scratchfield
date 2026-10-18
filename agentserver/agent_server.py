@@ -5,8 +5,6 @@
 """
 from __future__ import annotations
 
-from .agent_server_parts.common import Modules  # noqa: F401
-from .agent_server_parts.lifecycle import app  # noqa: F401
 from .agent_server_parts import (  # noqa: F401  导入即注册路由
     agents,
     dogtag,
@@ -17,13 +15,14 @@ from .agent_server_parts import (  # noqa: F401  导入即注册路由
     travel,
     vision,
 )
+from .agent_server_parts.common import Modules  # noqa: F401
+from .agent_server_parts.lifecycle import app  # noqa: F401
 
 __all__ = ["app", "Modules"]
 
 
 if __name__ == "__main__":
     import uvicorn
-
     from agentserver.config import AGENT_SERVER_PORT
 
     # 安全：仅绑定 loopback，禁止局域网直连（本服务无完整鉴权体系）

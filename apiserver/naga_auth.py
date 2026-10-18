@@ -26,12 +26,12 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+from apiserver.config import settings
 from cryptography.fernet import Fernet
 from starlette.requests import Request
 
 from system.config import get_config as _get_config
 from system.config import get_data_dir
-from apiserver.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -501,8 +501,9 @@ async def register(username: str, email: str, password: str, verification_code: 
     if auth_hash:
         raise ValueError("系统已配置密码，请使用登录")
 
-    from system.config import _hash_password as _hp
     from system.config_manager import update_config
+
+    from system.config import _hash_password as _hp
     pw_hash, salt = _hp(password)
 
     update_config({

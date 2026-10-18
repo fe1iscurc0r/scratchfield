@@ -6,8 +6,8 @@ import logging
 import os
 import platform
 import subprocess
-from typing import Dict, List, Optional
 import threading
+from typing import Dict, List, Optional
 
 logger = logging.getLogger("AppScanner")
 
