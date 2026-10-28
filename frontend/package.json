@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "@types/dompurify": "^3.2.0",
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vitest/coverage-v8": "^5.0.3",
     "@vue/test-utils": "^2.5.1",
