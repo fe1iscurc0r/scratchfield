@@ -6,23 +6,23 @@
 charset-normalizer>=3.5.2
 json5>=0.16.0
 PyYAML>=6.0.3
-pydantic>=2.13.5
+pydantic>=2.14.1
 requests>=2.32.0
 python-multipart>=0.0.32
 
 # ---------- Web 服务 ----------
-fastapi>=0.143.0
+fastapi>=0.162.0
 uvicorn>=0.52.4
-sse-starlette>=3.5.0
+sse-starlette>=3.5.1
 httpx[socks]>=0.28.1
 # 上限与 pyproject.toml 的 websockets>=14.0,<17.0 一致（docling-slim[standard] 卡 <17.0，不设上限则 uv 无法重求解）。
 websockets>=14.0,<17.0
 
 # ---------- LLM / 对话 ----------
-openai>=3.8.0
+openai>=3.37.0
 litellm>=1.80.0
 tiktoken>=0.14.0
-langchain-openai>=1.6.7
+langchain-openai>=1.7.2
 langchain-community>=0.4.2
 
 # ---------- 异步 / 任务 ----------
@@ -31,7 +31,7 @@ aiofiles>=24.1.0
 APScheduler>=3.11.0
 
 # ---------- 系统 / 工具 ----------
-numpy>=2.4.6
+numpy>=2.5.4
 sgp4>=2.27  # 云台 TLE 轨道预报（mcpserver/ptz_service/tracking.py）。MIT 许可（© 2012-2016 Brandon Rhodes）。
             # 缺失时 tracking_source=sgp4 会在建任务阶段直接拒绝（reason=no_propagator），
             # 不会静默退化成简化圆轨道——那是 W130-03 明令禁止的行为。
@@ -45,12 +45,12 @@ setproctitle>=1.3.8
 watchfiles>=1.3.0
 
 # ---------- 语音 / 音频 ----------
-edge-tts>=7.2.8
+edge-tts>=7.3.1
 sounddevice>=0.5.6
 
 # ---------- 知识图谱 GRAG / 兼容层 ----------
 py2neo>=2021.2.4
-neo4j>=6.4.0
+neo4j>=6.4.1
 chromadb>=0.5.0
 mss>=10.2.0
 
@@ -60,7 +60,7 @@ transformers>=4.30.0
 tokenizers>=0.22.2
 
 # ---------- GRAG 五元组提取（可选，api_format=anthropic 时需要） ----------
-anthropic>=0.42.0
+anthropic>=0.125.0
 
 # ---------- vendor/top5 第三方能力包（源码纳入，非 pip 安装）----------
 # 以下包以源码方式纳入 vendor/top5/，不通过 pip 安装。
