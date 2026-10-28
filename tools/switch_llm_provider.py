@@ -52,10 +52,12 @@ PRESETS: dict[str, dict[str, str]] = {
     },
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
-        "model": "deepseek-chat",
+        # 工单229：改用官方规范名 deepseek-flash。老别名已被服务端 alias 到 deepseek-flash
+        # 且返回「200 + 空 content」（部分 SDK 判为错误）→ 弃用；详见 docs/PEAK-OFFPEAK-OPS.md。
+        "model": "deepseek-flash",
         "provider": "openai",
         "key_env": "DEEPSEEK_API_KEY",
-        "note": "官方直连；若走网关见 tokenrhythm 预设",
+        "note": "官方直连（规范名 deepseek-flash，老别名已废弃）；若走网关见 tokenrhythm 预设",
     },
     "minimax": {
         "base_url": "https://api.minimax.chat/v1",

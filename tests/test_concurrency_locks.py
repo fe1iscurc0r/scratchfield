@@ -200,15 +200,22 @@ class TestAtomicWriteJson:
     def test_concurrent_writes_never_produce_partial_file(self, tmp_path):
         """4 写 + 4 读持续 1s。
 
-        硬断言：读者**永不**读到非法 JSON（这正是"原子"的定义）。
-        容忍项：写者在极端句柄争抢下耗尽重试后**显式抛 OSError** ——
-        这是函数契约（重试后抛出，不静默吞），失败必须可见而非产出半截文件。
+        硬断言：读者**永不**读到**非法 JSON**（这正是"原子"的定义 —— 内容层面无撕裂）。
+        容忍项二类（都 **不** 属于撕裂读）：
+          · 写者在极端句柄争抢下耗尽重试后**显式抛 OSError**（函数契约：重试后抛出、不静默吞）；
+          · 读者在 Windows 上被 `os.replace` 持有目标时**瞬时** PermissionError/FileNotFoundError
+            —— 那是"这次没打开"，不是"读到了半截内容"。
+        ⚠️ 2026-10-10 修正：原实现把后者也计进 `bad` 并硬断言，导致本机 1/3 概率假失败
+        （实测 PermissionError(13) 被报成"读到非法 JSON 4 次"，而全程无一次 JSONDecodeError）。
+        原子性只由 **JSON 解析失败** 判定；瞬时 OS 错误单列并只做宽松约束。
         """
         from system.config import atomic_write_json
 
         target = tmp_path / "config.json"
         atomic_write_json(target, {"init": True})
-        bad: list[str] = []
+        bad: list[str] = []            # 真·撕裂读（JSON 解析失败）—— 硬断言
+        transient: list[str] = []      # 瞬时 OS 级打开失败 —— 容忍
+        reads_ok: list[int] = []
         writer_errors: list[str] = []
         writes_ok: list[int] = []
         stop = threading.Event()
@@ -225,8 +232,11 @@ class TestAtomicWriteJson:
             while not stop.is_set():
                 try:
                     json.loads(target.read_text(encoding="utf-8"))
-                except Exception as e:  # noqa: BLE001
+                    reads_ok.append(1)
+                except json.JSONDecodeError as e:          # 撕裂读：违反原子性
                     bad.append(repr(e)[:80])
+                except OSError as e:                        # Windows 句柄争抢：瞬时拒绝打开
+                    transient.append(type(e).__name__)
 
         ws = [threading.Thread(target=writer, args=(i,)) for i in range(4)]
         rs = [threading.Thread(target=reader) for _ in range(4)]
@@ -239,6 +249,11 @@ class TestAtomicWriteJson:
         for t in ws + rs:
             t.join()
         assert writes_ok, "一次成功写入都没有"
-        assert bad == [], f"读到非法 JSON {len(bad)} 次: {bad[:3]}"
+        assert reads_ok, "一次成功读取都没有"
+        assert bad == [], (
+            f"读到非法 JSON（撕裂读）{len(bad)} 次: {bad[:3]}"
+            f"（另计瞬时打开失败 {len(transient)} 次，非撕裂）")
         assert len(writes_ok) > len(writer_errors), (
             f"写失败({len(writer_errors)})不应多于成功({len(writes_ok)}) —— 重试预算不足")
+        assert len(reads_ok) >= len(transient), (
+            f"瞬时打开失败({len(transient)})多于成功读取({len(reads_ok)}) —— 争抢异常")

@@ -27,7 +27,7 @@ HW-06 寄生链通道B的第一块砖。菜单「寄生链」（原理图/PCB �
 
 kap1bala 的开源替代（Apache-2.0）。菜单「描述生成 → 打开面板」：
 - 面板输入要点草稿 → 自动带工程上下文 → LLM 生成"一句话简介 + README 描述段 + 关键词"
-- 默认 **DeepSeek 官方直连**（`https://api.deepseek.com` + deepseek-chat），可改任意 OpenAI 兼容 baseURL
+- 默认 **DeepSeek 官方直连**（`https://api.deepseek.com` + deepseek-flash），可改任意 OpenAI 兼容 baseURL
 - key 存本机 sys_Storage，**不经任何第三方中转**（对齐体检报告对 opencodego 的风险提示）
 - 装了它就可以把闭源的 eext-kap1bala 卸了
 

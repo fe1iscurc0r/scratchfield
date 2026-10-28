@@ -8,6 +8,7 @@ pytestmark = [pytest.mark.smoke, pytest.mark.core]
 锁定 07-01 的结论：system_governance 旧扫描器把「函数内延迟导入」误判为依赖边，
 凑出 5 个假环；修正后应报 0 个真实模块级环，且 rag→system 是延迟导入、非硬依赖。
 """
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -76,5 +77,22 @@ def test_all_ring_modules_import_cleanly():
         [sys.executable, "-c", code],
         capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=120,
     )
-    assert proc.returncode == 0, f"7 模块导入失败(存在循环导入风险): {proc.stderr}"
+    if proc.returncode != 0:
+        err = proc.stderr or ""
+        # 薄依赖环境下（CI 的 smoke job 只装 pytest+numpy）"缺第三方依赖"与
+        # "循环导入"在退出码上无法区分——但两者的**报错形态不同**，据此分流：
+        #   · 缺依赖 → ModuleNotFoundError: No module named '<第三方包>'
+        #   · 真环   → "partially initialized module" / "circular import" / "cannot import name"
+        # 只有确认是缺依赖、且没有任何真环特征时才跳过；其余一律 FAIL。
+        missing = sorted({
+            m.split(".")[0]
+            for m in re.findall(r"ModuleNotFoundError: No module named '([^']+)'", err)
+        })
+        project_pkgs = {"apiserver", "rag", "system", "mcpserver", "summer_memory",
+                        "agentserver", "guide_engine"}
+        third_party = [m for m in missing if m not in project_pkgs]
+        circular_signs = ("partially initialized module", "circular import", "cannot import name")
+        if third_party and not any(s in err for s in circular_signs):
+            pytest.skip("环境缺第三方依赖，无法据此判定循环导入: " + ", ".join(third_party[:6]))
+        raise AssertionError(f"7 模块导入失败(存在循环导入风险): {err}")
     assert "ALL_SEVEN_IMPORTED_OK" in proc.stdout, "7 模块应全部导入成功"

@@ -15,11 +15,11 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from .state_paths import get_openclaw_config_path, get_openclaw_state_dir
-import threading
 
 logger = logging.getLogger("openclaw.runtime")
 

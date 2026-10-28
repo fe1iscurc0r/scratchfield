@@ -206,10 +206,8 @@ def policy_failure_text(component: str, decision: PolicyDecision) -> str:
     ]
     lines += [f"[net_boundary]   - {reason}" for reason in decision.reasons]
     lines.append(
-        "[net_boundary]   修法：删掉 {h} 让它只绑 127.0.0.1；确需跨机才同时给 "
-        "{h}=<网卡地址> {r}=1 {t}=<≥{n} 字符令牌>".format(
-            h=BIND_HOST_ENV, r=ALLOW_REMOTE_ENV, t=AUTH_TOKEN_ENV, n=MIN_TOKEN_LENGTH
-        )
+        f"[net_boundary]   修法：删掉 {BIND_HOST_ENV} 让它只绑 127.0.0.1；确需跨机才同时给 "
+        f"{BIND_HOST_ENV}=<网卡地址> {ALLOW_REMOTE_ENV}=1 {AUTH_TOKEN_ENV}=<≥{MIN_TOKEN_LENGTH} 字符令牌>"
     )
     return "\n".join(lines)
 

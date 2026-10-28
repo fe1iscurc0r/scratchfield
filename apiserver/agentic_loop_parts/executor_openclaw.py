@@ -28,8 +28,9 @@ from apiserver.tool_schemas import resolve_mcp_func_name
 from system.config import get_config, get_data_dir, get_server_port
 
 logger = logging.getLogger("apiserver.agentic_tool_loop")  # 保持原日志通道名
-from .markers import *  # noqa: F401,F403
 import threading
+
+from .markers import *  # noqa: F401,F403
 
 # ---------------------------------------------------------------------------
 # OpenClaw 共享客户端与可用性预检

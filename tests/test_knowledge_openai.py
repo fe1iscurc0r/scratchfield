@@ -18,8 +18,8 @@ sys.path.insert(0, str(ROOT))
 def client(monkeypatch, tmp_path):
     # 工单224：_LUMO_PROXY_TOKEN 是 lumo_proxy 的模块级常量——合跑时先加载的测试可能已把它
     # 固化（env 后设无效）→ 直接 patch 常量，不依赖 env 生效时序。
-    import apiserver.routes.lumo_proxy as LP
     import apiserver.routes.knowledge_openai as KO
+    import apiserver.routes.lumo_proxy as LP
 
     monkeypatch.setattr(LP, "_LUMO_PROXY_TOKEN", "kt-123", raising=False)
     monkeypatch.setattr(KO, "get_config", lambda: _Cfg())

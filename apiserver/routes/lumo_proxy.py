@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -31,7 +32,6 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
-import threading
 
 logger = logging.getLogger(__name__)
 

@@ -19,6 +19,7 @@ try:
     import tomllib
 except ModuleNotFoundError:
     import tomli as tomllib  # Python < 3.11 fallback
+import threading
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +28,6 @@ from typing import Any, Dict, List, Optional
 import json5  # 支持带注释的JSON解析
 from charset_normalizer import from_path
 from pydantic import BaseModel, Field, field_validator
-import threading
 
 IS_PACKAGED: bool = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
 

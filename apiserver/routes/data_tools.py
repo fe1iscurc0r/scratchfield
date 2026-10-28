@@ -29,6 +29,10 @@ import matplotlib
 
 matplotlib.use("Agg")  # 无 GUI 后端，服务器/测试环境可用
 
+# 工单220：pandas 顶层导入占冷启动 ~660ms，且仅 16 处使用点全在请求处理函数内 →
+# 改为惰性导入（类型注解用 TYPE_CHECKING；运行时首次调用自动加载，行为零变化）。
+from typing import TYPE_CHECKING
+
 import matplotlib.pyplot as plt
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -36,10 +40,6 @@ from pydantic import BaseModel
 
 from ..naga_auth import require_local_auth
 from . import eln as eln_module
-
-# 工单220：pandas 顶层导入占冷启动 ~660ms，且仅 16 处使用点全在请求处理函数内 →
-# 改为惰性导入（类型注解用 TYPE_CHECKING；运行时首次调用自动加载，行为零变化）。
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import pandas as pd

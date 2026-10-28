@@ -8,11 +8,12 @@
     bus.emit(Topics.USER_INPUT_RECEIVED, event)
     d()                                  # 卸载，重复调用是 no-op
 """
+import threading
+
 from .bus import EventBus, EventHandler, InProcessEventBus, WaterfallHandler, is_bailed
 from .disposable import Disposable, DisposableList
 from .event_store import EventStore, build_envelope, get_event_store
 from .topics import Topics
-import threading
 
 __all__ = [
     "Disposable",

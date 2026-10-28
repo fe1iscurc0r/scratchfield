@@ -168,7 +168,7 @@ class _FakeStore:
 class FakeLauncher(mod.AppLauncherPlugin):
     """真插件类 + 内存清单。只替换存储与日志，入口逻辑一律走真代码。"""
 
-    def __init__(self, events: List[str], apps: Optional[List[Dict[str, Any]]] = None) -> None:
+    def __init__(self, events: List[str], apps: List[Dict[str, Any]] | None = None) -> None:
         self.logger = _RecorderLogger(events)
         self.store = _FakeStore()
         self._apps: List[Dict[str, Any]] = list(apps or [])

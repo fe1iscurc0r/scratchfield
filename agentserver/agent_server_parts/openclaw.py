@@ -1,6 +1,8 @@
 """agent_server_parts.openclaw —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
+from system.net_boundary import explicit_opt_in as _explicit_opt_in
+
 from .common import (  # noqa: F401  244d：原星号导入改为显式（F405）
     Any,
     HTTPException,
@@ -12,7 +14,6 @@ from .common import (  # noqa: F401  244d：原星号导入改为显式（F405�
 )
 from .lifecycle import _start_gateway_if_port_free, app  # noqa: F401
 from .search import _local_search_proxy  # noqa: F401
-from system.net_boundary import explicit_opt_in as _explicit_opt_in
 
 # 安装类动作的第二道门：边界令牌只证明「你是谁」，不证明「现在该不该往本机装代码」。
 INSTALL_ENV = "NEKO_ALLOW_INSTALL"

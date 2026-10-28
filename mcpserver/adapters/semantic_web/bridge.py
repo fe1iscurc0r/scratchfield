@@ -14,12 +14,12 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from mcpserver.adapters.semantic_web.engine import SemanticEngine
-import threading
 
 # 本模块自带的科研域本体（数据文件，非代码）
 _ONTOLOGY_TTL = str(Path(__file__).resolve().parent / "ontology.ttl")

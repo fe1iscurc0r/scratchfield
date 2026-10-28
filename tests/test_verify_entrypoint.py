@@ -19,6 +19,7 @@ import pytest
 pytestmark = [pytest.mark.smoke, pytest.mark.core]
 
 import asyncio
+import importlib
 import json
 import sys
 import tempfile
@@ -38,7 +39,21 @@ def _handoff(rel_manifest: str, task: dict) -> dict:
     from mcpserver.mcp_registry import create_agent_instance
 
     inst = create_agent_instance(_manifest(rel_manifest))
-    assert inst is not None, rel_manifest
+    if inst is None:
+        # 薄依赖环境（CI 的 smoke job 只装 pytest+numpy）里 agent 模块 import 失败，
+        # create_agent_instance 就返回 None —— 这与"manifest 本身写坏了"必须分开：
+        # 只有确认是 ModuleNotFoundError 才跳过，其余仍按原样断言失败。
+        ep = _manifest(rel_manifest).get("entryPoint") or {}
+        mod = ep.get("module") or ""
+        try:
+            if mod:
+                importlib.import_module(mod)
+        except ModuleNotFoundError as exc:
+            raise unittest.SkipTest(
+                f"环境缺依赖，无法实例化 {rel_manifest}: {exc}") from exc
+        except Exception:
+            pass
+        raise AssertionError(rel_manifest)
     return json.loads(asyncio.run(inst.handle_handoff(task)))
 
 

@@ -1,6 +1,8 @@
 """agent_server_parts.lifecycle —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
+from system.net_boundary import LocalBoundaryMiddleware
+
 from .common import (  # noqa: F401  244d：原星号导入改为显式（F405）
     EmbeddedRuntime,
     FastAPI,
@@ -15,7 +17,6 @@ from .common import (  # noqa: F401  244d：原星号导入改为显式（F405�
     logger,
 )
 from .session import _interrupt_travel_sessions, _resume_open_travel_sessions  # noqa: F401
-from system.net_boundary import LocalBoundaryMiddleware
 
 
 async def _start_gateway_if_port_free(runtime: EmbeddedRuntime) -> bool:

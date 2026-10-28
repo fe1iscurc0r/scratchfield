@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -16,7 +17,6 @@ from mcpserver.mcp_registry import (
 )
 from mcpserver.telemetry import get_breaker, record_tool_call
 from system.config import logger
-import threading
 
 # B5 工具级可观测：{service_name: {calls, latency_sum, errors, last_call}}
 _TOOL_METRICS: dict[str, dict[str, Any]] = {}
@@ -49,6 +49,33 @@ def _auth_blocked(service_name: str) -> str | None:
     )
 
 
+def _agent_governance_block(service_name: str, tool_call: dict[str, Any]) -> str | None:
+    """工单241 身份-授权 guard 接线点：默认旁路，仅 AGENT_GOVERNANCE 开启时生效。
+
+    先读环境变量再决定要不要 import —— 未启用时零开销、零依赖变化。
+    启用后治理层自身异常 **fail-closed**（授权判定出错时放行等于把「防冒充」变成空话）；
+    爆炸半径由「必须显式开开关」控制。语义详见 mcpserver/agent_governance/README.md。
+    """
+    if os.environ.get("AGENT_GOVERNANCE", "").strip().lower() not in ("1", "on", "true", "yes"):
+        return None
+    try:
+        from mcpserver.agent_governance.integration import guard_dispatch
+
+        return guard_dispatch(service_name, tool_call)
+    except Exception as exc:
+        logger.exception("[MCPManager] agent_governance guard 异常（fail-closed）")
+        return json.dumps(
+            {
+                "status": "error",
+                "error_type": "governance_internal_error",
+                "code": "GOV_INTERNAL_ERROR",
+                "tool": service_name,
+                "message": f"agent_governance guard 异常（fail-closed）: {exc}",
+            },
+            ensure_ascii=False,
+        )
+
+
 class MCPManager:
     """MCP服务管理器 - 管理工具调用路由"""
 
@@ -61,6 +88,11 @@ class MCPManager:
         blocked = _auth_blocked(service_name)
         if blocked:
             return blocked
+
+        # agent_governance hook（工单241）：默认旁路，仅 AGENT_GOVERNANCE 开启时生效
+        gov_blocked = _agent_governance_block(service_name, tool_call)
+        if gov_blocked:
+            return gov_blocked
 
         # B2 快速失败：熔断中的外部/adapter 工具直接短路（内置核心 agent 不熔断）
         source = get_service_source(service_name)

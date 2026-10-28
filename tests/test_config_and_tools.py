@@ -63,7 +63,7 @@ class _SystemRouteSettings:
 
 
 class _BridgeApiSettings:
-    model = "deepseek-chat"
+    model = "deepseek-flash"
     max_tokens = 4096
 
 
@@ -372,7 +372,7 @@ class ConfigAndToolTests(unittest.TestCase):
                 completion_response = await client.post(
                     "/v1/chat/completions",
                     json={
-                        "model": "deepseek-chat",
+                        "model": "deepseek-flash",
                         "messages": [{"role": "user", "content": "ping"}],
                     },
                 )
@@ -389,7 +389,7 @@ class ConfigAndToolTests(unittest.TestCase):
                         "/v1/chat/completions",
                         headers={"Authorization": "Bearer test-token"},
                         json={
-                            "model": "deepseek-chat",
+                            "model": "deepseek-flash",
                             "messages": [{"role": "user", "content": "ping"}],
                         },
                     )
@@ -1085,7 +1085,7 @@ class ConfigAndToolTests(unittest.TestCase):
                 self.assertEqual(injected["gateway"]["mode"], "local")
                 self.assertEqual(injected["hooks"]["path"], "/hooks")
                 self.assertTrue(injected["hooks"]["allowRequestSessionKey"])
-                self.assertEqual(injected["agents"]["defaults"]["model"]["primary"], "deepseek/deepseek-chat")
+                self.assertEqual(injected["agents"]["defaults"]["model"]["primary"], "deepseek/deepseek-flash")
                 self.assertEqual(
                     injected["models"]["providers"]["deepseek"]["baseUrl"],
                     "http://127.0.0.1:8123/v1",

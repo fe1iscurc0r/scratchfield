@@ -5,11 +5,11 @@
 """
 
 import logging
+import threading
 from collections.abc import Callable
 from typing import Dict, List, Optional
 
 from .models import DogTag, DutyStatus, TriggerType
-import threading
 
 logger = logging.getLogger(__name__)
 

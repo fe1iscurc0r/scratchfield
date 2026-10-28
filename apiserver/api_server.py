@@ -622,12 +622,11 @@ app.mount("/llm", llm_app)
 
 # ============ 注册路由模块 ============
 
+from .admin.router import router as admin_router  # 工单228: GET /admin/model_state（模型峰谷只读探针）
 from .routes.appearance import router as appearance_router
 from .routes.apps import router as apps_router
 from .routes.auth import router as auth_router
 from .routes.bus_dump import router as bus_dump_router  # W119-01: 总线可观测 dump
-from .routes.eda_ingest import router as eda_ingest_router  # 工单217: EDA parasite-export 接收端
-from .routes.knowledge_openai import router as knowledge_openai_router  # 工单217-A: 知识检索型 OpenAI 兼容端点
 from .routes.channels import router as channels_router  # 渠道网关层：多渠道消息入口
 from .routes.chat import router as chat_router
 from .routes.data_tools import router as data_tools_router
@@ -637,8 +636,10 @@ from .routes.device import (
 )
 from .routes.device import router as device_router  # W131-05: 设备状态感知
 from .routes.domains import router as domains_router  # 卷162: 领域包机制（/api/domains）
+from .routes.eda_ingest import router as eda_ingest_router  # 工单217: EDA parasite-export 接收端
 from .routes.eln import router as eln_router
 from .routes.extensions import router as extensions_router
+from .routes.knowledge_openai import router as knowledge_openai_router  # 工单217-A: 知识检索型 OpenAI 兼容端点
 from .routes.law_cases import router as law_cases_router  # 卷163: 法学判例导入
 from .routes.lumo_event import router as lumo_event_router
 from .routes.lumo_proxy import router as lumo_proxy_router
@@ -689,3 +690,4 @@ app.include_router(checkpoint_router)  # W131-03: loop 快照（/api/agent/check
 app.include_router(channels_router)  # 渠道网关层（/api/channels/webhook|status）
 app.include_router(tools_health_router)  # 卷189-B: 工具健康（GET /tools/stats|circuit）
 app.include_router(sentinel_router)  # 卷187: 哨兵网格（/sentinel/nodes|spectrum|env）
+app.include_router(admin_router)  # 工单228 任务一: 模型峰谷状态只读探针（GET /admin/model_state）

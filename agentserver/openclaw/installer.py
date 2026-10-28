@@ -6,12 +6,12 @@ OpenClaw 安装器
 
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from .state_paths import get_openclaw_config_path, get_openclaw_state_dir
-import threading
 
 logger = logging.getLogger("openclaw.installer")
 

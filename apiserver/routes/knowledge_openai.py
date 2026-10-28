@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from system.config import get_config
+
 from .lumo_proxy import _query_rag_standalone, require_proxy_token
 
 logger = logging.getLogger(__name__)
@@ -118,20 +119,19 @@ async def knowledge_chat_completions(
 async def _stream_upstream(payload: dict, headers: dict, req_id: str, created: int, model: str):
     """流式：上游 SSE → 标准 OpenAI chunk 转发（含检索标记首块）。"""
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream(
-                "POST", f"{payload.get('_upstream', '')}/chat/completions"
-                        if payload.get("_upstream") else _upstream_url(payload),
-                json={k: v for k, v in payload.items() if not k.startswith("_")},
-                headers=headers,
-            ) as resp:
-                if resp.status_code != 200:
-                    err_body = (await resp.aread()).decode("utf-8", "replace")[:200]
-                    yield _sse_error(_upstream_error_hint(resp.status_code, err_body))
-                    return
-                async for line in resp.aiter_lines():
-                    if line.startswith("data:"):
-                        yield line + "\n\n"
+        async with httpx.AsyncClient(timeout=None) as client, client.stream(
+            "POST", f"{payload.get('_upstream', '')}/chat/completions"
+                    if payload.get("_upstream") else _upstream_url(payload),
+            json={k: v for k, v in payload.items() if not k.startswith("_")},
+            headers=headers,
+        ) as resp:
+            if resp.status_code != 200:
+                err_body = (await resp.aread()).decode("utf-8", "replace")[:200]
+                yield _sse_error(_upstream_error_hint(resp.status_code, err_body))
+                return
+            async for line in resp.aiter_lines():
+                if line.startswith("data:"):
+                    yield line + "\n\n"
     except httpx.HTTPError as e:
         yield _sse_error(f"上游连接失败: {type(e).__name__}")
 

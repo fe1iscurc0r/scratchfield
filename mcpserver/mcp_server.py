@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import threading
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 
 from system.config import logger
 from system.cors_config import apply_local_cors
-import threading
+from system.net_boundary import LocalBoundaryMiddleware
 
 
 @asynccontextmanager
@@ -36,6 +37,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="陆墨 MCP Server", lifespan=lifespan)
+
+# 边界守卫先挂、CORS 后挂：add_middleware 是栈式插入，最后加的在最外层。
+# 让 CORS 待在最外层，被拒绝的请求才能带上跨源响应头，浏览器里看得到 401 而不是
+# 一个没有信息的 "blocked by CORS policy"。
+# 这里用中间件而不是逐路由 Depends：`/call`、`/schedule`、`/chains/run`、
+# `/trust/assess` 之外的新写路由要默认落在保护面里（P0-1 挂了两年，
+# 一部分原因就是鉴权被当成每条路由自己的自觉）。
+app.add_middleware(
+    LocalBoundaryMiddleware,
+    component="mcp-server",
+    public_paths=("/status",),
+)
 
 # 统一 CORS 配置
 apply_local_cors(app)

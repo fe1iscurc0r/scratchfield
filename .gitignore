@@ -116,6 +116,15 @@ desktop.ini
 !tools/cot_token_saliency.py
 # exception: token-savior 工单产物（token 压缩工具评估）, 非密钥, 被 *token* 误伤
 !docs/token-savior-实测.md
+# exception: 工单261 token 账本审计（只读统计脚本 + fixture + 报告，不含任何密钥）
+!scripts/token_ledger.py
+!scripts/token_pricing.json
+!tests/test_token_ledger.py
+!tests/fixtures/token_ledger/
+# 生成物仍不入库（由 make_fixture.py 现场重建）
+tests/fixtures/token_ledger/*.db
+tests/fixtures/token_ledger/dumps/
+!docs/reports/hermes-token-ledger-*.md
 !tools/token_savior_measure.py
 *credential*
 !**/prompts/**
@@ -351,7 +360,11 @@ radio_brain/channel2world/logs/**/*.pt
 *.p12
 
 # 运行数据（巡检快照/模型状态），不入库
-data/
+# 例外：知识型数据只放行 ledger/experiments（见 data/README.md）
+data/*
+!data/README.md
+!data/ledger/
+!data/experiments/
 # code-review-graph 索引派生产物（不入库）
 /crg-out/
 
@@ -371,3 +384,14 @@ neko-electron-shell/vendor/
 # carpet 镜像侧的 VRM 模型（与 NEKO/N.E.K.O/**/*.vrm 同规则，但路径不同需单列）
 carpet/N.E.K.O/vrm/
 research/adm1/digester_influent.csv
+
+# ─── 未纳入版本库的 NEKO 插件（体积大，见 2026-10-18 体检）────────────────
+# neko_arcade 255 MB / pvz_agent 112 MB：均为未跟踪的本地插件目录，
+# 一旦被 `git add -A` 卷进去，仓库会从 ~680 MB 涨到 1 GB+，二进制进历史后只能 filter-repo 洗。
+# 需要纳管时请单独评估（或改存 LFS / 挪到仓库外）。
+NEKO/N.E.K.O/plugin/plugins/neko_arcade/
+NEKO/N.E.K.O/plugin/plugins/pvz_agent/
+
+# 工单 262 任务 C：AE 样例二进制（pridb/tradb/wav）不入库
+!tests/fixtures/ae/
+tests/fixtures/ae/*
