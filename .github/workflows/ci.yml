@@ -16,6 +16,8 @@ on:
       - '.workbuddy/**'
       - 'vendor/**'
 
+  workflow_dispatch:
+
 permissions:
   contents: read
 
