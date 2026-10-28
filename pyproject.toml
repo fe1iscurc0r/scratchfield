@@ -60,15 +60,13 @@ dependencies = [
     "neo4j>=6.4.0",
     "chromadb>=0.5.0",
     "mss>=10.2.0",
-    # authlib 是 chromadb 的传递依赖，但一直未被直接声明（卷161 死锁第二层）。
-    # 显式声明使版本可被 dependabot 追踪并保证下限。
-    # 事实校正（实测 dependabot alerts @main 368b87a4）：authlib 的 critical
-    # （GHSA-wvwj-cvrp-7pv5，#279/#142）全部挂在 NEKO/ 下的 manifest，
-    # 根 uv.lock 无 authlib 告警 —— 故本行不改变根 uv.lock 的 critical 计数。
-    # 注：工单原文写作 ">=49.0.0"，但 authlib 版本体系为 1.x（最新 1.8.0），
+    # 注：工单原文写作 ">=49.0.0"，但 authlib 版本体系为 1.x，
     # 49.0.0 在 PyPI 上不存在（49.0.0 实为 cryptography 的修复阈值）。
-    # 此处按工单「退到能解的最高版」授权，取 1.6.9（该 CVE 的 first_patched）。
-    "authlib>=1.6.9",
+    # 2026-10-28：1.6.9 → 1.9.1。1.6.9 只覆盖 GHSA-wvwj-cvrp-7pv5；
+    # 之后又出两条，first_patched 分别为 1.9.0 / 1.9.1：
+    #   GHSA-6v38-4h7w-rj9h  critical  JWS/JWE 空签名校验
+    #   GHSA-8m4g-j4wp-wgcg  high      空 HMAC key 可伪造 JWT
+    "authlib>=1.9.1",
     # 数据工具路由 routes/data_tools.py 在模块级硬 import（科研风 PNG 图表）。
     # 2026-09-29 补录：此前代码 import 了但依赖未声明（venv 能跑只是因为本地装过）。
     "matplotlib>=3.8.0",
