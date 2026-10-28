@@ -1,4 +1,4 @@
-import API from '@/api/core'
+import type { Router } from 'vue-router'
 
 /**
  * 领域包（Domain Pack）前端支持 —— 卷162
@@ -14,8 +14,8 @@ import API from '@/api/core'
  * - 不引入新 UI 库
  */
 
-import type { Router } from 'vue-router'
 import { computed, ref } from 'vue'
+import API from '@/api/core'
 
 /** ELN 字段 schema（对应 pack.yaml 的 eln.fields[]）。 */
 export interface ElnFieldSchema {
@@ -135,7 +135,7 @@ export async function fetchDomainPacks(): Promise<DomainPack[]> {
   domainsError.value = ''
   try {
     // 必须用后端绝对基址：dev 下 vite 没有 /api 代理，相对路径会命中 SPA 兜底（返回 index.html）
-      const resp = await fetch(`${API.endpoint}/api/domains`, {
+    const resp = await fetch(`${API.endpoint}/api/domains`, {
       headers: { Accept: 'application/json' },
     })
     if (!resp.ok)

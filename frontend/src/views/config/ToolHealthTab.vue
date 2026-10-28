@@ -40,7 +40,8 @@ function pct(v: number) {
 function fmtMs(v: number | null | undefined) {
   // 后端聚合可能在无样本时给 null/undefined（例如刚启动、该工具还没被调用过），
   // 直接 toFixed 会抛 TypeError 把整个设置页渲染打断（2026-10-20 实测）。
-  if (v === null || v === undefined || Number.isNaN(v)) return '—'
+  if (v === null || v === undefined || Number.isNaN(v))
+    return '—'
   return v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${v.toFixed(0)}ms`
 }
 
@@ -79,77 +80,77 @@ onUnmounted(() => {
     <!-- ⚠️ ConfigGroup 内部是 AccordionPanel，必须有 Accordion 父级，否则 isItemActive 读到 undefined ⇒ 设置页整体白屏（2026-10-20 实测） -->
     <Accordion :value="['tool-health']" multiple>
       <ConfigGroup value="tool-health" header="工具健康">
-      <div class="toolbar">
-        <Select
-          v-model="windowKey"
-          :options="windowOptions"
-          option-label="label"
-          option-value="value"
-          size="small"
-          @change="refresh"
-        />
-        <Button
-          label="刷新"
-          size="small"
-          severity="secondary"
-          :loading="loading"
-          @click="refresh"
-        />
-      </div>
-
-      <Message v-if="error" severity="error" :closable="false" class="mb">
-        {{ error }}
-      </Message>
-
-      <template v-if="circuitRows.length">
-        <div class="section-title">
-          熔断中（{{ circuitRows.length }}）
+        <div class="toolbar">
+          <Select
+            v-model="windowKey"
+            :options="windowOptions"
+            option-label="label"
+            option-value="value"
+            size="small"
+            @change="refresh"
+          />
+          <Button
+            label="刷新"
+            size="small"
+            severity="secondary"
+            :loading="loading"
+            @click="refresh"
+          />
         </div>
-        <table class="th-table">
+
+        <Message v-if="error" severity="error" :closable="false" class="mb">
+          {{ error }}
+        </Message>
+
+        <template v-if="circuitRows.length">
+          <div class="section-title">
+            熔断中（{{ circuitRows.length }}）
+          </div>
+          <table class="th-table">
+            <thead>
+              <tr>
+                <th>工具</th><th>状态</th><th>样本</th><th>失败率</th><th>最近错误</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in circuitRows" :key="c.tool">
+                <td class="mono">{{ c.tool }}</td>
+                <td>
+                  <span class="badge" :class="[c.state === 'open' ? 'bad' : 'warn']">
+                    {{ c.state }}
+                  </span>
+                </td>
+                <td>{{ c.samples }}</td>
+                <td>{{ pct(c.fail_rate) }}</td>
+                <td class="err">{{ c.last_error || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+
+        <div class="section-title">
+          调用画像（{{ rows.length }} 个工具）
+        </div>
+        <p v-if="!rows.length" class="empty">
+          暂无调用记录。工具被调用后这里会显示 调用数 / 延迟 / 失败率。
+        </p>
+        <table v-else class="th-table">
           <thead>
             <tr>
-              <th>工具</th><th>状态</th><th>样本</th><th>失败率</th><th>最近错误</th>
+              <th>工具</th><th>调用</th><th>P50</th><th>P95</th><th>失败率</th><th>最近错误</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in circuitRows" :key="c.tool">
-              <td class="mono">{{ c.tool }}</td>
-              <td>
-                <span class="badge" :class="[c.state === 'open' ? 'bad' : 'warn']">
-                  {{ c.state }}
-                </span>
-              </td>
-              <td>{{ c.samples }}</td>
-              <td>{{ pct(c.fail_rate) }}</td>
-              <td class="err">{{ c.last_error || '—' }}</td>
+            <tr v-for="r in rows" :key="r.tool">
+              <td class="mono">{{ r.tool }}</td>
+              <td>{{ r.calls }}</td>
+              <td>{{ fmtMs(r.p50_ms) }}</td>
+              <td>{{ fmtMs(r.p95_ms) }}</td>
+              <td :class="{ err: r.error_rate > 0.2 }">{{ pct(r.error_rate) }}</td>
+              <td class="err">{{ r.last_error || '—' }}</td>
             </tr>
           </tbody>
         </table>
-      </template>
-
-      <div class="section-title">
-        调用画像（{{ rows.length }} 个工具）
-      </div>
-      <p v-if="!rows.length" class="empty">
-        暂无调用记录。工具被调用后这里会显示 调用数 / 延迟 / 失败率。
-      </p>
-      <table v-else class="th-table">
-        <thead>
-          <tr>
-            <th>工具</th><th>调用</th><th>P50</th><th>P95</th><th>失败率</th><th>最近错误</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in rows" :key="r.tool">
-            <td class="mono">{{ r.tool }}</td>
-            <td>{{ r.calls }}</td>
-            <td>{{ fmtMs(r.p50_ms) }}</td>
-            <td>{{ fmtMs(r.p95_ms) }}</td>
-            <td :class="{ err: r.error_rate > 0.2 }">{{ pct(r.error_rate) }}</td>
-            <td class="err">{{ r.last_error || '—' }}</td>
-          </tr>
-        </tbody>
-      </table>
       </ConfigGroup>
     </Accordion>
   </div>

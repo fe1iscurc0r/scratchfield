@@ -279,25 +279,25 @@ function gotoAgentContacts() {
     <div v-show="activeTab === 'agent'" data-config-tab="agent">
       <Accordion :value="['agent-entry']" multiple>
         <ConfigGroup value="agent-entry" header="干员设置">
-        <div class="grid gap-4">
-          <ConfigItem
-            name="干员配置入口"
-            description="每个干员的模型/人设/工具设置在其通讯录卡片上唤起（弹窗），设置页提供统一入口"
-            :search-keys="['agent', 'ganyuan', '干员', '通讯录', '设置', 'agent 设置']"
-          >
-            <div class="flex items-center gap-3">
-              <Button label="打开干员通讯录" size="small" @click="gotoAgentContacts" />
-            </div>
-          </ConfigItem>
-          <ConfigItem
-            name="内置干员说明"
-            description="内置干员（builtin）的人设与工具面由能力清单管理，不可直接改；自定义干员可在此配置"
-            :search-keys="['内置干员', 'builtin', '自定义干员']"
-          >
-            <span class="text-sm text-gray-500">—</span>
-          </ConfigItem>
-        </div>
-      </ConfigGroup>
+          <div class="grid gap-4">
+            <ConfigItem
+              name="干员配置入口"
+              description="每个干员的模型/人设/工具设置在其通讯录卡片上唤起（弹窗），设置页提供统一入口"
+              :search-keys="['agent', 'ganyuan', '干员', '通讯录', '设置', 'agent 设置']"
+            >
+              <div class="flex items-center gap-3">
+                <Button label="打开干员通讯录" size="small" @click="gotoAgentContacts" />
+              </div>
+            </ConfigItem>
+            <ConfigItem
+              name="内置干员说明"
+              description="内置干员（builtin）的人设与工具面由能力清单管理，不可直接改；自定义干员可在此配置"
+              :search-keys="['内置干员', 'builtin', '自定义干员']"
+            >
+              <span class="text-sm text-gray-500">—</span>
+            </ConfigItem>
+          </div>
+        </ConfigGroup>
       </Accordion>
     </div>
   </BoxContainer>

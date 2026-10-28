@@ -333,9 +333,9 @@ void loadAssembly()
     fixed-scope="public"
     hub-enabled
     title="添加通用 MCP"
+    :existing="mcpServices"
     @confirm="onMcpConfirm"
     @cancel="showMcpDialog = false"
-    :existing="mcpServices"
   />
 </template>
 
