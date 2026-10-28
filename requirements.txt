@@ -49,7 +49,7 @@ edge-tts>=7.2.8
 sounddevice>=0.5.6
 
 # ---------- 知识图谱 GRAG / 兼容层 ----------
-py2neo>=2021.2.3
+py2neo>=2021.2.4
 neo4j>=6.4.0
 chromadb>=0.5.0
 mss>=10.2.0
