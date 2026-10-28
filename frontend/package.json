@@ -38,7 +38,7 @@
     "pixi.js": "^6.5.10",
     "primevue": "^5.0.2",
     "snakecase-keys": "^9.0.2",
-    "vue": "^3.5.43",
+    "vue": "^3.5.44",
     "vue-router": "^5.4.0"
   },
   "devDependencies": {
