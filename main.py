@@ -271,8 +271,11 @@ class ServiceManager:
     def check_port_available(self, host, port):
         """检查端口是否可用"""
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind((host, port))
+            from system.net_boundary import bind_pair
+
+            family, address = bind_pair(str(host))
+            with socket.socket(family, socket.SOCK_STREAM) as s:
+                s.bind((address, port))
                 return True
         except OSError:
             return False
@@ -288,13 +291,16 @@ class ServiceManager:
             self._init_proxy_settings()
             # 预检查所有端口（端口已在启动前由 kill_port_occupiers 清理）
             from system.config import get_server_port
+            from system.net_boundary import effective_bind_host
+
+            probe_host = effective_bind_host()
             port_checks = {
                 # API 不做“启动前 bind 预检查”，避免在 Windows/虚拟机环境误判为占用导致根本不启动。
                 # 实际绑定冲突交给 uvicorn 抛错并记录详细日志。
                 'api': config.api_server.enabled and config.api_server.auto_start,
-                'mcp': self.check_port_available("0.0.0.0", get_server_port("mcp_server")),
-                'agent': self.check_port_available("0.0.0.0", get_server_port("agent_server")),
-                'tts': self.check_port_available("0.0.0.0", config.tts.port)
+                'mcp': self.check_port_available(probe_host, get_server_port("mcp_server")),
+                'agent': self.check_port_available(probe_host, get_server_port("agent_server")),
+                'tts': self.check_port_available(probe_host, config.tts.port)
             }
 
             # API服务器（可选）
@@ -431,11 +437,14 @@ class ServiceManager:
     def _start_api_server(self):
         """内部API服务器启动方法"""
         import traceback
-        host = str(config.api_server.host).strip() or "127.0.0.1"
+
+        from system.net_boundary import effective_bind_host
+
+        # 绑定地址由主入口的统一校验决定，这里不再各自判一次：
+        # 线程里抛 SystemExit 只杀线程，会把「配置不合规」降级成「API 静默不启动」。
+        host = effective_bind_host()
         port = config.api_server.port
         hosts = [host]
-        if host != "0.0.0.0":
-            hosts.append("0.0.0.0")
 
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
@@ -491,10 +500,11 @@ class ServiceManager:
 
             from mcpserver.mcp_server import app
             from system.config import get_server_port
+            from system.net_boundary import effective_bind_host
 
             uvicorn.run(
                 app,
-                host="0.0.0.0",
+                host=effective_bind_host(),
                 port=get_server_port("mcp_server"),
                 log_level="error",
                 access_log=False,
@@ -514,10 +524,11 @@ class ServiceManager:
 
             from agentserver.agent_server import app
             from system.config import get_server_port
+            from system.net_boundary import effective_bind_host
 
             uvicorn.run(
                 app,
-                host="0.0.0.0",
+                host=effective_bind_host(),
                 port=get_server_port("agent_server"),
                 log_level="error",
                 access_log=False,
@@ -675,9 +686,15 @@ def _kill_port_pids(port: int, my_pid: int) -> bool:
 def _is_port_free(port: int) -> bool:
     """检查端口是否已释放"""
     import socket as _sock
+
+    from system.net_boundary import bind_pair, effective_bind_host
+
     try:
-        with _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM) as s:
-            s.bind(("0.0.0.0", port))
+        # 探测用的是即将监听的地址：绑 0.0.0.0 探测会在所有网卡上开一个
+        # 临时监听套接字，等于在服务启动之前先自己制造一次暴露面。
+        family, address = bind_pair(effective_bind_host())
+        with _sock.socket(family, _sock.SOCK_STREAM) as s:
+            s.bind((address, port))
             return True
     except OSError:
         return False
@@ -894,6 +911,19 @@ if __name__ == "__main__":
         else:
             success = run_system_check(force_check=args.force_check)
         sys.exit(0 if success else 1)
+
+    # 本机服务边界：先校验后监听。缺配置直接 78 退出，不留「服务起来了再补鉴权」的窗口。
+    from system.net_boundary import enforce_startup_policy as _enforce_startup_policy
+    from system.net_boundary import normalize_bind_host as _normalize_bind_host
+
+    # 环境变量是显式意图，优先于配置文件里的 api_server.host；两者都指向非回环
+    # 时由统一策略判定，判定不过就整个进程退出（而不是只让某一个服务不启）。
+    _env_host = _normalize_bind_host(os.environ.get("NEKO_BIND_HOST", ""))
+    _configured_host = _env_host or str(config.api_server.host or "").strip()
+    _enforce_startup_policy(
+        "陆墨主启动器" if _env_host else f"陆墨主启动器（config.api_server.host={_configured_host!r}）",
+        bind_host=_configured_host,
+    )
 
     # 检查上次系统检测时间，如果超过7天则执行更新
     sync_source_config_to_runtime()

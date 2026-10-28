@@ -1,0 +1,77 @@
+{
+  "ok": true,
+  "tool": "fab_precheck",
+  "data": {
+    "verdict": "fail",
+    "ruleset": {
+      "name": "jlc-standard-4layer(保守预设)",
+      "min_trace_mm": 0.127,
+      "min_via_drill_mm": 0.3,
+      "min_via_ring_mm": 0.13,
+      "min_pad_drill_mm": 0.3,
+      "max_layers": 6,
+      "max_board_mm": 500.0,
+      "allowed_thickness_mm": [
+        0.8,
+        1.0,
+        1.2,
+        1.6,
+        2.0
+      ],
+      "source": "本仓保守预设（PoC 用），非嘉立创官方规格抓取；官方能力随 层数/铜厚/表面处理/期 变化，下单前请以当期货期页为准，或用 RuleSet.from_dict 注入真实参数。"
+    },
+    "facts": {
+      "board_size_mm": [
+        20.0,
+        15.0
+      ],
+      "copper_layer_count": 8,
+      "thickness_mm": 3.0,
+      "min_trace_mm": 0.08,
+      "min_via_drill_mm": 0.15,
+      "min_via_ring_mm": 0.025,
+      "min_pad_drill_mm": null,
+      "min_drill_mm": 0.15,
+      "track_count": 2,
+      "via_count": 1,
+      "footprint_count": 1
+    },
+    "violations": [
+      {
+        "code": "MIN_TRACE",
+        "message": "最小线宽 0.08 mm 低于工艺下限 0.127 mm",
+        "actual": 0.08,
+        "limit": 0.127,
+        "severity": "fail"
+      },
+      {
+        "code": "MIN_VIA_DRILL",
+        "message": "最小过孔孔径 0.15 mm 低于工艺下限 0.3 mm",
+        "actual": 0.15,
+        "limit": 0.3,
+        "severity": "fail"
+      },
+      {
+        "code": "MIN_VIA_RING",
+        "message": "最小过孔环宽 0.025 mm 低于工艺下限 0.13 mm",
+        "actual": 0.025,
+        "limit": 0.13,
+        "severity": "fail"
+      },
+      {
+        "code": "LAYER_COUNT",
+        "message": "铜层数 8 超出常规工艺上限 6",
+        "actual": 8,
+        "limit": 6,
+        "severity": "fail"
+      },
+      {
+        "code": "THICKNESS",
+        "message": "板厚 3.0 mm 不在常备厚度 [0.8, 1.0, 1.2, 1.6, 2.0] 内",
+        "actual": 3.0,
+        "limit": null,
+        "severity": "warn"
+      }
+    ]
+  }
+}

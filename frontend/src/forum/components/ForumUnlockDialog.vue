@@ -111,7 +111,8 @@ function pulseTimeline() {
 // 换用户 → 重置本组件内部状态（原在父组件的 watch 里，unlockPercent 那项留父组件）
 // 打开时触发一次脉冲动画（原在父组件 openUnlockDialog 内调用，随组件搬）
 watch(() => visible.value, (v) => {
-  if (v) pulseTimeline()
+  if (v)
+    pulseTimeline()
 })
 
 watch(() => props.userId, () => {
@@ -121,90 +122,90 @@ watch(() => props.userId, () => {
 </script>
 
 <template>
-    <Dialog
-      v-model:visible="visible"
-      modal
-      header="剧情解锁档案"
-      class="unlock-dialog"
-      :style="{ width: 'min(720px, 92vw)' }"
-    >
-      <div class="unlock-dialog-body" :class="{ pulsing: pulseActive }">
-        <section class="unlock-hero">
-          <div class="unlock-hero-copy">
-            <div class="unlock-kicker">Unlock Archive</div>
-            <h3>{{ currentMilestone.title }}</h3>
-            <p>{{ currentMilestone.description }}</p>
-          </div>
-          <div class="unlock-hero-percent">
-            <span>{{ unlockPercent }}%</span>
-            <small>剧情解锁率</small>
-          </div>
-        </section>
+  <Dialog
+    v-model:visible="visible"
+    modal
+    header="剧情解锁档案"
+    class="unlock-dialog"
+    :style="{ width: 'min(720px, 92vw)' }"
+  >
+    <div class="unlock-dialog-body" :class="{ pulsing: pulseActive }">
+      <section class="unlock-hero">
+        <div class="unlock-hero-copy">
+          <div class="unlock-kicker">Unlock Archive</div>
+          <h3>{{ currentMilestone.title }}</h3>
+          <p>{{ currentMilestone.description }}</p>
+        </div>
+        <div class="unlock-hero-percent">
+          <span>{{ unlockPercent }}%</span>
+          <small>剧情解锁率</small>
+        </div>
+      </section>
 
-        <section class="unlock-progress-panel">
-          <div class="unlock-progress-head">
-            <span>剧情封印进度</span>
-            <span>{{ unlockPercent }} / 100</span>
-          </div>
-          <div class="unlock-progress-track">
-            <div class="unlock-progress-fill" :style="{ width: `${unlockPercent}%` }" />
-            <div class="unlock-progress-sheen" />
-          </div>
-          <div class="unlock-progress-foot">
-            <span>当前档案：{{ currentMilestone.label }}</span>
-            <span v-if="nextMilestone">下一阶段：{{ nextMilestone.title }}</span>
-            <span v-else>全部章节已显影</span>
-          </div>
-        </section>
+      <section class="unlock-progress-panel">
+        <div class="unlock-progress-head">
+          <span>剧情封印进度</span>
+          <span>{{ unlockPercent }} / 100</span>
+        </div>
+        <div class="unlock-progress-track">
+          <div class="unlock-progress-fill" :style="{ width: `${unlockPercent}%` }" />
+          <div class="unlock-progress-sheen" />
+        </div>
+        <div class="unlock-progress-foot">
+          <span>当前档案：{{ currentMilestone.label }}</span>
+          <span v-if="nextMilestone">下一阶段：{{ nextMilestone.title }}</span>
+          <span v-else>全部章节已显影</span>
+        </div>
+      </section>
 
-        <section class="unlock-milestones">
-          <article
-            v-for="milestone in unlockMilestones"
-            :key="milestone.threshold"
-            class="milestone-card"
-            :class="{
-              reached: unlockPercent >= milestone.threshold,
-              current: currentMilestone.threshold === milestone.threshold,
-            }"
-          >
-            <div class="milestone-badge">{{ milestone.label }}</div>
-            <div class="milestone-title">{{ milestone.title }}</div>
-            <div class="milestone-desc">{{ milestone.description }}</div>
-          </article>
-        </section>
+      <section class="unlock-milestones">
+        <article
+          v-for="milestone in unlockMilestones"
+          :key="milestone.threshold"
+          class="milestone-card"
+          :class="{
+            reached: unlockPercent >= milestone.threshold,
+            current: currentMilestone.threshold === milestone.threshold,
+          }"
+        >
+          <div class="milestone-badge">{{ milestone.label }}</div>
+          <div class="milestone-title">{{ milestone.title }}</div>
+          <div class="milestone-desc">{{ milestone.description }}</div>
+        </article>
+      </section>
 
-        <section class="unlock-side-grid">
-          <article class="insight-card">
-            <div class="card-title">线索回声</div>
-            <p>{{ currentEcho }}</p>
-            <button class="mini-action-btn" @click="cycleEcho">
-              切换线索
-            </button>
-          </article>
+      <section class="unlock-side-grid">
+        <article class="insight-card">
+          <div class="card-title">线索回声</div>
+          <p>{{ currentEcho }}</p>
+          <button class="mini-action-btn" @click="cycleEcho">
+            切换线索
+          </button>
+        </article>
 
-          <article class="insight-card accent">
-            <div class="card-title">解码探针</div>
-            <p>{{ probeStatus }}</p>
-            <button class="mini-action-btn" @click="runProbe">
-              模拟解码
-            </button>
-          </article>
-        </section>
+        <article class="insight-card accent">
+          <div class="card-title">解码探针</div>
+          <p>{{ probeStatus }}</p>
+          <button class="mini-action-btn" @click="runProbe">
+            模拟解码
+          </button>
+        </article>
+      </section>
 
-        <section class="unlock-side-grid compact">
-          <article class="status-card">
-            <span class="status-name">剧情潜势</span>
-            <span class="status-value">{{ intrigueScore }}%</span>
-            <small>按发帖、回帖、互动热度估算你接近剧情线索的概率。</small>
-          </article>
-          <article class="status-card">
-            <span class="status-name">下一步建议</span>
-            <span class="status-value">{{ unlockPercent === 0 ? '切到剧情模式' : '继续推进主线' }}</span>
-            <small>多浏览剧情板块帖子，未来这里会逐步汇总已解锁章节。</small>
-          </article>
-        </section>
-      </div>
-    </Dialog>
+      <section class="unlock-side-grid compact">
+        <article class="status-card">
+          <span class="status-name">剧情潜势</span>
+          <span class="status-value">{{ intrigueScore }}%</span>
+          <small>按发帖、回帖、互动热度估算你接近剧情线索的概率。</small>
+        </article>
+        <article class="status-card">
+          <span class="status-name">下一步建议</span>
+          <span class="status-value">{{ unlockPercent === 0 ? '切到剧情模式' : '继续推进主线' }}</span>
+          <small>多浏览剧情板块帖子，未来这里会逐步汇总已解锁章节。</small>
+        </article>
+      </section>
+    </div>
+  </Dialog>
 </template>
 
 <style scoped>

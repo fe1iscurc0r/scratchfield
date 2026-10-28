@@ -3,7 +3,7 @@
  * 依赖: live2d-core.js (提供 Live2DManager 类和 window.LIPSYNC_PARAMS)
  */
 
-// lipsync 强制覆盖 motion mouth 参数的阈值：mouthValue 高于此值时强制写入，否则让位给 motion 自带的嘴部关键帧
+// 仅供旧 setMouth(value) 调用方兼容；显式语音 owner 在句中静默时仍控制开合。
 const LIPSYNC_OVERRIDE_THRESHOLD = 0.001;
 
 // Bundled pixi-live2d-display MotionPriority enum. Keep this local instead of
@@ -14,6 +14,252 @@ const LIVE2D_MOTION_PRIORITY = Object.freeze({
     NORMAL: 2,
     FORCE: 3
 });
+
+// The bundled Cubism renderer uses 36 slots for a single render texture and
+// 32 slots per texture when multiple textures are used. Each 256x256 mask
+// texture costs 256 KiB, so the atlas grows with the model up to 1024 contexts
+// (8 MiB). Larger models switch to high-precision masks instead of failing.
+const LIVE2D_MAX_MASK_RENDER_TEXTURES = 32;
+const LIVE2D_MIN_MASK_RENDER_TEXTURES = 3;
+const LIVE2D_SINGLE_MASK_TEXTURE_CAPACITY = 36;
+const LIVE2D_MULTI_MASK_TEXTURE_CAPACITY = 32;
+
+// Returns null when the atlas would need more than the texture budget; the
+// caller then renders masks per drawable in high-precision mode.
+function getLive2DMaskRenderTextureCount(clippingContextCount) {
+    if (!Number.isSafeInteger(clippingContextCount) || clippingContextCount < 0) {
+        throw new TypeError(`Invalid Live2D clipping context count: ${clippingContextCount}`);
+    }
+    // Preserve the existing three-texture budget to avoid reducing mask
+    // resolution for smaller models. Add textures only when capacity requires it.
+    const renderTextureCount = Math.max(
+        LIVE2D_MIN_MASK_RENDER_TEXTURES,
+        Math.ceil(clippingContextCount / LIVE2D_MULTI_MASK_TEXTURE_CAPACITY)
+    );
+    return renderTextureCount > LIVE2D_MAX_MASK_RENDER_TEXTURES ? null : renderTextureCount;
+}
+
+// High-precision mode redraws each clipped drawable's mask into the whole of
+// texture 0 right before drawing it, so it has no context-count limit. Pin it:
+// switching back to the shared atlas would exceed the atlas capacity.
+function forceLive2DHighPrecisionMask(renderer) {
+    renderer.useHighPrecisionMask(true);
+    renderer.useHighPrecisionMask = function() {};
+    renderer.__nekoHighPrecisionMaskForced = true;
+}
+
+function setLive2DMaskLayout(context, bufferIndex, channelNo, index, count) {
+    let columns;
+    let rows;
+    if (count === 1) {
+        columns = 1;
+        rows = 1;
+    } else if (count === 2) {
+        columns = 2;
+        rows = 1;
+    } else if (count <= 4) {
+        columns = 2;
+        rows = 2;
+    } else if (count <= 9) {
+        columns = 3;
+        rows = 3;
+    } else {
+        throw new RangeError(`Unsupported Live2D masks per channel: ${count}`);
+    }
+
+    context._bufferIndex = bufferIndex;
+    context._layoutChannelNo = channelNo;
+    context._layoutBounds.x = (index % columns) / columns;
+    context._layoutBounds.y = Math.floor(index / columns) / rows;
+    context._layoutBounds.width = 1 / columns;
+    context._layoutBounds.height = 1 / rows;
+}
+
+// Correct the bundled SDK's remainder distribution, which leaves contexts
+// unassigned at counts such as 94 and 95 with three textures.
+function setupLive2DMaskLayoutBounds(usingClipCount) {
+    const contexts = this._clippingContextListForMask;
+    const renderTextureCount = this._renderTextureCount;
+    if (!Array.isArray(contexts) || !Number.isSafeInteger(renderTextureCount)
+        || renderTextureCount < 1) {
+        throw new Error('Live2D clipping manager is not initialized.');
+    }
+
+    if (usingClipCount === 0) {
+        // The SDK passes zero for high-precision mode, where masks are drawn
+        // individually and may reuse the full texture. An entirely inactive
+        // frame returns from setupClippingContext before calling this method.
+        contexts.forEach((context) => setLive2DMaskLayout(context, 0, 0, 0, 1));
+        this.__nekoActiveClippingContextCount = 0;
+        return;
+    }
+
+    const capacity = renderTextureCount === 1
+        ? LIVE2D_SINGLE_MASK_TEXTURE_CAPACITY
+        : LIVE2D_MULTI_MASK_TEXTURE_CAPACITY * renderTextureCount;
+    if (!Number.isSafeInteger(usingClipCount) || usingClipCount < 0
+        || usingClipCount > capacity || usingClipCount > contexts.length) {
+        throw new RangeError(
+            `Unsupported active Live2D clipping context count: ${usingClipCount} `
+            + `(capacity: ${capacity}, available: ${contexts.length}).`
+        );
+    }
+
+    // setupClippingContext counts active contexts, but its drawing loop visits
+    // the entire list, including inactive entries. Reserve a stable slot for
+    // every context so inactive entries cannot alias active masks or move their
+    // slots when bounds disappear and return. Texture capacity is also sized
+    // from this full list in configureLive2DClipping.
+    const layoutCount = contexts.length;
+    if (layoutCount > capacity) {
+        throw new RangeError(`Live2D clipping context count exceeds capacity: ${layoutCount}`);
+    }
+    const countPerTexture = Math.ceil(layoutCount / renderTextureCount);
+    const texturesWithOneLess = countPerTexture * renderTextureCount - layoutCount;
+    let contextIndex = 0;
+
+    for (let bufferIndex = 0; bufferIndex < renderTextureCount; bufferIndex++) {
+        const countForTexture = countPerTexture
+            - (bufferIndex >= renderTextureCount - texturesWithOneLess ? 1 : 0);
+        const countPerChannel = Math.floor(countForTexture / 4);
+        const channelsWithOneMore = countForTexture % 4;
+
+        for (let channelNo = 0; channelNo < 4; channelNo++) {
+            const countForChannel = countPerChannel
+                + (channelNo < channelsWithOneMore ? 1 : 0);
+            for (let slotIndex = 0; slotIndex < countForChannel; slotIndex++) {
+                setLive2DMaskLayout(
+                    contexts[contextIndex++],
+                    bufferIndex,
+                    channelNo,
+                    slotIndex,
+                    countForChannel
+                );
+            }
+        }
+    }
+
+    if (contextIndex !== layoutCount) {
+        throw new Error(
+            `Live2D clipping layout assigned ${contextIndex} of ${layoutCount} contexts.`
+        );
+    }
+    this.__nekoActiveClippingContextCount = usingClipCount;
+}
+
+// Number.MIN_VALUE is positive. Recalculate bounds with negative infinity so
+// drawables whose vertices are entirely in negative model space remain tight.
+function calculateLive2DClippedDrawBounds(model, clippingContext) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const drawableIndex of clippingContext._clippedDrawableIndexList) {
+        const vertexCount = model.getDrawableVertexCount(drawableIndex);
+        const vertices = model.getDrawableVertices(drawableIndex);
+        for (let vertexIndex = 0; vertexIndex < vertexCount * 2; vertexIndex += 2) {
+            const x = vertices[vertexIndex];
+            const y = vertices[vertexIndex + 1];
+            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+    }
+
+    if (minX === Infinity) {
+        clippingContext._allClippedDrawRect.x = 0;
+        clippingContext._allClippedDrawRect.y = 0;
+        clippingContext._allClippedDrawRect.width = 0;
+        clippingContext._allClippedDrawRect.height = 0;
+        clippingContext._isUsing = false;
+        return;
+    }
+
+    clippingContext._allClippedDrawRect.x = minX;
+    clippingContext._allClippedDrawRect.y = minY;
+    clippingContext._allClippedDrawRect.width = maxX - minX;
+    clippingContext._allClippedDrawRect.height = maxY - minY;
+    clippingContext._isUsing = true;
+}
+
+function patchLive2DRendererProfile(renderer) {
+    const profile = renderer?._rendererProfile;
+    if (!profile || profile.__nekoBufferBindingFixApplied
+        || typeof profile.save !== 'function') return;
+
+    const originalSave = profile.save;
+    const originalSaveSource = Function.prototype.toString.call(originalSave);
+    const hasBundledBindingBug = /_lastArrayBufferBinding\s*=\s*this\.gl\.getParameter\(\s*this\.gl\.ELEMENT_ARRAY_BUFFER_BINDING\s*\)/
+        .test(originalSaveSource);
+    if (!hasBundledBindingBug) return;
+
+    profile.save = function() {
+        const gl = this.gl;
+        const arrayBufferBinding = gl
+            ? gl.getParameter(gl.ARRAY_BUFFER_BINDING)
+            : undefined;
+        originalSave.call(this);
+        if (gl) {
+            // The bundled save() leaves the element binding in the array field.
+            this._lastElementArrayBufferBinding = this._lastArrayBufferBinding;
+            this._lastArrayBufferBinding = arrayBufferBinding;
+        }
+    };
+    profile.__nekoBufferBindingFixApplied = true;
+}
+
+// setClippingMaskBufferSize() releases the clipping manager and builds a new
+// one, which would drop the per-instance fixes above. It also never hands the
+// new manager the GL context, so the call breaks rendering once started.
+function patchLive2DClippingManagerRebuild(renderer) {
+    if (renderer.__nekoClippingRebuildPatched
+        || typeof renderer.setClippingMaskBufferSize !== 'function') return;
+
+    const originalSetClippingMaskBufferSize = renderer.setClippingMaskBufferSize;
+    renderer.setClippingMaskBufferSize = function(size) {
+        const previousManager = this._clippingManager;
+        originalSetClippingMaskBufferSize.call(this, size);
+        const manager = this._clippingManager;
+        if (!manager || manager === previousManager) return;
+        if (this.gl) manager.setGL(this.gl);
+        configureLive2DClipping(this);
+    };
+    renderer.__nekoClippingRebuildPatched = true;
+}
+
+function configureLive2DClipping(renderer) {
+    const manager = renderer?._clippingManager;
+    if (!manager) return;
+
+    const contextCount = typeof manager.getClippingMaskCount === 'function'
+        ? manager.getClippingMaskCount()
+        : manager._clippingContextListForMask?.length;
+    const renderTextureCount = getLive2DMaskRenderTextureCount(contextCount);
+
+    if (manager._maskTexture?.textures) {
+        throw new Error('Cannot reconfigure Live2D clipping after mask texture allocation.');
+    }
+
+    if (renderTextureCount === null) {
+        console.warn(
+            `Live2D 模型有 ${contextCount} 个遮罩上下文，超过遮罩图集容量`
+            + `（${LIVE2D_MAX_MASK_RENDER_TEXTURES * LIVE2D_MULTI_MASK_TEXTURE_CAPACITY}），`
+            + '改用高精度遮罩逐个绘制。'
+        );
+        manager._renderTextureCount = 1;
+        forceLive2DHighPrecisionMask(renderer);
+    } else {
+        manager._renderTextureCount = renderTextureCount;
+    }
+    manager.setupLayoutBounds = setupLive2DMaskLayoutBounds;
+    manager.calcClippedDrawTotalBounds = calculateLive2DClippedDrawBounds;
+    manager.__nekoClippingFixApplied = true;
+    patchLive2DRendererProfile(renderer);
+    patchLive2DClippingManagerRebuild(renderer);
+}
 
 Live2DManager.prototype.hasActiveActionMotion = function(model = this.currentModel) {
     if (
@@ -29,12 +275,91 @@ Live2DManager.prototype.hasActiveActionMotion = function(model = this.currentMod
         || Number(state.reservePriority || 0) > LIVE2D_MOTION_PRIORITY.IDLE;
 };
 
-Live2DManager.prototype.playActionMotion = async function(groupName, index) {
+// Observe actual SDK reservations, including direct editor/preview calls.
+// Quarantine only the cancellation settlement window: a same-index successor
+// cannot make a retired SDK continuation believe it still owns the reservation.
+const live2dMotionOwners = new WeakMap();
+function live2dRetireMotionMetadata(operation, resetParameters = false) {
+    const manager = operation && operation.manager;
+    if (!manager || manager._activeActionMotionOperation !== operation) return;
+    manager._activeActionMotionOperation = null;
+    if (resetParameters && manager.currentModel === operation.model
+        && operation.model.internalModel === operation.internalModel
+        && operation.internalModel.coreModel === operation.core) {
+        if (typeof manager._resetActiveMotionParameters === 'function') manager._resetActiveMotionParameters({ preserveExpression: true });
+        if (typeof manager._resetExplicitMotionParameters === 'function') manager._resetExplicitMotionParameters({ preserveExpression: true });
+    }
+    if (manager.motionTimer?.operation === operation) manager._clearMotionTimer();
+    if (typeof manager._clearActiveMotionParamIds === 'function') manager._clearActiveMotionParamIds();
+}
+function live2dGetMotionOwners(motionManager) {
+    let owners = live2dMotionOwners.get(motionManager);
+    if (owners) return owners;
+    owners = { reservation: null, active: null, invocation: null, quarantine: new Set() };
+    live2dMotionOwners.set(motionManager, owners);
+    const state = motionManager.state;
+    if (state && typeof state.reserve === 'function') {
+        const reserve = state.reserve;
+        state.reserve = function(...args) {
+            if (owners.quarantine.size) return false;
+            const accepted = reserve.apply(this, args);
+            if (accepted) {
+                owners.reservation = { operation: owners.invocation, group: args[0], index: args[1] };
+                if (owners.invocation) owners.invocation.reservation = owners.reservation;
+            }
+            return accepted;
+        };
+        const reset = state.reset;
+        state.reset = function(...args) {
+            const pending = owners.reservation?.operation, active = owners.active?.operation;
+            owners.reservation = null; owners.active = null;
+            try {
+                return reset.apply(this, args);
+            } finally {
+                if (pending) pending.abort();
+                if (active) {
+                    try { live2dRetireMotionMetadata(active, true); }
+                    finally { active.dispose(); }
+                }
+            }
+        };
+        motionManager.on('motionStart', () => {
+            if (owners.active?.operation) {
+                live2dRetireMotionMetadata(owners.active.operation); owners.active.operation.dispose();
+            }
+            owners.active = owners.reservation; owners.reservation = null;
+            if (owners.active?.operation) owners.active.operation.manager._activeActionMotionOperation = owners.active.operation;
+        });
+        motionManager.on('motionFinish', () => {
+            // Bundled SDK emits finish before state.complete() resets priority.
+            // The active receipt identifies the finished action; an Idle or
+            // external preview has no owned operation to retire here.
+            const active = owners.active?.operation;
+            owners.active = null;
+            if (active) {
+                try { live2dRetireMotionMetadata(active, true); }
+                finally { active.dispose(); }
+            }
+        });
+    }
+    return owners;
+}
+
+Live2DManager.prototype.playActionMotion = async function(groupName, index, options = {}) {
     const model = this.currentModel;
     const motionManager = model?.internalModel?.motionManager;
     if (!model || typeof model.motion !== 'function' || !motionManager) return false;
+    if (!this._allowsAvatarOperation(options, 'motion')) return false;
+    const operation = live2dCreateAvatarOperation(this, options);
+    const owners = live2dGetMotionOwners(motionManager);
+    if (owners.quarantine.size) {
+        try { await operation.wait(Promise.all(Array.from(owners.quarantine, item => item.nativeDone))); }
+        catch (_) { operation.dispose(); return false; }
+    }
+    if (!operation.isCurrent()) { operation.dispose(); return false; }
     if (this.hasActiveActionMotion(model)) {
         console.log(`[Live2D] 已有动作正在播放，忽略新动作: ${groupName}`);
+        operation.dispose();
         return false;
     }
 
@@ -61,27 +386,96 @@ Live2DManager.prototype.playActionMotion = async function(groupName, index) {
     }
 
     this._actionMotionRequestPendingModel = model;
+    this._actionMotionRequestPendingOperation = operation;
     let started;
+    let nativeSettled = false, finishNative;
+    operation.nativeDone = new Promise(resolve => { finishNative = resolve; });
+    const retire = () => {
+        let audioDisposedBySdk = false;
+        if (!nativeSettled) owners.quarantine.add(operation);
+        if (owners.reservation === operation.reservation && operation.reservation) {
+            owners.reservation = null;
+            motionManager.state.setReserved(undefined, undefined, LIVE2D_MOTION_PRIORITY.NONE);
+        }
+        if (owners.active?.operation === operation) {
+            if (owners.reservation && owners.reservation.operation !== operation) {
+                // A force/preview request owns the pending transition already.
+                owners.active = null; operation.dispose();
+            } else {
+                const stopSpeaking = motionManager.stopSpeaking;
+                const preserveSpeaking = motionManager.currentAudio && motionManager.currentAudio !== operation.audio;
+                const keepSpeaking = () => {};
+                if (preserveSpeaking) motionManager.stopSpeaking = keepSpeaking;
+                try {
+                    audioDisposedBySdk = !!operation.audio && motionManager.currentAudio === operation.audio;
+                    motionManager.stopAllMotions();
+                }
+                finally { if (motionManager.stopSpeaking === keepSpeaking) motionManager.stopSpeaking = stopSpeaking; }
+            }
+        }
+        if (operation.audio && !audioDisposedBySdk && typeof PIXI.live2d.SoundManager?.dispose === 'function') {
+            PIXI.live2d.SoundManager.dispose(operation.audio);
+            if (motionManager.currentAudio === operation.audio) motionManager.currentAudio = undefined;
+        }
+        live2dRetireMotionMetadata(operation);
+        if (this._actionMotionRequestPendingOperation === operation) {
+            this._actionMotionRequestPendingOperation = null;
+            this._actionMotionRequestPendingModel = null;
+        }
+    };
+    operation.signal.addEventListener('abort', retire, { once: true });
     try {
-        started = await model.motion(groupName, index, LIVE2D_MOTION_PRIORITY.NORMAL);
+        const load = motionManager.loadMotion;
+        const guardedLoad = (...args) => operation.wait(load.apply(motionManager, args)).then(motion => {
+            if (operation.reservation && owners.reservation !== operation.reservation) {
+                throw Object.assign(new Error('Motion reservation superseded'), { name: 'AbortError' });
+            }
+            return motion;
+        });
+        // Bundled SDK enters its loader synchronously, before model.motion
+        // returns a promise. Restore the hook immediately, not after an await.
+        owners.invocation = operation;
+        if (typeof load === 'function') motionManager.loadMotion = guardedLoad;
+        let nativeTask;
+        const previousAudio = motionManager.currentAudio;
+        try {
+            nativeTask = model.motion(groupName, index, LIVE2D_MOTION_PRIORITY.NORMAL);
+            operation.audio = motionManager.currentAudio !== previousAudio ? motionManager.currentAudio : null;
+        }
+        finally {
+            if (motionManager.loadMotion === guardedLoad) motionManager.loadMotion = load;
+            if (owners.invocation === operation) owners.invocation = null;
+        }
+        started = await nativeTask;
+        if (!operation.isCurrent()) { retire(); return false; }
         if (started === true) {
+            this._activeActionMotionOperation = operation;
             this._actionMotionGeneration = (this._actionMotionGeneration || 0) + 1;
+            operation.clearDeadline();
         }
         return started;
+    } catch (error) {
+        if (error.name === 'AbortError' || !operation.isCurrent()) return false;
+        throw error;
     } finally {
+        nativeSettled = true; owners.quarantine.delete(operation); finishNative();
         if (started !== true && restoreCachedMotionLoop) {
             restoreCachedMotionLoop();
         }
         if (
             started !== true
+            && owners.reservation === operation.reservation && operation.reservation
             && motionManager.state?.reservedGroup === groupName
             && (index == null || motionManager.state?.reservedIndex === index)
         ) {
             motionManager.state.setReserved(undefined, undefined, LIVE2D_MOTION_PRIORITY.NONE);
+            owners.reservation = null;
         }
-        if (this._actionMotionRequestPendingModel === model) {
+        if (this._actionMotionRequestPendingOperation === operation) {
+            this._actionMotionRequestPendingOperation = null;
             this._actionMotionRequestPendingModel = null;
         }
+        if (started !== true || owners.active?.operation !== operation) operation.dispose();
     }
 };
 
@@ -100,10 +494,23 @@ const Easing = {
 };
 
 Live2DManager.prototype.removeModel = async function(options = {}) {
+    this._cancelAvatarOperations();
+    this._invalidateParameterReloadTickets();
+    // Stop old performance drivers before the first asynchronous teardown.
+    if (this._avatarPerformanceSessionOwners) this._avatarPerformanceSessionOwners.clear();
+    this._avatarPerformanceEyeBlinkOwner = null;
     const shouldSkipCloseWindows = options.skipCloseWindows === true;
     const activeModel = this.currentModel || null;
     const stage = this.pixi_app && this.pixi_app.stage;
     const ticker = this.pixi_app && this.pixi_app.ticker;
+
+    // 先退休模型的口型写入权限。有效音频由外层 bridge 在新模型就绪后重新接管。
+    this._lipSyncOwner = null;
+    this.mouthValue = 0;
+    this._mouthOverrideToken = null;
+    this._cachedMouthIndices = null;
+    this._cachedMouthIndicesModel = null;
+    this._expressionAmplitudeIndexCache = null;
 
     if (window.closeAllSettingsWindows && !shouldSkipCloseWindows) {
         try {
@@ -160,7 +567,12 @@ Live2DManager.prototype.removeModel = async function(options = {}) {
     this._activeExpressionParamIds = null;
     this._activeMotionParamIds = null;
     this._actionMotionRequestPendingModel = null;
+    this._actionMotionRequestPendingOperation = null;
+    this._activeActionMotionOperation = null;
     this._simpleMotionActive = false;
+    if (typeof this._cancelTouchSetExpressionRestore === 'function') {
+        this._cancelTouchSetExpressionRestore();
+    }
     this._transientExpressionGeneration = (this._transientExpressionGeneration || 0) + 1;
     this._transientExpressionTask = null;
     this._activeTransientExpression = false;
@@ -171,16 +583,18 @@ Live2DManager.prototype.removeModel = async function(options = {}) {
         this._motionTimerGeneration = (this._motionTimerGeneration || 0) + 1;
     }
 
-    if (activeModel) {
-        try {
-            const coreModel = activeModel.internalModel && activeModel.internalModel.coreModel;
-            if (coreModel && this._mouthOverrideInstalled && typeof this._origCoreModelUpdate === 'function') {
-                coreModel.update = this._origCoreModelUpdate;
-            }
-        } catch (_) {}
-    }
+    try {
+        if (this._mouthMotionManagerRef && typeof this._origMotionManagerUpdate === 'function') {
+            this._mouthMotionManagerRef.update = this._origMotionManagerUpdate;
+        }
+        if (this._coreModelRef && typeof this._origCoreModelUpdate === 'function') {
+            this._coreModelRef.update = this._origCoreModelUpdate;
+        }
+    } catch (_) {}
     this._mouthOverrideInstalled = false;
     this._origCoreModelUpdate = null;
+    this._origMotionManagerUpdate = null;
+    this._mouthMotionManagerRef = null;
     this._coreModelRef = null;
     this._temporaryPoseOverride = null;
     this._temporaryPoseOverrides = new Map();
@@ -233,6 +647,10 @@ Live2DManager.prototype.removeModel = async function(options = {}) {
         ticker && ticker.stop && ticker.stop();
     } catch (_) {}
 
+    if (typeof this.clearLive2DPeek === 'function') {
+        this.clearLive2DPeek('model-removed', { restore: false });
+    }
+
     try {
         stage && stage.removeAllListeners && stage.removeAllListeners();
     } catch (_) {}
@@ -270,6 +688,9 @@ Live2DManager.prototype.removeModel = async function(options = {}) {
     } catch (_) {}
 
     this.currentModel = null;
+    if (typeof this.syncLive2DEffectiveInputLock === 'function') {
+        this.syncLive2DEffectiveInputLock();
+    }
     this._lastLoadedModelPath = null;
     if (typeof this._resetDerivedModelMetadata === 'function') {
         this._resetDerivedModelMetadata();
@@ -335,7 +756,8 @@ Live2DManager.prototype._getCoreParameterDefaultValue = function(coreModel, inde
             'getParamDefault'
         ],
         ['defaultValues', 'defaults', '_parameterDefaultValues'],
-        undefined
+        undefined,
+        value => typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')
     );
 };
 
@@ -550,7 +972,37 @@ Live2DManager.prototype._loadModelDirectoryParameters = async function(modelName
         : {};
 };
 
-Live2DManager.prototype._applyEffectiveModelParameters = function(model, modelDirectoryParameters, userPreferenceParameters) {
+Live2DManager.prototype._invalidateParameterReloadTickets = function() {
+    this._parameterReloadSequence = (this._parameterReloadSequence || 0) + 1;
+};
+
+Live2DManager.prototype._createParameterReloadTicket = function(model = this.currentModel) {
+    this._invalidateParameterReloadTickets();
+    return {
+        sequence: this._parameterReloadSequence,
+        configRevision: this._parameterConfigRevision || 0,
+        model,
+        internalModel: model?.internalModel,
+        coreModel: model?.internalModel?.coreModel,
+        modelName: this.modelName,
+        modelPath: this._normalizeModelPreferencePath(this._lastLoadedModelPath)
+    };
+};
+
+Live2DManager.prototype._getParameterReloadTicketStatus = function(ticket) {
+    if (!ticket) return 'superseded';
+    if (this.currentModel !== ticket.model
+        || this.currentModel?.internalModel !== ticket.internalModel
+        || ticket.internalModel?.coreModel !== ticket.coreModel
+        || this.modelName !== ticket.modelName
+        || this._normalizeModelPreferencePath(this._lastLoadedModelPath) !== ticket.modelPath) {
+        return 'model_mismatch';
+    }
+    return this._parameterReloadSequence === ticket.sequence
+        && (this._parameterConfigRevision || 0) === ticket.configRevision ? 'active' : 'superseded';
+};
+
+Live2DManager.prototype._applyEffectiveModelParameters = function(model, modelDirectoryParameters, userPreferenceParameters, reloadTicket) {
     const coreModel = model?.internalModel?.coreModel;
     const effectiveParameters = this._mergeEffectiveModelParameters(
         modelDirectoryParameters,
@@ -562,6 +1014,10 @@ Live2DManager.prototype._applyEffectiveModelParameters = function(model, modelDi
     this.effectiveModelParameters = effectiveParameters;
     this.savedModelParameters = hasEffectiveParameters ? effectiveParameters : null;
     this._shouldApplySavedParams = hasEffectiveParameters && this._parameterEditingMode !== true;
+    // Publishing a config retires readers even when subsequent SDK writes or
+    // override installation fail. Revision does not certify visual success.
+    this._parameterConfigRevision = (this._parameterConfigRevision || 0) + 1;
+    if (reloadTicket) reloadTicket.configRevision = this._parameterConfigRevision;
 
     if (hasEffectiveParameters) {
         this.applyModelParameters(model, effectiveParameters);
@@ -587,29 +1043,37 @@ Live2DManager.prototype.reloadModelParameters = async function(options = {}) {
         return { applied: false, reason: 'model_mismatch' };
     }
 
-    let modelDirectoryParameters = {};
+    const ticket = this._createParameterReloadTicket(model);
+    const staleResult = () => ({ applied: false, reason: this._getParameterReloadTicketStatus(ticket) });
     try {
-        modelDirectoryParameters = await this._loadModelDirectoryParameters(this.modelName);
+        let modelDirectoryParameters = {};
+        try {
+            modelDirectoryParameters = await this._loadModelDirectoryParameters(ticket.modelName);
+        } catch (error) {
+            if (this._getParameterReloadTicketStatus(ticket) !== 'active') return staleResult();
+            console.warn('[Live2D] 热刷新模型目录参数失败，将继续使用用户偏好:', error);
+        }
+        if (this._getParameterReloadTicketStatus(ticket) !== 'active') return staleResult();
+
+        const preferences = await this.loadUserPreferences();
+        if (this._getParameterReloadTicketStatus(ticket) !== 'active') return staleResult();
+        const preference = this._findModelPreference(preferences, ticket.modelPath);
+        if (!preference || !preference.parameters || typeof preference.parameters !== 'object') {
+            throw new Error('未找到当前模型的用户偏好参数');
+        }
+        const effectiveParameters = this._applyEffectiveModelParameters(
+            model, modelDirectoryParameters, preference.parameters, ticket
+        );
+        if (this._getParameterReloadTicketStatus(ticket) !== 'active') return staleResult();
+        return { applied: true, parameters: effectiveParameters };
     } catch (error) {
-        console.warn('[Live2D] 热刷新模型目录参数失败，将继续使用用户偏好:', error);
+        if (this._getParameterReloadTicketStatus(ticket) !== 'active') return staleResult();
+        // The message handler rechecks this receipt before entering fallback:
+        // another request can take over between this throw and its catch.
+        const failure = error instanceof Error ? error : new Error(String(error));
+        failure._parameterReloadTicket = ticket;
+        throw failure;
     }
-
-    const preferences = await this.loadUserPreferences();
-    if (this.currentModel !== model) {
-        return { applied: false, reason: 'model_mismatch' };
-    }
-    const preference = this._findModelPreference(preferences, this._lastLoadedModelPath);
-    if (!preference || !preference.parameters || typeof preference.parameters !== 'object') {
-        throw new Error('未找到当前模型的用户偏好参数');
-    }
-    const userPreferenceParameters = preference && preference.parameters;
-    const effectiveParameters = this._applyEffectiveModelParameters(
-        model,
-        modelDirectoryParameters,
-        userPreferenceParameters
-    );
-
-    return { applied: true, parameters: effectiveParameters };
 };
 
 Live2DManager.prototype.loadModel = async function(modelPath, options = {}) {
@@ -635,6 +1099,7 @@ Live2DManager.prototype.loadModel = async function(modelPath, options = {}) {
 
     // 设置加载锁
     this._isLoadingModel = true;
+    this._invalidateParameterReloadTickets();
     const loadToken = ++this._activeLoadToken;
     this._modelLoadState = 'preparing';
     this._isModelReadyForInteraction = false;
@@ -763,13 +1228,18 @@ Live2DManager.prototype.setTemporaryPoseOverride = function(source, apply, optio
     return true;
 };
 
-Live2DManager.prototype.clearTemporaryPoseOverride = function(source) {
+Live2DManager.prototype.clearTemporaryPoseOverride = function(source, expectedEntry) {
     const overrides = this._temporaryPoseOverrides;
     const active = this._temporaryPoseOverride;
     if ((!overrides || typeof overrides.delete !== 'function' || overrides.size === 0) && !active) {
         return;
     }
     const normalizedSource = arguments.length === 0 ? '' : String(source);
+    if (arguments.length > 1) {
+        const current = overrides && typeof overrides.get === 'function'
+            ? overrides.get(normalizedSource) : active;
+        if (!expectedEntry || current !== expectedEntry || expectedEntry.source !== normalizedSource) return;
+    }
     if (overrides && typeof overrides.clear === 'function' && (overrides.size > 0 || !active)) {
         if (normalizedSource === '') {
             overrides.clear();
@@ -819,13 +1289,7 @@ Live2DManager.prototype._applyTemporaryPoseOverride = function(coreModel) {
             entry.apply(coreModel, context);
         } catch (error) {
             console.warn('[Live2D] 临时姿态覆盖执行失败，已清理:', error);
-            if (this._temporaryPoseOverrides && typeof this._temporaryPoseOverrides.delete === 'function') {
-                this._temporaryPoseOverrides.delete(entry.source);
-                const remaining = Array.from(this._temporaryPoseOverrides.values());
-                this._temporaryPoseOverride = remaining.length ? remaining[remaining.length - 1] : null;
-            } else {
-                this._temporaryPoseOverride = null;
-            }
+            this.clearTemporaryPoseOverride(entry.source, entry);
         }
     });
     if (this._temporaryPoseOverrides && this._temporaryPoseOverrides.size > 0) {
@@ -836,6 +1300,11 @@ Live2DManager.prototype._applyTemporaryPoseOverride = function(coreModel) {
 
 // 重置模型相关的派生元数据（用于加载新模型前清理旧状态）
 Live2DManager.prototype._resetDerivedModelMetadata = function() {
+    this._cancelAvatarOperations();
+    this._invalidateParameterReloadTickets();
+    this._parameterConfigRevision = (this._parameterConfigRevision || 0) + 1;
+    if (this._avatarPerformanceSessionOwners) this._avatarPerformanceSessionOwners.clear();
+    this._avatarPerformanceEyeBlinkOwner = null;
     this._randomLookAtAffectsHead = false; // 是否允许随机视线影响头部角度
     this._displayInfo = null;
     this._autoNamedHitAreaIds = new Set();
@@ -1206,11 +1675,13 @@ Live2DManager.prototype._validateEyeBlinkGroup = function(settings, model) {
     });
 };
 
-Live2DManager.prototype._readParameterValueByIndex = function(coreModel, idx, methodNames, arrayNames, fallbackValue) {
+Live2DManager.prototype._readParameterValueByIndex = function(coreModel, idx, methodNames, arrayNames, fallbackValue, acceptValue) {
     for (const methodName of methodNames) {
         try {
             if (typeof coreModel?.[methodName] === 'function') {
-                const value = Number(coreModel[methodName](idx));
+                const rawValue = coreModel[methodName](idx);
+                if (acceptValue && !acceptValue(rawValue)) continue;
+                const value = Number(rawValue);
                 if (Number.isFinite(value)) return value;
             }
         } catch (_) {}
@@ -1230,7 +1701,9 @@ Live2DManager.prototype._readParameterValueByIndex = function(coreModel, idx, me
             try {
                 const values = root[arrayName];
                 if (values && values[idx] !== undefined) {
-                    const value = Number(values[idx]);
+                    const rawValue = values[idx];
+                    if (acceptValue && !acceptValue(rawValue)) continue;
+                    const value = Number(rawValue);
                     if (Number.isFinite(value)) return value;
                 }
             } catch (_) {}
@@ -1632,8 +2105,10 @@ Live2DManager.prototype.suspendTemporaryMotions = function(source, model) {
     return true;
 };
 
-Live2DManager.prototype.resumeTemporaryMotions = function(source) {
+Live2DManager.prototype.resumeTemporaryMotions = function(source, expectedModel) {
     const token = String(source || 'temporary_motion_suspend');
+    if (arguments.length > 1 && (this.currentModel !== expectedModel
+        || this._temporaryMotionSuspendToken !== token)) return false;
     if (this._temporaryMotionSuspendToken && this._temporaryMotionSuspendToken !== token) {
         return false;
     }
@@ -1669,7 +2144,9 @@ Live2DManager.prototype.setupIdleMotionLoop = function(model) {
                 scheduleIdleMotion(1000, { replace: true });
                 return;
             }
-            if (!motionManager.playing) {
+            const hasConfiguredIdle = Array.isArray(this._userIdleAnimations)
+                && this._userIdleAnimations.length > 0;
+            if (!motionManager.playing || hasConfiguredIdle) {
                 Promise.resolve(this._playIdleMotion(motionManager)).catch((e) => {
                     console.warn('[Live2D] 播放 Idle motion 失败:', e);
                 });
@@ -1710,8 +2187,10 @@ Live2DManager.prototype.setupIdleMotionLoop = function(model) {
                 console.warn('[Live2D] motionFinish 后清理 motion 参数失败:', e);
             }
         }
-        const randomDelay = 1000 + Math.random() * 2000;
-        scheduleIdleMotion(randomDelay);
+        const hasConfiguredIdle = Array.isArray(this._userIdleAnimations)
+            && this._userIdleAnimations.length > 0;
+        const delay = hasConfiguredIdle ? 0 : 1000 + Math.random() * 2000;
+        scheduleIdleMotion(delay);
     };
     model.internalModel.events.on('motionFinish', this._idleMotionFinishHandler);
 
@@ -1800,8 +2279,10 @@ Live2DManager.prototype._playIdleMotion = async function(motionManager) {
         const indexes = getRandomizedIndexes(group.length);
         for (const idx of indexes) {
             const motion = group[idx];
-            if (filter && !filter(motion)) continue;
-            const file = getMotionFile(motion);
+            // Loaded Cubism motion instances generally do not retain their source
+            // path, so fall back to the definition at the same runtime index.
+            const file = getMotionFile(motion) || getRegisteredMotionFile(groupName, idx);
+            if (filter && !filter(motion, file)) continue;
             if (await startTrackedMotion(groupName, idx, file)) return true;
         }
         return false;
@@ -1815,19 +2296,42 @@ Live2DManager.prototype._playIdleMotion = async function(motionManager) {
             console.warn('[Live2D] motionGroups 不可用或 PreviewAll 组不存在，跳过用户待机动作');
         } else {
             const group = motionGroups.PreviewAll;
-            const startedUserIdle = await startTrackedGroupMotion('PreviewAll', group, (motion) => {
-                const motionFile = getMotionFile(motion);
+            const isConfiguredIdle = (motion, file) => {
+                const motionFile = file || getMotionFile(motion);
                 return motionFile && idleAnimations.includes(motionFile.split('/').pop());
-            });
-            if (startedUserIdle) {
-                return;
-            }
-            if (Array.isArray(group) && group.length > 0) {
-                const available = group.filter((motion) => {
-                    const motionFile = getMotionFile(motion);
-                    return motionFile && idleAnimations.includes(motionFile.split('/').pop());
-                });
-                if (available.length > 0) {
+            };
+            const available = Array.isArray(group)
+                ? group.filter((motion, index) => isConfiguredIdle(
+                    motion,
+                    getRegisteredMotionFile('PreviewAll', index)
+                ))
+                : [];
+            if (available.length > 0) {
+                const currentGroup = motionManager.state?.currentGroup;
+                const currentIndex = motionManager.state?.currentIndex;
+                const currentFile = getRegisteredMotionFile(currentGroup, currentIndex);
+                if (motionManager.playing
+                    && currentGroup === 'PreviewAll'
+                    && currentFile
+                    && idleAnimations.includes(currentFile.split('/').pop())) {
+                    return;
+                }
+                if (typeof this.hasActiveActionMotion === 'function'
+                    && this.hasActiveActionMotion(expectedModel)) {
+                    return;
+                }
+                if (motionManager.playing
+                    && Number(motionManager.state?.currentPriority || 0) <= LIVE2D_MOTION_PRIORITY.IDLE
+                    && typeof motionManager.stopAllMotions === 'function') {
+                    motionManager.stopAllMotions();
+                }
+                const startedUserIdle = await startTrackedGroupMotion(
+                    'PreviewAll', group, isConfiguredIdle
+                );
+                if (startedUserIdle) {
+                    return;
+                }
+                if (isCurrentIdleRequest()) {
                     console.warn('[Live2D] 用户保存的待机动作启动失败，回退到默认 Idle');
                 }
             }
@@ -1895,20 +2399,19 @@ Live2DManager.prototype._configureLoadedModel = async function(model, modelPath,
         this.modelRootPath = '/static';
         this.modelName = null;
     }
+    // A hot parameter refresh can take over while this load is awaiting
+    // resources. Only its older parameter publication is skipped, not the
+    // still-valid model load and its visual initialization.
+    const parameterTicket = this._createParameterReloadTicket(model);
 
-    // 配置渲染纹理数量以支持更多蒙版
-    if (model.internalModel && model.internalModel.renderer && model.internalModel.renderer._clippingManager) {
-        model.internalModel.renderer._clippingManager._renderTextureCount = 3;
-        if (typeof model.internalModel.renderer._clippingManager.initialize === 'function') {
-            model.internalModel.renderer._clippingManager.initialize(
-                model.internalModel.coreModel,
-                model.internalModel.coreModel.getDrawableCount(),
-                model.internalModel.coreModel.getDrawableMasks(),
-                model.internalModel.coreModel.getDrawableMaskCounts(),
-                3
-            );
-        }
-        console.log('渲染纹理数量已设置为3');
+    // 在模型加入舞台、mask framebuffer 延迟创建之前校正 vendor clipping。
+    // 不可再次调用 initialize()：该版本会向已有映射追加重复项。
+    if (model.internalModel?.renderer?._clippingManager) {
+        configureLive2DClipping(model.internalModel.renderer);
+        console.log(
+            'Live2D 遮罩缓冲区已配置:',
+            model.internalModel.renderer._clippingManager.getRenderTextureCount()
+        );
     }
 
     // 根据画质设置调整渲染分辨率，不改动 Live2D 图集贴图。
@@ -2165,21 +2668,26 @@ Live2DManager.prototype._configureLoadedModel = async function(model, modelPath,
 
     // 用户偏好是权威来源，模型目录 parameters.json 仅作为兼容镜像。
     let modelDirectoryParameters = {};
-    if (this.modelName && model.internalModel && model.internalModel.coreModel) {
+    if (parameterTicket.modelName && model.internalModel && model.internalModel.coreModel) {
         try {
-            modelDirectoryParameters = await this._loadModelDirectoryParameters(this.modelName);
+            modelDirectoryParameters = await this._loadModelDirectoryParameters(parameterTicket.modelName);
         } catch (error) {
-            console.error('加载模型参数失败:', error);
+            if (this._isLoadTokenActive(loadToken)
+                && this._getParameterReloadTicketStatus(parameterTicket) === 'active') {
+                console.error('加载模型参数失败:', error);
+            }
         }
     }
     // 无论目录参数加载成功或失败，都必须阻止过期加载继续写入当前模型。
     if (!this._isLoadTokenActive(loadToken)) return;
 
     const userPreferenceParameters = options.preferences && options.preferences.parameters;
-    try {
-        this._applyEffectiveModelParameters(model, modelDirectoryParameters, userPreferenceParameters);
-    } catch (e) {
-        console.error('应用有效模型参数或安装口型覆盖失败:', e);
+    if (this._getParameterReloadTicketStatus(parameterTicket) === 'active') {
+        try {
+            this._applyEffectiveModelParameters(model, modelDirectoryParameters, userPreferenceParameters, parameterTicket);
+        } catch (e) {
+            console.error('应用有效模型参数或安装口型覆盖失败:', e);
+        }
     }
     
     // 移除原本的 setInterval 定时器逻辑，改用 installMouthOverride 中的逐帧叠加逻辑
@@ -2407,19 +2915,23 @@ Live2DManager.prototype.installMouthOverride = function() {
     }
 
     // 如果之前装过，先还原
-    if (this._mouthOverrideInstalled) {
-        if (typeof this._origMotionManagerUpdate === 'function' && motionManager) {
-            try { motionManager.update = this._origMotionManagerUpdate; } catch (_) {}
-        }
-        if (typeof this._origCoreModelUpdate === 'function') {
-            try { coreModel.update = this._origCoreModelUpdate; } catch (_) {}
-        }
-        this._origMotionManagerUpdate = null;
-        this._origCoreModelUpdate = null;
+    // 恢复安装时的实例，不能把旧模型的绑定方法装到新模型上。
+    // core 失败恢复会先清理 installed 标志，motion 包装仍需在重装前还原。
+    if (typeof this._origMotionManagerUpdate === 'function' && this._mouthMotionManagerRef) {
+        try { this._mouthMotionManagerRef.update = this._origMotionManagerUpdate; } catch (_) {}
     }
+    if (typeof this._origCoreModelUpdate === 'function' && this._coreModelRef) {
+        try { this._coreModelRef.update = this._origCoreModelUpdate; } catch (_) {}
+    }
+    this._origMotionManagerUpdate = null;
+    this._origCoreModelUpdate = null;
 
-    // 口型参数列表（这些参数不会被常驻表情覆盖）- 使用文件顶部定义的 LIPSYNC_PARAMS 常量
-    const lipSyncParams = window.LIPSYNC_PARAMS || ['ParamMouthOpenY', 'ParamMouthForm', 'ParamMouthOpen', 'ParamA', 'ParamI', 'ParamU', 'ParamE', 'ParamO'];
+    const overrideToken = {};
+    this._mouthOverrideToken = overrideToken;
+    this._mouthMotionManagerRef = motionManager;
+    // 振幅写入与保存外观保护是两种职责，不能通过删除公共列表的嘴形来合并。
+    const runtimeMouthParams = window.LIPSYNC_PARAMS || ['ParamMouthOpenY', 'ParamMouthForm', 'ParamMouthOpen', 'ParamA', 'ParamI', 'ParamU', 'ParamE', 'ParamO'];
+    const lipSyncParams = window.LIPSYNC_AMPLITUDE_PARAMS || runtimeMouthParams.filter(id => id !== 'ParamMouthForm');
     const visibilityParams = ['ParamOpacity', 'ParamVisibility'];
     
     // 缓存参数索引，避免每帧查询
@@ -2441,28 +2953,19 @@ Live2DManager.prototype.installMouthOverride = function() {
     };
     const resolveSavedParamEntry = ([paramId, value]) => {
         if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-        let idx = -1;
-        let resolvedId = paramId;
         try {
-            if (/^(?:param_)?\d+$/.test(paramId)) {
-                const parsedIndex = parseInt(paramId.replace(/^param_/, ''), 10);
-                const parameterCount = typeof coreModel.getParameterCount === 'function'
-                    ? coreModel.getParameterCount()
-                    : Number.POSITIVE_INFINITY;
-                if (parsedIndex >= 0 && parsedIndex < parameterCount) {
-                    idx = parsedIndex;
-                    if (typeof coreModel.getParameterId === 'function') {
-                        const id = coreModel.getParameterId(idx);
-                        if (id) resolvedId = id;
-                    }
-                }
-            } else {
-                idx = coreModel.getParameterIndex(paramId);
-            }
+            const resolved = this._resolveModelParameterKey(coreModel, paramId);
+            const parameterCount = typeof coreModel.getParameterCount === 'function'
+                ? coreModel.getParameterCount() : 0;
+            // Cubism creates virtual indices for missing names. Those are not
+            // real model parameters and have no declared default to offset.
+            if (!resolved || !Number.isInteger(resolved.idx) || resolved.idx < 0
+                || !Number.isInteger(parameterCount) || resolved.idx >= parameterCount) return null;
+            return { id: paramId, resolvedId: String(resolved.resolvedId),
+                idx: resolved.idx, value, isIndexKey: resolved.isIndexKey };
         } catch (_) {
             return null;
         }
-        return idx >= 0 ? { id: paramId, resolvedId, idx, value } : null;
     };
     const runtimeBreathParams = this._resolveRuntimeBreathParams(coreModel);
     const runtimeBreathParamIds = new Set(runtimeBreathParams);
@@ -2471,7 +2974,7 @@ Live2DManager.prototype.installMouthOverride = function() {
         if (!entry) return true;
         const ids = [entry.id, entry.resolvedId].filter(Boolean);
         return ids.some(id => this._isEyeBlinkParamId(id)) ||
-            ids.some(id => lipSyncParams.includes(id)) ||
+            ids.some(id => runtimeMouthParams.includes(id)) ||
             ids.some(id => visibilityParams.includes(id)) ||
             ids.some(isRuntimeBreathParamId);
     };
@@ -2480,11 +2983,37 @@ Live2DManager.prototype.installMouthOverride = function() {
         return persistentIds.has(entry.id) ||
             (entry.resolvedId && persistentIds.has(entry.resolvedId));
     };
-    const savedParamEntries = (this.savedModelParameters && this._shouldApplySavedParams)
-        ? Object.entries(this.savedModelParameters)
-            .map(resolveSavedParamEntry)
-            .filter(entry => entry && !isRuntimeManagedSavedParam(entry))
-        : [];
+    const savedEntriesByIndex = new Map();
+    if (this.savedModelParameters && this._shouldApplySavedParams) {
+        for (const item of Object.entries(this.savedModelParameters)) {
+            const entry = resolveSavedParamEntry(item);
+            if (!entry || isRuntimeManagedSavedParam(entry)) continue;
+            const existing = savedEntriesByIndex.get(entry.idx);
+            if (!existing || existing.isIndexKey || !entry.isIndexKey) {
+                savedEntriesByIndex.set(entry.idx, entry);
+            }
+        }
+    }
+    const savedParamEntries = [];
+    const unavailableDefaults = [];
+    for (const entry of savedEntriesByIndex.values()) {
+        const defaultValue = this._getCoreParameterDefaultValue(coreModel, entry.idx);
+        const offset = entry.value - defaultValue;
+        if (!Number.isFinite(defaultValue) || !Number.isFinite(offset)) {
+            unavailableDefaults.push(entry.id);
+            continue;
+        }
+        // Keep zero offsets: frames without motion changes still restore the
+        // saved value. Default metadata is fixed for this installation/model.
+        savedParamEntries.push({ ...entry, offset });
+    }
+    if (unavailableDefaults.length > 0) {
+        console.warn('[Live2D SavedParameters] 跳过缺少有效默认值的运行时叠加项:', {
+            count: unavailableDefaults.length,
+            parameterIds: unavailableDefaults.slice(0, 8).map(id => String(id).slice(0, 80))
+        });
+    }
+    const savedParameterRevision = this._parameterConfigRevision || 0;
     const shouldApplyPersistentExpressions = this._parameterEditingMode !== true;
     const lookAtParamIndices = {};
     for (const id of ['ParamAngleX', 'ParamAngleY', 'ParamEyeBallX', 'ParamEyeBallY']) {
@@ -2520,7 +3049,7 @@ Live2DManager.prototype.installMouthOverride = function() {
         
         internalModel.motionManager.update = (...args) => {
             // 检查 coreModel 是否仍然有效（在调用原始方法之前检查）
-            if (!coreModel || !this.currentModel || !this.currentModel.internalModel || !this.currentModel.internalModel.coreModel) {
+            if (this._mouthOverrideToken !== overrideToken || this.currentModel?.internalModel !== internalModel || internalModel.coreModel !== coreModel) {
                 return; // 如果模型已销毁，直接返回
             }
 
@@ -2528,7 +3057,8 @@ Live2DManager.prototype.installMouthOverride = function() {
             // 1a. 保存参数 + 口型 + 眨眼参数快照（用于后续 Diff 检测）
             const preUpdateParams = {};
             const currentPersistentParamIds = savedParamEntries.length > 0 ? getCurrentPersistentParamIds() : null;
-            if (savedParamEntries.length > 0) {
+            if (savedParamEntries.length > 0
+                && (this._parameterConfigRevision || 0) === savedParameterRevision) {
                 for (const entry of savedParamEntries) {
                     if (isPersistentSavedParam(entry, currentPersistentParamIds)) continue;
                     try {
@@ -2565,14 +3095,14 @@ Live2DManager.prototype.installMouthOverride = function() {
                     // SDK 内部 motion 在异步加载期间可能会抛出 getParameterIndex 错误
                     // 这是 pixi-live2d-display 的已知问题，静默忽略即可
                     // 当 motion 加载完成后错误会自动消失
-                    if (!coreModel || !this.currentModel || !this.currentModel.internalModel || !this.currentModel.internalModel.coreModel) {
+                    if (this._mouthOverrideToken !== overrideToken || this.currentModel?.internalModel !== internalModel || internalModel.coreModel !== coreModel) {
                         return;
                     }
                 }
             }
             
             // 再次检查 coreModel 是否仍然有效（调用原始方法后）
-            if (!coreModel || !this.currentModel || !this.currentModel.internalModel || !this.currentModel.internalModel.coreModel) {
+            if (this._mouthOverrideToken !== overrideToken || this.currentModel?.internalModel !== internalModel || internalModel.coreModel !== coreModel) {
                 return; // 如果模型已销毁，直接返回
             }
 
@@ -2676,8 +3206,8 @@ Live2DManager.prototype.installMouthOverride = function() {
                         } catch (_) {}
                     }
 
-                    // 口型参数：lipsync 在响（mouthValue > 0）时强制覆盖 motion；静默时让位给 motion 自带的嘴部动画
-                    if (!this._isMouthDrivenByMotion || this.mouthValue > LIPSYNC_OVERRIDE_THRESHOLD) {
+                    // 整段语音持有开合控制，句中静默不能交回动作。
+                    if (this.hasActiveLipSync() || !this._isMouthDrivenByMotion || this.mouthValue > LIPSYNC_OVERRIDE_THRESHOLD) {
                         for (const [, idx] of mouthParamEntries) {
                             try {
                                 coreModel.setParameterValueByIndex(idx, this.mouthValue);
@@ -2700,14 +3230,14 @@ Live2DManager.prototype.installMouthOverride = function() {
                 // 注意：口型、眨眼在 coreModel.update 拦截器（注入点2）中写入
                 // 注意：呼吸、视线微动在 motionManager.update 拦截器（注入点1）中已写入
                 // 1. 应用保存的模型参数（智能叠加模式）
-                if (savedParamEntries.length > 0) {
+                if (savedParamEntries.length > 0
+                    && (this._parameterConfigRevision || 0) === savedParameterRevision) {
                     for (const entry of savedParamEntries) {
                         if (isPersistentSavedParam(entry, currentPersistentParamIds)) continue;
                         try {
                             const currentVal = coreModel.getParameterValueByIndex(entry.idx);
                             const preVal = preUpdateParams[entry.id] !== undefined ? preUpdateParams[entry.id] : currentVal;
-                            const defaultVal = coreModel.getParameterDefaultValueByIndex(entry.idx);
-                            const offset = entry.value - defaultVal;
+                            const offset = entry.offset;
 
                             if (Math.abs(currentVal - preVal) > 0.001) {
                                 coreModel.setParameterValueByIndex(entry.idx, currentVal + offset);
@@ -2748,6 +3278,10 @@ Live2DManager.prototype.installMouthOverride = function() {
     
     // 覆盖 coreModel.update，确保在调用原始方法前写入参数
     coreModel.update = () => {
+        // 旧包装函数可能已被 ticker 捕获；必须按安装身份拒绝，不能污染接管的新模型。
+        if (this._mouthOverrideToken !== overrideToken || this.currentModel?.internalModel !== internalModel || internalModel.coreModel !== coreModel) {
+            return;
+        }
         // 首先检查覆盖是否仍然有效（防止在清理后仍然被调用）
         if (!this._mouthOverrideInstalled || !this._coreModelRef) {
             // 覆盖已被清理，但函数可能仍在运行，直接返回
@@ -2776,8 +3310,8 @@ Live2DManager.prototype.installMouthOverride = function() {
         try {
             // === 注入点 2（渲染前）：口型 + 眨眼 ===
             // 这是渲染前的最后一步，强制命令，绝对优先级
-            // 口型参数：lipsync 在响（mouthValue > 0）时强制覆盖 motion；静默时让位给 motion 自带的嘴部动画
-            if (!this._isMouthDrivenByMotion || this.mouthValue > LIPSYNC_OVERRIDE_THRESHOLD) {
+            // 显式 owner 控制整个发声周期；旧入口保持原来的阈值兼容。
+            if (this.hasActiveLipSync() || !this._isMouthDrivenByMotion || this.mouthValue > LIPSYNC_OVERRIDE_THRESHOLD) {
                 for (const [, idx] of mouthParamEntries) {
                     try {
                         currentCoreModel.setParameterValueByIndex(idx, this.mouthValue);
@@ -2885,8 +3419,29 @@ Live2DManager.prototype.installMouthOverride = function() {
     console.log('已安装双重参数覆盖（motionManager.update 后 + coreModel.update 前）');
 };
 
-// 设置嘴巴开合值（0~1），用于口型同步
-Live2DManager.prototype.setMouth = function(value) {
+// owner 是调用方创建的唯一令牌。模型不推断音量为零是否意味着语音结束。
+Live2DManager.prototype.beginLipSync = function(owner) {
+    if (!owner || (typeof owner !== 'object' && typeof owner !== 'function')) return false;
+    if (this._lipSyncOwner === owner) return true;
+    this._lipSyncOwner = owner;
+    this.setMouth(0, owner);
+    return true;
+};
+
+Live2DManager.prototype.hasActiveLipSync = function() {
+    return this._lipSyncOwner != null;
+};
+
+Live2DManager.prototype.endLipSync = function(owner) {
+    if (!owner || this._lipSyncOwner !== owner) return false;
+    this.setMouth(0, owner);
+    this._lipSyncOwner = null;
+    return true;
+};
+
+// 带令牌的更新必须匹配当前语音；旧单参数入口不能抢占正在播放的语音。
+Live2DManager.prototype.setMouth = function(value, owner) {
+    if (owner !== undefined ? !owner || this._lipSyncOwner !== owner : this.hasActiveLipSync()) return false;
     const v = Math.max(0, Math.min(1, Number(value) || 0));
     this.mouthValue = v;
 
@@ -2903,7 +3458,7 @@ Live2DManager.prototype.setMouth = function(value) {
             if (!this._cachedMouthIndices || this._cachedMouthIndicesModel !== coreModel) {
                 this._cachedMouthIndices = [];
                 this._cachedMouthIndicesModel = coreModel;
-                const mouthIds = window.LIPSYNC_PARAMS || ['ParamMouthOpenY', 'ParamMouthForm', 'ParamMouthOpen', 'ParamA', 'ParamI', 'ParamU', 'ParamE', 'ParamO'];
+                const mouthIds = window.LIPSYNC_AMPLITUDE_PARAMS || (window.LIPSYNC_PARAMS || ['ParamMouthOpenY', 'ParamMouthOpen', 'ParamA', 'ParamI', 'ParamU', 'ParamE', 'ParamO']).filter(id => id !== 'ParamMouthForm');
 
                 for (const id of mouthIds) {
                     if (id === 'ParamMouthForm') continue; // 忽略嘴型（非张合）参数
@@ -2930,6 +3485,7 @@ Live2DManager.prototype.setMouth = function(value) {
     } catch (e) {
         if (shouldLog) console.error('[Live2D setMouth] 错误:', e);
     }
+    return true;
 };
 
 // 应用模型位置和缩放设置

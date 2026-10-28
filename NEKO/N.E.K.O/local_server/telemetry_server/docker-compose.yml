@@ -10,6 +10,11 @@ services:
     environment:
       # 存储中的业务时间戳固定为 +08:00，容器时区同样固定为 Asia/Shanghai。
       - TZ=Asia/Shanghai
+      # ★ Required, no fallback: the source tree keeps no HMAC key any more.
+      # The `:?` interpolation makes `docker compose up` abort before the
+      # container is created when the value is unset or empty — a
+      # misconfigured deployment cannot silently serve traffic. See .env.example.
+      - TELEMETRY_HMAC_SECRET=${TELEMETRY_HMAC_SECRET:?TELEMETRY_HMAC_SECRET must be set in .env (see .env.example)}
       # ★ Must override: admin auth token (used for dashboard / export / queries).
       # Set TELEMETRY_ADMIN_TOKEN in your .env file (or shell environment) before
       # running docker-compose; otherwise the container falls back to a clearly

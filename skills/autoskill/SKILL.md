@@ -127,7 +127,7 @@ scripts/synthesize.py      → LLM judge: reuse / compose / novel
   ├── composition-recipes/<name>/SKILL.md
   └── new-skills/<name>/SKILL.md
 
-scripts/promote.py         → user-approved proposal → skills/<name>/
+scripts/promote.py         → review-gated promotion: proposal → skills/<name>/
 ```
 
 ## Workflow
@@ -177,7 +177,11 @@ Add `--dry-run` to stop after clustering; this skips the LLM (and the sentence-t
 
 ### 2. Review and promote
 
-Open `~/.autoskill/proposed/<ts>/report.md`, edit drafts in place, delete anything you don't want. Then:
+Open `~/.autoskill/proposed/<ts>/report.md`, edit drafts in place, delete anything you don't want.
+
+Proposals come out of an LLM that watched your screen, and a promoted skill is something a
+person then runs. Promotion therefore defaults to **dry-run** — the first call reads the draft
+and reports, it does not touch a single file:
 
 ```bash
 python scripts/autoskill.py promote \
@@ -186,7 +190,37 @@ python scripts/autoskill.py promote \
   --name zotero-pubmed-helper
 ```
 
-`promote` moves the directory into `skills/<name>/`, refusing to overwrite an existing skill. Exits non-zero with a friendly error if the proposal isn't found or the target already exists.
+```
+skill        : zotero-pubmed-helper
+content-sha256: 9f2c…
+review       : 无可疑模式
+verdict      : DRY-RUN —— 没有移动任何文件；确认无误再加 --apply
+```
+
+Three gates, in this order:
+
+1. **Static review.** Every file in the proposal is walked (`ast` for `.py`, named regexes for
+   shell/powershell/prose) against the tables at the top of `scripts/promote.py`
+   (`_PY_DANGEROUS_MODULES`, `_PY_DANGEROUS_CALLS`, `_TEXT_PATTERNS`): spawning processes,
+   `eval`/`exec`, outbound network, `~/.ssh` / `.env` / registry writes, `--force`-class flags,
+   escape links (symlinks *and* Windows junctions). Anything over 1 MiB, or a text-suffixed file
+   that is not valid UTF-8, is reported as "scanned, not cleared" instead of silently passing.
+2. **Human approval.** A flagged proposal is refused (`rc 2`) unless you re-run it with
+   `--approve-reviewed <content-sha256>` — the digest printed for *that exact content*. Edit one
+   byte after approving and the digest no longer matches, so approval cannot become a permanent
+   pass. Digests may be shortened to a prefix of 12+ hex chars.
+3. **Explicit `--apply`.** Only `--apply` moves the directory, and the move still refuses to
+   overwrite an existing skill.
+
+```bash
+# 被拒之后，读完每一条命中项，再带上那一版的内容摘要：
+python scripts/autoskill.py promote --proposed ... --skills-dir skills --name x \
+  --apply --approve-reviewed 9f2c1a7b5d3e4c8a06f1b27d
+```
+
+Exit codes: `0` dry-run or promotion succeeded, `1` proposal not found / target already exists,
+`2` static review refused. The gate lives in `promote()` itself, not only in `main()`, so
+importing the module and calling it directly is held to the same bar.
 
 ## Configuration
 

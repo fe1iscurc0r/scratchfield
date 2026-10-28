@@ -1,0 +1,18 @@
+{
+ "branches": {
+  "chore/wo238-240-pollination-and-daily-2026-10-15": "59dc36c285065a3139aa989f8780c3e4da94dcc6",
+  "feat/w227-poc-trio": "2b1cd60dedc33f17c07c5a06ed1265636487cf8c",
+  "feat/w228-peak-health-and-deps-audit": "9a88324b741a21fea4d52d2a5cb5a206bc889e8e",
+  "feat/w229-deepseek-flash-alias-and-peak-ops": "ab2844e2f4f093825625a74744e59e78f7189b78",
+  "fix/pixi-revert-v6": "37a0b459b0b073ce97746c960ff3c8044f8be7f0",
+  "main": "9aeb2db9a0e8bd04579120d7c618c221953204e1",
+  "wo262-integrity-layer": "bdd411ab1a30806c852ed309d7bb9c7d4e172da8",
+  "wo264-paper-pollination": "34e63241342f134a1299eac94e10b5853839ea8a",
+  "workorders-2026-10-17-revive-259-260": "6eed945d6695710355f6f8beceba71c139506c70",
+  "workorders-2026-10-20-wp-262-264": "a0f005ff40504c7d843d6f402ed6e21a40b92562",
+  "workorders/2026-10-06-w202": "e0f5e52bd758cbb584ec5a57222a0c5b49ed610f"
+ },
+ "note": "删除前的 SHA 快照（内容均已在 main，可按 SHA 恢复 ref）",
+ "repo": "fe1iscurc0r/scratchpad",
+ "taken_at": "2026-10-20"
+}

@@ -158,46 +158,6 @@ def _convert_assist_api_profile(json_profile: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _apply_lumo_overlay(config: Dict[str, Any]) -> Dict[str, Any]:
-    """[local-patch] 陆墨融合：注入 lumo provider overlay（铁律8 源码级实现）。
-
-    neko_launcher_wrapper.py 的运行时 monkey-patch 不被 Windows spawn 子进程
-    （main_server 等）继承，导致子进程 config_manager 认不出 lumo provider、
-    刷「未知的 assistApi 'lumo'」并回退 qwen。在配置加载接缝重放同一份
-    overlay（scripts/lumo_provider_overlay.json）保证跨进程一致。
-    overlay 缺失时降级留痕（ERROR），不阻断 NEKO 独立启动。
-    """
-    import os as _os
-
-    overlay_path = Path(__file__).resolve().parents[3] / "scripts" / "lumo_provider_overlay.json"
-    if not overlay_path.exists():
-        logger.error(f"[local-patch] lumo overlay 不存在: {overlay_path}，跳过注入")
-        return config
-    try:
-        with open(overlay_path, encoding="utf-8") as f:
-            overlay = json.load(f)
-    except Exception as e:
-        logger.error(f"[local-patch] lumo overlay 加载失败: {e}，跳过注入")
-        return config
-
-    # 环境变量覆盖 lumo_proxy base URL（与 wrapper 同语义）
-    lumo_base_url = _os.environ.get("LUMO_PROXY_BASE_URL", "").strip()
-    providers = overlay.get("assist_api_providers")
-    if lumo_base_url and isinstance(providers, dict) and isinstance(providers.get("lumo"), dict):
-        providers["lumo"]["openrouter_url"] = lumo_base_url
-
-    # 一层 dict 合并：只追加条目，不覆盖原有 provider（与 wrapper 同语义，幂等）
-    for key, value in overlay.items():
-        if key.startswith("_comment"):
-            continue
-        existing = config.get(key)
-        if isinstance(existing, dict) and isinstance(value, dict):
-            existing.update(value)
-        else:
-            config[key] = value
-    return config
-
-
 def get_config(force_reload: bool = False) -> Dict[str, Any]:
     """
     Get the config (cached)
@@ -216,8 +176,6 @@ def get_config(force_reload: bool = False) -> Dict[str, Any]:
         except (FileNotFoundError, json.JSONDecodeError) as e:
             logger.error(f"加载配置失败，使用空配置: {e}")
             _config_cache = {}
-        # [local-patch] 陆墨融合：每次重载都重放 overlay，保证 spawn 子进程可见
-        _config_cache = _apply_lumo_overlay(_config_cache)
     
     return _config_cache
 
@@ -519,6 +477,41 @@ def get_cosyvoice_clone_model(provider: str | None = None) -> str:
     )
 
 
+def get_cosyvoice_user_preferred_model(provider: str | None = None) -> str | None:
+    """Return the CosyVoice model the user configured on the TTS endpoint, if usable.
+
+    NEKO's voice-clone/design pages have no model selector of their own; the only
+    place users express a CosyVoice model preference is the TTS endpoint's model
+    ID field (core_config ``TTS_MODEL``). Voice enrollment binds the resulting
+    voice to ``target_model`` (Alibaba docs: a cloned voice cannot be used across
+    models), so enrollment must follow that preference instead of always using
+    the configured default — otherwise a ``cosyvoice-v3.5-flash`` selection keeps
+    synthesizing (and billing) as ``cosyvoice-v3.5-plus``.
+
+    Rules:
+    - Only strings starting with ``cosyvoice-v`` are adopted; anything else
+      (other vendors' IDs, blanks) falls back to ``None`` -> caller keeps the
+      default.
+    - International deployments are ignored: Singapore only supports
+      ``cosyvoice-v3-plus`` for enrolled voices, which is already the intl
+      default, so there is nothing for the user to override.
+    """
+    normalized_provider = str(provider or '').strip().lower()
+    if normalized_provider == 'cosyvoice_intl':
+        return None
+    try:
+        # config_manager imports this module at package scope; import lazily
+        # (same pattern as voice_storage) to avoid a circular import.
+        from utils.config_manager import get_config_manager
+        core_config = get_config_manager().get_core_config() or {}
+    except Exception:
+        return None
+    configured = str(core_config.get('TTS_MODEL') or '').strip()
+    if configured.startswith('cosyvoice-v'):
+        return configured
+    return None
+
+
 def cosyvoice_model_supports_language_hints(model: str | None) -> bool:
     """language_hints only applies to v3 / v3.5 series models; v2 does not support it."""
     return not str(model or _COSYVOICE_CLONE_MODEL_DEFAULT).startswith("cosyvoice-v2")
@@ -647,6 +640,7 @@ __all__ = [
     'get_native_tts_voice_provider_config',
     'get_native_tts_voice_provider_configs',
     'get_cosyvoice_clone_model',
+    'get_cosyvoice_user_preferred_model',
     'cosyvoice_model_supports_language_hints',
     'get_meme_moderation_config',
     'get_livestream_config',

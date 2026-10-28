@@ -33,10 +33,6 @@ def build_travel_summary_message(session: Any) -> str:
     if agent_name:
         lines.append(f"执行干员：{agent_name}")
 
-    forum_post_id = getattr(session, "forum_post_id", None)
-    if forum_post_id:
-        lines.append(f"论坛精华帖：{forum_post_id}")
-
     return "\n".join(lines).strip()
 
 
@@ -50,9 +46,6 @@ def build_travel_full_report_message(session: Any) -> str:
         f"唯一来源：{getattr(session, 'unique_sources', 0) or 0}",
         f"工具统计：{getattr(session, 'tool_stats', None) or {}}",
     ]
-    forum_post_id = getattr(session, "forum_post_id", None)
-    if forum_post_id:
-        lines.extend(["", f"论坛精华帖已发布，post_id={forum_post_id}"])
     return "\n".join(lines)
 
 
@@ -134,7 +127,6 @@ async def _build_qq_payload(session: Any) -> dict[str, Any]:
             "session_id": session.session_id,
             "agent_name": getattr(session, "agent_name", None),
             "result_count": len(getattr(session, "discoveries", []) or []),
-            "forum_post_id": getattr(session, "forum_post_id", None),
             "naga_user_id": naga_user_id,
         },
     }

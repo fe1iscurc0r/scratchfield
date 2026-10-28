@@ -22,6 +22,7 @@ keeps returning the real module instead of the APIRouter object.
 
 from . import agent_router
 from . import avatar_drop_router
+from . import avatar_tool_router
 from . import capture_router
 from . import characters_router
 from . import cloudsave_router
@@ -34,6 +35,7 @@ from . import music_router
 from . import pages_router
 from . import storage_location_router
 from . import system_router
+from . import visit_router
 from . import vrm_router
 from . import websocket_router
 from . import workshop_router
@@ -41,6 +43,7 @@ from . import workshop_router
 __all__ = [
     'agent_router',
     'avatar_drop_router',
+    'avatar_tool_router',
     'capture_router',
     'characters_router',
     'cloudsave_router',
@@ -53,6 +56,7 @@ __all__ = [
     'pages_router',
     'storage_location_router',
     'system_router',
+    'visit_router',
     'vrm_router',
     'websocket_router',
     'workshop_router',

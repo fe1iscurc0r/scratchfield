@@ -44,7 +44,7 @@ async function loadMcpServices() {
 }
 
 // ---- 装配策略（按族白名单 / 按 tier 关闭；agent 级开关在各服务行） ----
-interface AssemblyVocabItem { key: string; label: string; desc: string }
+interface AssemblyVocabItem { key: string, label: string, desc: string }
 const showAssembly = ref(false)
 const assemblyLoading = ref(false)
 const assemblyPolicy = ref<Record<string, any>>({})
@@ -209,133 +209,134 @@ void loadAssembly()
 
 <template>
   <section class="workshop-section workshop-section-wide">
-        <div class="section-head">
-          <div>
-            <div class="section-title">MCP</div>
-            <div class="section-meta">
-              通用 MCP。这里管理全局可用的 MCP 服务。已启用 {{ mcpEnabledCount }} / {{ mcpTotalCount }}。
-            </div>
-          </div>
-          <button class="add-btn add-btn-compact" @click="openAddMcp">
-            添加 MCP
-          </button>
+    <div class="section-head">
+      <div>
+        <div class="section-title">MCP</div>
+        <div class="section-meta">
+          通用 MCP。这里管理全局可用的 MCP 服务。已启用 {{ mcpEnabledCount }} / {{ mcpTotalCount }}。
         </div>
+      </div>
+      <button class="add-btn add-btn-compact" @click="openAddMcp">
+        添加 MCP
+      </button>
+    </div>
 
-        <!-- 装配策略面板：按族白名单 / 按 tier 关闭；agent 级开关在各服务行 -->
-        <div class="assembly-panel">
-          <button class="assembly-head" @click="showAssembly = !showAssembly">
-            <span class="assembly-title">装配策略</span>
-            <span v-if="assemblySummary" class="assembly-summary">{{ assemblySummary }}</span>
-            <svg
-              class="assembly-caret" :class="{ open: showAssembly }"
-              xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-            ><path d="m6 9 6 6 6-6" /></svg>
-          </button>
-          <div v-if="showAssembly" class="assembly-body">
-            <div class="assembly-group">
-              <div class="assembly-label">按族启用（白名单；全亮 = 不限）</div>
-              <div class="assembly-chips">
-                <button
-                  v-for="f in assemblyVocab.families"
-                  :key="f.key"
-                  class="assembly-chip"
-                  :class="{ on: familyOn(f.key) }"
-                  :title="f.desc"
-                  @click="toggleFamily(f.key)"
-                >
-                  {{ f.label }}
-                </button>
-              </div>
-            </div>
-            <div class="assembly-group">
-              <div class="assembly-label">按 tier 关闭</div>
-              <div class="assembly-chips">
-                <button
-                  v-for="t in assemblyVocab.tiers"
-                  :key="t.key"
-                  class="assembly-chip tier"
-                  :class="{ off: tierOff(t.key) }"
-                  :title="t.desc"
-                  @click="toggleTier(t.key)"
-                >
-                  {{ t.label }}
-                </button>
-              </div>
-            </div>
-            <div class="assembly-note">
-              服务行的开关是按 agent 的显式开关，优先于上述策略；offensive 能力另有入口环境变量闸门（默认关）。
-            </div>
+    <!-- 装配策略面板：按族白名单 / 按 tier 关闭；agent 级开关在各服务行 -->
+    <div class="assembly-panel">
+      <button class="assembly-head" @click="showAssembly = !showAssembly">
+        <span class="assembly-title">装配策略</span>
+        <span v-if="assemblySummary" class="assembly-summary">{{ assemblySummary }}</span>
+        <svg
+          class="assembly-caret" :class="{ open: showAssembly }"
+          xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+        ><path d="m6 9 6 6 6-6" /></svg>
+      </button>
+      <div v-if="showAssembly" class="assembly-body">
+        <div class="assembly-group">
+          <div class="assembly-label">按族启用（白名单；全亮 = 不限）</div>
+          <div class="assembly-chips">
+            <button
+              v-for="f in assemblyVocab.families"
+              :key="f.key"
+              class="assembly-chip"
+              :class="{ on: familyOn(f.key) }"
+              :title="f.desc"
+              @click="toggleFamily(f.key)"
+            >
+              {{ f.label }}
+            </button>
           </div>
         </div>
+        <div class="assembly-group">
+          <div class="assembly-label">按 tier 关闭</div>
+          <div class="assembly-chips">
+            <button
+              v-for="t in assemblyVocab.tiers"
+              :key="t.key"
+              class="assembly-chip tier"
+              :class="{ off: tierOff(t.key) }"
+              :title="t.desc"
+              @click="toggleTier(t.key)"
+            >
+              {{ t.label }}
+            </button>
+          </div>
+        </div>
+        <div class="assembly-note">
+          服务行的开关是按 agent 的显式开关，优先于上述策略；offensive 能力另有入口环境变量闸门（默认关）。
+        </div>
+      </div>
+    </div>
 
-        <SkeletonCard v-if="mcpLoading" :rows="5" />
-        <template v-else>
-          <div
-            v-for="service in publicMcpServices"
-            :key="service.name"
-            class="mcp-item min-w-0"
-            :class="{ 'mcp-disabled': !service.enabled }"
+    <SkeletonCard v-if="mcpLoading" :rows="5" />
+    <template v-else>
+      <div
+        v-for="service in publicMcpServices"
+        :key="service.name"
+        class="mcp-item min-w-0"
+        :class="{ 'mcp-disabled': !service.enabled }"
+      >
+        <div class="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+          <button
+            class="mcp-toggle"
+            :class="{ 'mcp-toggle-on': service.enabled, 'mcp-toggle-builtin': service.source === 'builtin' }"
+            :title="service.source === 'builtin' ? '内置服务（前端开关写入装配策略）' : (service.enabled ? '点击禁用' : '点击启用')"
+            @click="toggleMcpEnabled(service)"
           >
-            <div class="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-                <button
-                  class="mcp-toggle"
-                  :class="{ 'mcp-toggle-on': service.enabled, 'mcp-toggle-builtin': service.source === 'builtin' }"
-                  :title="service.source === 'builtin' ? '内置服务（前端开关写入装配策略）' : (service.enabled ? '点击禁用' : '点击启用')"
-                  @click="toggleMcpEnabled(service)"
-                >
-                  <span class="mcp-toggle-dot" />
-                </button>
-                <div class="min-w-0 flex-1 overflow-hidden">
-                  <div class="flex items-center gap-1.5">
-                    <span class="font-bold text-sm text-white truncate">{{ service.displayName }}</span>
-                    <span v-if="service.source === 'builtin'" class="mcp-badge builtin">内置</span>
-                    <span v-else class="mcp-badge external">通用</span>
-                    <span
-                      v-if="service.requirements?.missing?.length"
-                      class="mcp-badge req-missing"
-                      :title="'缺依赖：' + service.requirements.missing.join('、')"
-                    >缺 {{ service.requirements.missing.length }} 项</span>
-                    <span
-                      v-if="service.requirements?.optional_missing?.length"
-                      class="mcp-badge req-optional"
-                      :title="'缺软依赖（功能降级但可用）：' + service.requirements.optional_missing.join('、')"
-                    >降 {{ service.requirements.optional_missing.length }} 项</span>
-                  </div>
-                  <div v-if="service.description" class="text-xs op-40 truncate mt-0.5">
-                    {{ service.description }}
-                  </div>
-                </div>
+            <span class="mcp-toggle-dot" />
+          </button>
+          <div class="min-w-0 flex-1 overflow-hidden">
+            <div class="flex items-center gap-1.5">
+              <span class="font-bold text-sm text-white truncate">{{ service.displayName }}</span>
+              <span v-if="service.source === 'builtin'" class="mcp-badge builtin">内置</span>
+              <span v-else class="mcp-badge external">通用</span>
+              <span
+                v-if="service.requirements?.missing?.length"
+                class="mcp-badge req-missing"
+                :title="`缺依赖：${service.requirements.missing.join('、')}`"
+              >缺 {{ service.requirements.missing.length }} 项</span>
+              <span
+                v-if="service.requirements?.optional_missing?.length"
+                class="mcp-badge req-optional"
+                :title="`缺软依赖（功能降级但可用）：${service.requirements.optional_missing.join('、')}`"
+              >降 {{ service.requirements.optional_missing.length }} 项</span>
             </div>
-            <div v-if="service.source !== 'builtin'" class="flex items-center gap-1 shrink-0 ml-2">
-              <button class="mcp-action-btn" title="编辑" @click="openEditMcp(service)">
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
-              </button>
-              <button class="mcp-action-btn mcp-action-delete" title="删除" @click="deleteMcp(service)">
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
-              </button>
+            <div v-if="service.description" class="text-xs op-40 truncate mt-0.5">
+              {{ service.description }}
             </div>
           </div>
-          <EmptyState
-            v-if="publicMcpServices.length === 0"
-            icon="🔌"
-            title="还没有 MCP"
-            description="添加一个 MCP 服务，把外部工具接进陆墨"
-            action-label="添加 MCP"
-            @action="openAddMcp"
-          />
-        </template>
+        </div>
+        <div v-if="service.source !== 'builtin'" class="flex items-center gap-1 shrink-0 ml-2">
+          <button class="mcp-action-btn" title="编辑" @click="openEditMcp(service)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
+          </button>
+          <button class="mcp-action-btn mcp-action-delete" title="删除" @click="deleteMcp(service)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+          </button>
+        </div>
+      </div>
+      <EmptyState
+        v-if="publicMcpServices.length === 0"
+        icon="🔌"
+        title="还没有 MCP"
+        description="添加一个 MCP 服务，把外部工具接进陆墨"
+        action-label="添加 MCP"
+        @action="openAddMcp"
+      />
+    </template>
   </section>
 
-    <McpAddDialog
-      :visible="showMcpDialog"
-      :edit-data="editingMcp"
-      fixed-scope="public"
-      hub-enabled
-      title="添加通用 MCP"
-      @confirm="onMcpConfirm"
-      @cancel="showMcpDialog = false"
-    />
+  <McpAddDialog
+    :visible="showMcpDialog"
+    :edit-data="editingMcp"
+    fixed-scope="public"
+    hub-enabled
+    title="添加通用 MCP"
+    @confirm="onMcpConfirm"
+    @cancel="showMcpDialog = false"
+    :existing="mcpServices"
+  />
 </template>
 
 <style scoped>
@@ -367,7 +368,6 @@ void loadAssembly()
   gap: 0.55rem;
   flex-shrink: 0;
 }
-
 
 .add-btn {
   display: flex;
@@ -617,5 +617,4 @@ void loadAssembly()
   color: #e85d5d;
   background: rgba(232, 93, 93, 0.1);
 }
-
 </style>

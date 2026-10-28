@@ -1,0 +1,145 @@
+{
+  "ok": true,
+  "tool": "demo_handshake",
+  "data": {
+    "page_size": 2,
+    "client": {
+      "session_id": "sess-demo-0001",
+      "protocol_version": "2024-11-05",
+      "server_info": {
+        "name": "fake-xiaozhi",
+        "version": "0.0.0-fake"
+      },
+      "handshake_done": true,
+      "tool_count": 3,
+      "catalog": {
+        "count": 3,
+        "device_namespace_count": 3,
+        "other_namespace_count": 0,
+        "duplicates": [],
+        "tools": [
+          {
+            "name": "self.get_device_status",
+            "description": "查询设备状态（电量/音量/网络）",
+            "inputSchema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          },
+          {
+            "name": "self.audio_speaker.set_volume",
+            "description": "设置扬声器音量（0-100）",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "volume": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              },
+              "required": [
+                "volume"
+              ]
+            }
+          },
+          {
+            "name": "self.light.set_rgb",
+            "description": "设置灯色（R/G/B 0-255）",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "r": {
+                  "type": "integer"
+                },
+                "g": {
+                  "type": "integer"
+                },
+                "b": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "r",
+                "g",
+                "b"
+              ]
+            }
+          }
+        ]
+      },
+      "pending_messages": 0,
+      "timeout_s": 10.0
+    },
+    "device_tools_called": [],
+    "requests_seen": 3,
+    "protocol_version": "2024-11-05",
+    "server_info": {
+      "name": "fake-xiaozhi",
+      "version": "0.0.0-fake"
+    },
+    "catalog": {
+      "count": 3,
+      "device_namespace_count": 3,
+      "other_namespace_count": 0,
+      "duplicates": [],
+      "tools": [
+        {
+          "name": "self.get_device_status",
+          "description": "查询设备状态（电量/音量/网络）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        },
+        {
+          "name": "self.audio_speaker.set_volume",
+          "description": "设置扬声器音量（0-100）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "volume": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "volume"
+            ]
+          }
+        },
+        {
+          "name": "self.light.set_rgb",
+          "description": "设置灯色（R/G/B 0-255）",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "r": {
+                "type": "integer"
+              },
+              "g": {
+                "type": "integer"
+              },
+              "b": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "r",
+              "g",
+              "b"
+            ]
+          }
+        }
+      ]
+    },
+    "initialize_result_keys": [
+      "capabilities",
+      "protocolVersion",
+      "serverInfo"
+    ]
+  }
+}

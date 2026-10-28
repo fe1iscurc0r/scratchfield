@@ -89,8 +89,10 @@ import asyncio
 import json
 import math
 import os
+import sys
 import time
 from collections import OrderedDict
+from datetime import datetime
 from typing import Any
 
 from config import (
@@ -101,7 +103,9 @@ from config import (
     HYBRID_RECALL_POOL_CACHE_MAX_FILES,
     HYBRID_RECALL_RRF_K,
     HYBRID_RECALL_TIME_BUDGET,
+    HYBRID_RECALL_VEC_CACHE_MAX_BYTES,
 )
+from memory.evidence import evidence_score
 from memory.script_fold import fold_script
 from utils.logger_config import get_module_logger
 
@@ -186,8 +190,14 @@ def _tokenize(text: str, stop_names: list[str] | None) -> list[str]:
         seg = seg.strip()
         if not seg:
             continue
-        # CJK 占比阈值 = 与 persona._extract_keywords 完全一致（汉字 +
-        # 假名 + 谚文 = U+4E00-9FFF + U+3040-30FF + U+AC00-D7AF）。
+        # 纯 ASCII 段不可能含 CJK，直接按 Latin 段处理（等价于下面 else 分支）。
+        # 这条快速路径和 CJK 占比阈值都必须与 persona._extract_keywords 完全
+        # 一致（汉字 + 假名 + 谚文 = U+4E00-9FFF + U+3040-30FF + U+AC00-D7AF），
+        # 改一边要同步另一边，否则 hybrid recall 和 persona 的切词会分叉。
+        if seg.isascii():
+            if len(seg) >= 2:
+                out.append(seg)
+            continue
         cjk_count = sum(
             1 for ch in seg
             if '一' <= ch <= '鿿'
@@ -291,6 +301,190 @@ def _bm25_rank(
 
 
 # ── cosine retrieval ──────────────────────────────────────────────────
+#
+# Decoded-vector cache
+# ====================
+# ``_POOL_CACHE`` (#2550) keeps the *parsed rows* resident across recalls; the
+# cosine path nonetheless re-decoded every candidate's base64-fp16 embedding on
+# **every query**. At 5000 rows that decode loop is ~49ms of the ~54ms cosine
+# path (base64+fp16→fp32 ~32ms, per-vec ``np.isfinite`` ~7ms, sha256 ~4ms) —
+# pure recomputation on a steady-state corpus where the vectors never change,
+# and it all runs on the event loop, stalling every other request in the
+# memory_server for its duration.
+#
+# So: decode once, keep the fp32 vector, and re-serve it only while the row in
+# front of us is provably the row it was decoded from.
+#
+# The validity argument is a *delta* one, and that is what makes the hit path
+# cheap. At admission time ``decode_valid_cached_embedding`` already returned
+# non-None, which means all of its checks held **then**:
+#
+#     row['embedding_model_id'] == model_id
+#     row['embedding_text_sha256'] == sha256(text)
+#     decode(row['embedding']) is finite and has the model's dimension
+#
+# A hit therefore does not need to re-derive those facts — it needs to prove
+# that none of their inputs moved since. Four comparisons do that:
+#
+#   1. ``model_id``            — same embedding space (dim/quantization/profile)
+#   2. ``text`` **is** the cached object — identity, not equality. ``sha256`` is
+#      a function of the object's bytes and ``str`` is immutable, so the same
+#      object means the same hash, without hashing anything. Pool rows come from
+#      ``_POOL_CACHE`` / FactStore's process cache and ``_tag_tier`` only
+#      shallow-copies, so the ``text`` value object is stable across recalls;
+#      a genuine reload hands us a fresh object and we simply miss.
+#   3. row stamps unchanged — ``embedding_model_id`` still equals the runtime
+#      model, ``embedding_text_sha256`` still equals the string we saw at
+#      admission. A reloaded row can carry identical id / text / embedding
+#      bytes with corrupted or missing stamps (hand edit, migration, cross-pool
+#      id collision); the full validator rejects those, so a hit must too.
+#   4. ``embedding`` str unchanged — the writer may have re-stamped the vector
+#      itself (repair / requantize) without touching text or stamps. Compared
+#      by equality; pool rows hand back the identical str object, so the
+#      pointer check short-circuits the memcmp.
+#
+# (2)+(3) together re-establish ``stamp == sha256(text)`` from two string
+# comparisons instead of a hash, which is why the steady-state path costs no
+# sha256 at all — the ~4ms/query the old shape spent re-hashing 5000 rows to
+# re-prove something that had not changed.
+#
+# Any mismatch falls through to the full ``decode_valid_cached_embedding``
+# path, which applies the exact same checks plus the dimension/finite guards —
+# a stale or hostile cache entry can therefore never smuggle a vector past
+# validation, it can only cost one wasted probe.
+#
+# The row's L2 norm is cached alongside the vector for the same reason the
+# vector is: it is a pure function of an unchanged vector, and recomputing it
+# for the whole pool was another ~3ms/query at 5000 rows.
+#
+# Bounding — ``HYBRID_RECALL_VEC_CACHE_MAX_BYTES``, charged in bytes rather
+# than entries because an entry also pins the row's ``embedding`` and ``text``
+# strings (see the config note; entry count and resident bytes differ by ~2x).
+#
+# ⚠️ Admission is scan-aware, and it has to be. A plain LRU under "sequential
+# full scan × pool larger than the cap" is self-destroying: each scan evicts
+# the tail the previous scan just admitted, so by the time iteration reaches
+# it the entry is gone — hit rate collapses to zero while every miss still
+# pays admission. The guard is that a scan may never evict rows *it itself*
+# touched this round: ``touched >= len(_VEC_CACHE)`` means everything resident
+# belongs to this scan, and admission stops for the rest of it. A pool larger
+# than the cap therefore settles on "the first N rows hit forever, the rest
+# always miss" — degraded, but stable and strictly better than the bypass it
+# replaces, which gave up caching for the whole pool.
+#
+# That guard is per-scan, so two characters alternating with a combined
+# working set over the cap still evict each other and neither gets hits. What
+# keeps that from being *worse* than no cache is the cost of a miss under this
+# shape: one ``OrderedDict`` assignment and an integer add, no hashing, no
+# extra decode. The pathological case degrades to "the cache does nothing",
+# not "the cache costs more than it saves" — and it needs a corpus far past
+# the point where archive sharding (#2716) is the actual answer.
+#
+# No lock, same reasoning as ``_POOL_CACHE``: dict ops are atomic under the
+# GIL, and recall runs on the memory_server event loop.
+#
+# ⚠️ Same discipline as the pool cache: never hand out a stored vector that a
+# caller could mutate in place. Consumers only read (``vstack`` copies), and
+# this module never writes into a cached array after store.
+#
+# entry = (model_id, text, text_stamp, embedding, vector, norm, nbytes)
+_VEC_CACHE: OrderedDict[str, tuple[str, str, Any, str, Any, float, int]] = OrderedDict()
+_VEC_CACHE_BYTES = 0
+
+# Per-entry bookkeeping that ``sys.getsizeof`` on the payload does not see:
+# the 7-tuple, the OrderedDict link node, the ndarray object header. Measured
+# at 351B via ``tracemalloc`` on CPython 3.11/x64 (3000 entries holding a
+# 1-float vector, so the bookkeeping is what dominates); rounded up so this
+# term over-estimates rather than under-estimates.
+_VEC_ENTRY_OVERHEAD_BYTES = 384
+
+
+class _ScanState:
+    """Per-``_cosine_rank`` admission state (see the scan-aware note above)."""
+
+    __slots__ = ('touched',)
+
+    def __init__(self) -> None:
+        self.touched = 0
+
+
+def _cached_doc_vector(doc: dict, text, model_id: str, state: '_ScanState'):
+    """``decode_valid_cached_embedding`` with a process-level decode cache.
+
+    Returns ``(vector, norm)`` on validation success, else ``(None, 0.0)`` —
+    verdict identical to calling ``decode_valid_cached_embedding`` directly.
+    """
+    global _VEC_CACHE_BYTES
+
+    from memory.embeddings import decode_valid_cached_embedding
+
+    did = doc.get('id')
+    emb = doc.get('embedding')
+    cacheable = isinstance(did, str) and bool(did) and isinstance(emb, str)
+
+    if cacheable:
+        cached = _VEC_CACHE.get(did)
+        if (
+            cached is not None
+            and cached[0] == model_id
+            # 身份比较，不是相等比较：同一个 str 对象 ⇒ 同样的 sha256，
+            # 不用真去算（见上方 delta 论证第 2 点）。
+            and cached[1] is text
+            and doc.get('embedding_text_sha256') == cached[2]
+            and doc.get('embedding_model_id') == model_id
+            and cached[3] == emb
+        ):
+            _VEC_CACHE.move_to_end(did)
+            state.touched += 1
+            return cached[4], cached[5]
+
+    # 一次解码拿到向量，而不是「is_cached_embedding_valid 里解一遍判维度
+    # → 丢掉 → decode_embedding 再解一遍」。两次 base64 解码 + 两次
+    # np.isfinite 全扫在 5000 条池子上实测约 26ms 纯白费（#2550）。
+    cvec = decode_valid_cached_embedding(doc, text, model_id)
+    if cvec is None:
+        return None, 0.0
+
+    import numpy as np
+
+    cnorm = float(np.linalg.norm(cvec))
+    if not cacheable:
+        return cvec, cnorm
+
+    stamp = doc.get('embedding_text_sha256')
+    nbytes = (
+        int(cvec.nbytes)
+        + sys.getsizeof(emb)
+        + sys.getsizeof(text)
+        + _VEC_ENTRY_OVERHEAD_BYTES
+    )
+
+    previous = _VEC_CACHE.pop(did, None)
+    if previous is not None:
+        _VEC_CACHE_BYTES -= previous[6]
+    while (
+        _VEC_CACHE
+        and _VEC_CACHE_BYTES + nbytes > HYBRID_RECALL_VEC_CACHE_MAX_BYTES
+        # 本轮扫描不许淘汰本轮自己碰过的条目——那正是朴素 LRU 自毁的机制。
+        # 命中和接纳都 move_to_end，所以本轮碰过的都在队尾；只要还没碰满
+        # 整个缓存，队首就一定是上一轮或更早的条目，可以安全淘汰。
+        and state.touched < len(_VEC_CACHE)
+    ):
+        _, evicted = _VEC_CACHE.popitem(last=False)
+        _VEC_CACHE_BYTES -= evicted[6]
+    if _VEC_CACHE_BYTES + nbytes <= HYBRID_RECALL_VEC_CACHE_MAX_BYTES:
+        _VEC_CACHE[did] = (model_id, text, stamp, emb, cvec, cnorm, nbytes)
+        _VEC_CACHE_BYTES += nbytes
+        state.touched += 1
+    return cvec, cnorm
+
+
+def _invalidate_vec_cache() -> None:
+    """Drop every decoded vector. Tests and ``_invalidate_pool_cache`` only."""
+    global _VEC_CACHE_BYTES
+
+    _VEC_CACHE.clear()
+    _VEC_CACHE_BYTES = 0
 
 
 async def _cosine_rank(
@@ -310,7 +504,6 @@ async def _cosine_rank(
         return []
 
     from memory.embeddings import (
-        decode_valid_cached_embedding,
         get_embedding_service,
         parse_dim_from_model_id,
     )
@@ -341,24 +534,45 @@ async def _cosine_rank(
 
         target_dim = parse_dim_from_model_id(model_id) or int(qarr.size)
 
-        scored: list[tuple[dict, float]] = []
+        # ── batch scoring：解码循环只收集向量，dot 交给一次矩阵运算 ──
+        #
+        # 逐条 ``np.linalg.norm`` + ``np.dot`` 在 5000 条池子上是 ~3 万次
+        # Python↔numpy 派发（每次 ~10µs 的固定开销，BLAS 本体反而微不足道）。
+        # 改成 decode 循环只攒 (doc, vec, norm)，最后 vstack 成 (n, dim) 矩阵、
+        # 一次 matmul，同样的语义（cnorm<=0 跳过、维度不匹配跳过）。
+        #
+        # 模长跟着向量一起来自 ``_cached_doc_vector``：向量没变，它的模长必然
+        # 也没变，全池重算 ``norm(axis=1)`` 在 5000 条上是白付的 ~3ms。miss
+        # 的条目在解码处顺手算一次——那条路本来就要付解码，多一次 norm 不显。
+        vecs: list = []
+        rows: list[dict] = []
+        row_norms: list[float] = []
+        state = _ScanState()
         for doc in pool:
             text = doc.get('text', '') or ''
-            # 一次解码拿到向量，而不是「is_cached_embedding_valid 里解一遍判维度
-            # → 丢掉 → decode_embedding 再解一遍」。两次 base64 解码 + 两次
-            # np.isfinite 全扫在 5000 条池子上实测约 26ms 纯白费（#2550）。
-            # 维度判定语义不变：valid 判的是 model_id 解析出的期望维度，下面这行
-            # 判的是 target_dim（model_id 解析失败时回落成 query 维度），后者仍是
-            # 兜底那一路唯一的约束，不能省。
-            cvec = decode_valid_cached_embedding(doc, text, model_id)
+            cvec, cnorm = _cached_doc_vector(doc, text, model_id, state)
             if cvec is None or cvec.size != target_dim:
                 continue
-            carr = np.asarray(cvec, dtype=np.float32)
-            cnorm = float(np.linalg.norm(carr))
-            if cnorm <= 0:
-                continue
-            cos = float(np.dot(qarr, carr) / (qnorm * cnorm))
-            scored.append((doc, cos))
+            rows.append(doc)
+            vecs.append(cvec)
+            row_norms.append(cnorm)
+
+        if not rows:
+            return []
+
+        mat = np.vstack(vecs).astype(np.float32, copy=False)
+        norms = np.asarray(row_norms, dtype=np.float32)
+        # cnorm<=0 原来是逐条 continue（不进结果）；矩阵化后同样用 mask 滤掉，
+        # 除零处先垫 1.0 保证 0 向量行算出 0 而不是 NaN，再由 keep 剔除。
+        keep = norms > 0
+        safe_norms = np.where(keep, norms, 1.0)
+        sims = (mat @ qarr) / (qnorm * safe_norms)
+
+        scored: list[tuple[dict, float]] = [
+            (doc, float(cos))
+            for doc, cos, ok in zip(rows, sims, keep)
+            if ok
+        ]
 
         scored.sort(key=lambda p: p[1], reverse=True)
         return scored
@@ -526,7 +740,12 @@ def _invalidate_pool_cache(path: str | None = None) -> None:
 
     Exists for tests and for callers that knowingly bypass ``atomic_write_json``;
     the normal path needs no explicit invalidation (see the module note above).
+    Also drops the decoded-vector cache (``_VEC_CACHE``): its entries are
+    content-validated per probe, so clearing is never *required* for
+    correctness, but tests reuse doc ids across cases and a shared cache would
+    turn test isolation into an accident of content addressing.
     """
+    _invalidate_vec_cache()
     if path is None:
         _POOL_CACHE.clear()
     else:
@@ -721,9 +940,12 @@ def _drop_archive_overlap(
     return out
 
 
-def _tag_tier(items: list[dict], tier: str) -> list[dict]:
-    """Shallow-copy each item and stamp ``_tier`` + ``target_type`` for
-    downstream hard_filter + result formatting. Doesn't mutate originals.
+def _tag_tier(
+    items: list[dict], tier: str, *, now: datetime | None = None,
+) -> list[dict]:
+    """Shallow-copy each item and stamp ``_tier`` + ``target_type`` (+ ``score``
+    for reflections) for downstream hard_filter + result formatting. Doesn't
+    mutate originals.
 
     Skip non-dict rows defensively: facts.json / reflections.json /
     facts_archive.json are all nominally list[dict] schemas, but manual edits /
@@ -733,6 +955,28 @@ def _tag_tier(items: list[dict], tier: str) -> list[dict]:
     hybrid_recall aborts, violating the "skip the single bad row, return the
     rest" design. Codex review on PR #1385.
     """
+    # ⚠️ ``score`` 必须在这里**现算**，不能指望行里带。``_hard_filter`` 声称
+    # "drop score<0"，但它读的是 ``o.get('score')`` —— 而 reflections.json 的
+    # 落盘 schema（memory/_reflection/schema.py）根本没有 ``score`` 键：evidence
+    # 是 ``reinforcement`` / ``disputation`` 两个累加器，score 一律是读时用
+    # ``evidence_score()`` 折算出来的。于是真实数据上 ``score is None``，那条
+    # 过滤整条空转 —— 用户反驳到 disputation 压到负分的反思，照样被 recall_memory
+    # 召回、原文注入 context，跟 system prompt 里的 ban 指令正面打架。
+    #
+    # Stage-2 的信号池（memory/facts.py:_aload_signal_targets）本来就是这么做的
+    # （建池时 ``'score': evidence_score(r, now)``），那条路径上过滤一直是真的
+    # 生效的。这里补齐同一份语义，两条召回面才对得上。
+    #
+    # ⚠️ **只给 reflection 算**。fact / fact_archive 行不参与 evidence 体系
+    # （facts.json 里没有 reinforcement / disputation 字段，也没有任何写入方给
+    # 它们派信号），盖一个恒 0 的 score 纯属噪音；更要紧的是 ``evidence_score``
+    # 对 ``protected`` 行返回 +inf，将来 fact 侧真加了字段时，语义该由那次改动
+    # 显式决定，而不是从这里的顺手泛化里继承过去。
+    #
+    # 单调性：只会**多**丢行，不会多留行 —— ``score=None`` 时过滤本就放行，现
+    # 在算出来 ≥0 的照旧放行，只有真负分的被拦。
+    if now is None:
+        now = datetime.now()
     out: list[dict] = []
     for it in items:
         if not isinstance(it, dict):
@@ -750,6 +994,47 @@ def _tag_tier(items: list[dict], tier: str) -> list[dict]:
         # sees uniform shape.
         if tier == 'reflection':
             d.setdefault('target_type', 'reflection')
+            # ⚠️⚠️ **只给真的被反驳过的行盖 score**（``disputation > 0``）。
+            #
+            # ``_hard_filter`` 那条过滤的原话是 "user has been disputing this
+            # more than confirming it"，但 ``evidence_score`` 转负不止一条路：
+            # 用户对 surfaced 反思**沉默**时，post_turn 按 'ignored' 记
+            # ``reinforcement += -0.2``（IGNORED_REINFORCEMENT_DELTA）。一次
+            # AI 抛 7 条、用户当轮没接话，这 7 条就全成了 rein=-0.2 / disp=0
+            # 的负分行 —— 按净分过滤会把它们当场从召回里抹掉（对抗审查实测存量
+            # 里 17.8% 的活跃 reflection 属于这一类）。
+            #
+            # 但"没接话"不是"反对"。产品命题里沉默只意味着这条不够格升级，
+            # 不意味着用户否认它；两周后用户主动问"我上个月在忙什么"，那批
+            # 条目正是该被召回的东西。加上 ``disputation > 0`` 这一维，过滤
+            # 的语义才真正等于那句 docstring：**有人反驳过，且反驳压过了确认**。
+            #
+            # 没有 disputation 的行**原样不动**：真实数据里 reflections.json 就
+            # 没有 score 键，不动 = 没有键 = 回落到"不按分过滤"，正是想要的。
+            #
+            # ⚠️ 这里曾经写的是 ``d.pop('score', None)``，方向恰好反了。改动前
+            # ``_tag_tier`` 根本不碰这个键，所以"与改动之前一致"要求的是**不碰**
+            # 而不是删：盘上真带着 ``score: -5.0`` 的陈旧行（下面那条注释自己
+            # 承认这种行存在），原样走 ``_hard_filter`` 会被丢掉，pop 之后反而
+            # **活了下来** —— 与"只会多丢行、不会多留行"的单调性主张正相反。
+            # 实测 ``{"id":"stale_neg","status":"confirmed","score":-5.0}``：
+            # 直接过 _hard_filter 得 []，先过 _tag_tier 再过则得 ['stale_neg']。
+            try:
+                if float(d.get('disputation', 0.0) or 0.0) > 0.0:
+                    # ⚠️ 覆盖式赋值，不是 setdefault：行里若真带了 ``score``，
+                    # 那是历史遗留 / 手工编辑的陈旧快照，衰减早已算不准。
+                    # 唯一权威是现算值。
+                    d['score'] = evidence_score(d, now)
+            except Exception as exc:
+                # 单行字段类型坏掉（``reinforcement: "abc"``）不该让整池挂掉；
+                # 与本函数的 non-dict 跳过、``_hard_filter`` 的 per-entry
+                # try/except 同一策略。这里同样**不删** score 键：算不出现值时
+                # 保留盘上原值，是最接近"本函数没跑过"的状态。
+                logger.debug(
+                    "[hybrid_recall] _tag_tier: score unavailable for "
+                    "reflection id=%r: %s: %s",
+                    d.get('id'), type(exc).__name__, exc,
+                )
         out.append(d)
     return out
 

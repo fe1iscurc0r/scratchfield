@@ -9,7 +9,7 @@
  * 4. 监听来自其他窗口的 IPC 消息（如 Chat 发来的用户输入）
  */
 
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, contextBridge } = require('electron');
 
 // ===== IPC 通道常量（统一来源）=====
 const { WS_CHANNELS, CHAT_CHANNELS, CHAT_ACTION_CHANNELS, AGENT_CHANNELS, WS_PROXY_CHANNELS, JUKEBOX_CHANNELS, WINDOW_CONTROL_CHANNELS, SUBTITLE_CHANNELS, PET_CHANNELS } = require('./ipc-channels');
@@ -19,6 +19,154 @@ const _debugLinuxInput = process.env.NEKO_DEBUG_LINUX_INPUT === '1' || process.e
 function debugLinuxInput(message) {
   if (!_debugLinuxInput) return;
   try { ipcRenderer.send('neko:debug-log', message); } catch (_) {}
+}
+
+// ===== WO-278 P1：页面注册面（Pet 窗）=====
+// 隔离后 preload 读不到页面的 `window.lanlan_config` / `window.t` 这类全局（JS 全局不跨世界），
+// 但**页面可以把函数交给 preload**（contextBridge 双向），这种代理函数**同步可调用、能拿返回值**。
+// 所以不搬对象，只让页面注册一个 getter，preload 侧经 pageApi() 逐次取值：
+//   - 非隔离：直接返回 window[name]（生产行为与改造前完全一致）
+//   - 隔离：走页面 getter；未注册则记 miss 并返回 undefined（与改造前同为 undefined）
+// ⚠️ 实例（mmdManager / vrmManager / live2dManager / Jukebox / avatarPortrait）**不走这里**：
+//    对象过桥会丢掉原型方法，必须按成员拆成函数（P2）。
+const petDiag = { hostRegistered: false, misses: Object.create(null) };
+let petHost = null;
+
+function exposeToPage(name, value) {
+  if (process.contextIsolated && contextBridge && typeof contextBridge.exposeInMainWorld === 'function') {
+    contextBridge.exposeInMainWorld(name, value);
+  } else {
+    window[name] = value;
+  }
+}
+
+exposeToPage('nekoPetHost', {
+  register(getter) {
+    if (typeof getter !== 'function') return false;
+    petHost = getter;
+    petDiag.hostRegistered = true;
+    return true;
+  },
+  isRegistered() { return Boolean(petHost); },
+});
+
+// 诊断：冒烟/工装读这个，不参与业务逻辑
+exposeToPage('nekoPetDiagnostics', {
+  snapshot() {
+    const misses = {};
+    Object.keys(petDiag.misses).forEach(function (k) { misses[k] = petDiag.misses[k]; });
+    // 自检探针：真机上验证「桥能传数据 / 能传可调用函数」，由冒烟工装读取。
+    const probes = {};
+    ['t', 'safeT', 'lanlan_config', 'appState', 'pageConfigReady'].forEach(function (n) {
+      let v;
+      try { v = pageApi(n); } catch (e) { v = undefined; }
+      probes[n] = v === undefined ? 'undefined' : typeof v;
+    });
+    // 带点的复合名只在隔离时走 pageApi（非隔离下走 window['DragHelpers.x'] 会假报 undefined），
+    // 所以这里直接用生产代码同款的 helper，两种模式都可信。
+    probes.dragHelpersBusy = petDragHelpersBusy();
+    // 真调用一遍：只看 typeof 证明不了「桥过来的函数能不能用」。
+    const calls = {};
+    try {
+      const fn = pageApi('t');
+      calls.t = typeof fn === 'function' ? String(fn('probe.key')) : 'no-fn';
+    } catch (e) { calls.t = 'err:' + String(e && e.message).slice(0, 60); }
+    try {
+      // 同样走生产代码的 helper（隔离走桥、非隔离读 window）
+      calls.restore = petRestoreButtonPointerEvents() ? 'called' : 'no-fn';
+    } catch (e) { calls.restore = 'err:' + String(e && e.message).slice(0, 60); }
+    try {
+      const cfg = pageApi('lanlan_config');
+      calls.configModelType = cfg && cfg.model_type;
+    } catch (e) { calls.configModelType = 'err'; }
+    return {
+      isolated: Boolean(process.contextIsolated),
+      hostRegistered: petDiag.hostRegistered,
+      misses: misses,
+      probes: probes,
+      calls: calls,
+    };
+  },
+});
+
+function pageApi(name) {
+  if (!process.contextIsolated) return window[name];
+  if (typeof petHost === 'function') {
+    try {
+      const v = petHost(name);
+      if (v !== undefined) return v;
+    } catch (_) { /* 页面 getter 抛错按未注册处理 */ }
+  }
+  petDiag.misses[name] = (petDiag.misses[name] || 0) + 1;
+  return undefined;
+}
+
+// DragHelpers 是页面的命名空间对象（一个布尔 + 若干方法）。
+// 对象整体过桥会丢 getter/方法，所以拆成「值」和「函数」两个入口：
+function petDragHelpersBusy() {
+  if (process.contextIsolated) {
+    const v = pageApi('DragHelpers.isDragging');
+    return v === undefined ? false : Boolean(v);
+  }
+  return Boolean(window.DragHelpers && window.DragHelpers.isDragging);
+}
+
+// ---- 域 A：模型态（实例不能整体过桥，这里按「判断/复位」拆函数）----
+function petModelType() {
+  if (process.contextIsolated) {
+    const v = pageApi('modelType');
+    return v === undefined ? null : v;
+  }
+  if (window.mmdManager && window.mmdManager.currentModel) return 'mmd';
+  if (window.vrmManager && window.vrmManager.currentModel) return 'vrm';
+  return null;
+}
+
+function petModelDragging(modelType) {
+  if (process.contextIsolated) {
+    return pageApi('modelDragging:' + modelType) === true;
+  }
+  if (modelType === 'live2d' && window.live2dManager && window.live2dManager._isDraggingModel) return true;
+  if (modelType === 'vrm' && window.vrmManager && window.vrmManager.interaction
+    && window.vrmManager.interaction.isDragging) return true;
+  if (modelType === 'mmd' && window.mmdManager && window.mmdManager.interaction
+    && window.mmdManager.interaction.isDragging) return true;
+  return false;
+}
+
+function petClearModelDragging() {
+  if (process.contextIsolated) {
+    // 动作型能力：pageApi 的「取值」本身就是执行，返回 boolean 但这里不需要
+    pageApi('clearModelDragging');
+    return;
+  }
+  if (window.live2dManager) {
+    window.live2dManager._isDraggingModel = false;
+    const live2dModel = window.live2dManager.getCurrentModel && window.live2dManager.getCurrentModel();
+    if (live2dModel) live2dModel.dragging = false;
+  }
+  if (window.vrmManager && window.vrmManager.interaction) {
+    window.vrmManager.interaction.isDragging = false;
+  }
+  if (window.mmdManager && window.mmdManager.interaction) {
+    window.mmdManager.interaction.isDragging = false;
+  }
+}
+
+function petRestoreButtonPointerEvents() {
+  if (process.contextIsolated) {
+    const fn = pageApi('DragHelpers.restoreButtonPointerEvents');
+    if (typeof fn === 'function') {
+      fn();
+      return true;
+    }
+    return false;
+  }
+  if (window.DragHelpers && typeof window.DragHelpers.restoreButtonPointerEvents === 'function') {
+    window.DragHelpers.restoreButtonPointerEvents();
+    return true;
+  }
+  return false;
 }
 
 // Wayland 检测（preload 级别）：必须与主进程 isLinuxWaylandRuntime() 逻辑一致
@@ -431,19 +579,20 @@ function isPointWithinVisibleTutorialSkipButton(x, y) {
 }
 
 function getActiveModelType() {
-  var configuredType = (window.lanlan_config && window.lanlan_config.model_type) || 'live2d';
+  var configuredType = (pageApi('lanlan_config') && pageApi('lanlan_config').model_type) || 'live2d';
 
   if (configuredType === 'mmd') return 'mmd';
   if (configuredType === 'vrm') return 'vrm';
 
   if (configuredType === 'live3d') {
     // 优先读 sub_type 配置，避免 paused-but-not-disposed 的旧 manager 干扰判断
-    var subType = (window.lanlan_config && window.lanlan_config.live3d_sub_type) || '';
+    var subType = (pageApi('lanlan_config') && pageApi('lanlan_config').live3d_sub_type) || '';
     if (subType === 'mmd') return 'mmd';
     if (subType === 'vrm') return 'vrm';
-    // fallback: 配置缺失时仍按实例探测
-    if (window.mmdManager && window.mmdManager.currentModel) return 'mmd';
-    if (window.vrmManager && window.vrmManager.currentModel) return 'vrm';
+    // fallback: 配置缺失时仍按实例探测（隔离后经页面注册面取）
+    var detected = petModelType();
+    if (detected === 'mmd') return 'mmd';
+    if (detected === 'vrm') return 'vrm';
     return 'live3d';
   }
 
@@ -546,34 +695,15 @@ function isPointOverGoodbyeInteractiveElement(x, y) {
 function isModelDragging() {
   try {
     var mt = getActiveModelType();
-    if (mt === 'live2d' && window.live2dManager) {
-      if (window.live2dManager._isDraggingModel) return true;
-    }
-    if (mt === 'vrm' && window.vrmManager && window.vrmManager.interaction) {
-      if (window.vrmManager.interaction.isDragging) return true;
-    }
-    if (mt === 'mmd' && window.mmdManager && window.mmdManager.interaction) {
-      if (window.mmdManager.interaction.isDragging) return true;
-    }
+    if (petModelDragging(mt)) return true;
   } catch (_) {}
   return false;
 }
 
 function resetModelDraggingState(reason) {
   try {
-    if (window.live2dManager) {
-      window.live2dManager._isDraggingModel = false;
-      var live2dModel = window.live2dManager.getCurrentModel && window.live2dManager.getCurrentModel();
-      if (live2dModel) live2dModel.dragging = false;
-    }
-    if (window.vrmManager && window.vrmManager.interaction) {
-      window.vrmManager.interaction.isDragging = false;
-    }
-    if (window.mmdManager && window.mmdManager.interaction) {
-      window.mmdManager.interaction.isDragging = false;
-    }
-    if (window.DragHelpers && typeof window.DragHelpers.restoreButtonPointerEvents === 'function') {
-      window.DragHelpers.restoreButtonPointerEvents();
+    petClearModelDragging();
+    if (petRestoreButtonPointerEvents()) {
     }
     if (document.body) document.body.classList.remove('neko-model-dragging');
     var canvas = document.getElementById('live2d-canvas')
@@ -829,7 +959,7 @@ function handleMousePosition(x, y) {
   }
 
   // 拖拽期间跳过 elementFromPoint（同步 layout 查询），保持当前穿透状态
-  if (window.DragHelpers && window.DragHelpers.isDragging) return;
+  if (petDragHelpersBusy()) return;
   if (isModelDragging()) return;
 
   if (isCurrentModelInGoodbyeMode()) {
@@ -3028,8 +3158,8 @@ function emitDesktopAvatarToolInteraction(toolId, actionId, clientX, clientY, op
     payload.easterEgg = true;
   }
 
-  if (window.appButtons && typeof window.appButtons.sendAvatarInteractionPayload === 'function') {
-    window.appButtons.sendAvatarInteractionPayload(payload);
+  if (pageApi('appButtons') && typeof pageApi('appButtons').sendAvatarInteractionPayload === 'function') {
+    pageApi('appButtons').sendAvatarInteractionPayload(payload);
   } else {
     window.dispatchEvent(new CustomEvent('react-chat-window:avatar-interaction', { detail: payload }));
   }
@@ -3640,7 +3770,7 @@ function startMousePoller() {
     if (isBlankPage()) return;
     if (!isHomePage()) return;
     // 拖拽期间跳过整个轮询：避免 IPC 往返 + 合成事件 + elementFromPoint 开销
-    if (window.DragHelpers && window.DragHelpers.isDragging) return;
+    if (petDragHelpersBusy()) return;
     var modelDraggingAtPollStart = isModelDragging();
     var returnBallDraggingAtPollStart = isNekoIdleReturnBallDragActiveForInputRegion();
     var draggingAtPollStart = modelDraggingAtPollStart || returnBallDraggingAtPollStart;
@@ -3862,7 +3992,7 @@ function startMousePoller() {
       case 'agent_task_update':
         // 延迟一点让 Pet 窗口的原有逻辑先处理完 _agentTaskMap
         setTimeout(function () {
-          var tasks = window._agentTaskMap ? Array.from(window._agentTaskMap.values()) : [];
+          var tasks = pageApi('_agentTaskMap') ? Array.from(pageApi('_agentTaskMap').values()) : [];
           ipcRenderer.send(WS_CHANNELS.AGENT_UPDATE, {
             tasks: tasks,
             running_count: tasks.filter(function (t) { return t.status === 'running'; }).length,
@@ -3901,7 +4031,7 @@ function startMousePoller() {
     var sendText = text.trim() || (images.length > 0 ? '[图片]' : '');
 
     // 如果没有活跃文本会话，先开一个再发（appState 不存在时也需要先开会话）
-    var S = window.appState;
+    var S = pageApi('appState');
     if (!S || !S.isTextSessionActive) {
       console.log('[Pet] Starting text session before sending, waiting for session_started...');
       var _pendingText = sendText;
@@ -3917,7 +4047,7 @@ function startMousePoller() {
             _OrigWebSocket.prototype.removeEventListener.call(_activeWs, 'message', _onSessionStarted);
             if (_sessionTimeout) { clearTimeout(_sessionTimeout); _sessionTimeout = null; }
             // 标记会话活跃
-            if (window.appState) window.appState.isTextSessionActive = true;
+            if (pageApi('appState')) pageApi('appState').isTextSessionActive = true;
             console.log('[Pet] session_started received, now sending stream_data:', _pendingText);
             _sendStreamData(_pendingText, _pendingImages);
           }
@@ -3969,8 +4099,8 @@ function startMousePoller() {
   ipcRenderer.on(CHAT_CHANNELS.SCREENSHOT, () => {
     (async function () {
       try {
-        var dataUrl = typeof window.captureProactiveChatScreenshot === 'function'
-          ? await window.captureProactiveChatScreenshot() : null;
+        var dataUrl = typeof pageApi('captureProactiveChatScreenshot') === 'function'
+          ? await pageApi('captureProactiveChatScreenshot')() : null;
         if (dataUrl && _activeWs && _activeWs.readyState === _OrigWebSocket.OPEN) {
           _activeWs.send(JSON.stringify({ action: 'screenshot_response', data: dataUrl }));
           ipcRenderer.send(WS_CHANNELS.CHAT_MESSAGE, { text: '📸 [截图已发送]', isNewMessage: true });
@@ -3984,10 +4114,10 @@ function startMousePoller() {
     (async function () {
       try {
         var result = null;
-        if (typeof window.captureScreenshotDataUrl === 'function') {
-          result = await window.captureScreenshotDataUrl();
-        } else if (typeof window.captureProactiveChatScreenshot === 'function') {
-          result = { dataUrl: await window.captureProactiveChatScreenshot() };
+        if (typeof pageApi('captureScreenshotDataUrl') === 'function') {
+          result = await pageApi('captureScreenshotDataUrl')();
+        } else if (typeof pageApi('captureProactiveChatScreenshot') === 'function') {
+          result = { dataUrl: await pageApi('captureProactiveChatScreenshot')() };
         }
         var dataUrl = (result && result.dataUrl) ? result.dataUrl : null;
         ipcRenderer.send(CHAT_CHANNELS.SCREENSHOT_RESULT, { dataUrl: dataUrl });
@@ -4015,7 +4145,7 @@ function startMousePoller() {
           background: 'rgba(255, 255, 255, 0.96)',
           includeDataUrl: true
         });
-        var modelType = (result && result.modelType) || (window.lanlan_config && window.lanlan_config.model_type) || 'live2d';
+        var modelType = (result && result.modelType) || (pageApi('lanlan_config') && pageApi('lanlan_config').model_type) || 'live2d';
         ipcRenderer.send(CHAT_ACTION_CHANNELS.AVATAR_PREVIEW_RESULT, {
           dataUrl: result && result.dataUrl ? result.dataUrl : null,
           modelType: modelType
@@ -4030,21 +4160,21 @@ function startMousePoller() {
   let chatConfigResultPending = false;
   function sendChatConfigResult() {
     chatConfigResultPending = false;
-    var cfg = window.lanlan_config || {};
+    var cfg = pageApi('lanlan_config') || {};
     ipcRenderer.send(CHAT_ACTION_CHANNELS.CONFIG_RESULT, {
       lanlan_name: cfg.lanlan_name || '',
       model_type: cfg.model_type || 'live2d',
       live3d_sub_type: cfg.live3d_sub_type || '',
-      master_name: window.master_name || cfg.master_name || '',
-      master_profile_name: window.master_profile_name || cfg.master_profile_name || '',
-      master_nickname: window.master_nickname || cfg.master_nickname || '',
-      master_display_name: window.master_display_name || cfg.master_display_name || '',
+      master_name: pageApi('master_name') || cfg.master_name || '',
+      master_profile_name: pageApi('master_profile_name') || cfg.master_profile_name || '',
+      master_nickname: pageApi('master_nickname') || cfg.master_nickname || '',
+      master_display_name: pageApi('master_display_name') || cfg.master_display_name || '',
     });
   }
 
   // Chat → Pet: 配置请求（猫娘名字、主人信息）
   ipcRenderer.on(CHAT_ACTION_CHANNELS.CONFIG_REQUEST, () => {
-    var cfg = window.lanlan_config || {};
+    var cfg = pageApi('lanlan_config') || {};
     if (cfg.lanlan_name) {
       sendChatConfigResult();
       return;
@@ -4053,8 +4183,8 @@ function startMousePoller() {
       return;
     }
     chatConfigResultPending = true;
-    if (window.pageConfigReady && typeof window.pageConfigReady.then === 'function') {
-      window.pageConfigReady.then(sendChatConfigResult, sendChatConfigResult);
+    if (pageApi('pageConfigReady') && typeof pageApi('pageConfigReady').then === 'function') {
+      pageApi('pageConfigReady').then(sendChatConfigResult, sendChatConfigResult);
       return;
     }
     setTimeout(sendChatConfigResult, 300);
@@ -4242,8 +4372,8 @@ document.addEventListener('DOMContentLoaded', () => {
     forwardSubtitleRenderState(event.detail);
   });
 
-  if (window.nekoSubtitleShared && typeof window.nekoSubtitleShared.getRenderState === 'function') {
-    forwardSubtitleRenderState(window.nekoSubtitleShared.getRenderState());
+  if (pageApi('nekoSubtitleShared') && typeof pageApi('nekoSubtitleShared').getRenderState === 'function') {
+    forwardSubtitleRenderState(pageApi('nekoSubtitleShared').getRenderState());
   }
 
   console.log('[Preload-Pet] 多窗口模式初始化完成');
@@ -4265,8 +4395,8 @@ function readSubtitleEnabledForWindowSync(subtitleShared) {
       }
     } catch (_) {}
   }
-  if (window.appState && Object.prototype.hasOwnProperty.call(window.appState, 'subtitleEnabled')) {
-    return !!window.appState.subtitleEnabled;
+  if (pageApi('appState') && Object.prototype.hasOwnProperty.call(pageApi('appState'), 'subtitleEnabled')) {
+    return !!pageApi('appState').subtitleEnabled;
   }
   return localStorage.getItem('subtitleEnabled') === 'true';
 }
@@ -4280,8 +4410,8 @@ function subtitleSettingsUpdateOptions(source, data) {
 
 ipcRenderer.on(SUBTITLE_CHANNELS.SETTINGS_CHANGE, (event, data) => {
   if (!data || !data.type) return;
-  var bridge = window.subtitleBridge;
-  var subtitleShared = window.nekoSubtitleShared;
+  var bridge = pageApi('subtitleBridge');
+  var subtitleShared = pageApi('nekoSubtitleShared');
   if (!bridge && !(subtitleShared && typeof subtitleShared.updateSettings === 'function')) return;
 
   if (data.type === 'toggle') {
@@ -4500,8 +4630,8 @@ ipcRenderer.on('reset-model-position', () => {
   console.log('[Preload-Pet] 收到复位模型位置消息');
   try {
     // model_type 为 'live3d' 时，VRM 和 MMD 都走这个值，需要看 live3d_sub_type 区分
-    const modelType = (window.lanlan_config && window.lanlan_config.model_type || 'live2d').toLowerCase();
-    const subType = (window.lanlan_config && window.lanlan_config.live3d_sub_type || '').toLowerCase();
+    const modelType = (pageApi('lanlan_config') && pageApi('lanlan_config').model_type || 'live2d').toLowerCase();
+    const subType = (pageApi('lanlan_config') && pageApi('lanlan_config').live3d_sub_type || '').toLowerCase();
 
     if ((modelType === 'vrm' || (modelType === 'live3d' && subType === 'vrm')) && window.vrmManager && typeof window.vrmManager.resetModelPosition === 'function') {
       window.vrmManager.resetModelPosition();
@@ -4527,8 +4657,8 @@ ipcRenderer.on('reset-model-position', () => {
 ipcRenderer.on('reset-to-default-model', () => {
   console.log('[Preload-Pet] 收到恢复默认模型消息');
   try {
-    if (typeof window.resetToDefaultModel === 'function') {
-      Promise.resolve(window.resetToDefaultModel()).catch((err) => {
+    if (typeof pageApi('resetToDefaultModel') === 'function') {
+      Promise.resolve(pageApi('resetToDefaultModel')()).catch((err) => {
         console.error('[Preload-Pet] 恢复默认模型失败:', err);
       });
     } else {
@@ -4635,14 +4765,14 @@ function setupInlineToast() {
 
   function translateText(key, fallback) {
     try {
-      if (typeof window.safeT === 'function') {
-        var safeTranslated = window.safeT(key, fallback);
+      if (typeof pageApi('safeT') === 'function') {
+        var safeTranslated = pageApi('safeT')(key, fallback);
         if (typeof safeTranslated === 'string' && safeTranslated && safeTranslated !== key) {
           return safeTranslated;
         }
       }
-      if (typeof window.t === 'function') {
-        var translated = window.t(key, { defaultValue: fallback });
+      if (typeof pageApi('t') === 'function') {
+        var translated = pageApi('t')(key, { defaultValue: fallback });
         if (typeof translated === 'string' && translated && translated !== key) {
           return translated;
         }
@@ -5372,8 +5502,8 @@ function setupLinuxShapePassthrough() {
     refreshAfterPointerBoundary();
   });
 
-  if (window.pageConfigReady && typeof window.pageConfigReady.then === 'function') {
-    window.pageConfigReady.finally(function() { hookLive2DModelLoaded(); refreshAfterModelReady(); });
+  if (pageApi('pageConfigReady') && typeof pageApi('pageConfigReady').then === 'function') {
+    pageApi('pageConfigReady').finally(function() { hookLive2DModelLoaded(); refreshAfterModelReady(); });
   }
 
   var hookAttempts = 0;

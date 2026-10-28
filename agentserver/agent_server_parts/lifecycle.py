@@ -1,9 +1,22 @@
 """agent_server_parts.lifecycle —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import Modules, logger  # noqa: F401
+from .common import (  # noqa: F401  244d：原星号导入改为显式（F405）
+    EmbeddedRuntime,
+    FastAPI,
+    Modules,
+    add_config_listener,
+    apply_local_cors,
+    asynccontextmanager,
+    asyncio,
+    config,
+    get_embedded_runtime,
+    get_openclaw_client,
+    logger,
+)
 from .session import _interrupt_travel_sessions, _resume_open_travel_sessions  # noqa: F401
+from system.net_boundary import LocalBoundaryMiddleware
+
 
 async def _start_gateway_if_port_free(runtime: EmbeddedRuntime) -> bool:
     """主 Gateway 仅按主端口状态判定是否需要启动。"""
@@ -273,5 +286,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="陆墨 Server", version="1.0.0", lifespan=lifespan)
 
+
+# 边界守卫先挂、CORS 后挂（add_middleware 栈式插入，后加者在最外层）：
+# 被拒请求要能带着 CORS 头回到浏览器，否则用户只看到 "blocked by CORS policy"。
+# 挂中间件而不是逐路由 Depends —— 本服务的路由分散在 8 个 parts 模块里，
+# 靠每条路由自觉正是 P0-1 能挂两年的原因。
+app.add_middleware(
+    LocalBoundaryMiddleware,
+    component="agent-server",
+    public_paths=("/health",),
+)
 
 apply_local_cors(app)

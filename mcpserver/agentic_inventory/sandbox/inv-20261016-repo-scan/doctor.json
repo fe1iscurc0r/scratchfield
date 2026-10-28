@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "tool": "doctor",
+  "module": "mcpserver.agentic_inventory",
+  "can": [
+    "盘存仓内 agent 资产（manifest 静态契约信号 → 置信度 + evidence 令牌）",
+    "风险姿态（remote_fetch_exec / unpinned_dependency / cleartext_endpoint / plaintext_secret / injection_markers / hidden_unicode）",
+    "**注册表对账**（entryPoint 能否静态落地、声明与派发表是否一致）",
+    "快照与 diff（sha256 + launch_hash ⇒ 签名变化 / **启动向量变化**）"
+  ],
+  "cannot": [
+    "**不做主机级扫描**（没有 running/pid/port）—— 那需要进程快照并会碰用户家目录，本模块只盘**仓内**资产",
+    "不 import 被盘对象（用 AST 静态读，避免依赖与副作用）",
+    "不执行任何发现的二进制、不连接任何 MCP server 去枚举工具（照上游的 detection-only 纪律）",
+    "**不报密钥的值**（plaintext_secret 只给变量名）"
+  ],
+  "notes": [
+    "与 244g 守卫的边界：那个是**CI 闸门**（静态、无依赖、只守 manifest 可解析）；本模块是**可反复跑的盘存**（任意目录、带置信度/风险/指纹、可跨时间 diff）。",
+    "方法借自 karmine05/agentic-detector（MIT，13★）的 ai_tools 表设计。"
+  ]
+}

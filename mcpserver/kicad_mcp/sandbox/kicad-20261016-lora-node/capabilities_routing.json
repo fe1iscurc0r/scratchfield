@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "tool": "upstream_capabilities",
+  "data": {
+    "stats": {
+      "source_repo": "mixelpixx/KiCAD-MCP-Server",
+      "source_ref": "main",
+      "license": "MIT",
+      "fetched_at": "2026-10-16",
+      "categories": 17,
+      "routed_tools": 159,
+      "direct_tools": 32,
+      "distinct_indexed_tools": 184,
+      "covers": "上游 README 所称的 indexed 184（registered 244 不在 registry.ts 内，未覆盖）",
+      "provenance": "本表由上游 src/tools/registry.ts 的 toolCategories / directToolNames 两个数组机械抽取（非人工整理）。上游 README 自述『registered 244 / indexed 184 / 17 categories』，本表实测 = 17 类别、routed 159 + direct 32、distinct 184 —— 与『indexed 184』一致；『registered 244』不在该文件内（那是含未索引工具的总数），故本表只覆盖已索引的 184。"
+    },
+    "category": "routing",
+    "tools": [
+      "add_via",
+      "add_copper_pour",
+      "set_net_color"
+    ]
+  }
+}

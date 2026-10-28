@@ -38,7 +38,12 @@ from config import MONITOR_SERVER_PORT, MONITOR_TOKEN, MONITOR_VIEWER_TOKEN
 VIEWER_SESSION_COOKIE = f"neko_monitor_session_{MONITOR_SERVER_PORT}"
 VIEWER_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
 
-_PUBLIC_PATH_PREFIXES = ("/static/", "/user_live2d/", "/user_live2d_local/", "/workshop/")
+# 公开前缀只留 ``/static/``（WO-267 / P0-5）。此前 ``/user_live2d/``、
+# ``/user_live2d_local/``、``/workshop/`` 也在短路名单里，而 monitor 挂的正是
+# 用户 Documents 下的 Live2D 目录与 Steam 工坊目录——意味着「已经配了
+# MONITOR_TOKEN」的部署里，任何人仍能无凭据批量下载付费模型。这些路径改走
+# viewer 会话 cookie：配了 token 就要凭据，没配 token 时中间件整体短路（本机自用）。
+_PUBLIC_PATH_PREFIXES = ("/static/",)
 _PRODUCER_PATH_PREFIXES = ("/sync/", "/sync_binary/")
 _NO_STORE_HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 

@@ -1,0 +1,1142 @@
+{
+ "_source": "API 571 (public standard) + 轮 46 报告 §2.1 类目",
+ "_note": "术语仅取自 API 571 公开标准用词；未引用任何第三方本体文件的原文片段、注释或术语表。rate_mm_per_y 为典型区间（[下限, 上限]）；不适用速率的机制写 [0.0, 0.0] 并用 indicators 判定。",
+ "mechanisms": [
+  {
+   "id": "DM-001",
+   "name_zh": "均匀腐蚀",
+   "name_en": "General / uniform corrosion",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "water",
+    "dilute_acid",
+    "dilute_alkali"
+   ],
+   "temp_range_C": [
+    -20,
+    200
+   ],
+   "rate_mm_per_y": [
+    0.02,
+    0.5
+   ],
+   "indicators": [
+    "壁厚均匀减薄",
+    "挂片失重率上升",
+    "在线测厚趋势单调下降"
+   ],
+   "mitigation": [
+    "选材升级（不锈钢/合金）",
+    "缓蚀剂",
+    "工艺 pH/氧含量控制",
+    "增加腐蚀余量"
+   ]
+  },
+  {
+   "id": "DM-002",
+   "name_zh": "点蚀",
+   "name_en": "Pitting corrosion",
+   "materials": [
+    "austenitic_stainless_304",
+    "austenitic_stainless_316",
+    "aluminium_alloy"
+   ],
+   "fluids": [
+    "chloride_solution",
+    "seawater",
+    "stagnant_water"
+   ],
+   "temp_range_C": [
+    10,
+    150
+   ],
+   "rate_mm_per_y": [
+    0.05,
+    1.0
+   ],
+   "indicators": [
+    "局部麻点/穿孔",
+    "蚀坑深宽比 > 1",
+    "氯离子浓度升高"
+   ],
+   "mitigation": [
+    "降低 Cl- 与温度",
+    "提高流速防沉积",
+    "选用双相钢/高 Mo 不锈钢"
+   ]
+  },
+  {
+   "id": "DM-003",
+   "name_zh": "缝隙腐蚀",
+   "name_en": "Crevice corrosion",
+   "materials": [
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "seawater",
+    "stagnant_water"
+   ],
+   "temp_range_C": [
+    0,
+    120
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.3
+   ],
+   "indicators": [
+    "垫片/焊缝下局部蚀坑",
+    "缝隙内沉积物",
+    "缝隙内外氧浓差"
+   ],
+   "mitigation": [
+    "消除缝隙结构",
+    "改善排水与可清洁性",
+    "垫片选型"
+   ]
+  },
+  {
+   "id": "DM-004",
+   "name_zh": "电偶腐蚀",
+   "name_en": "Galvanic corrosion",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "copper_alloy",
+    "admiralty_brass",
+    "aluminium_alloy"
+   ],
+   "fluids": [
+    "electrolyte",
+    "seawater"
+   ],
+   "temp_range_C": [
+    0,
+    100
+   ],
+   "rate_mm_per_y": [
+    0.05,
+    0.8
+   ],
+   "indicators": [
+    "异种金属接触处阳极侧减薄",
+    "电位差 > 0.25 V"
+   ],
+   "mitigation": [
+    "绝缘垫/绝缘法兰",
+    "避免小阳极大面积阴极",
+    "同材质选型"
+   ]
+  },
+  {
+   "id": "DM-005",
+   "name_zh": "大气腐蚀",
+   "name_en": "Atmospheric corrosion",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "moist_air",
+    "industrial_atmosphere",
+    "marine_atmosphere"
+   ],
+   "temp_range_C": [
+    -10,
+    60
+   ],
+   "rate_mm_per_y": [
+    0.005,
+    0.1
+   ],
+   "indicators": [
+    "表面锈层",
+    "漆膜起泡脱落",
+    "Cl-/SO2 沉积"
+   ],
+   "mitigation": [
+    "涂层体系维护",
+    "干燥通风",
+    "耐候钢/热喷铝"
+   ]
+  },
+  {
+   "id": "DM-006",
+   "name_zh": "土壤腐蚀",
+   "name_en": "Soil corrosion",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "soil",
+    "groundwater"
+   ],
+   "temp_range_C": [
+    0,
+    40
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.2
+   ],
+   "indicators": [
+    "埋地管外壁点蚀",
+    "土壤电阻率 < 500 Ω·cm",
+    "杂散电流"
+   ],
+   "mitigation": [
+    "外防腐层 + 阴极保护",
+    "排流",
+    "回填土改良"
+   ]
+  },
+  {
+   "id": "DM-007",
+   "name_zh": "保温层下腐蚀",
+   "name_en": "Corrosion under insulation (CUI)",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "moist_air",
+    "water"
+   ],
+   "temp_range_C": [
+    -20,
+    175
+   ],
+   "rate_mm_per_y": [
+    0.02,
+    0.6
+   ],
+   "indicators": [
+    "保温下隐蔽锈蚀",
+    "保温层含水",
+    "周期性跨露点运行"
+   ],
+   "mitigation": [
+    "防水保温结构",
+    "涂层（CUI 专用）",
+    "定期拆保温抽检"
+   ]
+  },
+  {
+   "id": "DM-008",
+   "name_zh": "微生物腐蚀",
+   "name_en": "Microbiologically influenced corrosion (MIC)",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "cooling_water",
+    "stagnant_water",
+    "sewage"
+   ],
+   "temp_range_C": [
+    5,
+    60
+   ],
+   "rate_mm_per_y": [
+    0.03,
+    0.7
+   ],
+   "indicators": [
+    "粘泥/生物膜",
+    "硫化物气味",
+    "点蚀群 + 局部黑化"
+   ],
+   "mitigation": [
+    "杀菌剂/生物分散剂",
+    "流速 > 1 m/s",
+    "消除死水区"
+   ]
+  },
+  {
+   "id": "DM-009",
+   "name_zh": "流动加速腐蚀",
+   "name_en": "Flow accelerated corrosion (FAC)",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "wet_steam",
+    "water"
+   ],
+   "temp_range_C": [
+    75,
+    300
+   ],
+   "rate_mm_per_y": [
+    0.05,
+    1.5
+   ],
+   "indicators": [
+    "弯头/三通外侧马蹄形减薄",
+    "流速 > 3 m/s",
+    "pH 偏低"
+   ],
+   "mitigation": [
+    "提高 pH（氨/胺处理）",
+    "降低流速/改几何",
+    "低 Cr 钢或合金替代"
+   ]
+  },
+  {
+   "id": "DM-010",
+   "name_zh": "冲蚀",
+   "name_en": "Erosion / erosion-corrosion",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "copper_alloy",
+    "admiralty_brass"
+   ],
+   "fluids": [
+    "slurry",
+    "steam_with_droplets",
+    "catalyst_fines"
+   ],
+   "temp_range_C": [
+    0,
+    400
+   ],
+   "rate_mm_per_y": [
+    0.05,
+    2.0
+   ],
+   "indicators": [
+    "局部沟槽/波纹状磨损",
+    "颗粒浓度与速度高",
+    "冲击角相关"
+   ],
+   "mitigation": [
+    "降低流速",
+    "耐磨衬里/涂层",
+    "除砂/过滤"
+   ]
+  },
+  {
+   "id": "DM-011",
+   "name_zh": "空泡腐蚀",
+   "name_en": "Cavitation",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "copper_alloy",
+    "admiralty_brass"
+   ],
+   "fluids": [
+    "liquid_with_pressure_drop"
+   ],
+   "temp_range_C": [
+    0,
+    150
+   ],
+   "rate_mm_per_y": [
+    0.1,
+    3.0
+   ],
+   "indicators": [
+    "表面海绵状密集凹坑",
+    "泵叶轮/阀后",
+    "噪声与振动"
+   ],
+   "mitigation": [
+    "改善 NPSH",
+    "降低压差",
+    "耐磨材料"
+   ]
+  },
+  {
+   "id": "DM-012",
+   "name_zh": "脱合金（脱锌）",
+   "name_en": "Dealloying / dezincification",
+   "materials": [
+    "copper_alloy",
+    "admiralty_brass"
+   ],
+   "fluids": [
+    "water",
+    "seawater"
+   ],
+   "temp_range_C": [
+    0,
+    120
+   ],
+   "rate_mm_per_y": [
+    0.02,
+    0.4
+   ],
+   "indicators": [
+    "铜层多孔变色",
+    "Zn 选择性溶出",
+    "力学强度下降"
+   ],
+   "mitigation": [
+    "改用含 As/Sb 黄铜或铜镍",
+    "控制水化学"
+   ]
+  },
+  {
+   "id": "DM-013",
+   "name_zh": "氯离子应力腐蚀开裂",
+   "name_en": "Chloride stress corrosion cracking",
+   "materials": [
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "chloride_solution",
+    "wet_steam"
+   ],
+   "temp_range_C": [
+    50,
+    200
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.5
+   ],
+   "indicators": [
+    "穿晶分支裂纹",
+    "Cl- > 50 ppm + 拉应力",
+    "保温下潮湿"
+   ],
+   "mitigation": [
+    "降低 Cl- 与温度",
+    "固溶+去应力",
+    "双相钢/铁素体不锈钢"
+   ]
+  },
+  {
+   "id": "DM-014",
+   "name_zh": "碱应力腐蚀开裂",
+   "name_en": "Caustic stress corrosion cracking",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "caustic_solution"
+   ],
+   "temp_range_C": [
+    50,
+    150
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.4
+   ],
+   "indicators": [
+    "碱脆裂纹（晶间/穿晶）",
+    "局部浓缩点",
+    "残余应力高"
+   ],
+   "mitigation": [
+    "去应力热处理",
+    "避免碱浓缩",
+    "镍基合金"
+   ]
+  },
+  {
+   "id": "DM-015",
+   "name_zh": "胺应力腐蚀开裂",
+   "name_en": "Amine stress corrosion cracking",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "amine_solution"
+   ],
+   "temp_range_C": [
+    40,
+    140
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.2
+   ],
+   "indicators": [
+    "焊缝/热影响区裂纹",
+    "胺液降解产物"
+   ],
+   "mitigation": [
+    "材质升级",
+    "控制胺液洁净度",
+    "焊后热处理"
+   ]
+  },
+  {
+   "id": "DM-016",
+   "name_zh": "碳酸盐应力腐蚀开裂",
+   "name_en": "Carbonate stress corrosion cracking",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "carbonate_solution"
+   ],
+   "temp_range_C": [
+    30,
+    120
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.2
+   ],
+   "indicators": [
+    "焊缝平行裂纹",
+    "碳酸盐浓度高",
+    "pH 高"
+   ],
+   "mitigation": [
+    "焊后热处理",
+    "控制碳酸盐浓度",
+    "涂层隔离"
+   ]
+  },
+  {
+   "id": "DM-017",
+   "name_zh": "连多硫酸应力腐蚀开裂",
+   "name_en": "Polythionic acid SCC",
+   "materials": [
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "polythionic_acid"
+   ],
+   "temp_range_C": [
+    0,
+    80
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.3
+   ],
+   "indicators": [
+    "停工后敏化区裂纹",
+    "硫化物垢 + 湿气 + 氧"
+   ],
+   "mitigation": [
+    "停工碱洗/氮封",
+    "稳定化热处理",
+    "低敏化材质"
+   ]
+  },
+  {
+   "id": "DM-018",
+   "name_zh": "氢致开裂",
+   "name_en": "Hydrogen induced cracking (HIC)",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "wet_sour_service"
+   ],
+   "temp_range_C": [
+    0,
+    100
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.2
+   ],
+   "indicators": [
+    "阶梯裂纹/鼓泡",
+    "H2S 分压高",
+    "Mn/S 夹杂"
+   ],
+   "mitigation": [
+    "低硫纯净钢",
+    "抗 HIC 钢（HIC 试验）",
+    "控制 pH/缓蚀"
+   ]
+  },
+  {
+   "id": "DM-019",
+   "name_zh": "硫化物应力开裂",
+   "name_en": "Sulfide stress cracking (SSC)",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "wet_sour_service"
+   ],
+   "temp_range_C": [
+    0,
+    90
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.2
+   ],
+   "indicators": [
+    "横向脆性裂纹",
+    "H2S 分压 > 0.3 kPa 且硬度高"
+   ],
+   "mitigation": [
+    "硬度控制 ≤ 22 HRC",
+    "抗 SSC 材质（NACE MR0175）",
+    "去应力"
+   ]
+  },
+  {
+   "id": "DM-020",
+   "name_zh": "氢脆",
+   "name_en": "Hydrogen embrittlement",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "hydrogen_gas",
+    "atomic_hydrogen"
+   ],
+   "temp_range_C": [
+    0,
+    300
+   ],
+   "rate_mm_per_y": [
+    0.005,
+    0.1
+   ],
+   "indicators": [
+    "延迟断裂",
+    "充氢后断口脆性",
+    "高强度钢风险"
+   ],
+   "mitigation": [
+    "降低强度/硬度",
+    "烘烤除氢",
+    "避免阴极过保护"
+   ]
+  },
+  {
+   "id": "DM-021",
+   "name_zh": "高温氢腐蚀",
+   "name_en": "High temperature hydrogen attack (HTHA)",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "cr_mo_steel_1_25Cr",
+    "cr_mo_steel_2_25Cr"
+   ],
+   "fluids": [
+    "hydrogen_gas"
+   ],
+   "temp_range_C": [
+    200,
+    600
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.2
+   ],
+   "indicators": [
+    "内部脱碳/甲烷泡",
+    "Nelson 曲线越界",
+    "UT 背散射异常"
+   ],
+   "mitigation": [
+    "按 Nelson 曲线选 Cr-Mo 钢",
+    "温度/氢分压控制",
+    "定期检测"
+   ]
+  },
+  {
+   "id": "DM-022",
+   "name_zh": "回火脆化",
+   "name_en": "Temper embrittlement",
+   "materials": [
+    "cr_mo_steel_1_25Cr",
+    "cr_mo_steel_2_25Cr"
+   ],
+   "fluids": [
+    "hydrogen_gas",
+    "sour_service"
+   ],
+   "temp_range_C": [
+    350,
+    600
+   ],
+   "rate_mm_per_y": [
+    0.0,
+    0.0
+   ],
+   "indicators": [
+    "冲击韧性下降",
+    "P/Sb/Sn/As 偏析",
+    "步冷试验 J-factor 高"
+   ],
+   "mitigation": [
+    "控制杂质元素",
+    "回火参数优化",
+    "限制升降温速率"
+   ]
+  },
+  {
+   "id": "DM-023",
+   "name_zh": "σ 相脆化",
+   "name_en": "Sigma phase embrittlement",
+   "materials": [
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "process_fluid"
+   ],
+   "temp_range_C": [
+    540,
+    900
+   ],
+   "rate_mm_per_y": [
+    0.0,
+    0.0
+   ],
+   "indicators": [
+    "硬度上升/韧性骤降",
+    "长期高温服役",
+    "金相 σ 相"
+   ],
+   "mitigation": [
+    "控制服役温度",
+    "固溶处理",
+    "选低 σ 倾向材质"
+   ]
+  },
+  {
+   "id": "DM-024",
+   "name_zh": "475℃ 脆化",
+   "name_en": "885F (475 C) embrittlement",
+   "materials": [
+    "duplex_stainless",
+    "ferritic_stainless"
+   ],
+   "fluids": [
+    "process_fluid"
+   ],
+   "temp_range_C": [
+    300,
+    540
+   ],
+   "rate_mm_per_y": [
+    0.0,
+    0.0
+   ],
+   "indicators": [
+    "硬度升高",
+    "长期 400-500℃",
+    "冲击功下降"
+   ],
+   "mitigation": [
+    "限制温度",
+    "短时高温退火",
+    "选材避开"
+   ]
+  },
+  {
+   "id": "DM-025",
+   "name_zh": "蠕变/应力断裂",
+   "name_en": "Creep / stress rupture",
+   "materials": [
+    "cr_mo_steel_1_25Cr",
+    "cr_mo_steel_2_25Cr",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "high_temp_process"
+   ],
+   "temp_range_C": [
+    400,
+    900
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.5
+   ],
+   "indicators": [
+    "蠕变孔洞",
+    "直径增大/弯曲",
+    "Larson-Miller 越界"
+   ],
+   "mitigation": [
+    "降温降压",
+    "材质升级（9Cr/HP 合金）",
+    "蠕变监测"
+   ]
+  },
+  {
+   "id": "DM-026",
+   "name_zh": "热疲劳",
+   "name_en": "Thermal fatigue",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "thermal_cycling"
+   ],
+   "temp_range_C": [
+    0,
+    600
+   ],
+   "rate_mm_per_y": [
+    0.02,
+    0.5
+   ],
+   "indicators": [
+    "龟裂/网裂",
+    "启停与急冷急热",
+    "热冲击记录"
+   ],
+   "mitigation": [
+    "限制升降温速率",
+    "消除应力集中",
+    "保温/旁通"
+   ]
+  },
+  {
+   "id": "DM-027",
+   "name_zh": "机械疲劳",
+   "name_en": "Mechanical fatigue",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "cyclic_loading"
+   ],
+   "temp_range_C": [
+    -50,
+    400
+   ],
+   "rate_mm_per_y": [
+    0.01,
+    0.3
+   ],
+   "indicators": [
+    "疲劳裂纹源在应力集中处",
+    "振动/交变载荷"
+   ],
+   "mitigation": [
+    "降低应力幅",
+    "消除应力集中",
+    "振动治理"
+   ]
+  },
+  {
+   "id": "DM-028",
+   "name_zh": "腐蚀疲劳",
+   "name_en": "Corrosion fatigue",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "cyclic_loading",
+    "corrosive_fluid"
+   ],
+   "temp_range_C": [
+    0,
+    200
+   ],
+   "rate_mm_per_y": [
+    0.03,
+    0.6
+   ],
+   "indicators": [
+    "多源裂纹（无明确门槛）",
+    "交变载荷 + 腐蚀介质"
+   ],
+   "mitigation": [
+    "缓蚀/涂层",
+    "降低应力幅",
+    "材质升级"
+   ]
+  },
+  {
+   "id": "DM-029",
+   "name_zh": "高温氧化",
+   "name_en": "High temperature oxidation",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "cr_mo_steel_1_25Cr",
+    "cr_mo_steel_2_25Cr"
+   ],
+   "fluids": [
+    "air",
+    "flue_gas"
+   ],
+   "temp_range_C": [
+    400,
+    1100
+   ],
+   "rate_mm_per_y": [
+    0.02,
+    0.8
+   ],
+   "indicators": [
+    "氧化皮剥落",
+    "壁厚减薄",
+    "起皮分层"
+   ],
+   "mitigation": [
+    "抗氧化合金",
+    "涂层",
+    "控制过量空气"
+   ]
+  },
+  {
+   "id": "DM-030",
+   "name_zh": "硫化",
+   "name_en": "Sulfidation",
+   "materials": [
+    "cr_mo_steel_1_25Cr",
+    "cr_mo_steel_2_25Cr",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "sour_gas",
+    "fuel_gas"
+   ],
+   "temp_range_C": [
+    250,
+    700
+   ],
+   "rate_mm_per_y": [
+    0.05,
+    1.5
+   ],
+   "indicators": [
+    "硫化皮厚度增长",
+    "H2S 分压高",
+    "局部沟槽"
+   ],
+   "mitigation": [
+    "提高 Cr/Ni 含量",
+    "控制 H2S",
+    "涂层"
+   ]
+  },
+  {
+   "id": "DM-031",
+   "name_zh": "渗碳",
+   "name_en": "Carburization",
+   "materials": [
+    "cr_mo_steel_1_25Cr",
+    "cr_mo_steel_2_25Cr",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "carbonaceous_gas",
+    "coke"
+   ],
+   "temp_range_C": [
+    500,
+    1100
+   ],
+   "rate_mm_per_y": [
+    0.02,
+    0.6
+   ],
+   "indicators": [
+    "表面硬化/脆化",
+    "渗碳层金相",
+    "CO/CH4 环境"
+   ],
+   "mitigation": [
+    "高镍合金",
+    "控制气氛",
+    "定期金相"
+   ]
+  },
+  {
+   "id": "DM-032",
+   "name_zh": "金属粉化",
+   "name_en": "Metal dusting",
+   "materials": [
+    "cr_mo_steel_1_25Cr",
+    "cr_mo_steel_2_25Cr",
+    "austenitic_stainless_304",
+    "austenitic_stainless_316"
+   ],
+   "fluids": [
+    "syngas",
+    "carbonaceous_gas"
+   ],
+   "temp_range_C": [
+    400,
+    900
+   ],
+   "rate_mm_per_y": [
+    0.05,
+    2.0
+   ],
+   "indicators": [
+    "表面沟槽/粉状产物",
+    "CO 分压高",
+    "碳沉积"
+   ],
+   "mitigation": [
+    "降低 CO 分压",
+    "高 Ni/Cu 涂层",
+    "控制硫"
+   ]
+  },
+  {
+   "id": "DM-033",
+   "name_zh": "环烷酸腐蚀",
+   "name_en": "Naphthenic acid corrosion",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "cr_mo_steel_1_25Cr",
+    "cr_mo_steel_2_25Cr"
+   ],
+   "fluids": [
+    "crude_with_naphthenic_acid"
+   ],
+   "temp_range_C": [
+    200,
+    400
+   ],
+   "rate_mm_per_y": [
+    0.05,
+    1.2
+   ],
+   "indicators": [
+    "高流速区沟槽",
+    "TAN > 0.5",
+    "温度 270-400℃ 最重"
+   ],
+   "mitigation": [
+    "混炼低 TAN 原油",
+    "注入缓蚀剂",
+    "317L/625 合金"
+   ]
+  },
+  {
+   "id": "DM-034",
+   "name_zh": "酸性水腐蚀",
+   "name_en": "Sour water corrosion",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "sour_water"
+   ],
+   "temp_range_C": [
+    40,
+    150
+   ],
+   "rate_mm_per_y": [
+    0.03,
+    0.8
+   ],
+   "indicators": [
+    "局部减薄",
+    "NH4HS 浓度高",
+    "流速高"
+   ],
+   "mitigation": [
+    "注水/注缓蚀剂",
+    "控制流速",
+    "材质升级"
+   ]
+  },
+  {
+   "id": "DM-035",
+   "name_zh": "石墨化",
+   "name_en": "Graphitization",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel"
+   ],
+   "fluids": [
+    "high_temp_steam"
+   ],
+   "temp_range_C": [
+    425,
+    600
+   ],
+   "rate_mm_per_y": [
+    0.0,
+    0.0
+   ],
+   "indicators": [
+    "石墨 nodules 金相",
+    "长期高温",
+    "强度/韧性下降"
+   ],
+   "mitigation": [
+    "温度控制",
+    "低硅钢/合金钢",
+    "金相监测"
+   ]
+  },
+  {
+   "id": "DM-036",
+   "name_zh": "球化",
+   "name_en": "Spheroidization",
+   "materials": [
+    "carbon_steel",
+    "low_alloy_steel",
+    "cr_mo_steel_1_25Cr",
+    "cr_mo_steel_2_25Cr"
+   ],
+   "fluids": [
+    "high_temp_process"
+   ],
+   "temp_range_C": [
+    450,
+    700
+   ],
+   "rate_mm_per_y": [
+    0.0,
+    0.0
+   ],
+   "indicators": [
+    "珠光体球化",
+    "硬度下降",
+    "长时间高温"
+   ],
+   "mitigation": [
+    "温度/时间控制",
+    "材质升级",
+    "硬度跟踪"
+   ]
+  }
+ ]
+}

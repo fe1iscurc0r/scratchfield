@@ -90,6 +90,7 @@ class LlmToolMeta:
     parameters: dict[str, Any] = field(default_factory=lambda: {"type": "object", "properties": {}})
     timeout_seconds: float = 30.0
     role: str | None = None
+    reply_tail: bool = False
 
     def to_ipc_payload(self, *, plugin_id: str) -> dict[str, Any]:
         """Build the LLM_TOOL_REGISTER IPC message payload.
@@ -105,6 +106,7 @@ class LlmToolMeta:
             "parameters": dict(self.parameters),
             "timeout_seconds": float(self.timeout_seconds),
             "role": self.role,
+            **({"reply_tail": True} if self.reply_tail else {}),
         }
 
 
@@ -115,6 +117,7 @@ def llm_tool(
     parameters: dict[str, Any] | None = None,
     timeout: float = 30.0,
     role: str | None = None,
+    reply_tail: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator marking a plugin method as a model-callable LLM tool.
 
@@ -165,6 +168,10 @@ def llm_tool(
         registers globally (visible to every character/role's
         ``LLMSessionManager``). Pass a string like ``"Lanlan"`` to
         scope to a single role.
+    reply_tail:
+        Opt in to v1 original-reply image context under ``_ctx.host_reply``.
+        The handler must accept ``_ctx`` or ``**kwargs``. False preserves the
+        existing arguments. Realtime and old frontends receive no capability.
 
     Notes
     -----
@@ -179,6 +186,40 @@ def llm_tool(
     a dict shaped ``{"output": ..., "is_error": True, "error": "..."}``
     if the handler wants to flag a tool-level error to the model
     without raising.
+
+    Returning images
+    ----------------
+    A handler may also hand back pictures by returning the envelope
+    shape with an ``images`` list::
+
+        return {
+            "output": {"shot_id": "shot_7"},
+            "images": [{
+                "data_b64": "<base64, no data: prefix>",
+                "mime": "image/jpeg",          # or image/png
+                "vision_prompt": "what to look for in this frame",
+            }],
+        }
+
+    Whether a picture actually reaches the model depends on the session
+    the tool was called from, and the handler cannot see that. A text
+    session with a vision model configured switches to it and is shown
+    the frame. A realtime voice session cannot be shown one at all --
+    a tool result goes back over that wire as a string -- and neither
+    can a text session with no vision model configured; there the frame
+    is skipped and the model is told so under ``_image_warnings``. Write
+    the tool so its ``output`` still reads sensibly in that case.
+    ``vision_prompt`` becomes the caption beside the image, and is the
+    only thing telling the model why it was handed a frame.
+
+    Limits enforced by ``main_server``: at most 2 images per call, 2 MB
+    of base64 each, ``image/jpeg`` or ``image/png`` only, and 2,000
+    characters per ``vision_prompt``. Anything rejected or truncated is
+    reported to the model under ``_image_warnings`` rather than silently
+    dropped. Delivered images are removed from conversation history at
+    the end of the turn, so do not rely on the model still seeing a
+    frame on a later turn — give it a handle and a way to ask for the
+    picture again.
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -209,6 +250,7 @@ def llm_tool(
             parameters=params,
             timeout_seconds=timeout_seconds,
             role=role,
+            reply_tail=reply_tail,
         )
         setattr(func, LLM_TOOL_META_ATTR, meta)
         return func

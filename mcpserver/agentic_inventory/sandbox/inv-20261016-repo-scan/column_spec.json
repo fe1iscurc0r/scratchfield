@@ -1,0 +1,60 @@
+{
+  "ok": true,
+  "tool": "column_spec",
+  "data": {
+    "columns": [
+      "type",
+      "name",
+      "identifier",
+      "category",
+      "location",
+      "source",
+      "version",
+      "path",
+      "endpoint",
+      "risk_flags",
+      "quality_flags",
+      "confidence",
+      "band",
+      "evidence",
+      "sha256",
+      "launch_hash",
+      "detail"
+    ],
+    "types": [
+      "mcp_agent",
+      "instruction_file",
+      "registry_gap"
+    ],
+    "bands": {
+      "catalog": "100 —— manifest + entryPoint 可解析 + 契约齐备",
+      "high": "70-99 —— 多信号",
+      "medium": "40-69 —— 强形状但契约不完备",
+      "low": "30-39 —— 边缘（仍出行）",
+      "not_emitted": "<30 —— **不出行**"
+    },
+    "signal_weights": {
+      "dispatcher_match": 15,
+      "entrypoint_resolves": 30,
+      "handoff_contract": 10,
+      "manifest": 40,
+      "readme": 5,
+      "requirements_declared": 5,
+      "tests": 5
+    },
+    "diff_from_upstream": {
+      "upstream_table": "karmine05/agentic-detector 的 ai_tools（Go，osquery 扩展）",
+      "we_dropped": [
+        "running",
+        "pid",
+        "port"
+      ],
+      "why": "上游是**主机级**扫描（进程快照 + 监听端口）；本模块是**仓内资产级**扫描 —— 不碰主机进程、不枚举用户家目录（隐私与纪律），因此这三列对我们没有可信来源。宁可不给列，也不给一个靠猜的 running。",
+      "we_added": [
+        "registry_gap 行类型",
+        "quality_flags（工程标记与安全风险分开）"
+      ],
+      "why_added": "注册表对账是本仓特有的需求（244g/244h 人工做过）；把工程标记与安全风险混在一列会让两者都失去意义。"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+# rf_workflow 依赖（工单242）
+
+**本模块没有第三方运行时依赖。** 这是刻意的：
+
+- `lora_phy.py` 用纯标准库实现了 radix-2 FFT、chirp 合成与 Semtech ToA 公式，
+  因此沙箱脚本只要拿到「Python 解释器 + 本目录」就能跑，不需要装任何包
+  （仓内其它模块的 RF 相关依赖见根 `requirements.txt`，本模块不新增）。
+- `numpy` 是**可选增强**：只有 `rf_lib="numpy"` 时沙箱脚本才会 `import numpy`，
+  用 `numpy.fft` 独立复算 -6 dB 带宽并与标准库 FFT 结果对拍；缺失时脚本在
+  `numpy_cross_check.backend` 里写 `stdlib(FALLBACK)` 并继续跑完，**不静默跳过**。
+- `ANTHROPIC_API_KEY`（可选）：配了才启用 LLM 叙述层（`mcpserver.llm_gateway.anthropic_compat`），
+  未配则 `explain.mode == "rules"`，全部结论由确定性规则产出。
+
+如果将来引入真实 RF 库（例如 SDR 侧的 `pyrtlsdr`/`scipy.signal`），请在此文件按 PEP 508
+逐条列出并注明用途与许可；不要把它们直接塞进 `DEFAULT_SPEC` 的隐式依赖里。
+
+```
+# 可选增强（不装也能跑通全部功能）
+# numpy>=2.0        # rf_lib=numpy 时的 FFT 对拍
+```

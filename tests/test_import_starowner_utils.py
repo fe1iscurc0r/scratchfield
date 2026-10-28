@@ -15,8 +15,24 @@ import sys
 import unittest
 from unittest import mock
 
-# 把脚本所在目录加到 path，允许作为模块导入其函数
-_SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 把脚本所在目录加到 path，允许作为模块导入其函数。
+# ⚠️ 2026-10-16 修正（原写法会让**整个 tests/ 收集中断**）：
+#   本文件写于 2026-09-29，当时 `import_from_starowner.py` 就在**仓库根**；
+#   2026-10-04 `288a4bfcc2`「根目录工程化整理——一次性脚本归位(43py→4)」把它迁到了
+#   `scripts/experiments/gitee/`，而这里仍把**仓库根**加进 sys.path
+#   ⇒ 从此 `import import_from_starowner` 一直 ModuleNotFoundError，而下面那个 except
+#     只放过 "requests" 类错误、其余 re-raise ⇒ **每次收集都 abort**
+#     （CI 的 `pytest -m smoke -q` 同样会被打断，见 2026-10-16 实测）。
+#   现改为按**真实落点**定位；万一以后再被搬走 ⇒ **降级为「跳过并说明原因」**，
+#   而不是留一个能 abort 全局的 collection error。
+_SCRIPT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "scripts", "experiments", "gitee")
+if not os.path.isfile(os.path.join(_SCRIPT_DIR, "import_from_starowner.py")):
+    pytest.skip(
+        "import_from_starowner.py 不在 scripts/experiments/gitee/（可能又被搬过）"
+        "⇒ 跳过 starowner utils 测试（不让它变成 collection error）",
+        allow_module_level=True)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 

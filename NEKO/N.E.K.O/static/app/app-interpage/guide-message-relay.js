@@ -41,7 +41,11 @@
                     !I.isIcebreakerBridgeAction(message.action)
                     &&
                     !I.shouldBypassYuiGuideMessageDedup(message.action, message)
-                    && I.isDuplicateMessage(message.action, message.timestamp)
+                    && I.isDuplicateMessage(
+                        message.action,
+                        message.timestamp,
+                        message.lifecycleSequence
+                    )
                 ) {
                     console.log('[BroadcastChannel] 跳过重复消息:', message.action);
                     return;
@@ -178,6 +182,12 @@
                         dispatchIdleCat1PlaygroundYarnRequest(event.data);
                         break;
                     }
+                    case 'idle_cat1_playground_yarn_activate': {
+                        var cat1PlaygroundYarnActivateCurrentName = I.getCurrentLanlanName();
+                        if (event.data.lanlan_name && (!cat1PlaygroundYarnActivateCurrentName || event.data.lanlan_name !== cat1PlaygroundYarnActivateCurrentName)) break;
+                        dispatchIdleCat1PlaygroundYarnActivate(event.data);
+                        break;
+                    }
                     case 'idle_chat_pair_move_bounds': {
                         var pairMoveChatCurrentName = I.getCurrentLanlanName();
                         if (event.data.lanlan_name && (!pairMoveChatCurrentName || event.data.lanlan_name !== pairMoveChatCurrentName)) break;
@@ -191,6 +201,9 @@
                     case 'icebreaker_append_chat_message':
                     case 'icebreaker_set_choice_prompt':
                     case 'icebreaker_clear_choice_prompt':
+                    case 'icebreaker_clear_choice_prompt_source':
+                    case 'icebreaker_reset_session_state':
+                    case 'icebreaker_galgame_handoff':
                     case 'icebreaker_choice_selected':
                     case 'icebreaker_free_text_submitted': {
                         I.handleIcebreakerBridgeData(event.data);
@@ -892,6 +905,7 @@
                 action: 'idle_chat_minimized_state',
                 source: '',
                 reason: '',
+                available: true,
                 minimized: false,
                 screenRect: null,
                 timestamp: Date.now(),
@@ -908,6 +922,7 @@
                 action: 'idle_chat_compact_surface_state',
                 source: '',
                 reason: '',
+                available: true,
                 visible: false,
                 screenRect: null,
                 timestamp: Date.now(),
@@ -957,6 +972,22 @@
                 reason: 'cat1-playground-entry',
                 source: '',
                 trigger: 'cat1-question-mark',
+                timestamp: Date.now(),
+                via: 'broadcast-channel'
+            }, detail || {}, {
+                via: 'broadcast-channel'
+            })
+        }));
+    }
+
+    function dispatchIdleCat1PlaygroundYarnActivate(detail) {
+        window.dispatchEvent(new CustomEvent('neko:idle-cat1-playground-yarn-activate', {
+            detail: Object.assign({
+                action: 'idle_cat1_playground_yarn_activate',
+                activationId: detail && detail.activationId ? detail.activationId : '',
+                reason: 'cat1-playground-yarn-click',
+                source: '',
+                trigger: 'yarn-click',
                 timestamp: Date.now(),
                 via: 'broadcast-channel'
             }, detail || {}, {

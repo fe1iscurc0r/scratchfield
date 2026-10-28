@@ -6,12 +6,12 @@
   "entry.list_apps.description": "사용자가 등록한 모든 소프트웨어 목록을 가져옵니다. 이름, 경로, 별칭, 시작 프로그램 상태 등을 포함합니다.",
 
   "entry.add_app.name": "앱 추가",
-  "entry.add_app.description": "런처에 새 소프트웨어를 등록합니다. name은 표시 이름, path는 전체 경로(.exe, .lnk 바로가기 등 지원), aliases는 인식을 쉽게 하는 선택 별칭 목록입니다.",
+  "entry.add_app.description": "런처에 새 소프트웨어를 등록합니다. name 은 표시 이름, path 는 전체 경로(실제로 존재해야 하며 .exe/.lnk/.url/.bat/.cmd 지원), aliases 는 선택 별명 목록입니다.",
   "entry.add_app.param.name": "소프트웨어 이름, 예: Steam, Chrome, Spotify",
   "entry.add_app.param.path": "전체 경로, 예: C:\\Program Files (x86)\\Steam\\Steam.exe 또는 바로가기 경로",
   "entry.add_app.param.aliases": "인식을 돕는 별칭 목록, 예: [\"steam\", \"게임 플랫폼\"]",
   "entry.add_app.param.description": "설명(선택 사항)",
-  "entry.add_app.param.autostart": "시작 프로그램 등록 여부(선택 사항, 기본값 false, .exe만 지원)",
+  "entry.add_app.param.autostart": "자동 시작을 신청할지 여부(선택, 기본 false, .exe 만). 레지스트리에 바로 쓰지 않습니다: 일회용 확인 토큰을 반환하고, 사용자가 UI 에서 확인한 뒤 set_autostart 가 반영합니다.",
 
   "entry.remove_app.name": "앱 삭제",
   "entry.remove_app.description": "app_id로 등록된 소프트웨어를 삭제합니다.",
@@ -34,7 +34,7 @@
   "entry.update_app.param.description": "새 설명(선택 사항)",
 
   "entry.set_autostart.name": "시작 프로그램 설정",
-  "entry.set_autostart.description": "등록된 소프트웨어의 시작 프로그램 등록을 켜거나 끕니다. Windows 레지스트리를 수정하여 동작하며, 네코가 앱을 부팅 시 자동 실행되도록 설정할 수 있습니다.",
+  "entry.set_autostart.description": "등록된 소프트웨어의 부팅 시 자동 시작을 설정합니다(Windows 레지스트리 HKCU\\...\\Run). 켜는 것은 재부팅을 넘어가는 영속적 쓰기이므로 사용자의 명시적 확인이 필수입니다. 확인 전에는 일회용 확인 토큰만 반환하고 레지스트리는 건드리지 않습니다. 이 엔트리는 고양이 캐릭터의 자동 라우팅에서 제외됩니다.",
   "entry.set_autostart.param.app_id": "설정할 앱 ID",
   "entry.set_autostart.param.enabled": "True=시작 프로그램 켜기, False=시작 프로그램 끄기",
 
@@ -109,6 +109,8 @@
   "ui.tag.other": "기타",
   "ui.tag.autostart": "시작 프로그램",
   "ui.confirm.delete": "「{name}」을(를) 삭제할까요?",
+  "ui.confirm.autostart": "자동 실행은 주인의 직접 확인이 필요합니다.\n\n레지스트리에 기록될 전체 명령:\n{command}\n\n기록할까요? 취소하면 아무것도 변경되지 않습니다.",
+  "ui.info.autostart_cancelled": "취소되었습니다. 자동 실행을 기록하지 않았습니다",
   "ui.loading": "⏳ 로드 중...",
   "ui.loading.apps": "⏳ 앱 목록 로드 중...",
   "ui.loading.launch": "⏳ 실행 중...",
@@ -174,5 +176,7 @@
   "tutorial.tip.path": "따옴표가 포함된 경로도 지원합니다. 그대로 붙여넣으면 되고 따옴표를 지울 필요가 없습니다",
   "tutorial.tip.alias": "여러 별칭을 설정하면 네코가 더 잘 인식합니다",
   "tutorial.tip.autostart": ".exe 파일은 시작 프로그램으로 설정할 수 있습니다",
-  "tutorial.btn.show": "📚 튜토리얼 보기"
+  "tutorial.btn.show": "📚 튜토리얼 보기",
+  "entry.set_autostart.param.confirmed": "사용자가 UI에서 확인함(자동 시작 켜기에는 true 와 일회용 토큰이 필요)",
+  "entry.set_autostart.param.confirmation_token": "이전 호출이 반환한 일회용 확인 토큰(5분간 유효, 한 번만 사용)"
 }

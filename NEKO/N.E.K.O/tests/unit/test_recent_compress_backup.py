@@ -935,18 +935,24 @@ def test_engine_repair_branch_self_heals_after_a_failed_disposal(tmp_path):
         # test_release_reaches_a_failed_pool_after_a_path_drift_rebuild。
         assert name not in manager._undisposed_pools
 
-        created = MagicMock()
-        with patch.object(
-            manager, "_create_engine_for", create=True, return_value=created,
-        ):
-            # 重建分支的细节各版本不同，这里只断言「不再重复抛同一个 dispose 错误」。
-            try:
-                manager._ensure_engine_exists(name, expected)
-            except OSError as exc:  # pragma: no cover - 只在回归时触发
-                pytest.fail(f"repair branch did not self-heal: {exc}")
-            except Exception:
-                pass
-    assert stale_engine.dispose.call_count == 1
+    # 真实接缝 = **模块级** `create_engine`（`memory/timeindex.py:663`），
+    # 不是 `manager._create_engine_for` —— 后者在 memory/ 与 main_logic/ 里 grep **0 命中**，
+    # 原版用 `patch.object(..., create=True)` 现场伪造了一个不存在的属性，
+    # 于是「重建分支」根本没被断言；这里同时删掉了 `except Exception: pass`
+    # （它把任何失败都吞掉，等于给假绿兜底）。
+    created = MagicMock()
+    with (
+        patch("memory.timeindex.create_engine", return_value=created),
+        patch.object(manager, "_assert_timeindex_writable", MagicMock()),
+        patch.object(manager, "_ensure_tables_exist_with", MagicMock()),
+        patch.object(manager, "_check_and_migrate_schema", MagicMock()),
+    ):
+        assert manager._ensure_engine_exists(name, expected) is True
+
+    # 断言**具体行为**，而不是「没抛异常」：
+    assert manager.engines[name] is created, "重建分支必须把新 engine 注册进 self.engines"
+    assert str(manager.db_paths[name]) == expected, "重建后 db_paths 必须指向 new path"
+    assert stale_engine.dispose.call_count == 1, "旧 engine 必须恰好被 dispose 一次"
 
 
 @pytest.mark.unit

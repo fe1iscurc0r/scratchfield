@@ -1,44 +1,23 @@
 import './assets/main.css'
 
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
-import { createApp } from 'vue'
+import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
-import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
-import zhTw from 'element-plus/dist/locale/zh-tw.mjs'
-import en from 'element-plus/dist/locale/en.mjs'
-import jaLocale from 'element-plus/dist/locale/ja.mjs'
-import koLocale from 'element-plus/dist/locale/ko.mjs'
-import ruLocale from 'element-plus/dist/locale/ru.mjs'
-import esLocale from 'element-plus/dist/locale/es.mjs'
-import ptLocale from 'element-plus/dist/locale/pt.mjs'
-import { MotionPlugin } from '@vueuse/motion'
 import App from './App.vue'
 import { initDarkMode } from './composables/useDarkMode'
-import { i18n, getLocale } from './i18n'
+import { i18n, initializeLocale } from './i18n'
 import router from './router'
 import { useConnectionStore } from './stores/connection'
-import { initPluginDashboardYuiGuideRuntime } from './yui-guide-runtime'
+import { initTutorialBootstrap } from './tutorialBootstrap'
+import { initScrollHoverGuard } from './utils/scrollHoverGuard'
 
 initDarkMode()
-initPluginDashboardYuiGuideRuntime()
+const localeStartup = initializeLocale()
+const tutorialStartup = initTutorialBootstrap()
 
 function initNativeDragGuard() {
-  const markNativeDragSource = (element: HTMLAnchorElement | HTMLImageElement) => {
-    element.draggable = false
-    element.setAttribute('draggable', 'false')
-  }
-
-  const markNativeDragSources = (root: ParentNode | HTMLAnchorElement | HTMLImageElement = document) => {
-    if (root instanceof HTMLAnchorElement || root instanceof HTMLImageElement) {
-      markNativeDragSource(root)
-      return
-    }
-    root.querySelectorAll<HTMLAnchorElement | HTMLImageElement>('a[href], img').forEach(markNativeDragSource)
-  }
-
   const handleDragStart = (event: DragEvent) => {
     const rawTarget = event.target
     let target: Element | null = null
@@ -57,28 +36,13 @@ function initNativeDragGuard() {
     }
   }
 
-  markNativeDragSources(document)
   document.addEventListener('dragstart', handleDragStart, true)
-
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node instanceof Element) {
-          markNativeDragSources(node)
-        }
-      })
-    })
-  })
-  observer.observe(document.documentElement, { childList: true, subtree: true })
 }
 
 initNativeDragGuard()
+initScrollHoverGuard()
 
 const app = createApp(App)
-
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
-}
 
 const pinia = createPinia()
 app.use(pinia)
@@ -87,29 +51,32 @@ app.use(router)
 
 app.use(i18n)
 
-app.use(MotionPlugin)
-
-const currentLocale = getLocale()
-const elLocaleMap: Record<string, typeof zhCn> = {
-  'zh-CN': zhCn,
-  'zh-TW': zhTw,
-  'en-US': en,
-  'ja': jaLocale,
-  'ko': koLocale,
-  'ru': ruLocale,
-  'es': esLocale,
-  'pt': ptLocale
+function mountApp() {
+  app.mount('#app')
+  // Former language switching reloaded the whole page. Refresh localized
+  // plugin metadata on a committed locale only, without resetting user work.
+  let initialLocalePending = Boolean(localeStartup)
+  if (localeStartup) void localeStartup.finally(() => { initialLocalePending = false })
+  watch(i18n.global.locale, () => {
+    if (initialLocalePending) return
+    void import('./stores/plugin')
+      .then(({ usePluginStore }) => usePluginStore().refreshLoadedPluginData())
+      .catch(error => console.warn('Could not refresh localized plugin metadata', error))
+  })
+  const connectionStore = useConnectionStore()
+  connectionStore.startHealthCheck()
+  window.addEventListener('beforeunload', () => connectionStore.stopHealthCheck())
 }
-app.use(ElementPlus, {
-  locale: elLocaleMap[currentLocale] ?? zhCn,
-  zIndex: 12000,
-  message: {
-    offset: 54
-  }
-})
 
-app.mount('#app')
-
-const connectionStore = useConnectionStore()
-connectionStore.startHealthCheck()
-window.addEventListener('beforeunload', () => connectionStore.stopHealthCheck())
+// Opener handoffs preactivate the tutorial overlay before the app becomes
+// interactive; ordinary tabs do not load the tutorial graph. The cap keeps a
+// slow or missing optional chunk from stranding the boot shell.
+const TUTORIAL_MOUNT_WAIT_MS = 1500
+if (tutorialStartup) {
+  void Promise.race([
+    tutorialStartup.catch(console.warn),
+    new Promise(resolve => setTimeout(resolve, TUTORIAL_MOUNT_WAIT_MS)),
+  ]).then(mountApp)
+} else {
+  mountApp()
+}

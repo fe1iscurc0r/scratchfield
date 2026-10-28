@@ -23,6 +23,7 @@ from ._shared import logger, router
 import asyncio
 import json
 import re
+from typing import Protocol
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -44,6 +45,60 @@ _CONVERSATION_SETTINGS_ASR_DECISION_HEADER = "x-conversation-settings-asr-decisi
 _CONVERSATION_SETTINGS_FULL_SNAPSHOT_HEADER = "x-conversation-settings-full-snapshot"
 _CONVERSATION_SETTINGS_ETAG_RE = re.compile(r'^(?:W/)?"conversation-settings-(\d+)"$')
 _NOISE_REDUCTION_APPLY_LOCK = asyncio.Lock()
+
+
+class _PrepareVoiceIdentityAudioContractChange(Protocol):
+    async def __call__(self, enabled: bool) -> bool: ...
+
+
+class _ReconcileVoiceIdentityAudioContractChange(Protocol):
+    async def __call__(
+        self,
+        enabled: bool,
+        *,
+        runtime_ready: bool,
+    ) -> None: ...
+
+
+async def _prepare_voice_identity_audio_contract_change_default(
+    _enabled: bool,
+) -> bool:
+    return True
+
+
+async def _reconcile_voice_identity_audio_contract_change_default(
+    _enabled: bool,
+    *,
+    runtime_ready: bool,
+) -> None:
+    del runtime_ready
+
+
+_VOICE_IDENTITY_AUDIO_CONTRACT_CALLBACKS: tuple[
+    _PrepareVoiceIdentityAudioContractChange,
+    _ReconcileVoiceIdentityAudioContractChange,
+] = (
+    _prepare_voice_identity_audio_contract_change_default,
+    _reconcile_voice_identity_audio_contract_change_default,
+)
+
+
+def configure_voice_identity_audio_contract_callbacks(
+    *,
+    prepare: _PrepareVoiceIdentityAudioContractChange | None = None,
+    reconcile: _ReconcileVoiceIdentityAudioContractChange | None = None,
+) -> None:
+    """Inject App-owned voice-identity hooks without reversing module layers."""
+
+    global _VOICE_IDENTITY_AUDIO_CONTRACT_CALLBACKS
+    _VOICE_IDENTITY_AUDIO_CONTRACT_CALLBACKS = (
+        prepare
+        if prepare is not None
+        else _prepare_voice_identity_audio_contract_change_default,
+        reconcile
+        if reconcile is not None
+        else _reconcile_voice_identity_audio_contract_change_default,
+    )
 
 
 def _conversation_settings_etag(revision: int) -> str:
@@ -71,9 +126,10 @@ def _conversation_settings_response_payload(snapshot) -> dict:
     }
 
 
-async def _apply_noise_reduction_to_active_sessions(enabled: bool):
+async def _apply_noise_reduction_to_active_sessions(enabled: bool) -> bool:
     """Apply noise reduction toggle to all active voice sessions immediately."""
     from main_logic.omni_realtime_client import OmniRealtimeClient
+    all_core_pipelines_ready = True
     try:
         session_manager = get_session_manager()
         for _name, mgr in session_manager.items():
@@ -93,10 +149,13 @@ async def _apply_noise_reduction_to_active_sessions(enabled: bool):
                 try:
                     await apply_core_pipeline(enabled)
                 except Exception as core_exc:  # noqa: BLE001
+                    all_core_pipelines_ready = False
                     logger.warning(
                         f"Failed to apply noise reduction to the core "
                         f"microphone pipeline for {_name}: {core_exc}"
                     )
+            else:
+                all_core_pipelines_ready = False
             if not isinstance(mgr.session, OmniRealtimeClient):
                 continue
             # Isolated per manager for the same reason as the Core pipeline
@@ -113,16 +172,116 @@ async def _apply_noise_reduction_to_active_sessions(enabled: bool):
                     f"for {_name}: {omni_exc}"
                 )
     except Exception as e:
+        all_core_pipelines_ready = False
         logger.warning(f"Failed to apply noise reduction to active sessions: {e}")
+    return all_core_pipelines_ready
 
 
-async def _apply_noise_reduction_if_current(enabled: bool):
-    """Serialize runtime updates and discard superseded noise values."""
+async def _apply_noise_reduction_if_current_locked(enabled: bool) -> None:
+    """Run one persisted noise-reduction transition to a terminal state."""
     async with _NOISE_REDUCTION_APPLY_LOCK:
-        current = await aload_global_conversation_settings_snapshot()
+        (
+            prepare_voice_identity_audio_contract_change,
+            reconcile_voice_identity_audio_contract_change,
+        ) = _VOICE_IDENTITY_AUDIO_CONTRACT_CALLBACKS
+        current = await aload_global_conversation_settings_snapshot(strict=True)
         if current.settings.get("noiseReductionEnabled") is not enabled:
             return
-        await _apply_noise_reduction_to_active_sessions(enabled)
+        prepare_started = False
+        try:
+            prepare_started = True
+            prepared = await prepare_voice_identity_audio_contract_change(enabled)
+            current = await aload_global_conversation_settings_snapshot(strict=True)
+            if current.settings.get("noiseReductionEnabled") is not enabled:
+                return
+            if not prepared:
+                await reconcile_voice_identity_audio_contract_change(
+                    enabled,
+                    runtime_ready=False,
+                )
+                return
+            runtime_ready = await _apply_noise_reduction_to_active_sessions(enabled)
+            current = await aload_global_conversation_settings_snapshot(strict=True)
+            if current.settings.get("noiseReductionEnabled") is not enabled:
+                return
+            await reconcile_voice_identity_audio_contract_change(
+                enabled,
+                # Registry compares each manager with this settled snapshot.  A
+                # failed manager stays required+pending while managers that did
+                # settle receive independent fresh WAITING runtimes.
+                runtime_ready=runtime_ready,
+            )
+        except Exception:
+            if prepare_started:
+                try:
+                    await reconcile_voice_identity_audio_contract_change(
+                        enabled,
+                        runtime_ready=False,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Voice identity audio-contract failure cleanup failed"
+                    )
+            raise
+
+
+def _end_visits_disabled() -> None:
+    """End live visits after ``visitEnabled`` was switched off (design §3.7.6).
+
+    Runs after the settings are saved: a failure here is logged, never turned
+    into a failed save response.
+    """
+    try:
+        from main_routers.visit_router import runtime as visit_runtime
+
+        ended = visit_runtime.end_visits_disabled()
+    except Exception as exc:  # noqa: BLE001 - 设置已落盘：结束串门失败只记日志
+        logger.error("visitEnabled switched off: ending live visits failed: %r", exc)
+        return
+    if ended:
+        logger.info("visitEnabled switched off: ended %d live visit(s)", ended)
+
+
+_visit_voice_pushed_revision = -1
+"""Settings revision of the last ``visitVoiceEnabled`` pushed to live visits (pushes run outside the write lock)."""
+
+
+def _apply_visit_voice(enabled: bool, revision: int) -> None:
+    """Push a saved ``visitVoiceEnabled`` to live visits (from their next line, design §3.7.6).
+
+    Two concurrent saves resume from their worker threads in any order: a push
+    older than the last one applied is dropped, so the live value always
+    matches the newest saved revision.
+    """
+    global _visit_voice_pushed_revision
+    if revision <= _visit_voice_pushed_revision:
+        return
+    _visit_voice_pushed_revision = revision
+    try:
+        from main_routers.visit_router import runtime as visit_runtime
+
+        visit_runtime.apply_voice_setting(enabled)
+    except Exception as exc:  # noqa: BLE001 - 设置已落盘：推给串门失败只记日志
+        logger.error("visitVoiceEnabled saved: applying to live visits failed: %r", exc)
+
+
+async def _apply_noise_reduction_if_current(enabled: bool) -> None:
+    """Finish the saved transition even if its HTTP caller is cancelled."""
+
+    task = asyncio.create_task(
+        _apply_noise_reduction_if_current_locked(enabled),
+        name="noise-reduction-runtime-reconcile",
+    )
+    cancellation: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            if cancellation is None:
+                cancellation = exc
+    await task
+    if cancellation is not None:
+        raise cancellation
 
 
 @router.get("/preferences")
@@ -317,6 +476,24 @@ async def save_conversation_settings(request: Request):
                     **response_payload,
                 },
             )
+
+        # 串门开关：只在这次保存把它从开改成关时结束正在进行的串门（§3.7.6）。默认就是关，
+        # 不能因为别的设置项随手一存就把串门掐掉；前后值取自同一把锁里的那次写入，
+        # 并发保存之间不会漏判
+        if (
+            result.previous is not None
+            and result.previous.settings.get("visitEnabled") is True
+            and result.snapshot.settings.get("visitEnabled") is False
+        ):
+            _end_visits_disabled()
+        # 串门语音：中途切换从下一句生效（§3.7.6），由这里推给正在进行的串门
+        saved_voice = result.snapshot.settings.get("visitVoiceEnabled")
+        if (
+            result.previous is not None
+            and isinstance(saved_voice, bool)
+            and saved_voice != result.previous.settings.get("visitVoiceEnabled")
+        ):
+            _apply_visit_voice(saved_voice, result.snapshot.revision)
 
         if (
             isinstance(data.get("noiseReductionEnabled"), bool)

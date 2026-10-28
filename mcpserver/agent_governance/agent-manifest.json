@@ -1,0 +1,115 @@
+{
+  "name": "agent_governance",
+  "version": "1.0.0",
+  "description": "多 agent 身份证明 / 授权令牌 / 运行时审计三件套：HMAC-SHA256 输出签名、短期授权令牌、JSONL 追加审计",
+  "author": "Trae (workorder 241)",
+  "license": "MIT",
+  "agent_class": "AgentGovernance",
+  "module": "governance",
+  "tools": [
+    {
+      "name": "sign_output",
+      "description": "为一条 agent 输出签发身份信封（绑定 agent_id/provider/model/timestamp/content_sha256）",
+      "parameters": {
+        "agent_id": { "type": "string", "required": true, "description": "产出方 agent 标识" },
+        "provider": { "type": "string", "required": true, "description": "产出方 provider（如 MiniMax-M3 / deepseek-flash）" },
+        "model": { "type": "string", "required": false, "description": "具体模型名，默认空" },
+        "content": { "type": "string", "required": false, "description": "被签名内容（空字符串表示纯身份声明）" },
+        "key": { "type": "string", "required": false, "description": "显式密钥（调试/测试）；缺省读 HERMES_AGENT_ID_KEY" }
+      }
+    },
+    {
+      "name": "verify_output",
+      "description": "校验身份信封；篡改内容或换密钥签名都会以明确错误码失败",
+      "parameters": {
+        "envelope": { "type": "object", "required": true, "description": "sign_output 产出的信封" },
+        "content": { "type": "string", "required": false, "description": "用于比对 content_sha256 的原文" },
+        "key": { "type": "string", "required": false, "description": "显式密钥；缺省读 HERMES_AGENT_ID_KEY" }
+      }
+    },
+    {
+      "name": "issue_token",
+      "description": "签发短期授权令牌（默认 TTL 1h，可覆写），令牌与 provider/key 绑定",
+      "parameters": {
+        "agent_id": { "type": "string", "required": true, "description": "被授权方 agent 标识" },
+        "provider": { "type": "string", "required": true, "description": "令牌绑定的 provider" },
+        "ttl_s": { "type": "integer", "required": false, "description": "存活秒数；0 表示立即过期（负向验证用）" },
+        "key": { "type": "string", "required": false, "description": "显式密钥；缺省读 HERMES_AGENT_ID_KEY" }
+      }
+    },
+    {
+      "name": "verify_token",
+      "description": "校验授权令牌；过期/篡改/身份不符分别返回 GOV_TOKEN_EXPIRED / GOV_BAD_SIGNATURE / GOV_AGENT_MISMATCH",
+      "parameters": {
+        "token": { "type": "string", "required": true, "description": "issue_token 产出的令牌" },
+        "agent_id": { "type": "string", "required": false, "description": "要求令牌所属 agent（不符则拒绝）" },
+        "provider": { "type": "string", "required": false, "description": "要求令牌绑定 provider（不符则拒绝）" },
+        "key": { "type": "string", "required": false, "description": "显式密钥；缺省读 HERMES_AGENT_ID_KEY" }
+      }
+    },
+    {
+      "name": "audit_record",
+      "description": "追加一条审计事件（JSONL，每次一行，只用 append，不覆写历史）",
+      "parameters": {
+        "event": { "type": "string", "required": true, "description": "agent_call / unauthorized_attempt / re_sign / identity_rejected" },
+        "agent_id": { "type": "string", "required": false, "description": "相关 agent" },
+        "provider": { "type": "string", "required": false, "description": "相关 provider" },
+        "ok": { "type": "boolean", "required": false, "description": "本次调用是否成功，默认 true" },
+        "code": { "type": "string", "required": false, "description": "失败时的治理错误码" },
+        "detail": { "type": "object", "required": false, "description": "附加结构化明细" }
+      }
+    },
+    {
+      "name": "audit_tail",
+      "description": "读取最近 N 条审计事件（离线排查冒充/注入模式）",
+      "parameters": {
+        "limit": { "type": "integer", "required": false, "description": "返回条数，默认 10" }
+      }
+    },
+    {
+      "name": "audit_count",
+      "description": "统计审计事件条数，可按事件类型过滤",
+      "parameters": {
+        "event": { "type": "string", "required": false, "description": "只统计该事件类型；缺省统计全部" }
+      }
+    }
+  ],
+  "protocol": {
+    "type": "inprocess",
+    "description": "纯 stdlib（hmac/hashlib/json），无外部进程、无网络；单次签名或验签 < 0.1ms"
+  },
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agent_governance.governance",
+    "class": "AgentGovernance"
+  },
+  "classification": {
+    "families": [
+      "defense"
+    ],
+    "domains": [
+      "multi-agent-governance",
+      "audit"
+    ],
+    "tier": "read-write",
+    "origin": {
+      "kind": "native",
+      "upstream": "scratchpad/workorder-241",
+      "upstream_license": "MIT"
+    }
+  },
+  "requires": {
+    "external_cli": [],
+    "env": [
+      "HERMES_AGENT_ID_KEY"
+    ],
+    "env_optional": [
+      "AGENT_AUDIT_DIR"
+    ]
+  },
+  "capability_pairs": [
+    ["sign", "agent-output"],
+    ["authorize", "agent-call"],
+    ["audit", "agent-call"]
+  ]
+}

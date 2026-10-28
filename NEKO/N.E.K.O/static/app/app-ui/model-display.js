@@ -111,6 +111,70 @@
         return true;
     }
 
+    I.ensureActiveModelOverlayControls = function ensureActiveModelOverlayControls(prefix) {
+        const normalizedPrefix = String(prefix || '').trim().toLowerCase();
+        const managers = {
+            live2d: window.live2dManager,
+            vrm: window.vrmManager,
+            mmd: window.mmdManager,
+            pngtuber: window.pngtuberManager
+        };
+        const manager = managers[normalizedPrefix];
+        const controls = () => ({
+            floatingButtons: document.getElementById(`${normalizedPrefix}-floating-buttons`),
+            lockIcon: document.getElementById(`${normalizedPrefix}-lock-icon`)
+        });
+        if (!manager || !Object.prototype.hasOwnProperty.call(managers, normalizedPrefix)) {
+            return controls();
+        }
+
+        const currentModel = normalizedPrefix === 'live2d'
+            ? (typeof manager.getCurrentModel === 'function' ? manager.getCurrentModel() : manager.currentModel)
+            : (normalizedPrefix === 'pngtuber' ? manager.image : manager.currentModel);
+        let currentControls = controls();
+
+        try {
+            if (
+                !currentControls.floatingButtons
+                && currentModel
+                && currentModel.destroyed !== true
+                && typeof manager.setupFloatingButtons === 'function'
+            ) {
+                if (normalizedPrefix === 'live2d') {
+                    manager.setupFloatingButtons(currentModel);
+                } else {
+                    manager.setupFloatingButtons();
+                }
+                currentControls = controls();
+            }
+
+            if (!currentControls.lockIcon && currentModel && currentModel.destroyed !== true) {
+                if (
+                    (normalizedPrefix === 'live2d' || normalizedPrefix === 'pngtuber')
+                    && typeof manager.setupHTMLLockIcon === 'function'
+                ) {
+                    if (normalizedPrefix === 'live2d') {
+                        manager.setupHTMLLockIcon(currentModel);
+                    } else {
+                        manager.setupHTMLLockIcon();
+                    }
+                } else if (
+                    (normalizedPrefix === 'vrm' || normalizedPrefix === 'mmd')
+                    && typeof manager.setupFloatingButtons === 'function'
+                ) {
+                    // VRM / MMD 在 setupFloatingButtons 内创建锁图标；工具栏尚存但锁图标被
+                    // 教程或模型切换清掉时，也必须重建整组 overlay，不能只检查工具栏。
+                    manager.setupFloatingButtons();
+                }
+                currentControls = controls();
+            }
+        } catch (error) {
+            console.warn(`[App] ${normalizedPrefix} 浮动控件自愈失败:`, error);
+        }
+
+        return currentControls;
+    }
+
     function restoreLive2DDisplaySurface(reason) {
         const preserveAvatarCornerPeekOpacity = window.nekoYuiGuideAvatarCornerPeekActive === true;
         const preserveYuiGuidePreparing = shouldPreserveYuiGuideLive2DPreparing();
@@ -268,24 +332,11 @@
             container.style.display !== 'none' &&
             getComputedStyle(container).display !== 'none';
 
-        // 检查Live2D浮动按钮是否存在，如果不存在则重新创建
-        let floatingButtons = document.getElementById('live2d-floating-buttons');
+        // 教程临时模型与用户模型互换时，工具栏和锁图标可能只残留其中一个；
+        // 按当前模型分别校验并自愈，避免从猫咪形态回来后永久缺少锁开关。
+        const overlayControls = I.ensureActiveModelOverlayControls('live2d');
+        const floatingButtons = overlayControls.floatingButtons;
         console.log('[showLive2d] 检查浮动按钮 - 存在:', !!floatingButtons, 'live2dManager:', !!window.live2dManager);
-
-        if (!floatingButtons && window.live2dManager) {
-            console.log('[showLive2d] Live2D浮动按钮不存在，准备重新创建');
-            const currentModel = window.live2dManager.getCurrentModel();
-            console.log('[showLive2d] currentModel:', !!currentModel, 'setupFloatingButtons:', typeof window.live2dManager.setupFloatingButtons);
-
-            if (currentModel && typeof window.live2dManager.setupFloatingButtons === 'function') {
-                console.log('[showLive2d] 调用 setupFloatingButtons');
-                window.live2dManager.setupFloatingButtons(currentModel);
-                floatingButtons = document.getElementById('live2d-floating-buttons');
-                console.log('[showLive2d] 创建后按钮存在:', !!floatingButtons);
-            } else {
-                console.warn('[showLive2d] 无法重新创建按钮 - currentModel或setupFloatingButtons不可用');
-            }
-        }
 
         // 确保浮动按钮显示
         if (!preserveYuiGuidePreparing && !preserveYuiGuideAvatarMotion && floatingButtons) {
@@ -298,7 +349,7 @@
             floatingButtons.style.setProperty('pointer-events', 'auto');
         }
 
-        const lockIcon = document.getElementById('live2d-lock-icon');
+        const lockIcon = overlayControls.lockIcon || document.getElementById('live2d-lock-icon');
         if (!preserveYuiGuidePreparing && !preserveYuiGuideAvatarMotion && lockIcon) {
             lockIcon.style.removeProperty('display');
             lockIcon.style.removeProperty('visibility');
@@ -637,6 +688,14 @@
             console.log('[showCurrentModel] 当前处于"请她离开"状态（MMD），跳过显示逻辑');
             return;
         }
+        // pngtuber 的标志如今是真实状态载体（Electron 输入桥按模型类型读它），
+        // 守卫必须自查而不能依赖 live2dManager 标志恒被同时设置的巧合——
+        // 例如切到 live2d 角色的分支只清 live2d/vrm 标志的窗口期内，
+        // 会话启动/WS 重连路径会穿透守卫，把告别态静默解除。
+        if (window.pngtuberManager && window.pngtuberManager._goodbyeClicked) {
+            console.log('[showCurrentModel] 当前处于"请她离开"状态（PNGTuber），跳过显示逻辑');
+            return;
+        }
 
         const modelViewportReady = await I.ensureModelViewportReadyBeforeShowCurrentModel();
         if (!modelViewportReady.ready) {
@@ -652,6 +711,9 @@
         }
         if (window.mmdManager) {
             window.mmdManager._goodbyeClicked = false;
+        }
+        if (window.pngtuberManager) {
+            window.pngtuberManager._goodbyeClicked = false;
         }
 
         try {
@@ -826,15 +888,9 @@
                 }
 
                 // 检查VRM浮动按钮是否存在
-                let vrmFloatingButtons = document.getElementById('vrm-floating-buttons');
+                const vrmOverlayControls = I.ensureActiveModelOverlayControls('vrm');
+                const vrmFloatingButtons = vrmOverlayControls.floatingButtons;
                 console.log('[showCurrentModel] VRM浮动按钮存在:', !!vrmFloatingButtons, 'vrmManager存在:', !!window.vrmManager);
-
-                if (!vrmFloatingButtons && window.vrmManager && typeof window.vrmManager.setupFloatingButtons === 'function') {
-                    console.log('[showCurrentModel] VRM浮动按钮不存在，重新创建');
-                    window.vrmManager.setupFloatingButtons();
-                    vrmFloatingButtons = document.getElementById('vrm-floating-buttons');
-                    console.log('[showCurrentModel] 创建后VRM浮动按钮存在:', !!vrmFloatingButtons);
-                }
 
                 if (vrmFloatingButtons) {
                     if (isMobileViewport()) {
@@ -848,7 +904,7 @@
                     }
                 }
 
-                const vrmLockIcon = document.getElementById('vrm-lock-icon');
+                const vrmLockIcon = vrmOverlayControls.lockIcon || document.getElementById('vrm-lock-icon');
                 if (vrmLockIcon) {
                     if (isMobileViewport()) {
                         vrmLockIcon.style.removeProperty('display');
@@ -956,11 +1012,8 @@
                 if (live2dContainerMmd) { live2dContainerMmd.style.display = 'none'; live2dContainerMmd.classList.add('hidden'); }
 
                 // 显示 MMD 浮动按钮
-                let mmdFloatingButtons = document.getElementById('mmd-floating-buttons');
-                if (!mmdFloatingButtons && window.mmdManager && typeof window.mmdManager.setupFloatingButtons === 'function') {
-                    window.mmdManager.setupFloatingButtons();
-                    mmdFloatingButtons = document.getElementById('mmd-floating-buttons');
-                }
+                const mmdOverlayControls = I.ensureActiveModelOverlayControls('mmd');
+                const mmdFloatingButtons = mmdOverlayControls.floatingButtons;
                 if (mmdFloatingButtons) {
                     const isMmdMobile = typeof window.isMobileWidth === 'function'
                         ? window.isMobileWidth()
@@ -1036,6 +1089,13 @@
                     I.prepareModelReturnContainer(pngtuberContainer, modelReturnEnterRect, { clearPointerEvents: true });
                     if (modelReturnEnterRect) {
                         I.playModelReturnEnter(pngtuberContainer, modelReturnEnterRect);
+                    } else {
+                        // 无回归动画时清掉 prepare 留下的内联 opacity/transition（有动画时由
+                        // playModelReturnEnter 收尾清理），否则内联 opacity:1 会压过
+                        // #pngtuber-container.locked-hover-fade，锁定悬停淡化不生效（同 showLive2d）
+                        void pngtuberContainer.offsetWidth;
+                        pngtuberContainer.style.removeProperty('transition');
+                        pngtuberContainer.style.removeProperty('opacity');
                     }
                     pngtuberContainer.style.setProperty('pointer-events', 'none', 'important');
                     pngtuberContainer.querySelectorAll('.pngtuber-image').forEach((pngtuberImage) => {
@@ -1067,6 +1127,7 @@
                 if (window.pngtuberManager && typeof window.pngtuberManager.setupFloatingButtons === 'function') {
                     window.pngtuberManager.setupFloatingButtons();
                 }
+                I.ensureActiveModelOverlayControls('pngtuber');
             } else {
                 // 显示 Live2D 模型
                 I.showLive2d();

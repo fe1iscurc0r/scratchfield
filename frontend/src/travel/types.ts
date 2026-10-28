@@ -39,7 +39,8 @@ export interface TravelSession {
   wantFriends: boolean
   friendDescription?: string
   goalPrompt?: string
-  postToForum?: boolean
+  // postToForum 已移除：论坛下线后该开关在后端不被任何逻辑读取（纯惰性管道），
+  // 全仓也没有任何调用方设置它，保留只会让人以为「探索能发帖」。
   deliverFullReport?: boolean
   deliverChannel?: string
   deliverTo?: string
@@ -63,9 +64,8 @@ export interface TravelSession {
   discoveries: TravelDiscovery[]
   socialInteractions: SocialInteraction[]
   summary?: string
-  forumDigest?: string
-  forumPostId?: string
-  forumPostStatus?: string
+  // forumDigest / forumPostId / forumPostStatus 已移除：三者恒为 null
+  // （后端从未给它们赋值），前端也没有任何读取方。
   fullReportDeliveryStatus?: string
   notificationDeliveryStatuses?: Record<string, string>
   error?: string

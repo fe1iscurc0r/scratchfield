@@ -79,9 +79,27 @@ echo ""
 
 # 将敏感凭据写入 root-only 环境文件，不在 systemd unit 中明文暴露
 CREDENTIALS_FILE="$INSTALL_DIR/survey.env"
+
+# HMAC 签名密钥：源码里不再有默认值，必须由部署注入（缺失时进程拒绝启动）。
+# 已有则复用 —— 每次重装都重新生成会让所有已分发客户端的签名集体失效。
+# 值不回显：journal / CI 日志里不留密钥。
+EXISTING_HMAC=""
+if [ -f "$CREDENTIALS_FILE" ]; then
+    EXISTING_HMAC=$(sudo grep -m1 '^SURVEY_HMAC_SECRET=' "$CREDENTIALS_FILE" | cut -d= -f2- || true)
+fi
+if [ -n "$EXISTING_HMAC" ]; then
+    HMAC_SECRET="$EXISTING_HMAC"
+    echo "→ Reusing existing SURVEY_HMAC_SECRET from $CREDENTIALS_FILE (value not printed)"
+else
+    HMAC_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    echo "→ Generated a new SURVEY_HMAC_SECRET (value not printed)."
+    echo "   ★ 必须把同一份值注入客户端环境 SURVEY_HMAC_SECRET，否则答卷上报全部 403。"
+fi
+
 echo "→ Writing credentials to $CREDENTIALS_FILE (mode 0600, owner root) ..."
 sudo tee "$CREDENTIALS_FILE" > /dev/null << EOF
 SURVEY_ADMIN_TOKEN=$ADMIN_TOKEN
+SURVEY_HMAC_SECRET=$HMAC_SECRET
 EOF
 sudo chown root:root "$CREDENTIALS_FILE"
 sudo chmod 600 "$CREDENTIALS_FILE"

@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "tool": "cross_check",
+  "data": {
+    "ok": false,
+    "matched_count": 4,
+    "only_in_schematic": [
+      "R2",
+      "TP1"
+    ],
+    "only_on_board": [
+      "C1"
+    ],
+    "value_mismatches": [
+      {
+        "reference": "R1",
+        "schematic": "4k7",
+        "board": "10k"
+      }
+    ],
+    "footprint_mismatches": []
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "tool": "demo_call_tool",
+  "data": {
+    "call": {
+      "tool": "self.audio_speaker.set_volume",
+      "arguments": {
+        "volume": 42
+      },
+      "texts": [
+        "true"
+      ],
+      "is_error": false,
+      "content": [
+        {
+          "type": "text",
+          "text": "true"
+        }
+      ]
+    },
+    "device_calls": [
+      [
+        "self.audio_speaker.set_volume",
+        {
+          "volume": 42
+        }
+      ]
+    ]
+  }
+}

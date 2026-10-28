@@ -15,7 +15,9 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import uvicorn
+
 from apiserver.config import settings
+from system.net_boundary import enforce_startup_policy
 
 
 async def start_api_server():
@@ -23,7 +25,11 @@ async def start_api_server():
     
     # 从环境变量获取配置，回退到config
     # 工单204 任务四：配置收口（原三处散读改为统一 config）
-    host = settings.api_server_host()
+    # WO-267 / P0-3：API_SERVER_HOST 写非回环时，必须先过启动校验（远程开关 +
+    # 令牌）再监听；缺一项就 78 退出，不允许「先起来再补鉴权」。
+    host = enforce_startup_policy(
+        "陆墨 API 服务器（独立入口）", bind_host=settings.api_server_host()
+    )
     port = settings.api_server_port()
     reload = settings.api_server_reload()
     
@@ -47,7 +53,9 @@ async def start_llm_service():
     """启动LLM服务"""
     
     # 从环境变量获取配置，回退到config
-    host = settings.llm_service_host()
+    host = enforce_startup_policy(
+        "陆墨 LLM 服务（独立入口）", bind_host=settings.llm_service_host()
+    )
     port = settings.llm_service_port()
     reload = settings.llm_service_reload()
     

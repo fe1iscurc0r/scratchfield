@@ -1,0 +1,113 @@
+zhi_mcp 依赖图（工单248）
+生成日期：2026-10-16 ｜ 基线：main 9f55ca65a2（工单246 合并点）
+口径：实线 = 代码级依赖/注册关系；虚线 = 仅协议/题材对齐，不 import、不改其接口
+
+================================================================================
+1. 注册与路由链（本单**未修改**任何既有文件）
+================================================================================
+
+  mcpserver/mcp_registry.py::scan_and_register_mcp_agents("mcpserver")
+        │  glob("**/agent-manifest.json")            ← 自动发现，无需登记表
+        ▼
+  mcpserver/zhi_mcp/agent-manifest.json
+        │  entryPoint = {module: "mcpserver.zhi_mcp.server", class: "ZhiMcpBridge"}
+        │  classification.tier = "read-only"（不写文件/不起子进程/不联网/不碰硬件）
+        ▼
+  mcpserver/zhi_mcp/server.py::ZhiMcpBridge
+        │  async def handle_handoff(task) -> str          （MCP agent 契约）
+        ▼
+  mcpserver/mcp_manager.py::MCPManager.unified_call(service_name, tool_call)
+        ▼
+  ZhiMcpBridge.handle_handoff → {protocol_spec | demo_handshake | demo_call_tool |
+                                 build_envelope | parse_message | doctor | list_tools}
+
+  ⇒ 结论：新模块**零侵入**接入（本单未改 mcp_manager.py / mcp_registry.py / 任何既有文件）。
+
+================================================================================
+2. 模块内部依赖（单向无环，零第三方）
+================================================================================
+
+  mcpserver/zhi_mcp/
+        __init__.py ──►（惰性）server.py
+                          │
+        ┌─────────────────┼──────────────────┐
+        ▼                 ▼                  ▼
+   envelope.py       transport.py       client.py
+   （信封 + JSON-RPC  （传输抽象 +        （握手 → tools/list 翻页 → tools/call
+     编解码 + 错误码）   内存假设备 +          + ToolCatalog 工具目录）
+                        互连端点）              │
+                          ▲                     │
+                          └─────────────────────┘
+                    client 只依赖 Transport 协议（send/recv）
+
+  依赖方向：transport ◄── client ◄── server；envelope 被三者共用（真值源）。
+  **没有第二处再写一遍报文形态** —— 信封/JSON-RPC 只有 envelope.py 说了算。
+
+================================================================================
+3. 传输层：为什么它是**可插拔**的（本模块的关键设计）
+================================================================================
+
+  ┌─ 离线（本单验证的路径）───────────────────────────────────────────┐
+  │  ZhiMcpClient ──send──► LoopbackTransport ──► FakeZhiDevice.inbox │
+  │       ▲                        │                                  │
+  │       └──recv── LoopbackTransport ◄──deliver── FakeZhiDevice       │
+  │  同进程；客户端等待响应时调 `pump=device.serve_all` 驱动假设备       │
+  │  ⇒ 全链路（含翻页、-32601、-32602）**不需要硬件也不需要网络**        │
+  └───────────────────────────────────────────────────────────────────┘
+  ┌─ 真机（调用方提供）───────────────────────────────────────────────┐
+  │  ZhiMcpClient ──send──► 调用方的 WebSocket/MQTT 客户端 ──► 设备     │
+  │  本模块**不引入** ws/mqtt 库、**不替调用方选型**、**不建立连接**      │
+  │  ⇒ 协议层在无硬件无网络的机器上仍可完整回归（这是刻意的）             │
+  └───────────────────────────────────────────────────────────────────┘
+
+================================================================================
+4. 数据流（一次 demo_handshake(page_size=2)）
+================================================================================
+
+  ① client.initialize(capabilities)  ──► 设备 ──► {protocolVersion, capabilities, serverInfo}
+  ② client.list_tools()（cursor=""）  ──► 设备 ──► {tools[2], nextCursor="2"}
+     client.list_tools()（cursor="2"） ──► 设备 ──► {tools[1], nextCursor=""}   ← 翻页终止
+  ③ ToolCatalog 汇总 3 个工具（全为 self.* 命名空间）
+  ⇒ 共 3 条请求（1 + 2），与 sandbox/demo_handshake_paged.json 的 requests_seen 一致
+
+================================================================================
+5. 协议/题材对齐（虚线，无代码耦合）
+================================================================================
+
+  zhi_mcp ·························► 78/xiaozhi-esp32 :: docs/mcp-protocol_zh.md
+     信封 {session_id,type,payload} + JSON-RPC 2.0 的三个方法；
+     ⚠️ 上游文档自述「AI 辅助生成，请参照代码确认细节」⇒ 本实现对未知字段原样透传。
+
+  zhi_mcp ·························► mcpserver/esp32/（243）
+     243 是**集群/编码仿真**（分簇 + RLNC 冗余分配），本模块是**设备控制协议**：
+     前者算"空口怎么传"，后者管"设备上有什么工具、怎么调"。**不共用代码**。
+
+  zhi_mcp ·························► mcpserver/mcp_registry / mcp_manager
+     那是本仓**内部**的 MCP 工具总线（agent 之间互相发现/调度）；
+     本模块是**对外**接小智设备的协议层（设备是 MCP 服务器，我们是客户端）。
+
+================================================================================
+6. 工单声明路径的落点（偏差记录）
+================================================================================
+
+  ✅ 本单落点：mcpserver/zhi_mcp/（本仓 mcpserver/ 子模块一律下划线命名）
+  ⚠️ 工单 §4 的耦合点原文列 `mcpserver/ / coupled/ / core/`，其中 `core/` **全树 0 命中**
+     （242/243/244 已连续证过）；该行由工单240 的生成器模板产出，已于**工单244j 修正**。
+  ⚠️ 工单 §2 的主题线写 `agent`, `esp32` —— 本单落点覆盖 **esp32**（设备控制协议）
+     与 **agent**（以 MCP agent 形态接入本仓注册表）；不涉手机 App / 云端服务端（那是上游的其它仓库）。
+
+================================================================================
+7. 产物依赖（入库什么 / 不入库什么）
+================================================================================
+
+  入库：
+    mcpserver/zhi_mcp/*.py               实现（envelope / transport / client / server）
+    mcpserver/zhi_mcp/agent-manifest.json
+    mcpserver/zhi_mcp/README.md          协议表 + 三处边界 + 离线设计理由
+    mcpserver/zhi_mcp/requirements.txt   零依赖声明（含"为什么不引 ws 库"）
+    mcpserver/zhi_mcp/sandbox/           9 份**离线真跑输出**（含分页/越界/未知工具三条路径）
+    tests/test_zhi_mcp.py                35 用例（编解码/假设备/客户端/契约四层）
+
+  不入库：
+    与真设备的报文抓包（本机无 ESP32，抓不到）；
+    任何 ws/mqtt 依赖（刻意留给调用方）。

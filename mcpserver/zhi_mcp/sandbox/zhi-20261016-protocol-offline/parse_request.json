@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "tool": "parse_message",
+  "data": {
+    "session_id": "s1",
+    "type": "mcp",
+    "kind": "request",
+    "extra_fields": [],
+    "payload_keys": [
+      "id",
+      "jsonrpc",
+      "method",
+      "params"
+    ],
+    "method": "tools/list"
+  }
+}

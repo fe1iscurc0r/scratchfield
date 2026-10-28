@@ -50,6 +50,7 @@ from utils.preferences import GLOBAL_CONVERSATION_KEY, aload_user_preferences
 
 # Setup logger
 from utils.logger_config import setup_logging
+from utils.static_asset_aliases import LegacyStaticAssetAliasMixin
 logger, log_config = setup_logging(service_name="Monitor", log_level=logging.INFO)
 
 # 获取资源路径（支持打包后的环境）
@@ -137,8 +138,12 @@ LEGACY_DEFAULT_LIVE2D_MODELS = {
     model_name for model_name in ("yui_default", "yui-default") if model_name != DEFAULT_LIVE2D_MODEL
 }
 
-# 挂载静态文件
-app.mount("/static", StaticFiles(directory=get_resource_path("static")), name="static")
+class _StaticRootFiles(LegacyStaticAssetAliasMixin, StaticFiles):
+    pass
+
+
+# 挂载静态文件（旧素材路径映射到迁移后的文件，见 utils/static_asset_aliases.py）
+app.mount("/static", _StaticRootFiles(directory=get_resource_path("static")), name="static")
 _config_manager = get_config_manager()
 
 # 挂载用户Live2D目录（与 main_server 包保持一致，CFA感知）
@@ -292,7 +297,7 @@ def get_emotion_mapping(model_name: str):
 @app.get("/{lanlan_name}", response_class=HTMLResponse)
 async def get_index(request: Request, lanlan_name: str):
     # lanlan_name 将从 URL 中提取，前端会通过 API 获取配置
-    return templates.TemplateResponse("templates/viewer.html", {
+    return templates.TemplateResponse(request, "templates/viewer.html", {
         "request": request,
         **_viewer_static_assets_ctx(),
     })
@@ -536,14 +541,16 @@ async def cleanup_disconnected_clients():
 
 if __name__ == "__main__":
     # 在打包环境中，直接传递 app 对象而不是字符串
-    # The monitor server is a read-only status receiver designed to be
-    # reachable by external clients, so MONITOR_HOST defaults to 0.0.0.0.
-    # Set it to 127.0.0.1 for local-only use, and MONITOR_TOKEN to require
-    # authentication (see app/monitor_auth.py).
+    # Monitor 默认只绑回环（WO-267 / P0-4）。过去这里默认 0.0.0.0 并把鉴权做成
+    # opt-in，结果是任意同网段主机都能当 /sync* 生产者；现在跨机必须走统一口径
+    # 三个变量，且由 enforce_startup_policy 在监听之前判定，缺一项直接 78 退出。
+    from utils.net_boundary import enforce_startup_policy
+
+    bind_host = enforce_startup_policy("Monitor 服务", bind_host=MONITOR_HOST)
     logger.info(
         "Monitor listening on %s:%s; authentication %s",
-        MONITOR_HOST,
+        bind_host,
         MONITOR_SERVER_PORT,
         "enabled" if monitor_auth_enabled() else "disabled",
     )
-    uvicorn.run(app, host=MONITOR_HOST, port=MONITOR_SERVER_PORT, reload=False)
+    uvicorn.run(app, host=bind_host, port=MONITOR_SERVER_PORT, reload=False)

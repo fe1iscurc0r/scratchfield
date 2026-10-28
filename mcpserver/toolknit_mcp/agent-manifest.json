@@ -1,0 +1,253 @@
+{
+  "name": "toolknit_mcp",
+  "displayName": "Toolknit 本地文件工作台（PDF / PPT / 图像）",
+  "version": "0.1.0",
+  "description": "把外部 npm 包 @toolknit/cli（来自 toolknit-desktop，Apache-2.0）的本地文件处理能力接入 scratchpad：色板提取 / PDF 元数据 / PDF 压缩 / PPTX→PDF / PDF 文本。本模块是薄适配层——不重写任何文件处理逻辑，CLI 类工具全部经 subprocess 转发 npx @toolknit/cli（实测 2.3.1）；只白名单 9 个工具，其余 38 个上游 MCP 工具一律不暴露（对治『46 工具导致 LM 工具选择混乱』）。CLI 驱动层零第三方依赖；唯一例外是 pdf_text，它不经 CLI（上游没有 PDF 文本提取能力），而是用仓内引擎（pypdf / PyMuPDF / mcpserver/adapters/pdf2md_adapter）惰性导入承接该缺口。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.toolknit_mcp.server",
+    "class": "ToolknitBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "extract_palette",
+        "description": "提取图片主色板（HEX/RGB/HSL/像素数/占比，按占比降序）。只读，不写任何文件。count 合法区间 2-9，且为**上界**（纯色图可能只返回 1 色）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "image_path": {
+              "type": "string",
+              "description": "图片绝对路径（png/jpg/jpeg/webp），必须落在工作区内"
+            },
+            "count": {
+              "type": "number",
+              "description": "色板数量上界，2-9，默认 5"
+            },
+            "workspace": {
+              "type": "string",
+              "description": "可选：工作区名（单段安全标识符）；留空则以工作区根为边界"
+            }
+          },
+          "required": [
+            "image_path"
+          ]
+        },
+        "example": "{\"tool_name\":\"extract_palette\",\"image_path\":\"/home/ubuntu/scratchpad/research/demo/logo.png\",\"count\":5}"
+      },
+      {
+        "command": "pdf_inspect",
+        "description": "读取 PDF 元数据（页数/字节数/文件名）。只读。⚠️ 这是**替代**工单点名的 pdf_extract_text 的能力——上游 toolknit 没有任何 PDF 文本提取子命令，该能力不存在",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pdf_path": {
+              "type": "string",
+              "description": "PDF 绝对路径，必须落在工作区内"
+            },
+            "workspace": {
+              "type": "string",
+              "description": "可选：工作区名"
+            }
+          },
+          "required": [
+            "pdf_path"
+          ]
+        },
+        "example": "{\"tool_name\":\"pdf_inspect\",\"pdf_path\":\"/home/ubuntu/scratchpad/research/paper/sample.pdf\"}"
+      },
+      {
+        "command": "pdf_compress",
+        "description": "压缩 PDF（qpdf 由 npm 包自带，实测 vendor/qpdf/qpdf.exe，无需另装）。产物落 <工作区>/toolknit-output/，绝不写回源目录；--overwrite 保证重复调用幂等",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pdf_path": {
+              "type": "string",
+              "description": "源 PDF 绝对路径，必须落在工作区内"
+            },
+            "level": {
+              "type": "string",
+              "description": "压缩等级 low / medium / high，默认 medium"
+            },
+            "output_name": {
+              "type": "string",
+              "description": "可选：产物文件名（单段，默认 <stem>-compressed.pdf）"
+            },
+            "workspace": {
+              "type": "string",
+              "description": "可选：工作区名"
+            }
+          },
+          "required": [
+            "pdf_path"
+          ]
+        },
+        "example": "{\"tool_name\":\"pdf_compress\",\"pdf_path\":\"/home/ubuntu/scratchpad/research/paper/sample.pdf\",\"level\":\"high\"}"
+      },
+      {
+        "command": "ppt_to_pdf",
+        "description": "PPTX 渲染为 PDF（**依赖本机 LibreOffice**，缺失返回 DEPENDENCY_MISSING 并附修复指引，绝不假装成功）。output_name 留空时自动生成唯一名 <stem>-<8位hex>，避免重复调用互相覆盖。dry_run=true 只探测页数与渲染器可用性，不写任何文件。若输出路径 >83 字符导致 soffice 静默 fail-fast，会自动改到短临时目录重试再把产物搬回原落点（返回体 path_fallback 如实标注；TOOLKNIT_NO_PATH_FALLBACK=1 可关闭）",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pptx_path": {
+              "type": "string",
+              "description": "PPTX 绝对路径，必须落在工作区内"
+            },
+            "output_name": {
+              "type": "string",
+              "description": "可选：产物基名；留空自动生成唯一名"
+            },
+            "dry_run": {
+              "type": "boolean",
+              "description": "仅探测（不写盘），默认 false"
+            },
+            "workspace": {
+              "type": "string",
+              "description": "可选：工作区名"
+            }
+          },
+          "required": [
+            "pptx_path"
+          ]
+        },
+        "example": "{\"tool_name\":\"ppt_to_pdf\",\"pptx_path\":\"/home/ubuntu/scratchpad/research/talk/deck.pptx\"}"
+      },
+      {
+        "command": "pdf_text",
+        "description": "**逐页**提取 PDF 文本（带页码），完整文本落盘到工作区 <stem>.txt。⚠️ 本工具**不经 toolknit CLI**——上游没有 PDF 文本提取能力，这里用仓内引擎承接。引擎链 pypdf → pymupdf → pdf2md_adapter（Docling/MarkItDown）；engine 留空或 auto 时逐级降级，显式给引擎名则只用该引擎（诊断时不被静默降级掩盖）。layout=true（需 pymupdf）额外返回每页行级 bbox = 页码位置元数据；引擎全缺时返回 ENGINE_UNAVAILABLE 而不是空文本",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pdf_path": {
+              "type": "string",
+              "description": "PDF 绝对路径，必须落在工作区内"
+            },
+            "engine": {
+              "type": "string",
+              "description": "可选：auto（默认，走降级链）/ pypdf / pymupdf / adapter"
+            },
+            "max_chars_per_page": {
+              "type": "number",
+              "description": "每页在返回体里的字符上限，默认 4000；0 = 不截断。落盘文件总是完整"
+            },
+            "layout": {
+              "type": "boolean",
+              "description": "可选：true 时额外返回每页行级 bbox（需 pymupdf），默认 false"
+            },
+            "workspace": {
+              "type": "string",
+              "description": "可选：工作区名"
+            }
+          },
+          "required": [
+            "pdf_path"
+          ]
+        },
+        "example": "{\"tool_name\":\"pdf_text\",\"pdf_path\":\"/home/ubuntu/scratchpad/research/paper/sample.pdf\",\"layout\":false}"
+      },
+      {
+        "command": "renderer_probe",
+        "description": "探测本机 LibreOffice 渲染器是否可用（command / source / version），约 3.2 s，不写盘。**这是判断 ppt_to_pdf 依赖是否就绪的唯一可靠入口**——doctor 命令实测不检查 LibreOffice",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"renderer_probe\"}"
+      },
+      {
+        "command": "doctor",
+        "description": "外部依赖体检（qpdf / ffmpeg / node 版本）。⚠️ 实测该命令**不检查 LibreOffice**，且 ffmpeg 缺失时会整体返回 ok=false / rc=5，故不要用它的 ok 判断工具链整体健康。ffmpeg 必须通过 TOOLKNIT_FFMPEG_PATH 指向**真实文件**才被识别——它只认 %APPDATA%\\ToolKnit\\ffmpeg\\ / 包内 vendor/ / 该环境变量三处，**且拒绝符号链接**；PATH 上只有 winget 的 0 字节占位符时会被判为不可用（见 README §2.3）",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"doctor\"}"
+      },
+      {
+        "command": "cli_version",
+        "description": "CLI 连通性探针 + 实际报告版本（npx -y @toolknit/cli --version），用于诊断 Node/npx/版本钉死是否生效",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"cli_version\"}"
+      },
+      {
+        "command": "workspace_info",
+        "description": "返回当前工作区根、产物子目录、日志路径与工作区是否存在（排障用，不触碰网络或子进程）",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"workspace_info\"}"
+      },
+      {
+        "command": "list_tools",
+        "description": "自述白名单（本模块只暴露哪些工具、哪些上游能力刻意不暴露）",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "example": "{\"tool_name\":\"list_tools\"}"
+      }
+    ]
+  },
+  "runtime": {
+    "workspace_hint": "工作区根由 TOOLKNIT_WORKSPACE_ROOT 决定（服务器侧设为 /home/ubuntu/scratchpad/research），未设时回退 <仓库根>/research；产物落 <工作区>/toolknit-output/，日志落 <工作区>/toolknit-logs/toolknit-calls.jsonl（JSONL append）",
+    "license_note": "@toolknit/cli 为第三方 npm 包（来自 toolknit-desktop，Apache-2.0），非本仓组件；本仓只经 npx 调用，不 vendor 其代码、不带 package-lock.json。依赖许可审计：112 个包中 0 强 copyleft、0 弱 copyleft；jszip 为 (MIT OR GPL-3.0-or-later) 可择宽松分支；buffers@0.1.1 无任何许可声明，但只在 exceljs 链（Excel 路径）上，本模块白名单工具完全不经过——可用 tools/toolknit_license_audit.py 重跑复核",
+    "risk_note": "tier 取 local-write（主效应是写工作区文件），但**本模块会拉起外部子进程**：npx → node → qpdf / LibreOffice soffice。子进程一律 shell=False 且 argv 由代码构造（无 shell 元字符注入面）。pdf_text 不拉子进程（进程内引擎）",
+    "version_pinning": "@toolknit/cli 版本钉死 2.3.1（可用 TOOLKNIT_CLI_VERSION 覆盖）。⚠️ 工单 §0 写的 v3.0.0 在 npm 不存在——实测仅 8 个版本：1.2.7/1.2.8/1.3.0/2.0.0/2.1.0/2.1.1/2.3.0/2.3.1，latest=2.3.1。上游漂移巡检：`npm view @toolknit/cli version`（2026-10-15 实测仍为 2.3.1，无漂移）",
+    "path_fallback": "ppt_to_pdf 在「输出路径 >83 字符 + PROCESSING_FAILED + 消息含 fail-fast 退出码 3221226505」四条同时成立时，自动改到短临时目录重试一次并把产物搬回原落点（布局与正常路径一致，manifest.json 内路径同步改写）。返回体 path_fallback 标注 used/attempted/temp_dir/moved/manifest_rewritten。设 TOOLKNIT_NO_PATH_FALLBACK=1 关闭",
+    "pdf_text_note": "pdf_text 不经 CLI：上游 toolknit 没有 PDF 文本提取子命令（PDF 子命令仅 inspect/merge/split/rotate/encrypt/decrypt/compress/enhance/to-image，MCP 侧 46 工具也无）。本包按 pypdf → pymupdf → pdf2md_adapter 顺序惰性导入仓内可用的引擎；三级全缺时返回 ENGINE_UNAVAILABLE（不返回空文本冒充成功）"
+  },
+  "classification": {
+    "families": [
+      "document"
+    ],
+    "domains": [
+      "general"
+    ],
+    "tier": "local-write",
+    "origin": {
+      "kind": "native"
+    }
+  },
+  "requires": {
+    "env_optional": [
+      "TOOLKNIT_WORKSPACE_ROOT",
+      "TOOLKNIT_CLI_VERSION",
+      "TOOLKNIT_LIBREOFFICE_PATH",
+      "TOOLKNIT_LOG_PATH",
+      "TOOLKNIT_FFMPEG_PATH",
+      "TOOLKNIT_PDF_ENGINE",
+      "TOOLKNIT_NO_PATH_FALLBACK"
+    ],
+    "external_binaries": [
+      "node>=20.12.0",
+      "npx"
+    ],
+    "external_services": [
+      "npm registry（首次 npx 冷启动拉 @toolknit/cli@2.3.1）"
+    ],
+    "optional_system": [
+      "LibreOffice（仅 ppt_to_pdf 需要）",
+      "ffmpeg（本模块白名单工具均不需要；仅影响 doctor 的 ok/rc，须用 TOOLKNIT_FFMPEG_PATH 指向真实文件）"
+    ],
+    "optional_python": [
+      "pypdf（pdf_text 首选引擎，最轻；逐页提取天然带页码）",
+      "pymupdf（pdf_text 备选；layout=true 时的行级 bbox 只能由它提供）",
+      "docling-slim[standard] / markitdown（pdf_text 第三级；由 mcpserver/adapters/pdf2md_adapter 提供 OCR + 表格）"
+    ]
+  },
+  "capability_pairs": [
+    ["read", "image_palette"],
+    ["read", "pdf_metadata"],
+    ["read", "pdf_text"],
+    ["transform", "pdf"],
+    ["transform", "pptx_to_pdf"],
+    ["diagnose", "toolknit_runtime"]
+  ]
+}

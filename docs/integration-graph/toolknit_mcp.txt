@@ -1,0 +1,441 @@
+工单 244 · toolknit_mcp 模块依赖图与接入边界
+文档落点：docs/integration-graph/toolknit_mcp.txt
+（与仓内既有两份同族文档同命名口径：rf_workflow.txt / esp32.txt 均为下划线）
+日期：2026-10-14
+
+================================================================================
+0 · 为什么要这份文档
+================================================================================
+
+工单 §3.3 要求：`git grep` 三个桌面端前端标识串时，**只允许本文件命中**，其余 0 命中。
+本文件因此是那三个串在本仓的**唯一合法落点** —— 用于说明「刻意不接什么」，
+而模块本体（mcpserver/toolknit_mcp/**）与测试里一个都不写。
+
+--------------------------------------------------------------------------------
+0.1 零接触验证（可直接复制的原文）
+--------------------------------------------------------------------------------
+
+工单 §3.3 点名的三个串，明文列举如下（本文件是全仓唯一允许出现它们的地方）：
+
+    src-tauri
+    tauri.devtools
+    vite
+
+在仓库根执行：
+
+    git grep -n -E 'src-tauri|tauri\.devtools|\bvite\b'
+    git grep -ln -E 'src-tauri|tauri\.devtools|\bvite\b'
+
+期望：**唯一命中 docs/integration-graph/toolknit_mcp.txt**（即本文件）。
+若其它文件命中，视为本工单回归。
+
+⚠️ 注意 `git grep` 的口径是**词边界**版本 `\bvite\b`：单词 `vite` 才算命中；
+而 `src-tauri` 与 `tauri.devtools` 是**子串**匹配（`.` 在正则里是任意字符，
+实际比字面更宽，故口径取宽）。上面第 3 条明文的 `vite` 也在词边界内。
+
+等价的非 git 版本（无 git 环境下用）：
+
+    grep -rn --exclude-dir=.git -E 'src-tauri|tauri\.devtools|\bvite\b' .
+
+本模块内**零命中**这一条另有单测兜住：
+    tests/test_toolknit_mcp.py::test_no_package_lock_or_tauri_contact_in_module
+
+该测试**故意把三个串拆成碎片拼装**（避免测试自己成为命中项），并用
+「到本文件里逐字找到这三个串」做反向自证——**拼错就红**（本单实测触发过一次：
+本文件原先只写了转义形态 `tauri\.devtools`，缺纯字面量，自证当场抓到）。
+
+--------------------------------------------------------------------------------
+0.2 为什么不 clone 上游整仓
+--------------------------------------------------------------------------------
+
+上游 ZihangDong/toolknit-desktop 是 Tauri 2.x 桌面应用：
+    - 前端：WebView（那三个被禁的串即出现在此）
+    - 后端：Rust（src-tauri 目录）
+    - 体积：实测 157,367 KB（约 154 MB）
+    - npm 包 @toolknit/cli 实测 unpackedSize 40,866,503 B（约 39 MB）
+
+本仓只取「本地文件处理 CLI」这一层，经 npx 按需拉起。前端/桌面端与本仓的
+Lumo（NEKO + Live2D 桌宠，不做 WebView 桌面）形态不兼容，**不读、不引、不 clone**。
+
+================================================================================
+1 · 依赖图（本单实际接线）
+================================================================================
+
+
+                         ┌──────────────────────────────────────────┐
+                         │           外部 npm 生态（运行时）           │
+                         │   registry.npmjs.org                     │
+                         │   @toolknit/cli@2.3.1  （钉死，可 env 覆盖）│
+                         │   来自 toolknit-desktop · Apache-2.0      │
+                         └────────────────────┬─────────────────────┘
+                                              │ 首次 npx 冷启动拉取
+                                              │ （不 vendor、不带 package-lock.json）
+                                              ▼
+  ┌───────────────────────────┐       ┌──────────────────────────────┐
+  │   Node.js 运行时            │       │  npx 缓存                     │
+  │   node >= 20.12.0          │──────▶│  <npm-cache>/_npx/<hash>/     │
+  │   实测 v22.22.2 / npm 10.9.7│       │   node_modules/@toolknit/cli  │
+  └───────────────────────────┘       │   vendor/qpdf/qpdf.exe  ← 自带 │
+                                      └──────────────┬───────────────┘
+                                                     │
+   ══════════════════ 本仓边界（scratchpad 仓库）══════════════════════
+                                                     │
+   ┌─────────────────────────────────────────────────▼──────────────┐
+   │  mcpserver/toolknit_mcp/     （工单244 新增 14 文件；244b 再改 7） │
+   │                                                                 │
+   │  ┌───────────────┐   ┌────────────────────────────────────────┐ │
+   │  │ workspace.py  │   │  工具白名单（9 个，非 46）                │ │
+   │  │ 路径纪律       │   │                                        │ │
+   │  │               │   │  {extract_palette, pdf_inspect,        │ │
+   │  │               │   │  pdf_compress, ppt_to_pdf,             │ │
+   │  │               │   │  pdf_text, renderer_probe,             │ │
+   │  │               │   │  doctor, cli_version,                  │ │
+   │  │               │   │  workspace_info, list_tools}           │ │
+   │  │     .. 逃逸    │   └────────────────────────────────────────┘ │
+   │  │     非法工作区名│                      ▲                        │
+   │  └───────┬───────┘                      │                        │
+   │          │ resolve_input /              │ _TOOLS 映射             │
+   │          │ resolve_output_dir           │                        │
+   │          ▼                              │                        │
+   │  ┌──────────────────────────────────────────────┐               │
+   │  │ tools.py   CLI 适配层                          │               │
+   │  │  · run_cli(): subprocess.run(shell=False)      │               │
+   │  │  · 参数校验（count 2-9 / level 白名单 / 后缀）    │               │
+   │  │  · 输出归一 + 错误码 + JSONL append 日志        │               │
+   │  │  · renderer_probe(): stdlib 现造 1 页 pptx 探测 │               │
+   │  └───────────────────┬──────────────────────────┘               │
+   │                      │                                          │
+   │  ┌───────────────────▼──────────────────────────┐               │
+   │  │ server.py   ToolknitBridge                    │               │
+   │  │  async handle_handoff(task) -> JSON 字符串     │               │
+   │  │  {status, message, data}   （对齐 242/243 契约）│               │
+   │  └───────────────────┬──────────────────────────┘               │
+   │                      │                                          │
+   │  ┌───────────────────▼──────────────────────────┐               │
+   │  │ agent-manifest.json  (Format A)               │               │
+   │  │  entryPoint.module = mcpserver.toolknit_mcp.server            │
+   │  │  entryPoint.class  = ToolknitBridge           │               │
+   │  │  agentType = "mcp"                            │               │
+   │  └───────────────────────────────────────────────┘               │
+   └─────────────────────────────────────────────────────────────────┘
+                                                     │
+   ══════════════════ 仓内既有装配层（**零改动**）══════════════════════
+                                                     │
+   ┌─────────────────────────────────────────────────▼──────────────┐
+   │  mcpserver/mcp_registry.py                                      │
+   │    scan_and_register_mcp_agents()                               │
+   │      glob("**/agent-manifest.json")  ← 自动发现，无需登记代码    │
+   │      └─ _trust_gate_registration()   信任门禁（无 source/lineage │
+   │                                       元数据 → 信任基线放行）    │
+   │      └─ _resolve_entrypoint()        Format A 解析              │
+   │      └─ _gate_cross_source_registration()  跨源冲突门禁          │
+   │      └─ 懒加载：先写 MANIFEST_CACHE + _COLD_TABLE，首次调用才实例化│
+   │                                                                 │
+   │  mcpserver/mcp_manager.py                                       │
+   │    MCPManager.unified_call(task)  ← 统一派发点                   │
+   │      └─ await instance.handle_handoff(task)                     │
+   └─────────────────────────────────────────────────────────────────┘
+
+
+   ┌────────────────────── 派生：产物与日志落点 ──────────────────────┐
+   │                                                                 │
+   │  TOOLKNIT_WORKSPACE_ROOT  （服务器侧：/home/ubuntu/scratchpad/research）
+   │      │                                                          │
+   │      ├── toolknit-output/            ← 所有产物，不回写源目录      │
+   │      │     └── <name>_ppt_to_pdf/                               │
+   │      │           ├── <name>.pdf                                 │
+   │      │           ├── manifest.json                              │
+   │      │           └── .toolknit-libreoffice-XXXXXX/  ← 临时 profile │
+   │      │                 （LibreOffice 用，转换后清理）             │
+   │      │                                                          │
+   │      └── toolknit-logs/                                         │
+   │            └── toolknit-calls.jsonl  ← 每次 handoff 一行          │
+   │                                       （append，非整体重写）      │
+   └─────────────────────────────────────────────────────────────────┘
+
+
+   ┌────────────────── 外部系统依赖（按需，非硬依赖）──────────────────┐
+   │                                                                 │
+   │  LibreOffice （仅 ppt_to_pdf）                                    │
+   │    实测 26.8.1.1 · C:\Program Files\LibreOffice\program\         │
+   │    soffice.com     ← CLI 自动发现（候选表含 %ProgramFiles% 路径）， │
+   │                      无需设 TOOLKNIT_LIBREOFFICE_PATH            │
+   │    缺失 ⇒ 上游返回 DEPENDENCY_MISSING，本模块原样透出 + 修复指引   │
+   │                                                                 │
+   │  qpdf （pdf_compress 必需）                                       │
+   │    随 npm 包自带：<npx 缓存>/…/@toolknit/cli/vendor/qpdf/qpdf.exe  │
+   │                                                                 │
+   │  ffmpeg （本单四工具均不需要）  ✗ 未安装                           │
+   └─────────────────────────────────────────────────────────────────┘
+
+================================================================================
+2 · 与仓内既有模块的耦合点（工单 §2 任务三.1）
+================================================================================
+
+工单 §2 任务三要求列出与 mcpserver/llm_gateway/、mcpserver/kicad-mcp/ 的耦合点，
+并「只改主调用路径，不动现有模块内部接口」。
+
+--------------------------------------------------------------------------------
+2.1 与 mcpserver/llm_gateway/
+--------------------------------------------------------------------------------
+
+耦合点数量：**0（零代码耦合）**
+
+理由：本模块的四个工具是**确定性文件处理**，不产生任何需要「叙述」的中间结果 ——
+色板是数值、PDF 页数是数值、压缩比是数值、PPT 页数是数值。没有需要 LLM 介入的
+语义环节，因此**不引入**任何 LLM 通路。
+
+对比：242 的 rf_workflow 有 explain 接口，才需要 llm_gateway（且是惰性导入 +
+规则兜底）。本模块不需要，因此**连惰性导入都不加** —— 不为了「看起来统一」而
+引入用不上的依赖。
+
+若将来要加「用自然语言描述色板/页面内容」的能力，再按 242 的定式接
+mcpserver.llm_gateway.anthropic_compat（惰性导入 + 不可用即退回确定性规则 +
+在 mode 字段如实标注），**不要**改成硬依赖。
+
+--------------------------------------------------------------------------------
+2.2 与 mcpserver/kicad-mcp/
+--------------------------------------------------------------------------------
+
+耦合点数量：**0（且该目录在本仓 main 不存在）**
+
+实测：main 树全树查询 `mcpserver/kicad-mcp/` → **404**（工单 §2 任务三.1 把它
+写成「已有/规划」，实况是规划未落地）。这是本单第 10 处工单前提与实况不符。
+
+层级区分（工单 §5.5 沈遥侧备忘的口径，此处确认成立）：
+    kicad-mcp   = MCP-EDA 类（电子设计自动化）
+    toolknit_mcp = MCP-文档类（PDF / PPT / 图像）
+两者**层级不同、互不干扰**，既无代码耦合，也不共享状态。
+
+--------------------------------------------------------------------------------
+2.3 唯一真正耦合的既有模块：mcpserver/mcp_registry.py
+--------------------------------------------------------------------------------
+
+这是**唯一**被本单触碰的既有装配路径，且是**零改动**耦合：
+
+    改动方式：新增 agent-manifest.json，由既有 glob 自动发现。
+    改动文件数：0（工单 §3.6「不许触碰 mcp_assembly / mcp/services 路由健康检查」
+                  ⇒ 本单**完全满足**，一个字节都没动既有文件）
+
+契约依赖（上游若改，本模块需跟）：
+    1. manifest 文件名必须恰为 agent-manifest.json
+    2. agentType 必须为 "mcp" 才会进注册
+    3. Format A: entryPoint.{module, class}
+    4. ALLOWED_MODULE_PREFIXES = ["mcpserver.", "vendor."]
+       ⇒ 本模块 module 取 mcpserver.toolknit_mcp.server ✅
+    5. entryPoint.class 指向的类必须**具备 handle_handoff**
+       （verify_entrypoint 深检的硬要求）
+    6. 注册 key = manifest.name = "toolknit_mcp"
+
+上述 1~6 全部由 tests/test_toolknit_mcp.py 的
+test_manifest_entrypoint_resolves_and_has_handoff_contract 逐条钉住
+（它复刻 verify_entrypoint 的判定，并额外比对 manifest 声明的
+ invocationCommands 与代码里的 _TOOLS 白名单**逐一对上**）。
+
+================================================================================
+3 · 数据流时序（一次 ppt_to_pdf 调用）
+================================================================================
+
+  LLM / 调用方
+      │  {tool_name: "ppt_to_pdf", params: {pptx_path: "…/deck.pptx"}}
+      ▼
+  MCPManager.unified_call(task)
+      │
+      ▼
+  ToolknitBridge.handle_handoff(task)
+      │  ① 查 _TOOLS 白名单（未登记 ⇒ 立刻返回「未知工具」，不进子进程）
+      │  ② 取 params（或扁平 task 去掉元键）
+      ▼
+  asyncio.to_thread( lambda: self.ppt_to_pdf(**args) )
+      │
+      ▼
+  tools.ppt_to_pdf()
+      │  ③ resolve_input()   ← 工作区纪律：绝对路径 + 在界内 + 存在
+      │  ④ resolve_output_dir()  ← 建 <工作区>/toolknit-output/
+      │  ⑤ output_name 留空 ⇒ 生成 <stem>-<8位hex>（唯一，不互相覆盖）
+      ▼
+  tools.run_cli(["ppt","to-pdf", … , "--json"])
+      │  ⑥ shutil.which("npx") → 绝对路径（不靠 shell 查找）
+      │  ⑦ subprocess.run([...], shell=False)   ← 无注入面
+      ▼
+  npx -y @toolknit/cli@2.3.1 ppt to-pdf …
+      │  ⑧ 解析 renderer（懒探测 LibreOffice；缺 ⇒ DEPENDENCY_MISSING）
+      │  ⑨ mkdtemp(<out>/.toolknit-libreoffice-XXXXXX) 作独立 profile
+      │  ⑩ soffice --headless --convert-to pdf --outdir <out>
+      ▼
+  {"ok": true, "result": {… output_path, slide_count, page_count, renderer …}}
+      │  ⑪ _discover_pdfs()：先读 output_path，取不到才扫目录
+      ▼
+  {"ok": true, "tool": "ppt_to_pdf", "outputs": [...], "exists": true, …}
+      │  ⑫ _log() 追加一行 JSONL（best-effort，日志失败不影响主调用）
+      ▼
+  {"status":"success","message":"ok","data":{…}}   ← JSON 字符串回给调用方
+
+================================================================================
+4 · 已知边界（实测留证，勿当 bug 修）
+================================================================================
+
+4.1 ppt_to_pdf 的输出路径长度上限（**最重要的一条**）
+    --output-dir 绝对路径 >83 字符 ⇒ soffice 静默 fail-fast
+    （exit 3221226505 / 0xC0000409，stderr 为空）
+    成因：上游把 -env:UserInstallation=<out>/.toolknit-libreoffice-XXXXXX/profile
+          以 file:/// URL 传给它，URL 跨过 127 字符即崩（8 + 36 + 84 = 128）
+    受控实测：82 ✅/✅ 83 ✅/✅ 84 ❌/❌ 85 ❌/❌
+    与层级无关：长而浅（1 层 109 字符）失败，短而深（6 层 71 字符）成功
+    对策：工作区根放短路径。工单要求的服务器路径
+          /home/ubuntu/scratchpad/research/<ws>/toolknit-output ≈ 60 字符，**安全**
+    留证用例：test_known_boundary_output_dir_length_limit
+
+4.2 doctor 不检查 LibreOffice
+    doctor 的 result 只有 version/node/qpdf/ffmpeg；LibreOffice 是渲染时懒探测的
+    ⇒ 用 doctor 判它必然假阴性。唯一可靠入口是 renderer_probe
+    （ppt to-pdf --dry-run，约 3.2 s，不写盘）
+    留证用例：test_doctor_does_not_report_libreoffice
+
+4.3 image colors 的 --count 是上界不是产量
+    纯色图即使 --count 2 也只返回 1 色
+    留证用例：test_palette_count_is_an_upper_bound_not_a_quota
+
+4.4 上游没有 PDF 文本提取
+    pdf 子命令仅 inspect/merge/split/rotate/encrypt/decrypt/compress/enhance/to-image
+    MCP 侧 46 工具里也无任何文本提取 ⇒ 工单点名的 pdf_extract_text **不存在**
+    仓内既有替代：mcpserver/adapters/pdf2md_adapter（Docling / MarkItDown）
+
+================================================================================
+5 · 刻意不接入的部分
+================================================================================
+
+  ✗ 上游 46 个 MCP 工具中的 38 个
+    工单 §4：「MCP 协议暴露 46 个工具导致 LM 工具选择混乱」⇒ 只白名单 9 个
+  ✗ 桌面端前端 / Rust 后端（见 §0.2）
+  ✗ 上游的 AI provider 集成（TOOLKNIT_AI_API_URL / _API_KEY / _AI_MODEL）
+    本仓已有自己的 LLM 通路（mcpserver/llm_gateway），不叠加第二套
+  ✗ whisper（语音）/ opencc（繁简）/ NotoSansSC（字体）等资源子包
+    本单四工具都不需要，不带进仓
+  ✗ 上游 test/ 与 examples/（不复制上游测试，本模块测试自建）
+  ✗ package.json / package-lock.json（工单 §3.4 明确禁止带入间接依赖图）
+
+================================================================================
+6 · 文件清单（工单244 新增 14 文件，全 LF —— 244b 的增删见 §7）
+================================================================================
+
+  mcpserver/toolknit_mcp/__init__.py            包文档 + 导出
+  mcpserver/toolknit_mcp/workspace.py          工作区路径纪律（4 条硬规则）
+  mcpserver/toolknit_mcp/tools.py              CLI 适配层（8 工具 + run_cli + 日志）
+  mcpserver/toolknit_mcp/pdf_text.py          PDF 逐页文本（仓内引擎，244b 新增）
+  mcpserver/toolknit_mcp/server.py             ToolknitBridge + 手工复现 CLI
+  mcpserver/toolknit_mcp/agent-manifest.json   Format A manifest
+  mcpserver/toolknit_mcp/requirements.txt      依赖说明（Python 侧零第三方）
+  mcpserver/toolknit_mcp/README.md             接入说明 + 10 项偏差表 + 已知边界
+  mcpserver/toolknit_mcp/tests/_fixtures/sample.pdf     3 页 ~112 KB
+  mcpserver/toolknit_mcp/tests/_fixtures/sample.pptx    2 页最小合法 OOXML
+  mcpserver/toolknit_mcp/tests/_fixtures/solid_red.png  32x32 纯色
+  mcpserver/toolknit_mcp/tests/_fixtures/two_tone.png   40x32 双色
+  tests/test_toolknit_mcp.py                   62 用例
+  docs/integration-graph/toolknit_mcp.txt      本文件
+  reports/workorder244_toolknit_mcp_2026-10-14.md      完工报告
+
+================================================================================
+7 · 244b 增量（2026-10-15）：把 244 的四个「未落地」项做掉
+================================================================================
+
+244 交付时如实留了四项未落地。244b 全部处理，且**每一项都有可复算的凭据**。
+
+--------------------------------------------------------------------------------
+7.1 pdf_text：把工单原话的缺口补上（新增一条依赖缝）
+--------------------------------------------------------------------------------
+
+  工单原话                上游实况（244 预检实证）        244b 处置
+  ---------------------  ------------------------------  --------------------------
+  pdf_extract_text       **不存在**（PDF 子命令无任何     新增 pdf_text，用**仓内引擎**
+  「文本 + 页码位置」      文本提取；MCP 侧 46 工具也无）   承接 ⇒ 逐页提取天然带页码
+
+  引擎链（全部**惰性导入**）：
+      pypdf        → pymupdf                → pdf2md_adapter
+      （逐页文本）   （+layout=true 行级 bbox） （Docling→MarkItDown，整篇 md，丢页码）
+
+  语义三条：
+    ① engine 留空/auto ⇒ 降级链；**显式给名 ⇒ 只用它**，不可用即 ENGINE_UNAVAILABLE
+       （防止「显式 pymupdf 却悄悄跑 pypdf」让诊断失真）
+    ② 三级全缺 ⇒ 明确报错 + 安装指引，**绝不返回空文本冒充成功**
+    ③ 截断只作用于返回体；**落盘文件永远完整**
+
+  ⚠️ 这是本包**唯一**允许出现第三方导入的文件，且必须写在函数体内：
+      顶层  ────  只准标准库（test_top_level_imports_are_stdlib_only）
+      pdf_text 内 ── 只准白名单模块、只准惰性（test_pdf_text_is_the_only_optional_seam）
+      CLI 驱动层 ── 任何位置都不准（test_cli_layer_is_pure_stdlib）
+
+  按**文件路径**加载 adapter（不经 `import mcpserver.adapters`）：
+  那个包的 __init__ 带注册副作用，而这里只要它两个纯函数。
+
+--------------------------------------------------------------------------------
+7.2 长输出路径：由「只写 hint」升级为「自动降级重试」（见 §4 第 1 条）
+--------------------------------------------------------------------------------
+
+  触发条件（四条**同时**成立，刻意保守）：
+      ① 输出路径 > 83 字符
+      ② error_code == PROCESSING_FAILED
+      ③ 消息里带 3221226505 / 0xC0000409
+      ④ 未设 TOOLKNIT_NO_PATH_FALLBACK
+
+  动作：把这次渲染改到短临时目录 → 成功后把 `<name>_ppt_to_pdf/` **整个搬回** out_root
+        → 重写 manifest.json 内的路径 → 清掉临时目录
+  契约：**产物位置与目录布局与正常路径完全一致**；返回体 path_fallback 如实标注
+
+  受控实测（同一 pptx、同一个 91 字符 output-dir，只改开关）：
+      默认            ok=True   path_fallback.used=true   （reason 记明 91 > 83 + exit 3221226505）
+      开关=1          ok=False  error_code=PROCESSING_FAILED  path_fallback={used:false,attempted:false}
+
+--------------------------------------------------------------------------------
+7.3 ffmpeg：装了也不算数（doctor 侧的实测坑）
+--------------------------------------------------------------------------------
+
+  CLI 找 ffmpeg 只认三处，且 lstat 拒绝符号链接：
+      %APPDATA%\ToolKnit\ffmpeg\ffmpeg.exe | 包内 vendor/ffmpeg/ | TOOLKNIT_FFMPEG_PATH
+  PATH 上的 ffmpeg **不算**（最后退化成裸命令交给 spawn(shell:false)）；
+  而 winget 建的 %LOCALAPPDATA%\Microsoft\WinGet\Links\ffmpeg.exe 是 **0 字节填充文件**
+  ⇒ Node spawn 报 EFTYPE ⇒ doctor 报 available=false / rc=5
+
+  ⇒ 处置：TOOLKNIT_FFMPEG_PATH 指向真实二进制 ⇒ doctor 变 ok=true / rc=0 / missing=[]
+
+--------------------------------------------------------------------------------
+7.4 许可审计固化（可重跑）+ 对 244 报告 §7 的一处修正
+--------------------------------------------------------------------------------
+
+  脚本：tools/toolknit_license_audit.py（纯标准库，自带 --strict）
+  实测（@toolknit/cli@2.3.1）：真包 **109**；0 强 copyleft、0 弱 copyleft
+      PERMISSIVE 107 / ELECTABLE-PERMISSIVE 1（jszip 双许可可选 MIT）/ UNKNOWN 1（buffers）
+
+  ⚠️ 修正 244 报告 §7 的「112 个包」：旧数把 3 个**非包清单**
+      （chart.js/auto/、chart.js/helpers/ 两个子路径 shim + music-tempo/docs/）
+      也算了进去。新脚本按 npm 布局规则过滤（node_modules/<name>/，scope 包两段）。
+  新增校验：磁盘枚举 vs 依赖树做 **name@version 集合差**
+      （不数节点——同一包在树里会重复出现，实测 205 节点 vs 112 包 ⇒ 数节点必然假警报）
+
+--------------------------------------------------------------------------------
+7.5 本文件自身的计数修正（244 遗留）
+--------------------------------------------------------------------------------
+
+  244 交付时本文件的 §6 标题写「18 文件」，而正文只列了 **14** 条；§5 又写「只白名单 8 个」。
+  （「18」疑为从 243 文案复制而来。）244b 一并修正为 **14 文件 / 9 工具**，
+  并新增 test_deliverable_is_lf_only 的**计数断言**（13 个文本文件）防止再腐烂。
+
+--------------------------------------------------------------------------------
+7.6 244b 文件增量
+--------------------------------------------------------------------------------
+
+  新增（2）
+      mcpserver/toolknit_mcp/pdf_text.py           PDF 逐页文本（仓内引擎缝）
+      tools/toolknit_license_audit.py              许可审计（可重跑）
+
+  修改（8）—— 合计 10 个文件（2 新增 + 8 修改）
+      mcpserver/toolknit_mcp/__init__.py           导出 pdf_text + 能力边界更新
+      mcpserver/toolknit_mcp/tools.py              长路径降级重试（+4 个新公开符号）
+      mcpserver/toolknit_mcp/server.py             pdf_text 工具 + pdf-text 子命令 + list_tools
+      mcpserver/toolknit_mcp/agent-manifest.json   pdf_text 声明 + 3 个新 env + 许可/降级说明
+      mcpserver/toolknit_mcp/requirements.txt      可选引擎表 + ffmpeg 坑
+      mcpserver/toolknit_mcp/README.md             §1 白名单 9 / §2 偏差#4 / §5.2 §5.3 / §7
+      docs/integration-graph/toolknit_mcp.txt      本文件（含 §7.5 的计数修正）
+      tests/test_toolknit_mcp.py                   依赖守卫拆三条 + pdf_text/降级 用例
+
+  报告：reports/workorder244b_toolknit_hardening_2026-10-15.md

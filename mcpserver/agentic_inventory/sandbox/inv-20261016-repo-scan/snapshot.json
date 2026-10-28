@@ -1,0 +1,538 @@
+{
+  "ok": true,
+  "tool": "snapshot",
+  "data": {
+    "repo_root": ".",
+    "count": 66,
+    "snapshot": {
+      "mcp_agent:mcpserver/academic/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "80d2b9478be25d7777dea72b24dd161cf8c8d9c4e2a96a71ce50f9b5b116180e",
+        "launch_hash": "f2b46457960441b8",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/agent_reach_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "519045725691f23ce87c725b5e665f764adbd78b4d9234cc8ba48d3645c24adf",
+        "launch_hash": "220126fb3fb7508b",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/chemmcp_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "129c9ab54964a761eefc9039d68d4e9cebab7ea84ef5aca7af1d168efd5bba7d",
+        "launch_hash": "3ae16ba2bb40f36c",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/code_review/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "d69085241c05a97f3bea7795e3a835a201676d0510cea23b60420561cb7f60ac",
+        "launch_hash": "14b19d95d9fb6bae",
+        "confidence": 85,
+        "risk_flags": "secret_var_name_in_docs",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/context7_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "cc9ef1ac338a817434828069ca3798a61a4e820909395d4c1af4ae681bff70ae",
+        "launch_hash": "2e6908429d395ff2",
+        "confidence": 85,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/graphify/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "5379ee563d5c38a084a8162638d57a4406ff71749d64333534afb53e6c84fa8f",
+        "launch_hash": "94b32277ce60ee35",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/hamlog_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "dbbe375df92b29b115dc5bad678e79565c1b21d479e3233fbebbb29d5dff45a7",
+        "launch_hash": "2c05d97f4f912ed4",
+        "confidence": 85,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/headroom_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "70fd3252ea4b2fd833135aa5a9d55810d3c240b619a35612ea1a75bfce8f2569",
+        "launch_hash": "6136e0ae03e44280",
+        "confidence": 95,
+        "risk_flags": "",
+        "quality_flags": "no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/llm4decompile_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "19f57568a83dddd60f4e67de1962c05bfd0013cdd6787eefb1d3e44da16025cf",
+        "launch_hash": "80573bab314e927f",
+        "confidence": 85,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/markitdown_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "09e232c3dcbf05bc03cb1d98dd7eddf7b0ef2a543450ff074c8a3af1b44cad7a",
+        "launch_hash": "c69f48897b4df69e",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/memclaw_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "2916a71449d5d615ec404c8e69dd385708544302f38d6f76e853240918762834",
+        "launch_hash": "3c70f89d5db90943",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/paper_miner_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "7e86ed16705657a5f1de03447b2446cdae3c87ac1913d6cf06af518cc38cf6ef",
+        "launch_hash": "6ace61c88731e13a",
+        "confidence": 80,
+        "risk_flags": "cleartext_endpoint",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/pdf2md_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "91f1d8a42436366fdfec1cd2ae6160db91b2e45d49ddc3c902e96b141e78bb61",
+        "launch_hash": "8f9d23dc8a6060fa",
+        "confidence": 85,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/rsba1_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "5fb858a250d001482651a7e8bdcaa6363250b44803fd4bb52ebddca3cbab5ef3",
+        "launch_hash": "7a549204af29e92f",
+        "confidence": 85,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/semantic_web/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "35f18d1acb9367b7f240c4a7e334401d2ded6b4f31749271e6b1ef8ae4624463",
+        "launch_hash": "a4cd15deb96d4fb2",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/adapters/vulnclaw_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "c9e5a0536f3ce9b238ccd3c4897cfb000e467d70547dcc7514380e0d1d3b51e7",
+        "launch_hash": "b3212d63a24dd19f",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_animation/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "747b234be552a674657cf23d3ab735748e0a6e534cd5d6d7acca4bf518157acb",
+        "launch_hash": "07a97b5b63e084b5",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_browser/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "285139555b7bcecdb7165547568c2eff82cb7e4068ad28c6e5fed7d10e84fa1e",
+        "launch_hash": "a1b6262e7006b084",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_cli_anything/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "fb9a54e298c474ee44b97949977877f9ad7300bff875133e42dcc38d42077dad",
+        "launch_hash": "044044c9a1378877",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_decompile/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "8bf1e69f9d6f03ae772542740dced2abffa557b5385f1e27306f41bea7711af8",
+        "launch_hash": "6de92c23f650241a",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_frida/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "86206ea9614930873ec3cab07edeeca9388a97a1afaed3a674afa8bf14bf5d5c",
+        "launch_hash": "04375e45acae89d6",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_game_guide/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "4190e6b1bbded77979a58bc514539e45b2e547956c50d3dfd4d4c8edb62f9011",
+        "launch_hash": "60f216256648fd03",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_governance/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "05e66d0f3f43e4d34a0236064c9adfb6f50f1464506c058934d6d2d562c7dbd7",
+        "launch_hash": "77d7b5d9d1b2a9ac",
+        "confidence": 90,
+        "risk_flags": "secret_var_name_in_docs",
+        "quality_flags": "dispatcher_uncheckable,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_nuclei/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "7464a641de8df9efba3f6a999b7cdba90603a41fba6187b332a430d51f23cc29",
+        "launch_hash": "3f69762e7f4ca0fe",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_open_launcher/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "7abbee4e23d621cd65e637db32ed9b61cae33f7dcd93fad3ff8eb09d79343c13",
+        "launch_hash": "2bdbb1ed2dadcfda",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_osint/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "ea982302577fb3aa5bef66d0d9a9b64df536c66e122b1bdf09c51d40bdbdc65d",
+        "launch_hash": "77000fd46ca66914",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_pentest/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "3847a2c3b6b88840f29a5e60f46fb96562654c56e83ffceaf34922f2fda75172",
+        "launch_hash": "d777950cf2d2eedd",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_runtime/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "8dfc9f64ddd41e822c1cb5599ac43f17e7dd4df4a77fc60679a9b690ebd203be",
+        "launch_hash": "7558a93c490b47e6",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_sbom/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "e3a6448c082847dc03f613f285c050d327d79624f2ca2e088bf9c2ef3dd0a4dd",
+        "launch_hash": "9eff114e7e84e1a3",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_screen_vision/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "81a880fe49e52d202c31c90fbafb995c7285d3e5d7ef0358bb0eabe9e21b6451",
+        "launch_hash": "b7a674af37a83103",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_signing/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "d2349b7ad127116b0a5c9ffd0e384d6d8b3156e101145c5b7ff42b7c7c1862a4",
+        "launch_hash": "a01b232421e36172",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_strix/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "a5cde583ff90c3c31e39019108a4232c02232d1e517f50e8a8da3481b432574f",
+        "launch_hash": "def1b9833480ce58",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_trivy/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "d001759b52a0de22a373758146fd7faa11dcbe42a466bef1167cf8f0dbde3e88",
+        "launch_hash": "5aff0230a895f8df",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_waf/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "a593d67500860d166833ed0828bc5df1f132b79a5525d6e4b94fa9375aab5c14",
+        "launch_hash": "78c19d176a7c2116",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agent_weather_time/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "d5f91b1b575dbaf76256e0787fbe94c27edb5ff0fea4e267de8c9a53c64e2b2c",
+        "launch_hash": "ff6b9bd0363544c8",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/agentic_inventory/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "9afb5ebb3fd1c24a4388a45c8d927ccb647fc029f5f2b3043c50048ff4ed3002",
+        "launch_hash": "83e8ddad5d41099f",
+        "confidence": 110,
+        "risk_flags": "cleartext_endpoint,remote_fetch_exec,secret_var_name_in_docs",
+        "quality_flags": ""
+      },
+      "mcp_agent:mcpserver/antenna_sim/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "2efc9e7b14f5a14abaedcefbdef8e511c0ea19e1dd1bfa244756814cb20e6298",
+        "launch_hash": "b46a9492f2db91c8",
+        "confidence": 105,
+        "risk_flags": "",
+        "quality_flags": "no_requirements"
+      },
+      "mcp_agent:mcpserver/bofire/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "a219db0483b73c07d91c7bfab7c2c867db0d032ca4246eb75fbfe4c932f00902",
+        "launch_hash": "3c9a1efa5c0d2e53",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/chembl/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "eb25097b17688113c0ff48eea2a2e3841d98b1c4bb2265fce6f3904c5d117d61",
+        "launch_hash": "deb0b38e72cad96f",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/code_workspace/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "b164c0a54cc6bb6718634fbccf4fc698b3df1fad7e120c43b77c80e240acc5ee",
+        "launch_hash": "f76ccf1b33da8944",
+        "confidence": 90,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_requirements"
+      },
+      "mcp_agent:mcpserver/eis/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "271434298672f2fa67a5091fb0c70a32df11c644fa815e8703e49741e53dfd42",
+        "launch_hash": "297d5f30e2733c42",
+        "confidence": 85,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_requirements"
+      },
+      "mcp_agent:mcpserver/fault_inject/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "4dd64610c504346607a7e0726ed59fa0ac98f006b7f7146099a377a541313c9b",
+        "launch_hash": "dcd842f87c79a92a",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/firecrawl_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "4b5b5eb3d6ca50ab7505c5bb7b4a791ec7c49f936c3bd27345b3d7694ee96846",
+        "launch_hash": "1f16618aa45e89d2",
+        "confidence": 80,
+        "risk_flags": "cleartext_endpoint",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/glyco/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "6842773cce5e90333eb31aca0435fe29c5f864b4e49679351ba154615ed5ede1",
+        "launch_hash": "4544285182ed9361",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/graph_memory_adapter/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "97c703047aaac762caf19a027330ad9be6586a23cabb46614464756f2cd06e22",
+        "launch_hash": "0bd058cc0c18efc6",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/kicad_mcp/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "5c9e0d804198064dc2c9fc19149b9ab2429be955d9843b813a09c71304599748",
+        "launch_hash": "2ad4fa682712e37b",
+        "confidence": 110,
+        "risk_flags": "",
+        "quality_flags": ""
+      },
+      "mcp_agent:mcpserver/material_science/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "b7b72d36310880e0f8fdd2f22175cf4a4bf32a20dfddb5462e608d76adcfcb21",
+        "launch_hash": "d5eb65b9abbb33b4",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/memory_maas/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "fc899a3a0a64750af6605fe3f9a5dc773e658e15872c82c221ce28beb0a1eb76",
+        "launch_hash": "5cb5ed2765943012",
+        "confidence": 90,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_requirements"
+      },
+      "mcp_agent:mcpserver/ptz_service/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "8992b7ee373914f20fa6cf1f0d5298a9ad03ad47f20482a5ba4083f21b51e345",
+        "launch_hash": "947f53d18414d170",
+        "confidence": 105,
+        "risk_flags": "",
+        "quality_flags": "no_requirements"
+      },
+      "mcp_agent:mcpserver/retrosynthesis/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "bd1c7ff7a7b40a523117b3a3b79bfb54b9333ff39ee8f2fe226d13d892f44cba",
+        "launch_hash": "92b050110f221da6",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/rf_brain/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "cc8813a8a538a215a14104b0fa35015e5aab2d3527c39cbb2a3ac4d5f10052f6",
+        "launch_hash": "67df4d90f66a2cb7",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/rf_evolve/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "6391e8b6eced3b71465f50a2c4bfaa4a13acb6e5c083bcca89b123a683316e9e",
+        "launch_hash": "dec3485bd97e2392",
+        "confidence": 110,
+        "risk_flags": "secret_var_name_in_docs",
+        "quality_flags": ""
+      },
+      "mcp_agent:mcpserver/rf_workflow/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "d12e6206ebd55f2e7faa8ce53ca1f2fe521545b6996cd623c83a9fce7a6f15b7",
+        "launch_hash": "b10c8f478b9076ca",
+        "confidence": 110,
+        "risk_flags": "secret_var_name_in_docs",
+        "quality_flags": ""
+      },
+      "mcp_agent:mcpserver/scikit_fingerprints/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "f349c0e4602003d62c617139354392bf9ef08e66d02de77fdc9586a12bb91bca",
+        "launch_hash": "a7eb09b84768636b",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/sentinel_intel/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "72195be267709443921e7472179592195a21ece0250f9626ae26c3892a1d792f",
+        "launch_hash": "ef5a7616eec83405",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/toolknit_mcp/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "2f0984d542d01742e0c362f85b333301977dd253d9a094bd20db743940f4c1f6",
+        "launch_hash": "bef461879b3967a3",
+        "confidence": 110,
+        "risk_flags": "remote_fetch_exec,unpinned_dependency",
+        "quality_flags": ""
+      },
+      "mcp_agent:mcpserver/trace_audit/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "f9f53f703fe0006e1eece9ee461a2763d6d1c22e11c8f710efa67f40e5a9e776",
+        "launch_hash": "ad45bf105952d07b",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/tts_api/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "43dc66309a8459cbf4fd4fd3cd8a65b2beef6ea73ae2df16cbeebaa5959eded6",
+        "launch_hash": "edf1fca7129a12a6",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/voice_mcp_bidi/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "965b7e8493121c4c55ff7c6fde15926b6f6a453b20517e9c71f483bc3ac672d6",
+        "launch_hash": "a5200acf74942511",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/voice_mcp_minimax/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "6759692f719dee613f6b8905fd8f77569e168274d6aa517dc72081778ca5914d",
+        "launch_hash": "f266fa60f8fb2c3b",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/workflow/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "e6b384a6b54a184ce6b77621f5caf4526cbf728bb60db4bf42dfa7e8910da57d",
+        "launch_hash": "49fe179ffa3b42a3",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "mcp_agent:mcpserver/zhi_mcp/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "280ca99701846cd398cccce30797faf3bd0337e3fc9f69dbc729a13f5b3617ac",
+        "launch_hash": "a59acbd080b17d9f",
+        "confidence": 110,
+        "risk_flags": "",
+        "quality_flags": ""
+      },
+      "mcp_agent:mcpserver/zotpilot/agent-manifest.json": {
+        "type": "mcp_agent",
+        "sha256": "0d003b55537a47e260b2fdc83d61484a7ca72faaf987d0d1e1155197bf2676be",
+        "launch_hash": "06d2965054fe8737",
+        "confidence": 80,
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      "instruction_file:apiserver/AGENTS.md": {
+        "type": "instruction_file",
+        "sha256": "6d55650728ee5a365620fb16e72048d59ff912ced823e1a475e0c89cef338fa2",
+        "launch_hash": "",
+        "confidence": 100,
+        "risk_flags": "",
+        "quality_flags": ""
+      },
+      "instruction_file:frontend/src/AGENTS.md": {
+        "type": "instruction_file",
+        "sha256": "547c7b81ce4b77b7e007ef2720bfa9217ea46639383e290723a61464efe5318b",
+        "launch_hash": "",
+        "confidence": 100,
+        "risk_flags": "",
+        "quality_flags": ""
+      },
+      "instruction_file:mcpserver/AGENTS.md": {
+        "type": "instruction_file",
+        "sha256": "54b682c3f2a4f9b1a682079487809ae634572a33255332a689f256605e15da75",
+        "launch_hash": "",
+        "confidence": 100,
+        "risk_flags": "",
+        "quality_flags": ""
+      }
+    }
+  }
+}

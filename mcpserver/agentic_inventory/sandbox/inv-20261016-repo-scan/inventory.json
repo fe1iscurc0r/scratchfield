@@ -1,0 +1,2474 @@
+{
+  "ok": true,
+  "tool": "inventory",
+  "data": {
+    "rows": [
+      {
+        "type": "mcp_agent",
+        "name": "academic",
+        "identifier": "academic",
+        "category": "compute,materials",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/academic/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "80d2b9478be25d7777dea72b24dd161cf8c8d9c4e2a96a71ce50f9b5b116180e",
+        "launch_hash": "f2b46457960441b8",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.academic.bridge",
+            "class": "AcademicBridge"
+          },
+          "declared_commands": [
+            "academic_interfaces",
+            "academic_levels",
+            "chem_parse",
+            "chembl_molecule",
+            "chembl_search_smiles",
+            "coolprop_constant",
+            "coolprop_props",
+            "indigo_molinfo",
+            "indigo_substructure",
+            "slices_check",
+            "slices_decode",
+            "slices_encode",
+            "tespy_check",
+            "tespy_solve_network"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/academic/bridge.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_reach_adapter",
+        "identifier": "agent_reach",
+        "category": "ecology",
+        "location": "local",
+        "source": "沈遥",
+        "version": "1.5.0",
+        "path": "mcpserver/adapters/agent_reach_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "519045725691f23ce87c725b5e665f764adbd78b4d9234cc8ba48d3645c24adf",
+        "launch_hash": "220126fb3fb7508b",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.adapters.flat_bridges",
+            "class": "AgentReachBridge"
+          },
+          "declared_commands": [
+            "agent_reach_status"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/flat_bridges.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "chemmcp_adapter",
+        "identifier": "chemmcp",
+        "category": "compute,materials",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/adapters/chemmcp_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "129c9ab54964a761eefc9039d68d4e9cebab7ea84ef5aca7af1d168efd5bba7d",
+        "launch_hash": "3ae16ba2bb40f36c",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.adapters.flat_bridges",
+            "class": "ChemmcpBridge"
+          },
+          "declared_commands": [
+            "chemmcp_canonicalize_smiles",
+            "chemmcp_check_molecule_smiles",
+            "chemmcp_smiles2cas",
+            "chemmcp_smiles2formula"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/flat_bridges.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "code_review",
+        "identifier": "code_review_graph",
+        "category": "code",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/adapters/code_review/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "d69085241c05a97f3bea7795e3a835a201676d0510cea23b60420561cb7f60ac",
+        "launch_hash": "14b19d95d9fb6bae",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.adapters.code_review.adapter",
+            "class": "CodeReviewGraphBridge"
+          },
+          "declared_commands": [
+            "code_review_build_index",
+            "code_review_detect_changes",
+            "code_review_get_architecture_overview",
+            "code_review_get_impact_radius",
+            "code_review_query_graph"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/code_review/adapter.py",
+          "secret_var_names": [
+            "CHARS_PER_TOKEN"
+          ]
+        },
+        "confidence": 85,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,readme",
+        "risk_flags": "secret_var_name_in_docs",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "context7_adapter",
+        "identifier": "context7",
+        "category": "document",
+        "location": "local",
+        "source": "沈遥",
+        "version": "1.0.0",
+        "path": "mcpserver/adapters/context7_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "cc9ef1ac338a817434828069ca3798a61a4e820909395d4c1af4ae681bff70ae",
+        "launch_hash": "2e6908429d395ff2",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.adapters.flat_bridges",
+            "class": "Context7Bridge"
+          },
+          "declared_commands": [
+            "context7_query_docs"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/flat_bridges.py",
+          "secret_var_names": []
+        },
+        "confidence": 85,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,tests",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "graphify",
+        "identifier": "graphify",
+        "category": "context",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/adapters/graphify/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "5379ee563d5c38a084a8162638d57a4406ff71749d64333534afb53e6c84fa8f",
+        "launch_hash": "94b32277ce60ee35",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.adapters.graphify.adapter",
+            "class": "GraphifyBridge"
+          },
+          "declared_commands": [
+            "graphify_build",
+            "graphify_explain",
+            "graphify_import",
+            "graphify_path",
+            "graphify_query",
+            "graphify_status"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/graphify/adapter.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "hamlog_adapter",
+        "identifier": "hamlog_adapter",
+        "category": "ecology",
+        "location": "local",
+        "source": "沈遥",
+        "version": "1.1.0",
+        "path": "mcpserver/adapters/hamlog_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "dbbe375df92b29b115dc5bad678e79565c1b21d479e3233fbebbb29d5dff45a7",
+        "launch_hash": "2c05d97f4f912ed4",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.adapters.hamlog_adapter.adapter",
+            "class": "HamlogBridge"
+          },
+          "declared_commands": [
+            "hamlog_card_content",
+            "hamlog_qsl_debts",
+            "hamlog_qsl_update",
+            "hamlog_qso_add",
+            "hamlog_qso_search"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/hamlog_adapter/adapter.py",
+          "secret_var_names": []
+        },
+        "confidence": 85,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,tests",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "headroom_adapter",
+        "identifier": "headroom",
+        "category": "context",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.34.0",
+        "path": "mcpserver/adapters/headroom_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "70fd3252ea4b2fd833135aa5a9d55810d3c240b619a35612ea1a75bfce8f2569",
+        "launch_hash": "6136e0ae03e44280",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.adapters.headroom_adapter.agent",
+            "class": "HeadroomBridge"
+          },
+          "declared_commands": [
+            "headroom_compress_text",
+            "headroom_stats"
+          ],
+          "code_tools": [
+            "headroom_compress_text",
+            "headroom_stats"
+          ],
+          "dispatcher_checkable": true,
+          "entrypoint_file": "mcpserver/adapters/headroom_adapter/agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 95,
+        "band": "high",
+        "evidence": "dispatcher_match,entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "llm4decompile_adapter",
+        "identifier": "llm4decompile",
+        "category": "offense,security",
+        "location": "local",
+        "source": "沈遥",
+        "version": "1.0",
+        "path": "mcpserver/adapters/llm4decompile_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "19f57568a83dddd60f4e67de1962c05bfd0013cdd6787eefb1d3e44da16025cf",
+        "launch_hash": "80573bab314e927f",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.adapters.flat_bridges",
+            "class": "Llm4decompileBridge"
+          },
+          "declared_commands": [
+            "decompile_binary",
+            "decompile_status",
+            "pe_metadata"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/flat_bridges.py",
+          "secret_var_names": []
+        },
+        "confidence": 85,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,tests",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "markitdown_adapter",
+        "identifier": "markitdown",
+        "category": "document",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.6",
+        "path": "mcpserver/adapters/markitdown_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "09e232c3dcbf05bc03cb1d98dd7eddf7b0ef2a543450ff074c8a3af1b44cad7a",
+        "launch_hash": "c69f48897b4df69e",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.adapters.flat_bridges",
+            "class": "MarkitdownBridge"
+          },
+          "declared_commands": [
+            "convert_to_markdown",
+            "pipeline_status"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/flat_bridges.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "memclaw_adapter",
+        "identifier": "memclaw",
+        "category": "context",
+        "location": "local",
+        "source": "沈遥",
+        "version": "2.27.0",
+        "path": "mcpserver/adapters/memclaw_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "2916a71449d5d615ec404c8e69dd385708544302f38d6f76e853240918762834",
+        "launch_hash": "3c70f89d5db90943",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.adapters.flat_bridges",
+            "class": "MemclawBridge"
+          },
+          "declared_commands": [
+            "memclaw_list",
+            "memclaw_recall",
+            "memclaw_stats",
+            "memclaw_status",
+            "memclaw_write"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/flat_bridges.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "paper_miner_adapter",
+        "identifier": "paper_miner",
+        "category": "document",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/adapters/paper_miner_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "7e86ed16705657a5f1de03447b2446cdae3c87ac1913d6cf06af518cc38cf6ef",
+        "launch_hash": "6ace61c88731e13a",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.adapters.flat_bridges",
+            "class": "PaperMinerBridge"
+          },
+          "declared_commands": [
+            "extract_paper",
+            "paper_miner_status",
+            "query_experiments"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/flat_bridges.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "cleartext_endpoint",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "pdf2md_adapter",
+        "identifier": "pdf2md_adapter",
+        "category": "document",
+        "location": "local",
+        "source": "沈遥",
+        "version": "1.0.0",
+        "path": "mcpserver/adapters/pdf2md_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "91f1d8a42436366fdfec1cd2ae6160db91b2e45d49ddc3c902e96b141e78bb61",
+        "launch_hash": "8f9d23dc8a6060fa",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.adapters.pdf2md_adapter.adapter",
+            "class": "Pdf2MdBridge"
+          },
+          "declared_commands": [
+            "pdf2md_batch",
+            "pdf2md_convert",
+            "pdf2md_status"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/pdf2md_adapter/adapter.py",
+          "secret_var_names": []
+        },
+        "confidence": 85,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,tests",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "rsba1_adapter",
+        "identifier": "rsba1_ic705",
+        "category": "instrument,mechat",
+        "location": "local",
+        "source": "沈遥",
+        "version": "1.0.0",
+        "path": "mcpserver/adapters/rsba1_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "5fb858a250d001482651a7e8bdcaa6363250b44803fd4bb52ebddca3cbab5ef3",
+        "launch_hash": "7a549204af29e92f",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "process-control",
+          "entryPoint": {
+            "module": "mcpserver.adapters.rsba1_adapter.adapter",
+            "class": "Rsba1Ic705Bridge"
+          },
+          "declared_commands": [
+            "ic705_get_status",
+            "ic705_ptt",
+            "ic705_read_freq",
+            "ic705_read_mode",
+            "ic705_read_smeter",
+            "ic705_set_freq"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/rsba1_adapter/adapter.py",
+          "secret_var_names": []
+        },
+        "confidence": 85,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,tests",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "semantic_web",
+        "identifier": "semantic_web",
+        "category": "context",
+        "location": "local",
+        "source": "沈遥",
+        "version": "1.0.0",
+        "path": "mcpserver/adapters/semantic_web/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "35f18d1acb9367b7f240c4a7e334401d2ded6b4f31749271e6b1ef8ae4624463",
+        "launch_hash": "a4cd15deb96d4fb2",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.adapters.semantic_web.bridge",
+            "class": "SemanticBridge"
+          },
+          "declared_commands": [
+            "semantic_query"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/semantic_web/bridge.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "vulnclaw_adapter",
+        "identifier": "vulnclaw",
+        "category": "offense,security",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.3.7",
+        "path": "mcpserver/adapters/vulnclaw_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "c9e5a0536f3ce9b238ccd3c4897cfb000e467d70547dcc7514380e0d1d3b51e7",
+        "launch_hash": "b3212d63a24dd19f",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "offensive",
+          "entryPoint": {
+            "module": "mcpserver.adapters.flat_bridges",
+            "class": "VulnclawBridge"
+          },
+          "declared_commands": [
+            "vulnclaw_invoke",
+            "vulnclaw_status"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/adapters/flat_bridges.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_animation",
+        "identifier": "agent_animation",
+        "category": "document",
+        "location": "local",
+        "source": "MCP Agent Team",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_animation/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "747b234be552a674657cf23d3ab735748e0a6e534cd5d6d7acca4bf518157acb",
+        "launch_hash": "07a97b5b63e084b5",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.agent_animation.agent_animation",
+            "class": "AnimationAgent"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_animation/agent_animation.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_browser",
+        "identifier": "agent_browser",
+        "category": "ecology",
+        "location": "local",
+        "source": "GitHub browser-use + nanobrowser + QClaw 改造",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_browser/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "285139555b7bcecdb7165547568c2eff82cb7e4068ad28c6e5fed7d10e84fa1e",
+        "launch_hash": "a1b6262e7006b084",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "process-control",
+          "entryPoint": {
+            "module": "mcpserver.agent_browser.agent_browser",
+            "class": "AgentBrowser"
+          },
+          "declared_commands": [
+            "click_element",
+            "execute_task",
+            "extract_content",
+            "get_page_state",
+            "navigate",
+            "screenshot",
+            "type_text"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_browser/agent_browser.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_cli_anything",
+        "identifier": "cli_anything",
+        "category": "ecology",
+        "location": "local",
+        "source": "陆墨助手",
+        "version": "0.1.0",
+        "path": "mcpserver/agent_cli_anything/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "fb9a54e298c474ee44b97949977877f9ad7300bff875133e42dcc38d42077dad",
+        "launch_hash": "044044c9a1378877",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_cli_anything.agent_cli_anything",
+            "class": "CliAnythingAgent"
+          },
+          "declared_commands": [
+            "list_cli_tools",
+            "search_capabilities"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_cli_anything/agent_cli_anything.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_decompile",
+        "identifier": "agent_decompile",
+        "category": "offense",
+        "location": "local",
+        "source": "MCP Agent Generator",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_decompile/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "8bf1e69f9d6f03ae772542740dced2abffa557b5385f1e27306f41bea7711af8",
+        "launch_hash": "6de92c23f650241a",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.agent_decompile.agent_decompile",
+            "class": "AgentDecompile"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_decompile/agent_decompile.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_frida",
+        "identifier": "agent_frida",
+        "category": "offense",
+        "location": "local",
+        "source": "MCP Agent Team",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_frida/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "86206ea9614930873ec3cab07edeeca9388a97a1afaed3a674afa8bf14bf5d5c",
+        "launch_hash": "04375e45acae89d6",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "offensive",
+          "entryPoint": {
+            "module": "mcpserver.agent_frida.agent_frida",
+            "class": "FridaAgent"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_frida/agent_frida.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_game_guide",
+        "identifier": "game_guide",
+        "category": "ecology",
+        "location": "local",
+        "source": "陆墨",
+        "version": "0.1.0",
+        "path": "mcpserver/agent_game_guide/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "4190e6b1bbded77979a58bc514539e45b2e547956c50d3dfd4d4c8edb62f9011",
+        "launch_hash": "60f216256648fd03",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_game_guide.agent_game_guide",
+            "class": "GameGuideAgent"
+          },
+          "declared_commands": [
+            "ask_guide",
+            "ask_guide_with_screenshot",
+            "calculate_damage",
+            "get_team_recommendation"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_game_guide/agent_game_guide.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_governance",
+        "identifier": "agent_governance",
+        "category": "defense,multi-agent-governance,audit",
+        "location": "local",
+        "source": "Trae (workorder 241)",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_governance/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "05e66d0f3f43e4d34a0236064c9adfb6f50f1464506c058934d6d2d562c7dbd7",
+        "launch_hash": "77d7b5d9d1b2a9ac",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-write",
+          "entryPoint": {
+            "module": "mcpserver.agent_governance.governance",
+            "class": "AgentGovernance"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_governance/governance.py",
+          "secret_var_names": [
+            "AGENT_GOVERNANCE_TOKEN",
+            "GOV_TOKEN_EXPIRED",
+            "GOV_TOKEN_MISSING"
+          ]
+        },
+        "confidence": 90,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,readme,tests",
+        "risk_flags": "secret_var_name_in_docs",
+        "quality_flags": "dispatcher_uncheckable,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_nuclei",
+        "identifier": "agent_nuclei",
+        "category": "offense",
+        "location": "local",
+        "source": "MCP Agent Generator",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_nuclei/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "7464a641de8df9efba3f6a999b7cdba90603a41fba6187b332a430d51f23cc29",
+        "launch_hash": "3f69762e7f4ca0fe",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "offensive",
+          "entryPoint": {
+            "module": "mcpserver.agent_nuclei.agent_nuclei",
+            "class": "AgentNuclei"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_nuclei/agent_nuclei.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_open_launcher",
+        "identifier": "app_launcher",
+        "category": "ecology",
+        "location": "local",
+        "source": "陆墨",
+        "version": "2.4.0",
+        "path": "mcpserver/agent_open_launcher/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "7abbee4e23d621cd65e637db32ed9b61cae33f7dcd93fad3ff8eb09d79343c13",
+        "launch_hash": "2bdbb1ed2dadcfda",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "process-control",
+          "entryPoint": {
+            "module": "mcpserver.agent_open_launcher.agent_app_launcher",
+            "class": "AppLauncherAgent"
+          },
+          "declared_commands": [
+            "关闭HamLog",
+            "关闭NEKO",
+            "启动HamLog",
+            "启动NEKO",
+            "启动应用",
+            "查询生态应用状态",
+            "获取应用列表"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_open_launcher/agent_app_launcher.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_osint",
+        "identifier": "agent_osint",
+        "category": "offense",
+        "location": "local",
+        "source": "MCP Agent Generator",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_osint/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "ea982302577fb3aa5bef66d0d9a9b64df536c66e122b1bdf09c51d40bdbdc65d",
+        "launch_hash": "77000fd46ca66914",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_osint.agent_osint",
+            "class": "AgentOsint"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_osint/agent_osint.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_pentest",
+        "identifier": "agent_pentest",
+        "category": "offense",
+        "location": "local",
+        "source": "Group B MCP Agents",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_pentest/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "3847a2c3b6b88840f29a5e60f46fb96562654c56e83ffceaf34922f2fda75172",
+        "launch_hash": "d777950cf2d2eedd",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "offensive",
+          "entryPoint": {
+            "module": "mcpserver.agent_pentest.agent_pentest",
+            "class": "PentestAgent"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_pentest/agent_pentest.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_runtime",
+        "identifier": "agent_runtime",
+        "category": "offense",
+        "location": "local",
+        "source": "Group B MCP Agents",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_runtime/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "8dfc9f64ddd41e822c1cb5599ac43f17e7dd4df4a77fc60679a9b690ebd203be",
+        "launch_hash": "7558a93c490b47e6",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_runtime.agent_runtime",
+            "class": "RuntimeAgent"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_runtime/agent_runtime.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_sbom",
+        "identifier": "agent_sbom",
+        "category": "offense",
+        "location": "local",
+        "source": "MCP Agent Generator",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_sbom/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "e3a6448c082847dc03f613f285c050d327d79624f2ca2e088bf9c2ef3dd0a4dd",
+        "launch_hash": "9eff114e7e84e1a3",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_sbom.agent_sbom",
+            "class": "AgentSbom"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_sbom/agent_sbom.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_screen_vision",
+        "identifier": "screen_vision",
+        "category": "verbal",
+        "location": "local",
+        "source": "陆墨",
+        "version": "0.2.0",
+        "path": "mcpserver/agent_screen_vision/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "81a880fe49e52d202c31c90fbafb995c7285d3e5d7ef0358bb0eabe9e21b6451",
+        "launch_hash": "b7a674af37a83103",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_screen_vision.agent_screen_vision",
+            "class": "ScreenVisionAgent"
+          },
+          "declared_commands": [
+            "look_screen"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_screen_vision/agent_screen_vision.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_signing",
+        "identifier": "agent_signing",
+        "category": "offense",
+        "location": "local",
+        "source": "MCP Agent Generator",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_signing/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "d2349b7ad127116b0a5c9ffd0e384d6d8b3156e101145c5b7ff42b7c7c1862a4",
+        "launch_hash": "a01b232421e36172",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_signing.agent_signing",
+            "class": "AgentSigning"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_signing/agent_signing.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_strix",
+        "identifier": "agent_strix",
+        "category": "offense",
+        "location": "local",
+        "source": "MCP Agent Team",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_strix/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "a5cde583ff90c3c31e39019108a4232c02232d1e517f50e8a8da3481b432574f",
+        "launch_hash": "def1b9833480ce58",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "offensive",
+          "entryPoint": {
+            "module": "mcpserver.agent_strix.agent_strix",
+            "class": "StrixAgent"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_strix/agent_strix.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_trivy",
+        "identifier": "agent_trivy",
+        "category": "offense",
+        "location": "local",
+        "source": "MCP Agent Generator",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_trivy/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "d001759b52a0de22a373758146fd7faa11dcbe42a466bef1167cf8f0dbde3e88",
+        "launch_hash": "5aff0230a895f8df",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_trivy.agent_trivy",
+            "class": "AgentTrivy"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_trivy/agent_trivy.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_waf",
+        "identifier": "agent_waf",
+        "category": "offense",
+        "location": "local",
+        "source": "Group B MCP Agents",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_waf/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "a593d67500860d166833ed0828bc5df1f132b79a5525d6e4b94fa9375aab5c14",
+        "launch_hash": "78c19d176a7c2116",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_waf.agent_waf",
+            "class": "WafAgent"
+          },
+          "declared_commands": [],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_waf/agent_waf.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_weather_time",
+        "identifier": "weather_time",
+        "category": "ecology",
+        "location": "local",
+        "source": "Naga地理模块",
+        "version": "1.0.0",
+        "path": "mcpserver/agent_weather_time/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "d5f91b1b575dbaf76256e0787fbe94c27edb5ff0fea4e267de8c9a53c64e2b2c",
+        "launch_hash": "ff6b9bd0363544c8",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agent_weather_time.agent_weather_time",
+            "class": "WeatherTimeAgent"
+          },
+          "declared_commands": [
+            "forecast_weather",
+            "time",
+            "today_weather"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/agent_weather_time/agent_weather_time.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agentic_inventory",
+        "identifier": "agentic_inventory",
+        "category": "instrument,security",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/agentic_inventory/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "9afb5ebb3fd1c24a4388a45c8d927ccb647fc029f5f2b3043c50048ff4ed3002",
+        "launch_hash": "83e8ddad5d41099f",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.agentic_inventory.server",
+            "class": "AgenticInventoryBridge"
+          },
+          "declared_commands": [
+            "column_spec",
+            "diff",
+            "doctor",
+            "inventory",
+            "list_tools",
+            "registry_gaps",
+            "risk_report",
+            "snapshot"
+          ],
+          "code_tools": [
+            "column_spec",
+            "diff",
+            "doctor",
+            "inventory",
+            "list_tools",
+            "registry_gaps",
+            "risk_report",
+            "snapshot"
+          ],
+          "dispatcher_checkable": true,
+          "entrypoint_file": "mcpserver/agentic_inventory/server.py",
+          "secret_var_names": [
+            "ANTHROPIC_API_KEY",
+            "REALSECRET"
+          ]
+        },
+        "confidence": 110,
+        "band": "catalog",
+        "evidence": "dispatcher_match,entrypoint_resolves,handoff_contract,manifest,readme,requirements_declared,tests",
+        "risk_flags": "cleartext_endpoint,remote_fetch_exec,secret_var_name_in_docs",
+        "quality_flags": ""
+      },
+      {
+        "type": "mcp_agent",
+        "name": "antenna_sim",
+        "identifier": "antenna_sim",
+        "category": "instrument,mechat",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/antenna_sim/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "2efc9e7b14f5a14abaedcefbdef8e511c0ea19e1dd1bfa244756814cb20e6298",
+        "launch_hash": "b46a9492f2db91c8",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "process-control",
+          "entryPoint": {
+            "module": "mcpserver.antenna_sim.tools",
+            "class": "AntennaSimBridge"
+          },
+          "declared_commands": [
+            "analyze_result",
+            "gen_model",
+            "job_status",
+            "sim_run",
+            "sweep_params"
+          ],
+          "code_tools": [
+            "analyze_result",
+            "gen_model",
+            "job_status",
+            "sim_run",
+            "sweep_params"
+          ],
+          "dispatcher_checkable": true,
+          "entrypoint_file": "mcpserver/antenna_sim/tools.py",
+          "secret_var_names": []
+        },
+        "confidence": 105,
+        "band": "catalog",
+        "evidence": "dispatcher_match,entrypoint_resolves,handoff_contract,manifest,readme,tests",
+        "risk_flags": "",
+        "quality_flags": "no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "bofire",
+        "identifier": "bofire",
+        "category": "compute,materials",
+        "location": "local",
+        "source": "陆墨助手",
+        "version": "1.0.0",
+        "path": "mcpserver/bofire/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "a219db0483b73c07d91c7bfab7c2c867db0d032ca4246eb75fbfe4c932f00902",
+        "launch_hash": "3c9a1efa5c0d2e53",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.bofire.agent",
+            "class": "BofireAgent"
+          },
+          "declared_commands": [
+            "bofire_ask_candidates",
+            "bofire_define_domain",
+            "bofire_tell_results"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/bofire/agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "chembl",
+        "identifier": "chembl",
+        "category": "compute,materials",
+        "location": "local",
+        "source": "陆墨助手",
+        "version": "1.0.0",
+        "path": "mcpserver/chembl/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "eb25097b17688113c0ff48eea2a2e3841d98b1c4bb2265fce6f3904c5d117d61",
+        "launch_hash": "deb0b38e72cad96f",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.chembl.agent",
+            "class": "ChEMBLAgent"
+          },
+          "declared_commands": [
+            "chembl_activity",
+            "chembl_batch",
+            "chembl_search_compound",
+            "chembl_similarity",
+            "chembl_structure",
+            "chembl_target"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/chembl/agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "code_workspace",
+        "identifier": "code_workspace",
+        "category": "code",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/code_workspace/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "b164c0a54cc6bb6718634fbccf4fc698b3df1fad7e120c43b77c80e240acc5ee",
+        "launch_hash": "f76ccf1b33da8944",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "process-control",
+          "entryPoint": {
+            "module": "mcpserver.code_workspace.tools",
+            "class": "CodeWorkspaceBridge"
+          },
+          "declared_commands": [
+            "code_exec",
+            "file_edit",
+            "file_read",
+            "file_write",
+            "shell_exec",
+            "test_run"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/code_workspace/tools.py",
+          "secret_var_names": []
+        },
+        "confidence": 90,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,readme,tests",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "eis",
+        "identifier": "eis",
+        "category": "compute,materials",
+        "location": "local",
+        "source": "沈遥",
+        "version": "1.0.0",
+        "path": "mcpserver/eis/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "271434298672f2fa67a5091fb0c70a32df11c644fa815e8703e49741e53dfd42",
+        "launch_hash": "297d5f30e2733c42",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.eis.agent",
+            "class": "EisAgent"
+          },
+          "declared_commands": [
+            "drt",
+            "ecm",
+            "kernels",
+            "linkk"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/eis/agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 85,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,readme",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "fault_inject",
+        "identifier": "fault_inject",
+        "category": "ecology",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/fault_inject/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "4dd64610c504346607a7e0726ed59fa0ac98f006b7f7146099a377a541313c9b",
+        "launch_hash": "dcd842f87c79a92a",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "process-control",
+          "entryPoint": {
+            "module": "mcpserver.fault_inject.bridge",
+            "class": "FaultInjectBridge"
+          },
+          "declared_commands": [
+            "check",
+            "inject",
+            "list_scenarios",
+            "run_robustness"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/fault_inject/bridge.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "firecrawl_adapter",
+        "identifier": "firecrawl_adapter",
+        "category": "document",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/firecrawl_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "4b5b5eb3d6ca50ab7505c5bb7b4a791ec7c49f936c3bd27345b3d7694ee96846",
+        "launch_hash": "1f16618aa45e89d2",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.firecrawl_adapter.adapter",
+            "class": "FirecrawlBridge"
+          },
+          "declared_commands": [
+            "firecrawl_enrich_rss",
+            "firecrawl_health",
+            "firecrawl_scrape_to_md"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/firecrawl_adapter/adapter.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "cleartext_endpoint",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "glyco",
+        "identifier": "glyco",
+        "category": "semantic,material",
+        "location": "local",
+        "source": "砚",
+        "version": "1.0.0",
+        "path": "mcpserver/glyco/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "6842773cce5e90333eb31aca0435fe29c5f864b4e49679351ba154615ed5ede1",
+        "launch_hash": "4544285182ed9361",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.glyco.agent",
+            "class": "GlycoAgent"
+          },
+          "declared_commands": [
+            "annotate_glycan",
+            "glytoucan_lookup",
+            "parse_glycan",
+            "to_tree"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/glyco/agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "graph_memory_adapter",
+        "identifier": "graph_memory_adapter",
+        "category": "context",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/graph_memory_adapter/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "97c703047aaac762caf19a027330ad9be6586a23cabb46614464756f2cd06e22",
+        "launch_hash": "0bd058cc0c18efc6",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.graph_memory_adapter.adapter",
+            "class": "GraphMemoryBridge"
+          },
+          "declared_commands": [
+            "graph_memory_export",
+            "graph_memory_hook",
+            "graph_memory_recall",
+            "graph_memory_remember",
+            "graph_memory_stats"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/graph_memory_adapter/adapter.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "kicad_mcp",
+        "identifier": "kicad_mcp",
+        "category": "instrument,mechat",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/kicad_mcp/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "5c9e0d804198064dc2c9fc19149b9ab2429be955d9843b813a09c71304599748",
+        "launch_hash": "2ad4fa682712e37b",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.kicad_mcp.server",
+            "class": "KicadBridge"
+          },
+          "declared_commands": [
+            "board_summary",
+            "cross_check",
+            "doctor",
+            "fab_precheck",
+            "fabrication_summary",
+            "list_tools",
+            "placement_report",
+            "routing_stats",
+            "schematic_summary",
+            "unrouted_nets",
+            "upstream_capabilities"
+          ],
+          "code_tools": [
+            "board_summary",
+            "cross_check",
+            "doctor",
+            "fab_precheck",
+            "fabrication_summary",
+            "list_tools",
+            "placement_report",
+            "routing_stats",
+            "schematic_summary",
+            "unrouted_nets",
+            "upstream_capabilities"
+          ],
+          "dispatcher_checkable": true,
+          "entrypoint_file": "mcpserver/kicad_mcp/server.py",
+          "secret_var_names": []
+        },
+        "confidence": 110,
+        "band": "catalog",
+        "evidence": "dispatcher_match,entrypoint_resolves,handoff_contract,manifest,readme,requirements_declared,tests",
+        "risk_flags": "",
+        "quality_flags": ""
+      },
+      {
+        "type": "mcp_agent",
+        "name": "material_science",
+        "identifier": "material_science",
+        "category": "compute,materials",
+        "location": "local",
+        "source": "陆墨助手",
+        "version": "1.0.0",
+        "path": "mcpserver/material_science/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "b7b72d36310880e0f8fdd2f22175cf4a4bf32a20dfddb5462e608d76adcfcb21",
+        "launch_hash": "d5eb65b9abbb33b4",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.material_science.materialscience_agent",
+            "class": "MaterialScienceAgent"
+          },
+          "declared_commands": [
+            "biopred_predict",
+            "biopred_suggest",
+            "bo_get_params",
+            "bo_recommend",
+            "bo_record",
+            "crystal_info",
+            "formula_query",
+            "literature_search",
+            "matchat_chat",
+            "matchat_extract",
+            "matchat_login_check",
+            "matchat_search",
+            "material_compare",
+            "phase_diagram",
+            "property_calc",
+            "synth_add",
+            "synth_search",
+            "synth_validate",
+            "thermal_analysis"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/material_science/materialscience_agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "memory_maas",
+        "identifier": "memory_maas",
+        "category": "context",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/memory_maas/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "fc899a3a0a64750af6605fe3f9a5dc773e658e15872c82c221ce28beb0a1eb76",
+        "launch_hash": "5cb5ed2765943012",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.memory_maas.bridge",
+            "class": "MemoryMaasBridge"
+          },
+          "declared_commands": [
+            "memory_add_typed",
+            "memory_capture_observation",
+            "memory_guard_status",
+            "memory_lineage",
+            "memory_maintenance",
+            "memory_query_filtered",
+            "memory_search",
+            "memory_status",
+            "memory_write"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/memory_maas/bridge.py",
+          "secret_var_names": []
+        },
+        "confidence": 90,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest,readme,tests",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "ptz_service",
+        "identifier": "ptz_service",
+        "category": "instrument,mechat",
+        "location": "local",
+        "source": "砚",
+        "version": "0.3.0",
+        "path": "mcpserver/ptz_service/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "8992b7ee373914f20fa6cf1f0d5298a9ad03ad47f20482a5ba4083f21b51e345",
+        "launch_hash": "947f53d18414d170",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "process-control",
+          "entryPoint": {
+            "module": "mcpserver.ptz_service.tools",
+            "class": "PTZBridge"
+          },
+          "declared_commands": [
+            "ptz_arbitration",
+            "ptz_audit",
+            "ptz_config",
+            "ptz_estop",
+            "ptz_heartbeat",
+            "ptz_home",
+            "ptz_lora",
+            "ptz_memory",
+            "ptz_move_to",
+            "ptz_reset",
+            "ptz_scan",
+            "ptz_status",
+            "ptz_stop",
+            "ptz_task",
+            "ptz_track_source",
+            "ptz_watchdog"
+          ],
+          "code_tools": [
+            "ptz_arbitration",
+            "ptz_audit",
+            "ptz_config",
+            "ptz_estop",
+            "ptz_heartbeat",
+            "ptz_home",
+            "ptz_lora",
+            "ptz_memory",
+            "ptz_move_to",
+            "ptz_reset",
+            "ptz_scan",
+            "ptz_status",
+            "ptz_stop",
+            "ptz_task",
+            "ptz_track_source",
+            "ptz_watchdog"
+          ],
+          "dispatcher_checkable": true,
+          "entrypoint_file": "mcpserver/ptz_service/tools.py",
+          "secret_var_names": []
+        },
+        "confidence": 105,
+        "band": "catalog",
+        "evidence": "dispatcher_match,entrypoint_resolves,handoff_contract,manifest,readme,tests",
+        "risk_flags": "",
+        "quality_flags": "no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "retrosynthesis",
+        "identifier": "retrosynthesis",
+        "category": "compute",
+        "location": "local",
+        "source": "陆墨助手",
+        "version": "1.0.0",
+        "path": "mcpserver/retrosynthesis/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "bd1c7ff7a7b40a523117b3a3b79bfb54b9333ff39ee8f2fe226d13d892f44cba",
+        "launch_hash": "92b050110f221da6",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.retrosynthesis.agent",
+            "class": "RetrosynthesisAgent"
+          },
+          "declared_commands": [
+            "route_search",
+            "stock_check",
+            "template_lookup"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/retrosynthesis/agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "rf_brain",
+        "identifier": "rf_brain",
+        "category": "instrument,mechat",
+        "location": "local",
+        "source": "沈遥",
+        "version": "1.0.0",
+        "path": "mcpserver/rf_brain/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "cc8813a8a538a215a14104b0fa35015e5aab2d3527c39cbb2a3ac4d5f10052f6",
+        "launch_hash": "67df4d90f66a2cb7",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "process-control",
+          "entryPoint": {
+            "module": "mcpserver.rf_brain.agent",
+            "class": "RfBrainAgent"
+          },
+          "declared_commands": [
+            "analyze_signal",
+            "generate_and_analyze",
+            "sentinel_ingest",
+            "sentinel_query",
+            "sentinel_status",
+            "spectrum_events.current_interferers",
+            "spectrum_events.ingest_frame",
+            "spectrum_events.recent_events"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/rf_brain/agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "rf_evolve",
+        "identifier": "rf_evolve",
+        "category": "instrument,mechat",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/rf_evolve/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "6391e8b6eced3b71465f50a2c4bfaa4a13acb6e5c083bcca89b123a683316e9e",
+        "launch_hash": "dec3485bd97e2392",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.rf_evolve.server",
+            "class": "RfEvolveBridge"
+          },
+          "declared_commands": [
+            "baseline",
+            "describe_space",
+            "doctor",
+            "evolve_run",
+            "gate_probe",
+            "list_spaces",
+            "list_tools",
+            "render_whitebox",
+            "score_params"
+          ],
+          "code_tools": [
+            "baseline",
+            "describe_space",
+            "doctor",
+            "evolve_run",
+            "gate_probe",
+            "list_spaces",
+            "list_tools",
+            "render_whitebox",
+            "score_params"
+          ],
+          "dispatcher_checkable": true,
+          "entrypoint_file": "mcpserver/rf_evolve/server.py",
+          "secret_var_names": [
+            "ANTHROPIC_API_KEY"
+          ]
+        },
+        "confidence": 110,
+        "band": "catalog",
+        "evidence": "dispatcher_match,entrypoint_resolves,handoff_contract,manifest,readme,requirements_declared,tests",
+        "risk_flags": "secret_var_name_in_docs",
+        "quality_flags": ""
+      },
+      {
+        "type": "mcp_agent",
+        "name": "rf_workflow",
+        "identifier": "rf_workflow",
+        "category": "instrument,mechat",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/rf_workflow/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "d12e6206ebd55f2e7faa8ce53ca1f2fe521545b6996cd623c83a9fce7a6f15b7",
+        "launch_hash": "b10c8f478b9076ca",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.rf_workflow.server",
+            "class": "RfWorkflowBridge"
+          },
+          "declared_commands": [
+            "explain",
+            "list_workflows",
+            "start_workflow",
+            "step",
+            "workflow_status"
+          ],
+          "code_tools": [
+            "explain",
+            "list_workflows",
+            "start_workflow",
+            "step",
+            "workflow_status"
+          ],
+          "dispatcher_checkable": true,
+          "entrypoint_file": "mcpserver/rf_workflow/server.py",
+          "secret_var_names": [
+            "ANTHROPIC_API_KEY"
+          ]
+        },
+        "confidence": 110,
+        "band": "catalog",
+        "evidence": "dispatcher_match,entrypoint_resolves,handoff_contract,manifest,readme,requirements_declared,tests",
+        "risk_flags": "secret_var_name_in_docs",
+        "quality_flags": ""
+      },
+      {
+        "type": "mcp_agent",
+        "name": "scikit_fingerprints",
+        "identifier": "scikit_fingerprints",
+        "category": "compute,materials",
+        "location": "local",
+        "source": "陆墨助手",
+        "version": "1.0.0",
+        "path": "mcpserver/scikit_fingerprints/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "f349c0e4602003d62c617139354392bf9ef08e66d02de77fdc9586a12bb91bca",
+        "launch_hash": "a7eb09b84768636b",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.scikit_fingerprints.agent",
+            "class": "ScikitFingerprintsAgent"
+          },
+          "declared_commands": [
+            "skfp_fingerprint",
+            "skfp_scaffold",
+            "skfp_similarity_matrix",
+            "skfp_transform"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/scikit_fingerprints/agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "sentinel_intel",
+        "identifier": "sentinel_intel",
+        "category": "offense,security",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/sentinel_intel/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "72195be267709443921e7472179592195a21ece0250f9626ae26c3892a1d792f",
+        "launch_hash": "ef5a7616eec83405",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.sentinel_intel.bridge",
+            "class": "IntelBridge"
+          },
+          "declared_commands": [
+            "intel_ingest",
+            "intel_query",
+            "intel_timeline"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/sentinel_intel/bridge.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "toolknit_mcp",
+        "identifier": "toolknit_mcp",
+        "category": "document,general",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/toolknit_mcp/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "2f0984d542d01742e0c362f85b333301977dd253d9a094bd20db743940f4c1f6",
+        "launch_hash": "bef461879b3967a3",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.toolknit_mcp.server",
+            "class": "ToolknitBridge"
+          },
+          "declared_commands": [
+            "cli_version",
+            "doctor",
+            "extract_palette",
+            "list_tools",
+            "pdf_compress",
+            "pdf_inspect",
+            "pdf_text",
+            "ppt_to_pdf",
+            "renderer_probe",
+            "workspace_info"
+          ],
+          "code_tools": [
+            "cli_version",
+            "doctor",
+            "extract_palette",
+            "list_tools",
+            "pdf_compress",
+            "pdf_inspect",
+            "pdf_text",
+            "ppt_to_pdf",
+            "renderer_probe",
+            "workspace_info"
+          ],
+          "dispatcher_checkable": true,
+          "entrypoint_file": "mcpserver/toolknit_mcp/server.py",
+          "secret_var_names": []
+        },
+        "confidence": 110,
+        "band": "catalog",
+        "evidence": "dispatcher_match,entrypoint_resolves,handoff_contract,manifest,readme,requirements_declared,tests",
+        "risk_flags": "remote_fetch_exec,unpinned_dependency",
+        "quality_flags": ""
+      },
+      {
+        "type": "mcp_agent",
+        "name": "trace_audit",
+        "identifier": "trace_audit",
+        "category": "ecology",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/trace_audit/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "f9f53f703fe0006e1eece9ee461a2763d6d1c22e11c8f710efa67f40e5a9e776",
+        "launch_hash": "ad45bf105952d07b",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.trace_audit.bridge",
+            "class": "TraceAuditBridge"
+          },
+          "declared_commands": [
+            "audit_file",
+            "audit_records",
+            "list_checklist",
+            "run_gate"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/trace_audit/bridge.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "tts_api",
+        "identifier": "tts_api",
+        "category": "verbal",
+        "location": "local",
+        "source": "陆墨助手",
+        "version": "1.0.0",
+        "path": "mcpserver/tts_api/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "43dc66309a8459cbf4fd4fd3cd8a65b2beef6ea73ae2df16cbeebaa5959eded6",
+        "launch_hash": "edf1fca7129a12a6",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.tts_api.agent",
+            "class": "TTSApiAgent"
+          },
+          "declared_commands": [
+            "tts_health",
+            "tts_list_voices",
+            "tts_speak"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/tts_api/agent.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "voice_mcp_bidi",
+        "identifier": "voice_mcp_bidi",
+        "category": "verbal",
+        "location": "local",
+        "source": "Trae (陆墨团队)",
+        "version": "1.0.0",
+        "path": "mcpserver/voice_mcp_bidi/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "965b7e8493121c4c55ff7c6fde15926b6f6a453b20517e9c71f483bc3ac672d6",
+        "launch_hash": "a5200acf74942511",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "process-control",
+          "entryPoint": {
+            "module": "mcpserver.voice_mcp_bidi.voice_mcp_bidi",
+            "class": "VoiceMCPBidiAgent"
+          },
+          "declared_commands": [
+            "voice_listen",
+            "voice_speak",
+            "voice_status"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/voice_mcp_bidi/voice_mcp_bidi.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "voice_mcp_minimax",
+        "identifier": "voice_mcp_minimax",
+        "category": "verbal",
+        "location": "local",
+        "source": "Trae (陆墨团队)",
+        "version": "1.0.0",
+        "path": "mcpserver/voice_mcp_minimax/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "6759692f719dee613f6b8905fd8f77569e168274d6aa517dc72081778ca5914d",
+        "launch_hash": "f266fa60f8fb2c3b",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.voice_mcp_minimax.voice_mcp_minimax",
+            "class": "VoiceMCPMinimaxAgent"
+          },
+          "declared_commands": [
+            "voice_speak",
+            "voice_status"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/voice_mcp_minimax/voice_mcp_minimax.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "workflow",
+        "identifier": "workflow",
+        "category": "ecology",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/workflow/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "e6b384a6b54a184ce6b77621f5caf4526cbf728bb60db4bf42dfa7e8910da57d",
+        "launch_hash": "49fe179ffa3b42a3",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.workflow.bridge",
+            "class": "WorkflowBridge"
+          },
+          "declared_commands": [
+            "board_blocked",
+            "board_claim",
+            "board_create",
+            "board_done",
+            "board_list",
+            "board_status",
+            "event_log"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/workflow/bridge.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "zhi_mcp",
+        "identifier": "zhi_mcp",
+        "category": "instrument,mechat",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/zhi_mcp/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "280ca99701846cd398cccce30797faf3bd0337e3fc9f69dbc729a13f5b3617ac",
+        "launch_hash": "a59acbd080b17d9f",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "read-only",
+          "entryPoint": {
+            "module": "mcpserver.zhi_mcp.server",
+            "class": "ZhiMcpBridge"
+          },
+          "declared_commands": [
+            "build_envelope",
+            "demo_call_tool",
+            "demo_handshake",
+            "doctor",
+            "list_tools",
+            "parse_message",
+            "protocol_spec"
+          ],
+          "code_tools": [
+            "build_envelope",
+            "demo_call_tool",
+            "demo_handshake",
+            "doctor",
+            "list_tools",
+            "parse_message",
+            "protocol_spec"
+          ],
+          "dispatcher_checkable": true,
+          "entrypoint_file": "mcpserver/zhi_mcp/server.py",
+          "secret_var_names": []
+        },
+        "confidence": 110,
+        "band": "catalog",
+        "evidence": "dispatcher_match,entrypoint_resolves,handoff_contract,manifest,readme,requirements_declared,tests",
+        "risk_flags": "",
+        "quality_flags": ""
+      },
+      {
+        "type": "mcp_agent",
+        "name": "zotpilot",
+        "identifier": "zotpilot",
+        "category": "document",
+        "location": "local",
+        "source": "沈遥",
+        "version": "0.1.0",
+        "path": "mcpserver/zotpilot/agent-manifest.json",
+        "endpoint": "",
+        "sha256": "0d003b55537a47e260b2fdc83d61484a7ca72faaf987d0d1e1155197bf2676be",
+        "launch_hash": "06d2965054fe8737",
+        "detail": {
+          "agentType": "mcp",
+          "tier": "local-write",
+          "entryPoint": {
+            "module": "mcpserver.zotpilot.bridge",
+            "class": "ZotPilotBridge"
+          },
+          "declared_commands": [
+            "zotpilot_annotate",
+            "zotpilot_import",
+            "zotpilot_search",
+            "zotpilot_status"
+          ],
+          "code_tools": [],
+          "dispatcher_checkable": false,
+          "entrypoint_file": "mcpserver/zotpilot/bridge.py",
+          "secret_var_names": []
+        },
+        "confidence": 80,
+        "band": "high",
+        "evidence": "entrypoint_resolves,handoff_contract,manifest",
+        "risk_flags": "",
+        "quality_flags": "dispatcher_uncheckable,no_tests,no_readme,no_requirements"
+      },
+      {
+        "type": "instruction_file",
+        "name": "AGENTS.md",
+        "identifier": "apiserver",
+        "category": "agent-instruction",
+        "location": "local",
+        "source": "repo",
+        "version": "",
+        "path": "apiserver/AGENTS.md",
+        "endpoint": "",
+        "sha256": "6d55650728ee5a365620fb16e72048d59ff912ced823e1a475e0c89cef338fa2",
+        "launch_hash": "",
+        "detail": {
+          "size": 3688,
+          "lines": 62
+        },
+        "confidence": 100,
+        "band": "catalog",
+        "evidence": "instruction_file",
+        "risk_flags": "",
+        "quality_flags": ""
+      },
+      {
+        "type": "instruction_file",
+        "name": "AGENTS.md",
+        "identifier": "frontend,src",
+        "category": "agent-instruction",
+        "location": "local",
+        "source": "repo",
+        "version": "",
+        "path": "frontend/src/AGENTS.md",
+        "endpoint": "",
+        "sha256": "547c7b81ce4b77b7e007ef2720bfa9217ea46639383e290723a61464efe5318b",
+        "launch_hash": "",
+        "detail": {
+          "size": 4190,
+          "lines": 67
+        },
+        "confidence": 100,
+        "band": "catalog",
+        "evidence": "instruction_file",
+        "risk_flags": "",
+        "quality_flags": ""
+      },
+      {
+        "type": "instruction_file",
+        "name": "AGENTS.md",
+        "identifier": "mcpserver",
+        "category": "agent-instruction",
+        "location": "local",
+        "source": "repo",
+        "version": "",
+        "path": "mcpserver/AGENTS.md",
+        "endpoint": "",
+        "sha256": "54b682c3f2a4f9b1a682079487809ae634572a33255332a689f256605e15da75",
+        "launch_hash": "",
+        "detail": {
+          "size": 5337,
+          "lines": 64
+        },
+        "confidence": 100,
+        "band": "catalog",
+        "evidence": "instruction_file",
+        "risk_flags": "",
+        "quality_flags": ""
+      }
+    ],
+    "columns": [
+      "type",
+      "name",
+      "identifier",
+      "category",
+      "location",
+      "source",
+      "version",
+      "path",
+      "endpoint",
+      "risk_flags",
+      "quality_flags",
+      "confidence",
+      "band",
+      "evidence",
+      "sha256",
+      "launch_hash",
+      "detail"
+    ],
+    "summary": {
+      "total_rows": 66,
+      "by_type": {
+        "instruction_file": 3,
+        "mcp_agent": 63
+      },
+      "by_band": {
+        "catalog": 11,
+        "high": 55
+      },
+      "with_risk_flags": 8,
+      "risk_flag_counts": {
+        "cleartext_endpoint": 3,
+        "remote_fetch_exec": 2,
+        "secret_var_name_in_docs": 5,
+        "unpinned_dependency": 1
+      },
+      "suppressed_below_threshold": [],
+      "suppressed_note": "置信度 < 30 不出行（照上游纪律：只有名字不构成一行）"
+    },
+    "repo_root": "."
+  }
+}

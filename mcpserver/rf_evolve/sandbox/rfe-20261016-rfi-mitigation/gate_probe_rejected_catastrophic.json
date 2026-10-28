@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "tool": "gate_probe",
+  "data": {
+    "params": {
+      "prominence_db": 8.0,
+      "notch_bw_hz": 1000.0,
+      "adaptive": true,
+      "mu": 0.08
+    },
+    "gate": {
+      "passed": false,
+      "stage": "B",
+      "violations": [
+        {
+          "code": "TOO_MANY_NOTCHES",
+          "message": "检出 161 个干扰频点，超过上限 12",
+          "rationale": "该量级必然是噪声峰误检：窄带干扰在 1 MHz 带宽内的占用率不可能这么高；且每多一个频点就要多跑一遍陷波，算力随时延线性增长",
+          "source": "本仓 rf_brain/rfi_statistic.StatisticalRFIDetector 的误报率验收口径（≤5%）＋ 检出数与算力成正比的结构事实",
+          "severity": "reject"
+        },
+        {
+          "code": "TOTAL_NOTCH_BAND_TOO_WIDE",
+          "message": "总陷波带宽 161000 Hz = 信号带（100000 Hz）的 161%，超过上限 50%",
+          "rationale": "陷波器不是理想方格：总带宽占掉半个信号带时，带内有用信号被一并抑制",
+          "source": "带阻滤波器过渡带与实际响应的工程常识（2 阶 Butterworth 的 -3dB 带宽定义）",
+          "severity": "reject"
+        }
+      ],
+      "detected_freq_count": 161,
+      "saved_notch_ops": 659456,
+      "notes": [
+        "B 段（检测级）否决 ⇒ 只跑了 1 次 FFT，省下 161 次陷波（659456 次样本运算）"
+      ]
+    }
+  }
+}

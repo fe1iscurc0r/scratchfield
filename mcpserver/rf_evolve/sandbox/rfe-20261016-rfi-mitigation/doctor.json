@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "tool": "doctor",
+  "module": "mcpserver.rf_evolve",
+  "can": [
+    "受限编辑面上的候选提案（默认确定性 rules，可离线复现）",
+    "物理/工程约束门（A 段参数级 O(1) / B 段检测级 1 次 FFT，**不跑陷波**）",
+    "执行打分（真跑 rf_brain 既有实现，读数 = 对干净参考的 S/N 提升 dB）",
+    "生成**自包含白盒算法**（只依赖 numpy，推理期不需要 agent/NN）"
+  ],
+  "cannot": [
+    "自己不实现任何滤波算法（被演化算法在 rf_brain，**冻结**）",
+    "不做 Gerber/硬件在环/真实射频发射（纯离线数值实验）",
+    "LLM 提案**不是必由之路**：无 key 时按设计走 rules 路径（不静默降级）"
+  ],
+  "llm_proposal": {
+    "available": false,
+    "reason": "get_client 失败：AnthropicCompatError: 未安装 anthropic SDK；兼容层无法工作"
+  },
+  "notes": [
+    "与 rf_workflow(242) 的边界：242 是「规格→仿真脚本」的**单次生成**；本模块是「受限编辑面上的**多候选演化搜索**」，用执行打分选优，输出白盒算法。",
+    "与 rf_brain 的边界：rf_brain 提供**被演化的算法**，本模块提供**搜索**。"
+  ]
+}

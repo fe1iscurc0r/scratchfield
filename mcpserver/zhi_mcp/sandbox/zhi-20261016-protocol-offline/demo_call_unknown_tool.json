@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "tool": "demo_call_tool",
+  "data": {
+    "error": {
+      "code": -32601,
+      "message": "Unknown tool: self.non_existent_tool"
+    },
+    "device_calls": [
+      [
+        "self.non_existent_tool",
+        {}
+      ]
+    ],
+    "note": "设备报错被如实抛出（未吞成 ok=false）"
+  }
+}

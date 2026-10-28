@@ -1,0 +1,13 @@
+# mcpserver/agentic_inventory —— 依赖清单
+#
+# **零第三方依赖**（刻意）：只用 Python 标准库
+#   ast / dataclasses / hashlib / json / logging / pathlib / re / typing / argparse / asyncio
+#
+# 为什么不引扫描/解析类库
+# ---------------------
+# 本模块要读的是**仓内文本**（agent-manifest.json / README / 指令文件）与其**静态结构**
+# （用 `ast` 看类与派发表）。这些用标准库就够，引入 YAML/JSON-Schema/扫描库只会
+# 让"审计工具"自己变成一条依赖风险。
+#
+# ⚠️ 刻意**不 import 被盘对象**（用 AST 静态读）：那样审计工具就不会因为被盘对象的
+#    缺失依赖而跑不起来，也不会触发它们的模块级副作用。

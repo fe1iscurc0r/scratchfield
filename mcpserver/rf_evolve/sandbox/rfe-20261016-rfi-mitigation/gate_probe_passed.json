@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "tool": "gate_probe",
+  "data": {
+    "params": {
+      "prominence_db": 25.0,
+      "notch_bw_hz": 1000.0,
+      "adaptive": false,
+      "mu": 0.01
+    },
+    "gate": {
+      "passed": true,
+      "stage": "B",
+      "violations": [],
+      "detected_freq_count": 3,
+      "saved_notch_ops": 0,
+      "notes": [
+        "两段约束均通过"
+      ]
+    }
+  }
+}

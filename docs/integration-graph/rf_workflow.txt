@@ -1,0 +1,108 @@
+rf_workflow 依赖图（工单242 任务三）
+生成日期：2026-10-14 ｜ 基线：本单 PR 的 head（fork 自 main dba750ed72，工单241 合并点）
+口径：实线 = 代码级依赖/注册关系；虚线 = 仅"参数口径对齐"，不 import、不改其接口
+
+================================================================================
+1. 注册与路由链（本单**未修改**任何既有文件）
+================================================================================
+
+  mcpserver/mcp_registry.py::scan_and_register_mcp_agents("mcpserver")
+        │  glob("**/agent-manifest.json")            ← 自动发现，无需登记表
+        ▼
+  mcpserver/rf_workflow/agent-manifest.json
+        │  entryPoint = {module: "mcpserver.rf_workflow.server", class: "RfWorkflowBridge"}
+        ▼
+  mcpserver/rf_workflow/server.py::RfWorkflowBridge
+        │  async def handle_handoff(task) -> str          （MCP agent 契约）
+        │  instance.handle_handoff(tool_call)             （运行时调用形态）
+        ▼
+  mcpserver/mcp_manager.py::MCPManager.unified_call(service_name, tool_call)
+        │  ① _auth_blocked              ② _agent_governance_block（工单241，默认旁路，未启用即 return None）
+        │  ③ 熔断 allow               ④ ensure_hot 冷表转热
+        ▼
+  RfWorkflowBridge.handle_handoff  →  {start_workflow | step | explain | workflow_status | list_workflows}
+
+  ⇒ 结论：新模块**零侵入**接入。无需改 mcp_manager.py / mcp_registry.py / mcp_assembly。
+
+================================================================================
+2. 模块内部依赖（在仓内 import）
+================================================================================
+
+  mcpserver/rf_workflow/
+        __init__.py ──► server.py
+                          │
+        ┌─────────────────┼─────────────────┬──────────────────┐
+        ▼                 ▼                 ▼                  ▼
+  prompt_to_script.py  sim_runner.py   explainer.py        lora_phy.py  ◄── 真值源
+        │                                  │                  ▲   ▲
+        └──────────────► lora_phy.py ◄─────┘                  │   │
+                          （公式 / 校验 / compute_metrics）    │   │
+                                                              │   │
+        lora_phy.py 是**唯一**算物理量的地方：ToA、能量、链路预算、FFT 占用带宽。
+        prompt_to_script 只负责"规格 → 脚本文本"；sim_runner 只负责"跑 + 收"；
+        explainer 只负责"读数 → 结论"，三个模块都不重算物理量。
+
+================================================================================
+3. 沙箱运行期依赖（子进程，与仓内 import 链**解耦**）
+================================================================================
+
+  sandbox/<workflow_id>/
+        script.py ──import──► lora_phy.py（同目录 vendor 副本）
+                                 ▲
+                                 └── 字节等同 mcpserver/rf_workflow/lora_phy.py
+                                     （tests/test_rf_workflow.py::
+                                      test_generate_writes_self_contained_sandbox 断言
+                                      ⇒ 公式漂移结构性不可能）
+
+  可选（仅 rf_lib="numpy"）：
+        script.py ──try import──► numpy.fft   （独立复算 -6 dB 带宽并对拍；缺失则标注 FALLBACK）
+
+  ⇒ 沙箱可整目录拷走独立运行：只要 Python 解释器 + 本目录文件。
+
+================================================================================
+4. 可选 LLM 通路（惰性导入 + 显式降级）
+================================================================================
+
+  prompt_to_script.llm_refine_spec ─┐
+  explainer.llm_narrate ────────────┴── try import ──► mcpserver/llm_gateway/anthropic_compat.py
+                                                          │  get_client()（ANTHROPIC_API_KEY 或仓内 config）
+                                                          │  messages_create() / extract_text()
+                                                          ▼
+                                             不可用 → 返回 None → 规则通路继续
+  ⇒ 环境变量缺失时 explain.mode == "rules"（写进 explanation.md 与返回值），**不静默**
+
+================================================================================
+5. 参数口径对齐（虚线，无代码耦合）
+================================================================================
+
+  rf_workflow  ······················► firmware/dcp_lora/sx1278_lora.cpp
+     433.92 MHz / BW 125 kHz / SF 7 / CR 4/5 / 私有 sync word 0x12
+     （本单 PoC 的起点参数；`in_ism_433` 用来校验频点是否落在 433.05–434.79 MHz 子带）
+
+  rf_workflow  ······················► mcpserver/rf_brain/dcp/（frame.py / transmit.py）
+     dcp 帧协议口径（magic 0xD0CC / CRC-16 MODBUS / 帧长 = 7 + N）；本单不改其接口，
+     只把"发射功率/带宽/SF"这些参数放在同一坐标里核算。
+
+  rf_workflow  ······················► mcpserver/antenna_sim/（结构先例）
+     sim_runner 的"串行 / 路径收敛 / job_id 白名单 / 失败不静默"四件纪律照抄语义，
+     但不共用代码（antenna_sim 面向 OpenEMS 全波求解，本模块面向 PHY 位级核算）。
+
+================================================================================
+6. 工单声明但**本仓不存在**的路径（偏差记录，勿照抄工单）
+================================================================================
+
+  ❌ core/sdr_signal/          全树 0 命中（core/ 整个目录在仓库根不存在）
+  ❌ core/rf_brain/            同上
+  ❌ mcpserver/sdr/            0 命中
+  ❌ mcpserver/kicad-mcp/      0 命中（本仓 mcpserver/ 子模块用下划线命名）
+  ✅ mcpserver/rf_brain/       244 文件（既有，本单只做口径对齐）
+  ✅ mcpserver/antenna_sim/    9 文件（既有，结构先例）
+
+================================================================================
+7. 产物依赖（沙箱入库什么 / 不入库什么）
+================================================================================
+
+  入库：prompt.md（需求+规格+字段来源）、script.py（生成的脚本）、log.txt（stdout+
+        __RF_METRICS__ 行）、result.json（指标全量+频谱摘要）、workflow.json（状态，
+        **只存相对文件名**）、explanation.md（结论+下一步+候选变体）、lora_phy.py（vendor 副本）
+  不入库：无（本模块产物都是 KB 级文本；不像 antenna_sim 的 HDF5/PNG 需要外置）

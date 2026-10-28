@@ -120,8 +120,44 @@
     ]);
     var RECENT_EVENT_LIMIT = 40;
     var SEEN_EVENT_LIMIT = 80;
+    var DEBUG_TIMELINE_LIMIT = 600;
+    var DEBUG_TIMELINE_DETAIL_FIELDS = Object.freeze([
+        'activityId',
+        'pathDistancePx',
+        'distancePx',
+        'movedDistancePx',
+        'displacementPx',
+        'durationMs',
+        'plannedDurationMs',
+        'elapsedMs',
+        'inactiveElapsedMs',
+        'sinceLastActionMs',
+        'type',
+        'status',
+        'reason',
+        'action',
+        'actionId',
+        'requestId',
+        'runId',
+        'result',
+        'phase',
+        'completed',
+        'cancelled',
+        'entry',
+        'targetKind',
+        'userInitiated',
+        'startedFarFromCat',
+        'endedNearCat',
+        'startDistanceToCatPx',
+        'endDistanceToCatPx',
+        'directApproachDistancePx',
+        'movementThresholdPx',
+    ]);
     var CHAT_MOVED_FAR_DISTANCE_PX = 24;
     var AUTONOMOUS_TICK_INTERVAL_MS = 30 * 1000;
+    // 防止连续 hover 在极短时间内反复唤起决策、造成动作连播。
+    var HOVER_DEDUPE_WINDOW_MS = 1500;
+    var ACTION_START_BURST_GUARD_MS = 60 * 1000;
     var ACTION_REQUEST_LEASE_MS = 5 * 1000;
     var ACTION_ACCEPTED_START_LEASE_MS = 12 * 1000;
     var TIME_RATE_PER_MINUTE = Object.freeze({
@@ -140,6 +176,7 @@
         positiveNeedCurveTailCeiling: 20,
         positiveNeedCurveTailScale: 8,
         cadenceFloor: -58,
+        dragInterruptionCadenceFloor: -98,
         cadenceCeiling: 18,
         cadenceRecoveryMs: 4.85 * 60 * 1000,
         cooldownRecoveryExponent: 1.9,
@@ -207,6 +244,11 @@
     var autonomousClockGeneration = 0;
     var actionRequestLeaseTimer = 0;
     var actionRequestLeaseGeneration = 0;
+    var debugTimeline = [];
+    var debugTimelineSequence = 0;
+    var latestDesktopChatMinimizedSourceAt = 0;
+    var latestDesktopChatLifecycleSequence = 0;
+    var latestDesktopChatLifecycleTerminal = false;
 
     var runtimeState = createInitialRuntimeState();
 
@@ -337,6 +379,8 @@
             lastChatMinimizedRect: null,
             lastChatMinimizedState: null,
             lastChatIdleDocked: false,
+            lastCompactSurfaceSignature: '',
+            lastHoverScheduledAt: 0,
             returnSummaryDraft: null,
             returnEpisodeAccumulator: createReturnEpisodeAccumulator(),
             lastDecision: null,
@@ -359,6 +403,9 @@
                 lastTickAt: 0,
                 lastUserInteractionAt: 0,
                 lastActionStartedAt: 0,
+                // 只记 runner 确认 started 的时间；lastActionStartedAt 在进场时也会被设为锚点。
+                lastConfirmedActionStartedAt: 0,
+                dragInterruptionRecoveryActive: false,
             },
             lastResetReason: '',
         };
@@ -482,6 +529,7 @@
         clock.lastTickAt = startedAt;
         clock.lastUserInteractionAt = startedAt;
         clock.lastActionStartedAt = startedAt;
+        clock.dragInterruptionRecoveryActive = false;
         clock.generation = ++autonomousClockGeneration;
         if (typeof window.setInterval !== 'function') return;
         var generation = clock.generation;
@@ -524,6 +572,8 @@
                 lastTickAt: runtimeState.clock.lastTickAt,
                 lastUserInteractionAt: runtimeState.clock.lastUserInteractionAt,
                 lastActionStartedAt: runtimeState.clock.lastActionStartedAt,
+                lastConfirmedActionStartedAt: runtimeState.clock.lastConfirmedActionStartedAt,
+                dragInterruptionRecoveryActive: runtimeState.clock.dragInterruptionRecoveryActive,
             },
             actionIntentEvidence: getActionIntentSnapshot(snapshotAt),
             actionScores: getActionScoreSnapshot(snapshotAt, { prune: false }),
@@ -548,15 +598,182 @@
         return snapshot;
     }
 
+    function normalizeDebugTimelineDetail(detail) {
+        var source = detail && typeof detail === 'object' ? detail : {};
+        var normalized = {};
+        DEBUG_TIMELINE_DETAIL_FIELDS.forEach(function (field) {
+            if (!hasOwn(source, field)) return;
+            var value = sanitizeValue(source[field], 0);
+            if (value !== undefined) normalized[field] = value;
+        });
+        return normalized;
+    }
+
+    function normalizeDebugTimelineObservation(observation) {
+        if (!observation || typeof observation !== 'object') return null;
+        return {
+            type: typeof observation.type === 'string' ? observation.type : '',
+            source: typeof observation.source === 'string' ? observation.source : '',
+            tier: normalizeTier(observation.tier),
+            timestamp: Number.isFinite(Number(observation.timestamp)) ? Number(observation.timestamp) : 0,
+            detail: normalizeDebugTimelineDetail(observation.detail),
+        };
+    }
+
+    function normalizeDebugTimelineAction(action) {
+        if (!action || typeof action !== 'object') return null;
+        return {
+            requestId: typeof action.requestId === 'string' ? action.requestId : '',
+            actionId: typeof action.actionId === 'string' ? action.actionId : '',
+            runId: typeof action.runId === 'string' ? action.runId : '',
+            source: typeof action.source === 'string' ? action.source : '',
+            tier: normalizeTier(action.tier),
+            timestamp: Number.isFinite(Number(action.timestamp)) ? Number(action.timestamp) : 0,
+            acceptedAt: Number.isFinite(Number(action.acceptedAt)) ? Number(action.acceptedAt) : 0,
+            startedAt: Number.isFinite(Number(action.startedAt)) ? Number(action.startedAt) : 0,
+        };
+    }
+
+    function normalizeDebugTimelineScheduler(snapshot) {
+        var scheduler = snapshot && snapshot.scheduler && typeof snapshot.scheduler === 'object'
+            ? snapshot.scheduler
+            : {};
+        return {
+            queued: scheduler.queued === true,
+            pendingTriggers: Array.isArray(scheduler.pendingTriggers) ? scheduler.pendingTriggers.slice(0, 20) : [],
+            deferredTriggers: Array.isArray(scheduler.deferredTriggers) ? scheduler.deferredTriggers.slice(0, 20) : [],
+            providerRecheckNeeded: scheduler.providerRecheckNeeded === true,
+            lastEvaluatedAt: Number.isFinite(Number(scheduler.lastEvaluatedAt))
+                ? Number(scheduler.lastEvaluatedAt)
+                : 0,
+            pendingActionRequest: normalizeDebugTimelineAction(scheduler.pendingActionRequest),
+            activeAction: normalizeDebugTimelineAction(scheduler.activeAction),
+            postActionSettle: normalizeDebugTimelineAction(scheduler.postActionSettle),
+            lastIgnoredActionResult: normalizeDebugTimelineDetail(scheduler.lastIgnoredActionResult),
+            lastProtocolFailure: normalizeDebugTimelineDetail(scheduler.lastProtocolFailure),
+        };
+    }
+
+    function normalizeDebugTimelineNumber(value) {
+        if (value === null || value === undefined || value === '') return null;
+        var number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    }
+
+    function normalizeDebugTimelineDecision(decision) {
+        if (!decision || typeof decision !== 'object') return null;
+        var candidates = Array.isArray(decision.candidates) ? decision.candidates : [];
+        return {
+            trigger: typeof decision.trigger === 'string' ? decision.trigger : '',
+            triggerTypes: Array.isArray(decision.triggerTypes) ? decision.triggerTypes.slice(0, 20) : [],
+            outcome: typeof decision.outcome === 'string' ? decision.outcome : '',
+            reason: typeof decision.reason === 'string' ? decision.reason : '',
+            timestamp: Number.isFinite(Number(decision.timestamp)) ? Number(decision.timestamp) : 0,
+            request: normalizeDebugTimelineAction(decision.request),
+            execution: normalizeActionExecutionForDebug(decision.execution),
+            candidates: candidates.slice(0, 12).map(function (candidate) {
+                var item = candidate && typeof candidate === 'object' ? candidate : {};
+                var providerDetail = item.providerDetail && typeof item.providerDetail === 'object'
+                    ? item.providerDetail
+                    : {};
+                return {
+                    actionId: typeof item.actionId === 'string' ? item.actionId : '',
+                    score: normalizeDebugTimelineNumber(item.score),
+                    threshold: normalizeDebugTimelineNumber(item.threshold),
+                    needSurplus: normalizeDebugTimelineNumber(item.needSurplus),
+                    needContribution: normalizeDebugTimelineNumber(item.needContribution),
+                    cadenceAdjustment: normalizeDebugTimelineNumber(item.cadenceAdjustment),
+                    eligibilityScore: normalizeDebugTimelineNumber(item.eligibilityScore),
+                    cooldownSortRank: normalizeDebugTimelineNumber(item.cooldownSortRank),
+                    allowed: item.allowed === true,
+                    reason: typeof item.reason === 'string' ? item.reason : '',
+                    providerReason: typeof providerDetail.failedCheck === 'string'
+                        ? providerDetail.failedCheck
+                        : '',
+                };
+            }),
+        };
+    }
+
+    function createDebugTimelineEntry(reason, timestamp, detail, snapshot) {
+        var state = snapshot && snapshot.state && typeof snapshot.state === 'object' ? snapshot.state : {};
+        var clock = snapshot && snapshot.clock && typeof snapshot.clock === 'object' ? snapshot.clock : {};
+        var observation = detail && detail.observation;
+        return Object.freeze({
+            sequence: ++debugTimelineSequence,
+            timestamp: timestamp,
+            reason: typeof reason === 'string' ? reason : 'state-update',
+            observation: normalizeDebugTimelineObservation(observation),
+            detail: normalizeDebugTimelineDetail(detail),
+            active: state.active === true,
+            tier: normalizeTier(state.tier),
+            fields: clonePlain(state.fields) || {},
+            interactionGesture: runtimeState.interactionGesture ? {
+                startedAt: Number(runtimeState.interactionGesture.startedAt) || 0,
+                rapidApplied: runtimeState.interactionGesture.rapidApplied === true,
+            } : null,
+            clock: {
+                lastTickAt: Number(clock.lastTickAt) || 0,
+                lastUserInteractionAt: Number(clock.lastUserInteractionAt) || 0,
+                lastActionStartedAt: Number(clock.lastActionStartedAt) || 0,
+                lastConfirmedActionStartedAt: Number(clock.lastConfirmedActionStartedAt) || 0,
+                dragInterruptionRecoveryActive: clock.dragInterruptionRecoveryActive === true,
+            },
+            scheduler: normalizeDebugTimelineScheduler(snapshot),
+            decision: normalizeDebugTimelineDecision(snapshot && snapshot.lastDecision),
+        });
+    }
+
+    function appendDebugTimeline(reason, timestamp, detail, snapshot) {
+        var entry = createDebugTimelineEntry(reason, timestamp, detail, snapshot);
+        debugTimeline.push(entry);
+        if (debugTimeline.length > DEBUG_TIMELINE_LIMIT) {
+            debugTimeline.splice(0, debugTimeline.length - DEBUG_TIMELINE_LIMIT);
+        }
+        // Debug mode is explicitly opt-in. Keep the trace both in memory for a
+        // deterministic export and in DevTools for cases where the page exits.
+        // Entries contain only allowlisted runtime facts, never chat text.
+        try {
+            if (typeof console !== 'undefined' && console && typeof console.log === 'function') {
+                console.log('[CatMindTrace] ' + JSON.stringify(entry));
+            }
+        } catch (_) {}
+        return entry;
+    }
+
+    function getDebugTimeline() {
+        return clonePlain(debugTimeline) || [];
+    }
+
+    function clearDebugTimeline() {
+        debugTimeline = [];
+        debugTimelineSequence = 0;
+        return true;
+    }
+
+    function exportDebugTimeline() {
+        return JSON.stringify({
+            schemaVersion: 1,
+            exportedAt: nowMs(),
+            entryCount: debugTimeline.length,
+            entries: getDebugTimeline(),
+        }, null, 2);
+    }
+
     function emitStateChange(reason, detail) {
         // State-change carries a complete debug snapshot and is only consumed by
         // the opt-in inspector. Keep Cat Mind's runtime independent from it.
         if (!isDebugEnabled()) return false;
+        var normalizedReason = typeof reason === 'string' ? reason : 'state-update';
+        var timestamp = nowMs();
+        var eventDetail = clonePlain(detail) || {};
+        var snapshot = getDebugSnapshot();
+        appendDebugTimeline(normalizedReason, timestamp, eventDetail, snapshot);
         return dispatchRuntimeEvent(EVENT_NAMES.STATE_CHANGE, {
-            reason: typeof reason === 'string' ? reason : 'state-update',
-            timestamp: nowMs(),
-            detail: clonePlain(detail) || {},
-            snapshot: getDebugSnapshot(),
+            reason: normalizedReason,
+            timestamp: timestamp,
+            detail: eventDetail,
+            snapshot: snapshot,
         });
     }
 
@@ -806,6 +1023,8 @@
                 fullCooldownMs: scoreConfig ? scoreConfig.cooldownMs : 0,
             };
             runtimeState.clock.lastActionStartedAt = timestamp;
+            runtimeState.clock.lastConfirmedActionStartedAt = timestamp;
+            runtimeState.clock.dragInterruptionRecoveryActive = false;
             // Intent is consumed only after the existing runner proves it
             // really started. accepted/rejected/provider dry-run never spend it.
             clearActionIntentEvidence(pending.actionId);
@@ -893,6 +1112,8 @@
             active.actionId === actionId &&
             active.requestId === requestId &&
             active.runId === runId) {
+            runtimeState.clock.dragInterruptionRecoveryActive = result.result === 'interrupted' &&
+                actionInterruptionObservationType(result.reason) === OBSERVATION_TYPES.ACTION_INTERRUPTED_BY_DRAG;
             scheduler.activeAction = null;
             scheduler.postActionSettle = {
                 requestId: active.requestId,
@@ -1138,6 +1359,7 @@
         if (gates.yarnDragActive) return 'chat_yarn_dragging';
         if (gates.yarnSettling) return 'chat_yarn_settling';
         if (gates.edgePeekActive) return 'edge_peek_active';
+        if (gates.cat1PositionPresentationBusy) return 'cat1_position_presentation_busy';
         return '';
     }
 
@@ -1147,8 +1369,17 @@
         var elapsedMs = Math.max(0, scoreAt - anchor);
         var progress = Math.min(1, elapsedMs / ACTION_SCORE_POLICY.cadenceRecoveryMs);
         var curveFactor = smoothstep01(progress);
-        var adjustment = ACTION_SCORE_POLICY.cadenceFloor +
-            (ACTION_SCORE_POLICY.cadenceCeiling - ACTION_SCORE_POLICY.cadenceFloor) * curveFactor;
+        // A drag that interrupts a just-started response does not receive the
+        // runner's completion feedback. Use a deeper floor for that recovery
+        // window so the remaining saturated needs cannot turn each following
+        // drag into another action. The same continuous cadence curve still
+        // recovers naturally; normal completion and the first response keep the
+        // established idle rhythm.
+        var cadenceFloor = runtimeState.clock.dragInterruptionRecoveryActive
+            ? ACTION_SCORE_POLICY.dragInterruptionCadenceFloor
+            : ACTION_SCORE_POLICY.cadenceFloor;
+        var adjustment = cadenceFloor +
+            (ACTION_SCORE_POLICY.cadenceCeiling - cadenceFloor) * curveFactor;
         return {
             elapsedMs: elapsedMs,
             progress: progress,
@@ -1419,6 +1650,20 @@
             return;
         }
 
+        // 排在硬闸门之后、且合并完 deferredTriggers 之后：既不盖掉硬闸门原因，
+        // 也不会把此前被延后的用户触发再多压一个窗口。
+        var lastConfirmedActionStartedAt = Number(runtimeState.clock.lastConfirmedActionStartedAt) || 0;
+        var sinceLastActionStarted = scheduler.lastEvaluatedAt - lastConfirmedActionStartedAt;
+        if (lastConfirmedActionStartedAt &&
+            sinceLastActionStarted >= 0 &&
+            sinceLastActionStarted < ACTION_START_BURST_GUARD_MS &&
+            !triggerTypes.some(isUserInteractionObservationType) &&
+            !hasFreshActionIntent(scheduler.lastEvaluatedAt)) {
+            base.reason = 'action_start_burst_guard';
+            recordDecision(base);
+            return;
+        }
+
         var actionIds = [
             ACTION_IDS.CAT1_SOCIAL_PING,
             ACTION_IDS.CAT1_EAT_SNACK,
@@ -1542,6 +1787,16 @@
 
     function shouldScheduleDecisionForObservation(observation) {
         var type = observation && typeof observation.type === 'string' ? observation.type : '';
+        // Formal native-window facts are consumed directly by dedicated
+        // renderer presentations. Keep the high-frequency sensing stream in
+        // Cat Mind's observable context, but never turn it into an unrelated
+        // ordinary CAT1 action opportunity. Other sources using this broad
+        // observation type, such as return-ball state, keep their established
+        // asynchronous decision semantics.
+        if (type === OBSERVATION_TYPES.DESKTOP_OCCLUSION_OR_LAYER_CHANGE &&
+            observation.source === 'desktop-window-sensing') {
+            return false;
+        }
         // These two events close the existing walk-to-yarn local presentation
         // tail (one 25% play / otherwise stretch). They remain full Cat Mind
         // observations for fields, recent events, and debug. They may only
@@ -1556,6 +1811,16 @@
         if (type === OBSERVATION_TYPES.CAT1_LOCAL_PLAY_DONE ||
             type === OBSERVATION_TYPES.CAT1_LOCAL_PLAY_CANCELLED) {
             return false;
+        }
+        // 短时间内连续 hover 只唤起一次决策；观测本身照常计入 need、intent、
+        // 互动时间和回归摘要。乱序的旧时间戳不会把窗口往回拨。
+        if (type === OBSERVATION_TYPES.CAT_HOVER_REACTION) {
+            var hoverAt = Number(observation.timestamp) || 0;
+            var lastHoverAt = Number(runtimeState.lastHoverScheduledAt) || 0;
+            if (lastHoverAt && hoverAt - lastHoverAt < HOVER_DEDUPE_WINDOW_MS) {
+                return false;
+            }
+            runtimeState.lastHoverScheduledAt = hoverAt;
         }
         return true;
     }
@@ -2388,8 +2653,61 @@
         });
     }
 
+    function acceptDesktopChatLifecycleUpdate(detail) {
+        var sourceUpdatedAt = Number(detail.timestamp);
+        if (!Number.isFinite(sourceUpdatedAt) || sourceUpdatedAt <= 0) {
+            sourceUpdatedAt = nowMs();
+        }
+        var lifecycleSequence = Number(detail.lifecycleSequence);
+        if (!Number.isSafeInteger(lifecycleSequence) || lifecycleSequence <= 0) {
+            lifecycleSequence = 0;
+        }
+        var lifecycleTerminal = detail.available === false;
+        if (latestDesktopChatMinimizedSourceAt > 0 &&
+            sourceUpdatedAt < latestDesktopChatMinimizedSourceAt) {
+            return;
+        }
+        var sameTimestamp = latestDesktopChatMinimizedSourceAt > 0 &&
+            sourceUpdatedAt === latestDesktopChatMinimizedSourceAt;
+        if (sameTimestamp && lifecycleSequence > 0 && latestDesktopChatLifecycleSequence > 0) {
+            if (lifecycleSequence < latestDesktopChatLifecycleSequence) return;
+            if (lifecycleSequence === latestDesktopChatLifecycleSequence &&
+                latestDesktopChatLifecycleTerminal && !lifecycleTerminal) {
+                return;
+            }
+        } else if (sameTimestamp && latestDesktopChatLifecycleTerminal && !lifecycleTerminal) {
+            // Compatibility with native/older producers that do not yet carry
+            // lifecycleSequence: an equal-time positive cannot overtake a terminal.
+            return;
+        }
+        if (!sameTimestamp) {
+            latestDesktopChatMinimizedSourceAt = sourceUpdatedAt;
+            latestDesktopChatLifecycleSequence = lifecycleSequence;
+        } else if (lifecycleSequence > 0 &&
+            (latestDesktopChatLifecycleSequence <= 0 || lifecycleSequence >= latestDesktopChatLifecycleSequence)) {
+            latestDesktopChatLifecycleSequence = lifecycleSequence;
+        }
+        latestDesktopChatLifecycleTerminal = lifecycleTerminal;
+        return true;
+    }
+
+    function retireDesktopChatMinimizedLifecycle() {
+        runtimeState.lastChatMinimizedRect = null;
+        runtimeState.lastChatMinimizedState = null;
+        runtimeState.lastChatIdleDocked = false;
+    }
+
     function observeDesktopChatMinimized(detail) {
         if (!detail || typeof detail !== 'object') {
+            return;
+        }
+        if (!acceptDesktopChatLifecycleUpdate(detail)) {
+            return;
+        }
+        if (detail.available === false) {
+            // 用户关闭/窗口隐藏是「目标不存在」，不是一次聊天框展开体验。
+            retireDesktopChatMinimizedLifecycle();
+            runtimeState.lastCompactSurfaceSignature = '';
             return;
         }
         var rect = normalizeRect(detail.screenRect);
@@ -2459,15 +2777,52 @@
 
     function observeCompactSurface(detail) {
         if (!detail || typeof detail !== 'object') {
+            // web 宿主关闭聊天框时清锚点会派发 detail=null；原地重开要能被重新观测。
+            runtimeState.lastCompactSurfaceSignature = '';
+            return;
+        }
+        if (detail.available === false) {
+            observeDesktopChatMinimized(detail);
             return;
         }
         if (detail.heartbeat) {
+            var heartbeatRestoresCompactLifecycle = detail.visible === true &&
+                !!normalizeRect(detail.screenRect) &&
+                (runtimeState.lastChatMinimizedState === false || latestDesktopChatLifecycleTerminal);
+            if (heartbeatRestoresCompactLifecycle && acceptDesktopChatLifecycleUpdate(detail)) {
+                // The first visible heartbeat may be the first delivered recovery.
+                // Advance ordering without creating a repeated window observation.
+                retireDesktopChatMinimizedLifecycle();
+            }
+            return;
+        }
+        if (!acceptDesktopChatLifecycleUpdate(detail)) {
             return;
         }
         var visible = detail.visible !== false;
+        if (visible) {
+            // A visible compact lifecycle supersedes the minimized surface
+            // without inventing a chat-expanded observation. Inactive compact
+            // tracking still advances the watermark but preserves its target.
+            retireDesktopChatMinimizedLifecycle();
+        }
         if (!visible && !detail.screenRect && !detail.left && !detail.width) {
+            runtimeState.lastCompactSurfaceSignature = '';
             return;
         }
+        // Electron 带 screenRect；单窗口 web 宿主的 layout 事件把几何直接平铺在 detail 上。
+        var rect = normalizeRect(detail.screenRect) || normalizeRect(detail);
+        var compactSignature = [
+            visible ? 'visible' : 'hidden',
+            rect ? [rect.left, rect.top, rect.width, rect.height].join(',') : '',
+            // 拖拽 / 缩放在最后一个矩形上松手时只有这两个标志变化，松手要能重新唤起评估。
+            detail.dragging === true ? 'dragging' : '',
+            detail.resizeActive === true ? 'resizing' : '',
+        ].join('|');
+        if (compactSignature && compactSignature === runtimeState.lastCompactSurfaceSignature) {
+            return;
+        }
+        runtimeState.lastCompactSurfaceSignature = compactSignature;
         observe({
             type: OBSERVATION_TYPES.CHAT_COMPACT_SURFACE_VISIBLE,
             source: detail.source || 'compact-surface',
@@ -2698,6 +3053,8 @@
                 lastTickAt: runtimeState.clock.lastTickAt,
                 lastUserInteractionAt: runtimeState.clock.lastUserInteractionAt,
                 lastActionStartedAt: runtimeState.clock.lastActionStartedAt,
+                lastConfirmedActionStartedAt: runtimeState.clock.lastConfirmedActionStartedAt,
+                dragInterruptionRecoveryActive: runtimeState.clock.dragInterruptionRecoveryActive,
             },
             lastResetReason: runtimeState.lastResetReason,
             returnSummaryDraft: clonePlain(runtimeState.returnSummaryDraft),
@@ -2735,6 +3092,9 @@
         getReturnSummaryDraft: getReturnSummaryDraft,
         consumeReturnSummaryDraft: consumeReturnSummaryDraft,
         getDebugSnapshot: getDebugSnapshot,
+        getDebugTimeline: getDebugTimeline,
+        exportDebugTimeline: exportDebugTimeline,
+        clearDebugTimeline: clearDebugTimeline,
         recordDecision: recordDecision,
         acknowledgeActionRequest: acknowledgeActionRequest,
         observe: observe,

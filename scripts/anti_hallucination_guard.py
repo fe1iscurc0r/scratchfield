@@ -74,33 +74,92 @@ def verify_repos(repos):
 
 
 def parse_star_claim(text):
-    """从一行文本提取星数声明（如 31k★ / ⭐12345 / 12345 stars），转成 int，找不到返回 None。"""
-    m = re.search(r'(?:⭐|★|\b)(\d+(?:\.\d+)?)\s*[kK]?\s*(?:★|stars?\b|⭐)?', text)
-    if not m:
-        return None
-    n = float(m.group(1))
-    if re.search(r'\d+\.?\d*\s*[kK]\s*★', text) or re.search(r'[kK]\s*★', text):
-        n *= 1000
-    return int(n)
+    """从一行文本提取星数声明（形如 `2152★` / `⭐12345` / `15k stars`）。
+
+    强约束：必须紧邻 ★/⭐ 符号或包含 stars/star 单词。避免把日期/版本号/工单号误识别。
+    """
+    # 优先级 1：紧邻 ★ 或 ⭐ 的数字（如 "2152★" 或 "⭐ 1546"）
+    m = re.search(r'(\d+(?:\.\d+)?)\s*[kK]?\s*[★⭐]', text)
+    if m:
+        n = float(m.group(1))
+        if re.search(r'\d+(?:\.\d+)?\s*[kK]\s*[★⭐]', text):
+            n *= 1000
+        return int(n)
+    m = re.search(r'[★⭐]\s*(\d+(?:\.\d+)?)\s*[kK]?', text)
+    if m:
+        n = float(m.group(1))
+        if re.search(r'[★⭐]\s*\d+(?:\.\d+)?\s*[kK]', text):
+            n *= 1000
+        return int(n)
+    # 优先级 2：stars 单词伴随（必须含 star 字样）
+    m = re.search(r'(\d+(?:\.\d+)?)\s*[kK]?\s*stars?\b', text)
+    if m:
+        n = float(m.group(1))
+        if re.search(r'\d+(?:\.\d+)?\s*[kK]\s*stars?\b', text):
+            n *= 1000
+        return int(n)
+    return None
 
 
-REPO_RE = re.compile(r'(?<![\w@.-])([A-Za-z0-9][A-Za-z0-9_.-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99})(?![\w@.-])')
+# repo 名规则：owner 不应是大写字母开头的英文单词（专利短语常见 Apps/GovSlack 这种）
+# 加 lookahead 排除文件路径/版本号/日期
+REPO_RE = re.compile(r'(?<![\w@.\-/])([A-Za-z0-9][A-Za-z0-9_.-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99})(?![\w@.\-/])')
 
 
 def extract_repos_from_report(path):
-    """从报告 md 提取疑似 owner/repo。返回 (repos, lines_with_claims)。"""
+    """从报告 md 提取疑似 owner/repo。返回 (repos, lines_with_claims)。
+
+    规则：
+    - 只在 markdown 表格 cell（`| xxx |`）或反引号包裹（`` `owner/repo` ``）的上下文里认仓库
+    - 描述性短语里出现的 X/Y 模式（如 Apps/GovSlack、CVE/EPSS）不算仓库
+    """
     text = Path(path).read_text(encoding="utf-8", errors="ignore")
     lines = text.splitlines()
     repos = {}
+    skip_patterns = [
+        re.compile(r'^\d{4}$'),                          # 纯年份
+        re.compile(r'^v?\d+(?:\.\d+)+$'),                # 版本号
+        re.compile(r'^(?:doc|docs|src|tests?|dist|build|node_modules|bin|lib|include|examples?|scripts?)(?:\b|$)'),
+    ]
+    # 描述短语黑名单（owner/name 中出现这些常见英文短语词缀的组合，统统不算）
+    phrase_words = {
+            'apps', 'app', 'gov', 'govslack', 'group', 'dm', 'whisper', 'sensevoice',
+            'cve', 'epss', 'cisa', 'kev', 'mitre', 'att', 'shodan', 'vt', 'virustotal',
+            'so', 'vits', 'edge', 'tts', 'asr', 'mcp', 'server', 'plugin', 'bot',
+            'ai', 'llm', 'rag', 'kg', 'api', 'cli', 'gui', 'ui', 'pdf', 'json',
+            'cpp', 'py', 'js', 'ts', 'rb', 'rs', 'go', 'lua', 'sh',
+            'k8s', 'openshift', 'kubernetes',
+        }
     for ln in lines:
-        for m in REPO_RE.finditer(ln):
-            cand = m.group(1)
-            # 过滤 URL 路径 / 日期 / 文件路径误匹配
-            if cand.endswith(('.md', '.py', '.json', '.yaml', '.yml', '.png', '.jpg', '.tar', '.gz')):
-                continue
-            if cand.count('/') != 1:
-                continue
-            repos.setdefault(cand, []).append(ln.strip()[:200])
+        # 标记这行是不是「候选仓库上下文」：表格行（以 | 开头）或含反引号包裹的 owner/repo
+        cells = []
+        if ln.lstrip().startswith('|'):
+            # 表格行：按 | 拆 cell
+            cells = [c.strip() for c in ln.split('|')]
+        else:
+            # 文本行：提取反引号包裹的 token
+            import re as _re
+            for tk in _re.findall(r'`([^`]+)`', ln):
+                cells.append(tk)
+        if not cells:
+            continue
+        for cell in cells:
+            for m in REPO_RE.finditer(cell):
+                cand = m.group(1)
+                if cand.endswith(('.md', '.py', '.json', '.yaml', '.yml', '.png', '.jpg', '.tar', '.gz')):
+                    continue
+                if cand.count('/') != 1:
+                    continue
+                owner = cand.split('/', 1)[0]
+                name = cand.split('/', 1)[1]
+                for sp in skip_patterns:
+                    if sp.match(owner) or sp.match(name):
+                        break
+                else:
+                    # 短语词缀过滤：owner 或 name 完全由 phrase_words 组成（小写后）的视为短语
+                    if owner.lower() in phrase_words or name.lower() in phrase_words:
+                        continue
+                    repos.setdefault(cand, []).append(ln.strip()[:200])
     return repos
 
 

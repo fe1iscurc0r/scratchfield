@@ -1,0 +1,147 @@
+agentic_inventory 依赖图（工单249）
+生成日期：2026-10-16 ｜ 基线：main b33bcea2eb（工单248 合并点）
+口径：实线 = 代码级依赖/注册关系；虚线 = 仅题材对齐，不 import、不改其接口
+
+================================================================================
+1. 注册与路由链（本单**未修改**任何既有文件）
+================================================================================
+
+  mcpserver/mcp_registry.py::scan_and_register_mcp_agents("mcpserver")   [第 365 行]
+        │  d.glob("**/agent-manifest.json")          ← 自动发现，无需登记表   [第 379 行]
+        ▼
+  mcpserver/agentic_inventory/agent-manifest.json
+        │  entryPoint = {module: "mcpserver.agentic_inventory.server",
+        │                class:  "AgenticInventoryBridge"}
+        │  classification = {tier: "read-only", origin: {kind: "bridge"},
+        │                    families: ["instrument"], domains: ["security"]}
+        ▼
+  mcpserver/agentic_inventory/server.py::AgenticInventoryBridge
+        │  _TOOLS（8 个） = inventory / registry_gaps / risk_report / snapshot /
+        │                   diff / column_spec / doctor / list_tools
+        │  async def handle_handoff(task) -> str          （MCP agent 契约）
+        ▼
+  mcpserver/mcp_manager.py::MCPManager.unified_call(service_name, tool_call)
+
+  ⇒ 结论：新模块**零侵入**接入（本单未改 mcp_registry.py / mcp_manager.py / 任何既有文件）。
+  ⇒ manifest 的 8 个 command 与 `_TOOLS` 的 8 个键**逐项一致**（本模块的 `dispatcher_match`
+     信号会给自己的模块打 True —— 它扫自己时也走同一条判据）。
+
+================================================================================
+2. 模块内部依赖（单向无环，零第三方）
+================================================================================
+
+  mcpserver/agentic_inventory/
+        __init__.py ──► inventory.py ──► posture.py
+                    └──► posture.py            （posture 谁都不依赖）
+
+  posture.py   292 行  重量 + 档位 + 风险令牌判据（只 import re / dataclasses）
+       ▲                ⚠️ 纯文本函数，**不碰文件系统**（读文件是调用方的事）
+       │
+  inventory.py 383 行  扫描（manifest / 指令文件）+ 对账 + 指纹 + 快照 + diff
+       │                import ast / hashlib / json / pathlib + .posture
+       │
+  server.py    267 行  MCP bridge（8 工具）+ argparse CLI
+                       import argparse / asyncio / json / logging / typing + .inventory + .posture
+
+  依赖方向：posture ◄── inventory ◄── server；__init__ 只做再导出。
+  **判据只有一处**：风险令牌/置信度权重全在 posture.py，inventory.py 不另写一份。
+
+  准入守卫：tests/test_agentic_inventory.py::test_module_has_no_third_party_imports
+            白名单 = {__future__, argparse, ast, asyncio, dataclasses, hashlib, json,
+                      logging, pathlib, re, typing}
+            ⇒ **零依赖不是自述，是被 ast 扫出来的**。
+
+================================================================================
+3. 数据流（一次 build_inventory）
+================================================================================
+
+  build_inventory(root)
+    ├─ scan_agents(root)            glob mcpserver/**/agent-manifest.json
+    │    每行：读 manifest → 解析 entryPoint（**静态**，见 §4）→ 7 个信号 → posture.score
+    │           ├─ 风险：manifest 自身(kind=manifest) + README/requirements(kind=config)
+    │           └─ 质量：no_handoff / dispatcher_mismatch / no_tests / no_readme / …
+    ├─ scan_instructions(root)      AGENTS.md / CLAUDE.md / GEMINI.md / .cursorrules
+    │    每行：整篇文本 → scan_text_risks(kind=instruction) → injection_markers / hidden_unicode
+    └─ reconcile(agent_rows)        静态契约不成立的行 → 单独出 registry_gap 行
+         判据：entryPoint 静态不可解析 / 类确定没有 handle_handoff / 声明与派发表不一致
+
+  出行规则：confidence >= 30 才出行（照上游 "Not emitted < 30"）；
+           未出行的行**在 summary.suppressed_below_threshold 里留名**（免得"没了"和"被抑制"分不清）。
+
+================================================================================
+4. **静态** 的含义（本模块最容易被误解的一点）
+================================================================================
+
+  解析 entryPoint 的类**不 import 被盘对象**，而是：
+    ① 按 module 路径拼出候选 .py 文件（module → path）
+    ② ast.parse 读它，找 class 定义
+    ③ 找 handle_handoff：先在类自身方法体找；没有则**沿基类递归**（同文件内）
+    ④ 跨文件基类 ⇒ 标 handoff_uncheckable，**不算缺口**（"判不出" ≠ "没有"）
+
+  为什么不用 import：盘存器 import 被盘对象 = 执行对方模块级代码（副作用/依赖/崩溃面）
+  ⇒ 与上游 detection-only 纪律（"never executes a discovered binary"）冲突。
+
+================================================================================
+5. **它会扫到自己**（本模块的自指性质，不是 bug）
+================================================================================
+
+  mcpserver/agentic_inventory/agent-manifest.json 是它自己那张表里的**一行**
+  （实测：66 行里的一行，且是 8 个带风险标记的行之一）。
+
+  ⇒ 两个直接后果：
+     ① 它记录的 8 条风险里，有一条是**它自己**；
+     ② 收尾期就抓到过一次自伤假阳性 —— 它把自己的 README 令牌表里那串
+        `` `npx`/`uvx`/`bunx`/`pnpx` `` 判成了"未钉依赖"。收紧包规格识别后消失
+        （证据目录 README 的「两次生成」一节留了证）。
+
+  这不是设计缺陷，是**必须留意的性质**：判据一宽，第一个误报的就是它自己的文档。
+
+================================================================================
+6. 题材对齐（虚线，无代码耦合）
+================================================================================
+
+  agentic_inventory ················► karmine05/agentic-detector（MIT，13★）
+     借的是**方法论**（多信号置信度分级 / evidence 令牌 / 静态风险姿态 / sha256+launch_hash /
+     detection-only），**不是代码**：上游是 Go 写的 osquery 扩展，本模块是 Python 纯静态扫描。
+     刻意去掉的列（running/pid/port）见 README §3.1 —— 上游是主机级，本模块是仓内资产级。
+
+  agentic_inventory ················► tests/test_import_graph_and_adapter_contracts.py（244g）
+     244g 是 **CI 闸门**（只答"别坏"：manifest 能否静态解析 / adapters 三要素）；
+     本模块是**可反复跑的盘存**（答"现在是什么样、比上次变了什么"）。
+     两者不重复：一个盯回归，一个做资产可见性；本模块不 import 244g 的测试代码。
+
+  agentic_inventory ················► mcpserver/mcp_registry / mcp_manager
+     那是本仓的 MCP 工具总线（**运行时**注册与派发）；本模块只是它上面的**一个乘客**
+     （以 bridge 形态接入），并且反过来把这条链当**被盘对象**——见 §3 的 entrypoint_resolves。
+
+================================================================================
+7. 工单声明路径的落点（偏差记录）
+================================================================================
+
+  ✅ 本单落点：mcpserver/agentic_inventory/（本仓 mcpserver/ 子模块一律下划线命名）
+  ⚠️ 工单249 是 `cron_to_workorder` 的**自动草稿**（28 行），§4「待补」三项全空：
+       PoC 边界与验收标准 / 耦合点 / 是否与已发工单重复 —— 均由本单自行定义并在此记录。
+       §4 的耦合点模板原文列 `mcpserver/ / coupled/ / core/`，其中 `core/` **全树 0 命中**
+       （242/243/244 已连续证过；该模板行已于**工单244j 修正**）。
+  ⚠️ 工单 §4 要求"查重"：已查 —— 无既有工单覆盖「仓内 agent 资产盘存」；最接近的是
+       244g（CI 闸门），边界见 §6。
+
+================================================================================
+8. 产物依赖（入库什么 / 不入库什么）
+================================================================================
+
+  入库：
+    mcpserver/agentic_inventory/posture.py          判据真值源（权重/档位/6 个风险令牌）
+    mcpserver/agentic_inventory/inventory.py        扫描 + 对账 + 指纹 + 快照/diff
+    mcpserver/agentic_inventory/server.py           MCP bridge（8 工具）+ CLI
+    mcpserver/agentic_inventory/__init__.py         再导出
+    mcpserver/agentic_inventory/agent-manifest.json
+    mcpserver/agentic_inventory/README.md           方法论 + 三条边界 + 五个真教训
+    mcpserver/agentic_inventory/requirements.txt    零依赖声明（含"为什么不引 osquery"）
+    mcpserver/agentic_inventory/sandbox/            7 份**真跑输出**（含受控篡改演示）
+    tests/test_agentic_inventory.py                 46 用例（姿态/盘存/对账/契约四层）
+    reports/workorder249_agentic_inventory_2026-10-16.md
+
+  不入库：
+    主机级信息（进程/端口/家目录）—— 刻意不采集，见 README §6；
+    被盘对象的字节副本（只存 sha256/launch_hash，不存内容）。

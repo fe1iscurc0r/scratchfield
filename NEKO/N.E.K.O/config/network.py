@@ -21,6 +21,8 @@ import os
 import sys
 import uuid
 
+from utils.net_boundary import read_allow_remote, read_auth_token, read_bind_host
+
 from .application import logger
 
 # 从 Electron userData 目录读取端口覆盖配置（由前端端口设置窗口写入）
@@ -159,8 +161,16 @@ def _build_local_allowed_origins(port: int, *, extra_origins: tuple[str, ...] = 
 
 
 def _read_monitor_host() -> str:
-    """Monitor bind address; uvicorn needs bare IPv6 literals, so drop brackets."""
-    return _read_str_env("MONITOR_HOST", "0.0.0.0").strip("[]")
+    """Monitor bind address; uvicorn needs bare IPv6 literals, so drop brackets.
+
+    默认改回 ``127.0.0.1``。此前这里是 ``0.0.0.0``，注释自认「保留历史 LAN 绑定」
+    ——那正是 P0-4：默认绑全网卡 + ``MONITOR_TOKEN`` 默认空 = 任意主机都能当
+    ``/sync*`` 生产者往机器人名上写字幕。跨机现在必须走统一口径的三个变量
+    （``NEKO_BIND_HOST`` + ``NEKO_ALLOW_REMOTE=1`` + ``NEKO_AUTH_TOKEN``），
+    由 ``utils.net_boundary.enforce_startup_policy`` 在监听之前判定。
+    """
+
+    return read_bind_host()
 
 
 def _monitor_dial_host(bind_host: str) -> str:
@@ -183,11 +193,16 @@ def _monitor_dial_host(bind_host: str) -> str:
 MAIN_SERVER_PORT = _read_port_env("MAIN_SERVER_PORT", 48911)
 MEMORY_SERVER_PORT = _read_port_env("MEMORY_SERVER_PORT", 48912)
 MONITOR_SERVER_PORT = _read_port_env("MONITOR_SERVER_PORT", 48913)
-# Optional Monitor bind/auth settings.  Keep the historical LAN-facing bind as
-# the default and leave authentication opt-in for backwards compatibility.
+# Monitor bind/auth settings（WO-267 / P0-4）：默认只绑回环。
+# ``MONITOR_HOST`` / ``MONITOR_TOKEN`` 两个历史名继续可用，``NEKO_BIND_HOST`` /
+# ``NEKO_AUTH_TOKEN`` 优先；``read_auth_token()`` 的原值照旧返回（过短也返回），
+# 因为「非空即开启鉴权」是 monitor_auth 既有语义，≥32 的要求只用在
+# 「要不要允许非回环监听」这一处启动判定上。
 MONITOR_HOST = _read_monitor_host()
-MONITOR_TOKEN = _read_str_env("MONITOR_TOKEN", "")
+MONITOR_TOKEN = read_auth_token()[0]
 MONITOR_VIEWER_TOKEN = _read_str_env("MONITOR_VIEWER_TOKEN", "")
+ALLOW_REMOTE = read_allow_remote()
+AUTH_TOKEN_STATE = read_auth_token()[1]
 COMMENTER_SERVER_PORT = _read_port_env("COMMENTER_SERVER_PORT", 48914)
 TOOL_SERVER_PORT = _read_port_env("TOOL_SERVER_PORT", 48915)
 USER_PLUGIN_SERVER_PORT = _read_port_env("USER_PLUGIN_SERVER_PORT", 48916)

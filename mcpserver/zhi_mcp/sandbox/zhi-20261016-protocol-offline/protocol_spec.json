@@ -1,0 +1,53 @@
+{
+  "ok": true,
+  "tool": "protocol_spec",
+  "data": {
+    "source": {
+      "repo": "78/xiaozhi-esp32",
+      "license": "MIT",
+      "stars": 31197,
+      "doc": "docs/mcp-protocol_zh.md",
+      "doc_caveat": "该文档自述『AI 辅助生成, 在实现后台服务时, 请参照代码确认细节!!』⇒ 本模块按文档形态实现，并对未知字段原样透传（不因多字段拒收）"
+    },
+    "role": {
+      "device": "MCP 服务器（提供工具）",
+      "backend_api": "MCP 客户端（调用工具）"
+    },
+    "envelope": {
+      "session_id": "会话 ID（多设备共用连接时区分）",
+      "type": "固定 \"mcp\"",
+      "payload": "JSON-RPC 2.0 消息"
+    },
+    "methods": [
+      {
+        "name": "initialize",
+        "direction": "后台→设备",
+        "params": "capabilities（可选，如 vision.url/token）",
+        "result": "protocolVersion / capabilities.tools / serverInfo"
+      },
+      {
+        "name": "tools/list",
+        "direction": "后台→设备",
+        "params": "cursor（首次空串）",
+        "result": "tools[] / nextCursor（非空则继续翻页）"
+      },
+      {
+        "name": "tools/call",
+        "direction": "后台→设备",
+        "params": "name / arguments",
+        "result": "content[{type:'text',text}] / isError；未知工具回 -32601"
+      }
+    ],
+    "notifications": "设备可主动发 notifications/*（无 id，**不得回包**）",
+    "tool_namespace": {
+      "prefix": "self.",
+      "meaning": "self.* = 设备自身能力（音量/灯/GPIO…）",
+      "observed": [
+        "self.get_device_status",
+        "self.audio_speaker.set_volume"
+      ]
+    },
+    "protocol_version_seen": "2024-11-05",
+    "transport": "WebSocket 或 MQTT（本模块抽象成 send/recv，由调用方注入）"
+  }
+}

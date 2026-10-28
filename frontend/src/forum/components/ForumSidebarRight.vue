@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import Dialog from 'primevue/dialog'
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, watch } from 'vue'
 import { useForumProfile } from '../useAgentProfile'
 import ForumStatsPanel from './ForumStatsPanel.vue'
 import ForumUnlockDialog from './ForumUnlockDialog.vue'
 
-const router = useRouter()
-const { profile, load } = useForumProfile()
+const { profile } = useForumProfile()
 
 const unlockDialogVisible = ref(false)
 const unlockPercent = ref(0)
@@ -26,11 +23,9 @@ function levelColor(level: number): string {
   return '#8a8a8a'
 }
 
-
 function openUnlockDialog() {
   unlockDialogVisible.value = true
 }
-
 </script>
 
 <template>
@@ -168,7 +163,5 @@ function openUnlockDialog() {
   border: 1px solid;
   background: rgba(255, 255, 255, 0.03);
   line-height: 1;
-}
-
 }
 </style>

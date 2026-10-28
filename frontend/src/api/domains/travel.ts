@@ -3,6 +3,9 @@ import type { DomainShape } from './_context'
  * travel 域 API（卷191-A2 从 core.ts 拆出）。
  *
  * 方法体纯搬运，签名与返回类型零变化。
+ *
+ * `postToForum` 参数已移除（2026-10-12）：论坛下线后后端不读它、全仓无人设置它，
+ * 留在签名里等于对外承诺一个不存在的功能。详见 docs/travel-exploration-system.md。
  */
 import type { TravelSession } from './_internals'
 
@@ -14,7 +17,6 @@ export const travelMethods = {
     wantFriends?: boolean
     friendDescription?: string
     goalPrompt?: string
-    postToForum?: boolean
     deliverFullReport?: boolean
     deliverChannel?: string
     deliverTo?: string
@@ -32,7 +34,6 @@ export const travelMethods = {
     wantFriends?: boolean
     friendDescription?: string
     goalPrompt?: string
-    postToForum?: boolean
     deliverFullReport?: boolean
     deliverChannel?: string
     deliverTo?: string

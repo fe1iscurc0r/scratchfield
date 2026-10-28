@@ -128,7 +128,8 @@ class TravelSession(BaseModel):
     want_friends: bool = True
     friend_description: str | None = None
     goal_prompt: str | None = None
-    post_to_forum: bool = True
+    # post_to_forum 已于 2026-10-12 移除：论坛下线后没有任何逻辑读它（纯惰性管道），
+    # 但仍由 API 层与 Naga 工具入口接受并原样存回，对外承诺了一个不存在的功能。
     deliver_full_report: bool = True
     deliver_channel: str | None = None
     deliver_to: str | None = None
@@ -156,9 +157,8 @@ class TravelSession(BaseModel):
     discoveries: list[TravelDiscovery] = Field(default_factory=list)
     social_interactions: list[SocialInteraction] = Field(default_factory=list)
     summary: str | None = None
-    forum_digest: str | None = None
-    forum_post_id: str | None = None
-    forum_post_status: str | None = None
+    # forum_digest / forum_post_id / forum_post_status 已于 2026-10-12 移除：
+    # 三者从未被任何代码赋值（恒 None），只被遥测与通知模板读取。
     full_report_delivery_status: str | None = None
     notification_delivery_statuses: dict[str, str] = Field(default_factory=dict)
     error: str | None = None
@@ -211,7 +211,6 @@ def create_session(
     want_friends: bool = True,
     friend_description: str | None = None,
     goal_prompt: str | None = None,
-    post_to_forum: bool = True,
     deliver_full_report: bool = True,
     deliver_channel: str | None = None,
     deliver_to: str | None = None,
@@ -232,7 +231,6 @@ def create_session(
         want_friends=want_friends,
         friend_description=friend_description,
         goal_prompt=goal_prompt,
-        post_to_forum=post_to_forum,
         deliver_full_report=deliver_full_report,
         deliver_channel=deliver_channel,
         deliver_to=deliver_to,
@@ -611,52 +609,8 @@ def build_travel_instruction_prompt(message: str) -> str:
 {clean_message}"""
 
 
-def _compact_text(text: str | None, limit: int = 220) -> str:
-    if not text:
-        return ""
-    cleaned = re.sub(r"\s+", " ", text).strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: max(1, limit - 1)] + "…"
-
-
-def build_forum_post_payload(session: TravelSession) -> dict[str, Any]:
-    """根据旅行结果构建论坛精华帖。"""
-    title_seed = _compact_text(session.goal_prompt, 36) or "最新热点探索"
-    summary = _compact_text(session.summary, 700) or "本轮探索已完成，但暂未生成完整总结。"
-    top_discoveries = session.discoveries[:5]
-    top_tags: list[str] = []
-    for item in top_discoveries:
-        for tag in item.tags:
-            if tag and tag not in top_tags:
-                top_tags.append(tag)
-            if len(top_tags) >= 5:
-                break
-    lines = [
-        f"【探索方向】{title_seed}",
-        "",
-        "【精华总结】",
-        summary,
-    ]
-    if top_discoveries:
-        lines.extend(["", "【本轮值得继续追踪】"])
-        for idx, item in enumerate(top_discoveries, start=1):
-            source = item.site_name or urlparse(item.url).netloc or item.url
-            lines.append(
-                f"{idx}. {item.title}\n"
-                f"来源：{source}\n"
-                f"摘要：{_compact_text(item.summary, 140)}\n"
-                f"链接：{item.url}"
-            )
-    if session.social_interactions:
-        lines.extend(["", f"【社交互动】本轮记录 {len(session.social_interactions)} 次互动"])
-    content = "\n".join(lines).strip()
-    return {
-        "title": f"探索速报｜{title_seed}"[:60],
-        "content": content[:4000],
-        "tags": top_tags[:5],
-        "source": "openclaw-travel",
-    }
+# build_forum_post_payload / _compact_text 已于 2026-10-12 一并移除：论坛下线后该函数
+# 的唯一调用点（session.py 的探索完成流程）已被删除，全仓调用数为 0；_compact_text 仅服务它。
 
 
 # ── 结果解析 ─────────────────────────────────────

@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "tool": "unrouted_nets",
+  "data": {
+    "count": 1,
+    "nets": [
+      {
+        "net": 7,
+        "name": "DIO0"
+      }
+    ]
+  }
+}

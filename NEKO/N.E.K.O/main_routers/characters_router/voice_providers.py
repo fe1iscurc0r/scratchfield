@@ -23,7 +23,7 @@ import json
 import io
 import httpx
 from utils.tts.providers.elevenlabs import (
-    ELEVENLABS_TTS_DEFAULT_MODEL,
+    ELEVENLABS_TTS_PREVIEW_MODEL,
     ELEVENLABS_TTS_VOICE_PREFIX,
 )
 
@@ -142,16 +142,13 @@ async def _elevenlabs_synthesize_preview(
     base_url = (base_url or await _get_elevenlabs_base_url(config_manager)).rstrip('/')
 
     payload = {
-        "text": text,
-        "model_id": ELEVENLABS_TTS_DEFAULT_MODEL,
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.75,
-            "style": 0.0,
-            "use_speaker_boost": True,
-        },
+        "inputs": [{
+            "text": text,
+            "voice_id": raw_voice_id,
+        }],
+        "model_id": ELEVENLABS_TTS_PREVIEW_MODEL,
     }
-    url = f"{base_url}/v1/text-to-speech/{raw_voice_id}"
+    url = f"{base_url}/v1/text-to-dialogue"
     headers = {
         "xi-api-key": api_key,
         "Accept": "audio/mpeg",

@@ -1,0 +1,15 @@
+# mcpserver/zhi_mcp —— 依赖清单
+#
+# **零第三方依赖**（刻意）：只用 Python 标准库
+#   json / logging / argparse / asyncio / collections / dataclasses / typing
+#
+# 为什么连 websocket 库都不引
+# --------------------------
+# 上游把 MCP 消息跑在 WebSocket 或 MQTT 上。若把某个 ws 库写死进协议层，
+# 本模块就**只能连真设备才能测**。因此协议层只依赖一个两方法抽象（send/recv，见 transport.py），
+# 测试与离线演示用内存假设备跑完整链路；真实对接时由调用方注入自己的 ws/mqtt 实现。
+#
+# 真机联调时需要什么（**不在本仓依赖里**）
+# --------------------------------------
+#   一个 websocket 客户端（如 websockets / websocket-client）或 MQTT 客户端 —— 由调用方选型；
+#   本模块不替调用方决定，也不把它的依赖带进仓。

@@ -137,13 +137,14 @@ export class ApiClient {
     const status = error.response?.status
     const url = error.config?.url || ''
     const isExpectedMissingSession = status === 404 && !!url.match(/\/sessions\/[^/]+$/)
-    const isTransientForumError = !!url.startsWith('/forum/api/') && (status === 500 || status === 503)
+    // 原先此处还有 isTransientForumError（判 `/forum/api/` 前缀的 500/503 不打印 error）——
+    // 论坛已下线：后端不再提供 /forum/api/*，前端全仓也没有任何指向它的请求，
+    // 该条件永不命中，属于恒假的日志抑制开关，故删除。
     const isTransientOpenclawWarmup = url === '/openclaw/tasks' && status === 503
     const isExpectedHealthNetworkError = !status && url.startsWith('/health')
     const isExpectedBootstrapConfigNetworkError = !status && url.startsWith('/system/config')
     if (
       !isExpectedMissingSession
-      && !isTransientForumError
       && !isTransientOpenclawWarmup
       && !isExpectedHealthNetworkError
       && !isExpectedBootstrapConfigNetworkError

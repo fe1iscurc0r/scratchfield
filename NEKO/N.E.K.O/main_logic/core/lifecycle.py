@@ -1599,9 +1599,13 @@ class LifecycleMixin:
                 **self._new_dialog_request_kwargs(),
             )
         except httpx.ConnectError:
-            raise ConnectionError(f"❌ 记忆服务未启动！请先启动记忆服务 (端口 {port})")
+            # [local-patch] 陆墨融合：Lumo 部署不启 memory_server，记忆对话缺失不能打断 session 启动
+            logger.warning("记忆服务未启动（端口 %s），本次启动跳过记忆对话注入", port)
+            return ""
         except httpx.TimeoutException:
-            raise ConnectionError(f"❌ 记忆服务响应超时！请检查记忆服务是否正常运行 (端口 {port})")
+            # [local-patch] 陆墨融合：记忆服务超时同样降级为空对话，避免整段启动失败
+            logger.warning("记忆服务响应超时（端口 %s），本次启动跳过记忆对话注入", port)
+            return ""
         except Exception as e:
             raise ConnectionError(f"❌ 记忆服务连接失败: {e} (端口 {port})")
         if not resp.is_success:
@@ -2724,10 +2728,14 @@ class LifecycleMixin:
                     **self._new_dialog_request_kwargs(),
                 )
             except httpx.ConnectError:
-                raise ConnectionError(f"❌ 记忆服务未启动！请先启动记忆服务 (端口 {self.memory_server_port})")
+                # [local-patch] 陆墨融合：热切换时记忆服务缺位不阻断，降级为空对话
+                logger.warning("记忆服务未启动（端口 %s），热切换跳过记忆对话注入", self.memory_server_port)
+                resp = None
             except httpx.TimeoutException:
-                raise ConnectionError(f"❌ 记忆服务响应超时！请检查记忆服务是否正常运行 (端口 {self.memory_server_port})")
-            if not resp.is_success:
+                # [local-patch] 陆墨融合：热切换时记忆服务超时降级为空对话
+                logger.warning("记忆服务响应超时（端口 %s），热切换跳过记忆对话注入", self.memory_server_port)
+                resp = None
+            if resp is not None and not resp.is_success:
                 raise ConnectionError(f"❌ 记忆服务热切换时返回非2xx状态 {resp.status_code}: {resp.text[:200]}")
             # Freeze exactly what is primed: a reply still streaming appends
             # to the last cache entry in place, and the final swap must judge
@@ -2739,7 +2747,7 @@ class LifecycleMixin:
             ]
             self._primed_context_snapshot = primed_context
             initial_prompt += (
-                resp.text
+                (resp.text if resp is not None else "")
                 # One call for both slices: a screen chain split across them
                 # is judged as one run (see _convert_cache_to_str).
                 + self._convert_cache_to_str(primed_context)

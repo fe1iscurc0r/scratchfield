@@ -421,19 +421,32 @@ async def test_merge_moves_ledgers_without_loss():
     )
 
 
-async def test_merge_survivor_is_a_function_of_the_final_entity_set():
+@pytest.mark.parametrize(
+    "created_at_offsets",
+    [
+        pytest.param((0, 0, 0, 0, 0, 0), id="equal-timestamps"),
+        pytest.param((0, 1, 2, 3, 4, 5), id="distinct-timestamps"),
+        pytest.param((2, 1, 0, 0, 1, 2), id="tied-oldest-timestamps"),
+    ],
+)
+async def test_merge_survivor_is_a_function_of_the_final_entity_set(
+    created_at_offsets,
+):
     """I-C-1: shuffling the merge order must not change the survivor."""
-    await _open_gate()
     accounts = [f"qq:{index}" for index in range(6)]
-    for account in accounts:
-        await trust_store.aensure_account(account)
-    baseline = None
     rng = random.Random(1234)
     for attempt in range(12):
         trust_store.reset_for_tests()
         await _open_gate()
-        for account in accounts:
-            await trust_store.aensure_account(account)
+        entity_keys = []
+        for account, offset in zip(accounts, created_at_offsets, strict=True):
+            # The entity set includes created_at. Real clock resolution can
+            # change timestamp ties between attempts, changing the valid winner.
+            created_at = f"2026-01-01T00:00:{offset:02d}+00:00"
+            with patch.object(trust_store, "_now_iso", return_value=created_at):
+                entity_id = await trust_store.aensure_account(account)
+            entity_keys.append((created_at, entity_id))
+        expected_survivor = min(entity_keys)[1]
         pairs = [
             (accounts[index], accounts[index + 1])
             for index in range(len(accounts) - 1)
@@ -444,10 +457,11 @@ async def test_merge_survivor_is_a_function_of_the_final_entity_set():
             await trust_store.amerge_entities(
                 snap.entity_of(left), snap.entity_of(right),
             )
-        survivor = trust_store.trust_snapshot().entity_of(accounts[0])
-        if baseline is None:
-            baseline = survivor
-        assert survivor == baseline, f"attempt {attempt} diverged"
+        snap = trust_store.trust_snapshot()
+        for account in accounts:
+            assert snap.entity_of(account) == expected_survivor, (
+                f"attempt {attempt} diverged for {account}"
+            )
 
 
 async def test_unbind_moves_the_ledger_out_byte_for_byte():
@@ -521,6 +535,75 @@ async def test_bind_rejects_more_than_the_per_platform_account_limit():
     # A different platform is counted separately.
     await trust_store.aensure_account("bili:1")
     assert (await trust_store.abind_account("bili:1", entity_id))["changed"]
+
+
+def test_visit_accounts_stay_unlinkable_until_visit_forget_sends_target_epochs():
+    """Tripwire: the visit forget client sends no ``target_epochs`` (issue #3405).
+
+    A second visit account on one entity makes every visit forget fan out to
+    it, and that target gets no durable tombstone: a delayed pre-forget write
+    can then restore erased memories, silently. Lift this cap only together
+    with wiring ``target_epochs`` into ``main_logic/visit/memory_bridge.py``.
+    """
+    from config import IDENTITY_MAX_ACCOUNTS_PER_ENTITY_BY_PLATFORM, VISIT_MEMORY_PLATFORM
+
+    limit, _reason = IDENTITY_MAX_ACCOUNTS_PER_ENTITY_BY_PLATFORM[VISIT_MEMORY_PLATFORM]
+    assert limit == 1, (
+        "neko_visit accounts must not be linked until the visit forget sends "
+        "target_epochs; see issue #3405"
+    )
+
+
+async def test_bind_refuses_a_second_visit_account_on_one_entity():
+    entity_id = await trust_store.aensure_account("neko_visit:person_a")
+    await trust_store.aensure_account("neko_visit:person_b")
+    with pytest.raises(trust_store.TrustIdentityError) as excinfo:
+        await trust_store.abind_account("neko_visit:person_b", entity_id)
+    assert excinfo.value.status_code == 409
+    assert "#3405" in str(excinfo.value)
+    snap = trust_store.trust_snapshot()
+    assert snap.same_entity("neko_visit:person_a", "neko_visit:person_b") is False
+    # Only same-platform links fan a forget out; another platform still binds.
+    await _open_gate()
+    await trust_store.aensure_account("qq:1")
+    assert (await trust_store.abind_account("qq:1", entity_id))["changed"]
+
+
+async def test_bind_refuses_a_never_seen_visit_account_on_a_visit_entity():
+    entity_id = await trust_store.aensure_account("neko_visit:person_a")
+    # Unregistered account: bind attaches it directly instead of merging.
+    with pytest.raises(trust_store.TrustIdentityError) as excinfo:
+        await trust_store.abind_account("neko_visit:never_seen", entity_id)
+    assert excinfo.value.status_code == 409
+    assert "#3405" in str(excinfo.value)
+    assert trust_store.trust_snapshot().entity_of("neko_visit:never_seen") is None
+
+
+async def test_merge_refuses_to_join_two_visit_accounts():
+    left = await trust_store.aensure_account("neko_visit:person_a")
+    right = await trust_store.aensure_account("neko_visit:person_b")
+    with pytest.raises(trust_store.TrustIdentityError) as excinfo:
+        await trust_store.amerge_entities(left, right)
+    assert excinfo.value.status_code == 409
+    assert "#3405" in str(excinfo.value)
+    snap = trust_store.trust_snapshot()
+    assert snap.same_entity("neko_visit:person_a", "neko_visit:person_b") is False
+
+
+async def test_visit_forget_does_not_fan_out_to_a_linked_account_of_another_platform():
+    from memory.scopes import MemorySubject
+    from memory.subject_identity import expand_subject
+
+    entity_id = await trust_store.aensure_account("neko_visit:person_a")
+    await _open_gate()
+    await trust_store.aensure_account("qq:1")
+    await trust_store.abind_account("qq:1", entity_id)
+    snap = trust_store.trust_snapshot()
+    assert snap.same_entity("neko_visit:person_a", "qq:1") is True
+    subject = MemorySubject.participant("neko_visit", "person_a")
+    # The forget fan-out is this expansion: a cross-platform link the visit
+    # cap allows must not widen it, so the visit forget still has no target.
+    assert expand_subject(subject, snap) == (subject,)
 
 
 async def test_same_entity_is_false_when_the_pool_is_unloaded():
@@ -695,17 +778,17 @@ async def test_channel_collision_is_detected_without_touching_the_ledger():
     await _open_gate()
     await trust_store.aapply_trust_mutations([
         _mutation("qq:1", activity=[("activity_n0000001", 1)],
-                  channel="napcat"),
+                  channel="onebot"),
     ])
     snap = trust_store.trust_snapshot()
-    assert snap.channels_seen("qq:1") == ("napcat",)
+    assert snap.channels_seen("qq:1") == ("onebot",)
     assert snap.channel_collision("qq:1") is False
     before = dict(_account_record("qq:1"))
     result = await trust_store.aapply_trust_mutations([
         _mutation("qq:1", activity=[("activity_o0000001", 1)], channel="open"),
     ])
     snap = trust_store.trust_snapshot()
-    assert snap.channels_seen("qq:1") == ("napcat", "open")
+    assert snap.channels_seen("qq:1") == ("onebot", "open")
     assert snap.channel_collision("qq:1") is True
     assert result.channel_collisions == ("qq:1",)
     # One ledger, one accumulation — the channel changed nothing about it.
@@ -780,13 +863,13 @@ async def test_switching_connection_mode_redeclares_the_scope(pool):
         conversation_scope="global", asserted_by="protocol:qq-open-v2",
     )
     result = await trust_store.adeclare_platform_identity_scope(
-        "qq", channel="napcat", actor_scope="global",
+        "qq", channel="onebot", actor_scope="global",
         conversation_scope="global", asserted_by="protocol:onebot-v11",
     )
 
     assert result["persisted"] is True
     scope = trust_store.trust_snapshot().platform_identity_scope("qq")
-    assert (scope["channel"], scope["actor_scope"]) == ("napcat", "global")
+    assert (scope["channel"], scope["actor_scope"]) == ("onebot", "global")
 
 
 @pytest.mark.parametrize("actor_scope", [
@@ -1275,10 +1358,10 @@ async def test_malformed_channel_diagnostics_survive_a_load_and_a_write(pool):
     assert _account_record("qq:1")["channels_seen"] == {}
     result = await trust_store.aapply_trust_mutations([
         _mutation("qq:1", activity=[("activity_aaaaaaaa", 1)],
-                  channel="napcat"),
+                  channel="onebot"),
     ])
     assert result.persisted is True
-    observed = trust_store._POOL["channel_observations"]["qq"]["napcat"]
+    observed = trust_store._POOL["channel_observations"]["qq"]["onebot"]
     assert isinstance(observed, dict) and observed["accounts"] == 1
 
 

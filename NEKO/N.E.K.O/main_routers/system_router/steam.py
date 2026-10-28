@@ -273,7 +273,16 @@ async def list_achievements():
             logger.error(f"获取成就列表失败: {e}")
             return JSONResponse(content={"error": str(e)}, status_code=500)
     else:
-        return JSONResponse(content={"error": "Steamworks未初始化"}, status_code=500)
+        # 503 Service Unavailable 才是语义正确的：这不是服务端 bug，而是「当前环境没有 Steam」
+        # （非 Steam 启动 / 未登录客户端）。同目录的 /steam/workshop/subscribed-items 已按 503 处理，
+        # 这里原来抛 500 会让前端把「没装 Steam」误判成服务端故障（冒烟实测）。
+        return JSONResponse(
+            content={
+                "error": "steamworks_not_initialized",
+                "message": "Steamworks 未初始化（非 Steam 环境或未登录 Steam 客户端）",
+            },
+            status_code=503,
+        )
 
 
 # 辅助函数

@@ -1,0 +1,156 @@
+rf_evolve 依赖图（工单246）
+生成日期：2026-10-16 ｜ 基线：main ea1c0258ea20（工单245 合并点）
+口径：实线 = 代码级依赖/注册关系；虚线 = 仅口径/题材对齐，不 import、不改其接口
+
+================================================================================
+1. 注册与路由链（本单**未修改**任何既有文件）
+================================================================================
+
+  mcpserver/mcp_registry.py::scan_and_register_mcp_agents("mcpserver")
+        │  glob("**/agent-manifest.json")            ← 自动发现，无需登记表
+        ▼
+  mcpserver/rf_evolve/agent-manifest.json
+        │  entryPoint = {module: "mcpserver.rf_evolve.server", class: "RfEvolveBridge"}
+        │  classification.tier = "local-write"（默认只读；仅 render_whitebox 显式给路径才写一个文件）
+        ▼
+  mcpserver/rf_evolve/server.py::RfEvolveBridge
+        │  async def handle_handoff(task) -> str          （MCP agent 契约）
+        ▼
+  mcpserver/mcp_manager.py::MCPManager.unified_call(service_name, tool_call)
+        │  ① _auth_blocked  ② _agent_governance_block（工单241，默认旁路）
+        │  ③ 熔断 allow    ④ ensure_hot 冷表转热（工单240/241 的懒注册）
+        ▼
+  RfEvolveBridge.handle_handoff → {list_spaces | describe_space | baseline | gate_probe |
+                                   evolve_run | score_params | render_whitebox |
+                                   doctor | list_tools}
+
+  ⇒ 结论：新模块**零侵入**接入（本单未改 mcp_manager.py / mcp_registry.py / 任何既有文件）。
+
+================================================================================
+2. 模块内部依赖（单向无环）
+================================================================================
+
+  mcpserver/rf_evolve/
+        __init__.py ──►（惰性）server.py
+                          │
+        ┌─────────────┬───┴────┬──────────────┬────────────┬────────────┐
+        ▼             ▼        ▼              ▼            ▼            ▼
+   editspace.py  proposers.py  constraints.py  scorer.py  evolve.py  codegen.py
+        ▲             │              │            │          │           │
+        │             └──────────────┴────────────┴──────────┘           │
+        │                       （都只用 editspace 的声明与 candidate）  │
+        └────────────────────────────────────────────────────────────────┘
+
+  依赖方向：
+    editspace ──► {proposers, constraints}
+    candidate ──► {proposers, evolve, codegen}
+    constraints / scorer ──► evolve
+    evolve ──► codegen（从 EvolveResult 渲染产物）
+    server ──► 以上全部（编排）
+
+  **谁是权威**：
+    · 编辑面（哪些参数可动）只有 `editspace.py` 说了算；
+    · 约束只有 `constraints.py` 说了算；
+    · 读数只有 `scorer.py` 说了算（它转调 rf_brain，自己不造指标）；
+    · 产物只有 `codegen.py` 产出。
+    四者互不复制 —— 没有"第二处再写一遍阈值/公式"的情况。
+
+================================================================================
+3. 与仓内既有模块的关系（**关键划界**）
+================================================================================
+
+  ┌─ 被演化的算法（本单**只读不改**） ────────────────────────────────────────┐
+  │                                                                           │
+  │  mcpserver/rf_brain/rfi_mitigation.py                                     │
+  │      detect_rfi_narrowband()   ← 检测（FFT 谱峰 + 显著度阈值）             │
+  │      notch_biquad()/notch_filter()   ← 固定陷波（2 阶 Butterworth 带阻）    │
+  │      adaptive_notch()          ← 自适应陷波（LMS，逐样本 Python 循环）      │
+  │      mitigate_rfi()            ← 端到端入口（**被演化的 4 个参数在这里**）  │
+  │      _snr_db()                 ← 评分函数（对干净参考的 S/N）              │
+  └───────────────────────────────┬───────────────────────────────────────────┘
+                                  │  scorer.py 真跑它（只读 import）
+                                  ▼
+  mcpserver/rf_evolve/     ← 本单：提供**搜索**，不提供算法
+
+  与 rf_workflow（工单242）的划界（**不重叠**）：
+    rf_workflow:  规格 ──► 生成 LoRa PHY 仿真脚本（**单次生成**）──► 跑 ──► PHY 指标
+    rf_evolve:    编辑面 + 既有算法 ──► **多候选演化搜索**（提案→门→打分→选择）──► 白盒算法
+    两者不共用代码：rf_workflow 的真值源是 lora_phy.py（PHY 量），本单的评分器是 rf_brain（S/N 量）。
+
+  与 rf_brain 其它模块的题材对齐（虚线）：
+    rf_evolve ·······················► rf_brain/rfi_statistical.py
+      约束里的「检出数上限」口径参考了它的误报率验收思路（≤5%），但**不 import 它**。
+    rf_evolve ·······················► rf_brain/filters.py（biquad 先例）
+      本单不动滤波实现；只在编辑面里声明"陷波拓扑被冻结"。
+
+================================================================================
+4. 数据流（一次 evolve_run 的完整路径）
+================================================================================
+
+  场景集（scorer.DEFAULT_SCENARIOS，固定 seed）
+        │ build() → (reference, dirty)
+        ▼
+  evolve():
+        ① proposers.RulesProposer.propose()
+              第 1 代：网格扫描（顺序按 seed 打乱）
+              第 2+ 代：以当前最优为父代做**单参数邻域扰动**
+        ▼ 候选（Candidate：params + provenance + label）
+        ② constraints.gate()
+              A 段（参数级，O(1)）    → 否决 ⇒ saved_notch_ops 记一笔
+              B 段（检测级，1 次 FFT）→ 否决 ⇒ saved_notch_ops 记一笔
+        ▼ 存活候选
+        ③ scorer.score()
+              rf_brain.mitigate_rfi(dirty, sr, reference, **params)   ← 真跑
+              读数 = snr_after − snr_before（对干净参考）
+              聚合 = (mean_db, min_db)
+        ▼
+        ④ 选择 best（主键 mean，次键 min）──► 记录进 history（含被否者）
+        ▼
+  ⑤ codegen.render_from_result() ──► 自包含白盒源码（只依赖 numpy）
+
+  ⇒ 全程默认**无写入、无子进程、无网络**；只有 render_whitebox(output_path=…) 写一个文件。
+
+================================================================================
+5. 白盒产物的运行期依赖（与 harness **解耦**）
+================================================================================
+
+  <output_path>/wb.py ──import──► numpy（仅此）
+                        │
+                        └── 不 import mcpserver.*、不依赖 harness、不需要 LLM/agent
+                            （由 tests/test_rf_evolve.py::test_whitebox_has_no_repo_imports
+                              用 AST 断言）
+
+  正确性判据（三条，全在测试里）：
+    ① 能在全新命名空间 exec；
+    ② 清洗信号与 rf_brain.mitigate_rfi **逐位相同**（np.array_equal）；
+    ③ S/N 提升与 harness 报告值差 < 1e-3 dB。
+
+================================================================================
+6. 工单声明路径的落点（偏差记录）
+================================================================================
+
+  ✅ 本单落点：mcpserver/rf_evolve/（本仓 mcpserver/ 子模块一律下划线命名）
+  ⚠️ 工单 §4 的耦合点原文列 `mcpserver/ / coupled/ / core/`，其中 `core/` **全树 0 命中**
+     （242/243/244 已连续证过）；该行由工单240 的生成器模板产出，已于**工单244j 修正**。
+  ⚠️ 工单 §2 的主题线写 `sdr`, `agent`, `esp32` —— 本单落点只覆盖 **sdr** 侧
+     （算法演化本身是纯数值实验，不涉硬件；`agent` 体现在 MCP agent 契约，
+     `esp32` 只体现在场景参数取自嵌入式 SDR 前端的量级：1 MHz 采样 / 100 kHz 信号带）。
+  📌 范式来源是**论文**（arXiv:2608.18272v1）不是仓库 ⇒ 本模块 origin.kind = `native`
+     （自研实现），**不是** `bridge`（与 kicad_mcp 那种"接上游仓库"不同）。
+
+================================================================================
+7. 产物依赖（入库什么 / 不入库什么）
+================================================================================
+
+  入库：
+    mcpserver/rf_evolve/*.py              实现（editspace / constraints / candidate /
+                                          proposers / scorer / evolve / codegen / server）
+    mcpserver/rf_evolve/agent-manifest.json
+    mcpserver/rf_evolve/README.md         四条机制对应表 + 三处划界 + 边界
+    mcpserver/rf_evolve/requirements.txt  numpy（仓内既有依赖）+ 为什么不引入别的
+    mcpserver/rf_evolve/sandbox/          **真实 CLI 输出**（基线 / 门探针 / 演化 / 白盒产物）
+    tests/test_rf_evolve.py               54 用例（七层）
+
+  不入库：
+    演化过程的中间产物（history 里的候选矩阵）—— 只在 sandbox 存一份代表性运行的 JSON；
+    不存任何"训练好的权重"（本模块不产生模型，只产生**参数 + 源码**）。

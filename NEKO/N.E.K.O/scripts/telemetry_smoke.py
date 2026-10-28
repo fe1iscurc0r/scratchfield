@@ -33,6 +33,7 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -48,7 +49,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # helpers
 # ---------------------------------------------------------------------------
 
-HMAC_SECRET = "neko-v1-a3f8b2c1d4e5f6789012345678abcdef"
+# 密钥只从环境取；未配置时现场生成一个临时值。
+# 选「现场生成」而不是「跳过用例」：smoke 自己拉起 server（见下方
+# env["TELEMETRY_HMAC_SECRET"]）并猴补丁自己的客户端，全程自签自验、不接触
+# 部署中的服务端，所以临时值既足够，又不需要在仓库里留下任何可用密钥 ——
+# 换回 100% 覆盖（跳过会让验签路径悄悄失去测试）。
+HMAC_SECRET = os.environ.get("TELEMETRY_HMAC_SECRET", "").strip() or secrets.token_hex(32)
+_HMAC_SOURCE = "environment" if os.environ.get("TELEMETRY_HMAC_SECRET", "").strip() else "ephemeral"
 PORT = 18099  # 临时端口，避开生产 8099
 SERVER_URL = f"http://127.0.0.1:{PORT}"
 
@@ -114,6 +121,7 @@ def main():
     db_path = os.path.join(tmpdir, "telemetry.db")
     print(f"Temp dir: {tmpdir}")
     print(f"DB: {db_path}")
+    print(f"HMAC secret source: {_HMAC_SOURCE} (value never printed)")
 
     env = dict(os.environ)
     env["TELEMETRY_HMAC_SECRET"] = HMAC_SECRET

@@ -4,13 +4,10 @@
 
 <script setup lang="ts">
 import type { FloatingState } from '@/electron.d'
-import { useEventListener, useWindowSize } from '@vueuse/core'
 import Toast from 'primevue/toast'
 import { useToast } from 'primevue/usetoast'
-import { computed, defineAsyncComponent, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ACCESS_TOKEN, authExpired, setAuthExpiredSuppressed } from '@/api'
-import API from '@/api/core'
 import AppSidebar from '@/components/AppSidebar.vue'
 import BackendDebugDialog from '@/components/BackendDebugDialog.vue'
 import BackendErrorDialog from '@/components/BackendErrorDialog.vue'
@@ -20,186 +17,130 @@ import SplashScreen from '@/components/SplashScreen.vue'
 import TitleBar from '@/components/TitleBar.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 import WindowResizeHandles from '@/components/WindowResizeHandles.vue'
+import { useAppSplash } from '@/composables/useAppSplash'
 import { playBgm, playClickEffect, stopBgm } from '@/composables/useAudio'
-import { cloudUser, isLoggedIn, sessionRestored, useAuth } from '@/composables/useAuth'
+import { isLoggedIn } from '@/composables/useAuth'
+import { useAuthDialogs } from '@/composables/useAuthDialogs'
+import { useBackendOverlay } from '@/composables/useBackendOverlay'
 import { useBackground } from '@/composables/useBackground'
-import { useElectron } from '@/composables/useElectron'
 import { useGlobalHotkeys } from '@/composables/useGlobalHotkeys'
+import { useLive2dSource } from '@/composables/useLive2dSource'
+import { useLive2dStage } from '@/composables/useLive2dStage'
 import { useParallax } from '@/composables/useParallax'
 import { connectRealtimeUi, disconnectRealtimeUi } from '@/composables/useRealtimeUi'
 import { useStartupProgress } from '@/composables/useStartupProgress'
 import { startToolPolling, stopToolPolling } from '@/composables/useToolStatus'
 import { checkForUpdate, showUpdateDialog, updateInfo } from '@/composables/useVersionCheck'
+import { isMac, useWindowChrome } from '@/composables/useWindowChrome'
 import { backendConnected, CONFIG } from '@/utils/config'
-import { clearExpression, setExpression } from '@/utils/live2dController'
-import { ensureLive2dCoreLoaded } from '@/utils/live2dCoreLoader'
+import { clearExpression } from '@/utils/live2dController'
 import { destroyParallax, initParallax } from '@/utils/parallax'
-import { activeTabId, agentContacts, proactiveNotifier, tabs } from '@/utils/session'
-import { messageViewExpanded } from '@/utils/uiState'
+import { proactiveNotifier } from '@/utils/session'
 import FloatingView from '@/views/FloatingView.vue'
 
-// Live2D 链（pixi.js + pixi-live2d-display，数百 KB）改异步组件，
-// 首屏入口 chunk 不再打包 WebGL 栈，按需加载。
-// 顺序硬约束：pixi-live2d-display 在**模块顶层**就有
-// `if (!window.Live2DCubismCore) throw new Error('Could not find Cubism 4 runtime...')`，
-// 所以核心库必须在 import 之前注入，否则整个 vendor-pixi chunk 一被 import 就抛错，
-// 异步组件永远挂载不上 —— 表现就是 Live2D 主体消失（只剩背景光斑）。
-const Live2dModel = defineAsyncComponent(async () => {
-  await ensureLive2dCoreLoaded()
-  return import('@/components/Live2dModel.vue')
-})
-
-let _splashDismissed = false
-
-const isElectron = !!window.electronAPI
-const { isMaximized } = useElectron()
-const isMac = window.electronAPI?.platform === 'darwin'
-const LIVE2D_SOURCE_CACHE_KEY = 'lumo-startup-live2d-source'
-const DEFAULT_STARTUP_LIVE2D_SOURCE = isElectron
-  ? 'lumo-char://娜杰日达/NagaTest2/NagaTest2.model3.json'
-  : './models/naga-test/naga-test.model3.json'
-
-function normalizeRuntimeLive2dSource(source?: string | null): string {
-  // 兼容旧版本缓存的 naga-char:// 协议名（已更名为 lumo-char://）
-  const trimmed = (source?.trim() ?? '').replace(/^naga-char:\/\//, 'lumo-char://')
-  if (!trimmed) {
-    return ''
-  }
-  if (trimmed.startsWith('lumo-char://')) {
-    if (isElectron) {
-      // Electron：由主进程自定义协议直接读本地 characters 目录
-      return trimmed
-    }
-    // 浏览器（非 Electron）：无自定义协议可解析，lumo-char:// 原样传给
-    // pixi 会加载失败（Live2D 消失的根因）。转换为后端静态挂载
-    // /characters/<角色>/<路径>（api_server.py 已挂载该目录，实测 200）。
-    const rest = trimmed.slice('lumo-char://'.length)
-    if (!rest) {
-      return ''
-    }
-    const backendOrigin = import.meta.env.DEV ? 'http://localhost:8000' : window.location.origin
-    return `${backendOrigin}/characters/${encodeURI(rest)}`
-  }
-  try {
-    const url = new URL(trimmed)
-    const isLocalCharactersUrl = (url.protocol === 'http:' || url.protocol === 'https:')
-      && ['localhost', '127.0.0.1'].includes(url.hostname)
-      && url.pathname.startsWith('/characters/')
-    if (!isLocalCharactersUrl) {
-      return trimmed
-    }
-    // 仅 Electron 才做 http→lumo-char 归一（主进程协议读本地目录）；
-    // 浏览器下必须保留 http URL 直接走后端静态挂载，否则无法加载。
-    if (!isElectron) {
-      return trimmed
-    }
-    const match = url.pathname.match(/^\/characters\/([^/]+)\/(.+)$/)
-    if (!match) {
-      return trimmed
-    }
-    const characterName = decodeURIComponent(match[1] ?? '')
-    const modelPath = decodeURIComponent(match[2] ?? '')
-    if (!characterName || !modelPath) {
-      return trimmed
-    }
-    return `lumo-char://${characterName}/${modelPath}`
-  }
-  catch {
-    return trimmed
-  }
-}
-
-function readCachedStartupLive2dSource(): string {
-  try {
-    return normalizeRuntimeLive2dSource(localStorage.getItem(LIVE2D_SOURCE_CACHE_KEY)) || DEFAULT_STARTUP_LIVE2D_SOURCE
-  }
-  catch {
-    return DEFAULT_STARTUP_LIVE2D_SOURCE
-  }
-}
-
-function persistStartupLive2dSource(source?: string | null) {
-  const normalized = normalizeRuntimeLive2dSource(source) || DEFAULT_STARTUP_LIVE2D_SOURCE
-  startupLive2dSource.value = normalized
-  try {
-    localStorage.setItem(LIVE2D_SOURCE_CACHE_KEY, normalized)
-  }
-  catch {
-    // ignore storage errors
-  }
-}
-
-const showResizeHandles = computed(() => isElectron && !isFloatingMode.value && !isMaximized.value)
-// macOS hiddenInset title bar is 28px, Windows/Linux custom title bar is 32px
-const titleBarPadding = isElectron ? (isMac ? '28px' : '32px') : '0px'
+// 窗口 chrome 族已抽至 @/composables/useWindowChrome（工单204 任务三步骤①）：
+// isElectron / isMac 为模块常量（上方 import），isMaximized / showResizeHandles / titleBarPadding
+// 依赖 isFloatingMode（floating 族，L189 定义）→ 在其后调用。
+// Live2D 启动源链已抽至 @/composables/useLive2dSource（工单204 任务三步骤③）：
+// 缓存键 / 默认源 / 源归一 / 启动缓存读写 / 角色模板源解析 共 12 符号，零参数。
+const { persistStartupLive2dSource, activeLive2dSource, effectiveLive2dSource } = useLive2dSource()
 
 const toast = useToast()
 
 const currentRoute = useRoute()
-const isForumRoute = computed(() => currentRoute.path.startsWith('/forum'))
-// KnowledgeView 也使用紧凑布局（无大 padding），因为内部已有自己的分栏布局
-const isCompactRoute = computed(() => isForumRoute.value || currentRoute.path.startsWith('/knowledge'))
+// KnowledgeView 使用紧凑布局（无大 padding），因为内部已有自己的分栏布局。
+// 原先这里还有一项 isForumRoute（currentRoute.path.startsWith('/forum')）——
+// 随论坛下线，main.ts 里 /forum 与 /forum/:pathMatch(.*)* 都成了 redirect:'/'，
+// vue-router 在解析期就把目标改写成 '/'，该 computed **恒为 false**（连带模板上的
+// v-show 恒真）。按「不留恒假守卫」清掉；若论坛复活需连同本文件一起恢复，
+// tests/navTargetIntegrity.test.ts 有一条测试会在复活时失败并提醒。
+const isCompactRoute = computed(() => currentRoute.path.startsWith('/knowledge'))
 
 // ── 自定义背景 ──
 const { activeBackground, getActiveBackgroundUrl } = useBackground()
 const hasCustomBg = computed(() => !!activeBackground.value)
 const customBgUrl = computed(() => getActiveBackgroundUrl())
 
-const { width, height } = useWindowSize()
-const scale = computed(() => height.value / (10000 - CONFIG.value.web_live2d.model.size))
-const characterModelMap = ref<Record<string, string>>({})
-const live2dRenderKey = ref(0)
-const startupLive2dSource = ref(readCachedStartupLive2dSource())
-const activeLive2dSource = ref(startupLive2dSource.value)
-const activeAgentCharacterTemplate = computed(() => {
-  const tab = tabs.value.find(item => item.id === activeTabId.value)
-  if (!tab || tab.type !== 'agent' || !tab.instanceId)
-    return ''
-  return agentContacts.value.find(item => item.id === tab.instanceId)?.characterTemplate || tab.characterTemplate || ''
-})
-const resolvedLive2dSource = computed(() => {
-  const template = activeAgentCharacterTemplate.value
-  if (template && characterModelMap.value[template]) {
-    return normalizeRuntimeLive2dSource(characterModelMap.value[template])
-  }
-  return normalizeRuntimeLive2dSource(CONFIG.value.web_live2d.model.source)
-})
-const effectiveLive2dSource = computed(() => {
-  if (backendConnected.value) {
-    return resolvedLive2dSource.value || startupLive2dSource.value || DEFAULT_STARTUP_LIVE2D_SOURCE
-  }
-  return startupLive2dSource.value || DEFAULT_STARTUP_LIVE2D_SOURCE
-})
-
-async function loadCharacterModelMap() {
-  try {
-    const res = await API.listCharacterTemplates()
-    characterModelMap.value = Object.fromEntries(
-      (res.characters || [])
-        .filter(item => item.name && item.live2dModelUrl)
-        .map(item => [item.name, normalizeRuntimeLive2dSource(item.live2dModelUrl!)]),
-    )
-  }
-  catch {
-    characterModelMap.value = {}
-  }
-}
-
 // ─── 悬浮球模式状态 ──────────────────────────
 const floatingState = ref<FloatingState>('classic')
 const isFloatingMode = computed(() => floatingState.value !== 'classic')
+
+// 窗口 chrome（步骤①）：浮动模式态由 floating 族持有，作参数注入
+const { showResizeHandles, titleBarPadding } = useWindowChrome(isFloatingMode)
 
 let unsubStateChange: (() => void) | undefined
 
 // ─── 伪3D 视差 ────────────────────────────
 const { tx: lightTx, ty: lightTy } = useParallax({ translateX: 40, translateY: 30, invert: true })
 
+// 登录弹窗 / CAS 会话失效弹窗族已抽至 @/composables/useAuthDialogs（工单204 任务三步骤④）：
+// 7 符号 = showLoginDialog / authExpiredVisible / openLoginDialog / onAuthExpiredRelogin /
+//          onAuthExpiredDismiss / onLoginSuccess / onLoginSkip。
+// 此处解构 6 个（openLoginDialog 由该 composable provide 给子组件，App.vue 自身不引用）。
+// enterMainContent 是函数声明（提升），故可在此提前传引用；它必须留在 App.vue（18 依赖的编排汇聚点）。
+// ⚠️ 顺序不变量（③ ≺ ⑥、④ ≺ ⑤ ≺ ⑥）：④ 必须先于 ⑤（⑤ 的 onSplashDismiss 需要 showLoginDialog）；
+//    ⑤ 必须先于 ⑥（⑥ 内部的 onModelReady 读取 splashVisible）；③ 必须先于 ⑥（⑥ 消费源链返回值）。
+//    步骤⑤ 曾把该调用点从原 L160 前移至此；步骤⑥ 又新增了「⑤ ≺ ⑥」这一约束。
+const {
+  showLoginDialog,
+  authExpiredVisible,
+  onAuthExpiredRelogin,
+  onAuthExpiredDismiss,
+  onLoginSuccess,
+  onLoginSkip,
+} = useAuthDialogs({ toast, enterMainContent })
+
 // ─── 启动界面状态 ───────────────────────────
 const { progress, phase, isReady: _isReady, stallHint, startProgress, notifyModelReady, cleanup } = useStartupProgress()
-const splashVisible = ref(!_splashDismissed)
-const showMainContent = ref(_splashDismissed)
-const modelReady = ref(false)
-const titlePhaseDone = ref(false)
+// 启动闪屏族已抽至 @/composables/useAppSplash（工单204 任务三步骤⑤）：
+// 拥有 5 导出符号 = splashVisible / showMainContent / titlePhaseDone / onSplashDismiss / onTitleDone
+//              + 内部 _splashDismissed（原 let，只参与 ref 初始值与 onSplashDismiss 置位，不导出）。
+// 此处解构 4 个；titlePhaseDone（原代码里只写不读）未解构，留在 composable 内保持原语义。
+const { splashVisible, showMainContent, onSplashDismiss, onTitleDone } = useAppSplash({ showLoginDialog, enterMainContent })
+
+// Live2D 渲染舞台族已抽至 @/composables/useLive2dStage（工单204 任务三步骤⑥，本任务最后一项）：
+// 拥有 20 符号 = Live2dModel（异步组件；含 Cubism 核心须在 import 前注入的加载顺序硬约束）/
+//   width / height / scale（useWindowSize）/ live2dRenderKey / modelReady /
+//   live2dTransform / live2dTransformOrigin / live2dTransition / initialPositionSet /
+//   onModelReady / live2dShouldShow / isChatPeekMode / PEEK_EXPRESSION / applyPeekExpression /
+//   live2dPeekShellStyle / live2dModelX / live2dModelY / live2dCombinedTransform /
+//   live2dCombinedTransition / live2dPeekShellTransition，外加随族迁入的两个 watch。
+// 此处解构 18 个（isChatPeekMode / PEEK_EXPRESSION / applyPeekExpression 为族内私有，App.vue 零引用）。
+// ⚠️ 顺序不变量（③ ≺ ⑥、④ ≺ ⑤ ≺ ⑥）：⑥ 读取 ⑤ 的 splashVisible / showMainContent，
+//    故必须晚于 ⑤ 调用；⑥ 内部的 onModelReady 亦读取 splashVisible，这取代了步骤⑤ 原先
+//    「splashVisible 必须早于 onModelReady 声明」的表述。⑤ ≺ ⑥ 同时保证 isChatPeekMode 的
+//    immediate watch 在依赖就绪后才注册（启动时命中守卫直接 return，与原行为一致）。
+// 写穿透（与 ⑤ 同型）：下方 enterMainContent（函数声明，提升）会写本族的 live2dTransition /
+//    live2dTransform / live2dTransformOrigin / initialPositionSet。
+const {
+  Live2dModel,
+  width,
+  height,
+  scale,
+  live2dRenderKey,
+  modelReady,
+  live2dTransform,
+  live2dTransformOrigin,
+  live2dTransition,
+  initialPositionSet,
+  onModelReady,
+  live2dShouldShow,
+  live2dPeekShellStyle,
+  live2dModelX,
+  live2dModelY,
+  live2dCombinedTransform,
+  live2dCombinedTransition,
+  live2dPeekShellTransition,
+} = useLive2dStage({
+  splashVisible,
+  showMainContent,
+  currentRoute,
+  isFloatingMode,
+  effectiveLive2dSource,
+  activeLive2dSource,
+  persistStartupLive2dSource,
+  notifyModelReady,
+})
 
 // 悬浮球模式下停止 BGM，退出悬浮球时恢复
 watch(isFloatingMode, (floating) => {
@@ -225,153 +166,6 @@ watch(floatingState, async (mode) => {
   }
 })
 
-// Live2D 居中/过渡控制
-const live2dTransform = ref('')
-const live2dTransformOrigin = ref('')
-const live2dTransition = ref(false)
-const backendDebugVisible = ref(false)
-
-// 记录首次 model-ready 是否已处理（避免 watch 重复触发时反复设置 transform）
-let initialPositionSet = false
-
-function onModelReady(pos: { faceX: number, faceY: number }) {
-  if (!modelReady.value) {
-    modelReady.value = true
-    notifyModelReady()
-  }
-
-  persistStartupLive2dSource(activeLive2dSource.value)
-
-  // splash 阶段：将 Live2D 面部居中到矩形框中央
-  if (splashVisible.value && !initialPositionSet) {
-    initialPositionSet = true
-    // frame-mask 中心: left 50%, top 38% (见 SplashScreen.vue --frame-y)
-    const cx = window.innerWidth * 0.5
-    const cy = window.innerHeight * 0.38
-    // 以面部为缩放原点，保证 scale 后面部仍居中
-    live2dTransformOrigin.value = `${pos.faceX}px ${pos.faceY}px`
-    live2dTransform.value = `translate(${cx - pos.faceX}px, ${cy - pos.faceY}px) scale(2.2)`
-    // 开屏闭眼 + 身体静止
-    setExpression({ ParamEyeLOpen: 0, ParamEyeROpen: 0, ParamBodyAngleX: 0, ParamAngleZ: 0 })
-  }
-
-  if (isChatPeekMode.value) {
-    applyPeekExpression()
-  }
-}
-
-// 模型加载完成后即显示（不等标题动画）
-const live2dShouldShow = computed(() => {
-  return modelReady.value
-})
-
-function onTitleDone() {
-  titlePhaseDone.value = true
-}
-
-// ─── 登录弹窗状态 ───────────────────────────
-const showLoginDialog = ref(false)
-
-// ─── 后端错误弹窗状态 ──────────────────────────
-const backendErrorVisible = ref(false)
-const backendErrorLogs = ref('')
-
-const isChatPeekMode = computed(() => {
-  return showMainContent.value
-    && !splashVisible.value
-    && currentRoute.path.startsWith('/chat')
-    && messageViewExpanded.value
-    && !isFloatingMode.value
-})
-
-const PEEK_EXPRESSION = {
-  ParamBodyAngleX: -18,
-  ParamAngleZ: -14,
-  ParamAngleX: 8,
-  ParamEyeLOpen: 0,
-  ParamEyeROpen: 1,
-} as const
-
-function applyPeekExpression() {
-  setExpression({ ...PEEK_EXPRESSION })
-}
-
-const live2dPeekShellStyle = computed(() => {
-  if (!isChatPeekMode.value) {
-    return {
-      transform: undefined,
-      transformOrigin: undefined,
-    }
-  }
-  return {
-    transform: 'translate3d(-234px, -1.6vh, 0) rotate(-4deg) scale(1.05)',
-    transformOrigin: '24% 72%',
-  }
-})
-
-const live2dModelX = computed(() => {
-  if (!isChatPeekMode.value) {
-    return CONFIG.value.web_live2d.model.x
-  }
-  return Math.min(CONFIG.value.web_live2d.model.x, -0.17)
-})
-
-const live2dModelY = computed(() => {
-  if (!isChatPeekMode.value) {
-    return CONFIG.value.web_live2d.model.y
-  }
-  return CONFIG.value.web_live2d.model.y - 0.15
-})
-
-const live2dCombinedTransform = computed(() => {
-  return live2dTransform.value
-})
-
-const live2dCombinedTransition = computed(() => {
-  if (live2dTransition.value) {
-    return 'transform 1.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.8s ease'
-  }
-  return 'opacity 0.35s ease'
-})
-
-const live2dPeekShellTransition = computed(() => {
-  if (isChatPeekMode.value) {
-    return 'transform 2.3s cubic-bezier(0.16, 0.84, 0.24, 1) 0.36s'
-  }
-  return 'transform 0.52s cubic-bezier(0.4, 0, 0.2, 1)'
-})
-
-// ─── CAS 会话失效弹窗 ──────────────────────────
-const authExpiredVisible = ref(false)
-const { logout: doLogout, skipLogin } = useAuth()
-
-watch(authExpired, (expired) => {
-  if (expired && !authExpiredVisible.value) {
-    authExpiredVisible.value = true
-  }
-})
-
-function onAuthExpiredRelogin() {
-  authExpiredVisible.value = false
-  authExpired.value = false
-  // 抑制在途请求的 401 再次触发弹窗，直到登录成功
-  setAuthExpiredSuppressed(true)
-  ACCESS_TOKEN.value = ''
-  doLogout()
-  showLoginDialog.value = true
-}
-
-function onAuthExpiredDismiss() {
-  authExpiredVisible.value = false
-  authExpired.value = false
-}
-
-function openLoginDialog() {
-  showLoginDialog.value = true
-}
-
-// 提供给子组件使用
-provide('openLoginDialog', openLoginDialog)
 proactiveNotifier.value = (source, content) => {
   toast.add({
     severity: 'info',
@@ -379,32 +173,6 @@ proactiveNotifier.value = (source, content) => {
     detail: content,
     life: 5000,
   })
-}
-
-function onSplashDismiss() {
-  _splashDismissed = true
-  // 开机语音已在 SplashScreen 标题出现时播放，此处不再播放
-  // 已登录 → 直接进入主界面；未登录 → 显示登录弹窗
-  if (isLoggedIn.value) {
-    enterMainContent()
-  }
-  else {
-    showLoginDialog.value = true
-  }
-}
-
-function onLoginSuccess() {
-  showLoginDialog.value = false
-  setAuthExpiredSuppressed(false)
-  toast.add({ severity: 'success', summary: '欢迎回来', detail: cloudUser.value?.username, life: 3000 })
-  enterMainContent()
-}
-
-function onLoginSkip() {
-  skipLogin()
-  showLoginDialog.value = false
-  setAuthExpiredSuppressed(false)
-  enterMainContent()
 }
 
 function enterMainContent() {
@@ -426,61 +194,12 @@ function enterMainContent() {
 
   setTimeout(() => {
     live2dTransition.value = false
-    initialPositionSet = false
+    initialPositionSet.value = false
   }, 1500)
 }
 
-// ─── 会话自动恢复提示 ─────────────────────────
-watch(sessionRestored, (restored) => {
-  if (restored) {
-    toast.add({ severity: 'info', summary: '已恢复登录状态', detail: cloudUser.value?.username, life: 3000 })
-    // 如果登录弹窗已显示（splash 结束时 fetchMe 尚未完成），自动关闭并进入主界面
-    if (showLoginDialog.value) {
-      showLoginDialog.value = false
-      setAuthExpiredSuppressed(false)
-      enterMainContent()
-    }
-  }
-})
-
-watch(effectiveLive2dSource, (source) => {
-  activeLive2dSource.value = source || DEFAULT_STARTUP_LIVE2D_SOURCE
-}, { immediate: true })
-
-// 仅在 effectiveLive2dSource 真正变化时才重新挂载 Live2dModel（销毁旧 PIXI.Application + 创建新 WebGL context）。
-// 不再把 backendConnected / activeTabId / activeAgentCharacterTemplate 放进 watch：
-//   - backendConnected 在后端断连重连时会 true/false 来回切换，会导致 Live2D 频繁重挂载，反复创建 WebGL context，
-//     旧 context 来不及释放时会耗尽浏览器 WebGL context 配额（通常 16 个），表现为"Live2D 加载不出来"。
-//   - activeTabId / activeAgentCharacterTemplate 的变化已经会通过 effectiveLive2dSource 这个 computed 反映出来，
-//     这里再列一次属于重复触发。
-watch(effectiveLive2dSource, () => {
-  live2dRenderKey.value += 1
-})
-
-watch(backendConnected, (connected) => {
-  if (connected) {
-    void loadCharacterModelMap()
-  }
-}, { immediate: true })
-
-watch(isChatPeekMode, (peeking) => {
-  if (!showMainContent.value || splashVisible.value) {
-    return
-  }
-  if (peeking) {
-    applyPeekExpression()
-    return
-  }
-  clearExpression()
-}, { immediate: true })
-
-useEventListener(window, 'keydown', (event) => {
-  if (!event.ctrlKey || !event.shiftKey || event.key.toLowerCase() !== 'u') {
-    return
-  }
-  event.preventDefault()
-  backendDebugVisible.value = !backendDebugVisible.value
-})
+// 后端日志浮层（步骤②）：状态 + Ctrl+Shift+U 监听 + onError 订阅，见 composables/useBackendOverlay
+const { backendDebugVisible, backendErrorVisible, backendErrorLogs } = useBackendOverlay()
 
 // ─── 卷150：全局快捷键层 + 命令面板 + 侧边栏（配置表驱动，见 composables/useGlobalHotkeys） ───
 const router = useRouter()
@@ -599,14 +318,6 @@ onMounted(() => {
       console.warn('[VersionCheck] Startup check failed:', error)
     })
   })
-
-  // 监听后端启动失败
-  if (api?.backend) {
-    api.backend.onError((payload) => {
-      backendErrorLogs.value = payload.logs
-      backendErrorVisible.value = true
-    })
-  }
 })
 
 onUnmounted(() => {
@@ -644,12 +355,11 @@ onUnmounted(() => {
         class="custom-bg-layer"
         :style="{ backgroundImage: `url(${customBgUrl})` }"
       />
-      <!-- Live2D 层：启动时 z-10（在 SplashScreen 遮罩之间），之后降到 z:0（body 背景之上、主内容之下）；论坛页隐藏 -->
+      <!-- Live2D 层：启动时 z-10（在 SplashScreen 遮罩之间），之后降到 z:0（body 背景之上、主内容之下） -->
       <!-- 不能用负 z-index：body/#app 有实色背景（--lumo-bg），负 z-index 元素会沉到根背景之下被完全遮挡 -->
       <!-- 必须 pointer-events-none：本层 absolute + size-full，而 .grid-container 是 static，命中测试顺序上
            画布压在所有视图内容之上，会吞掉按钮点击（如 ELN 顶栏「返回」）；模型追踪走 window 级监听，穿透不影响 -->
       <div
-        v-show="!isForumRoute"
         class="absolute top-0 left-0 size-full pointer-events-none"
         :class="splashVisible ? 'z-10' : ''"
         :style="{

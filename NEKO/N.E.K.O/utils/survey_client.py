@@ -33,6 +33,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 import urllib.request
 
@@ -46,9 +47,20 @@ if _SURVEY_SERVER_URL and not _SURVEY_SERVER_URL.startswith(("http://", "https:/
     logger.warning("Survey client: invalid server URL scheme, disabling remote reporting")
     _SURVEY_SERVER_URL = ""
 
-# ★ 发版前修改：HMAC 签名密钥（与 survey_server/security.py 的 DEFAULT_HMAC_SECRET 一致）。
+# ★ 密钥只从环境读取，源码里没有默认值（与 survey_server/security.py 读同一份）。
 # 与 telemetry 的密钥**故意不同**：两条上报通道互不背书。
-_SURVEY_HMAC_SECRET = "neko-survey-v1-7d2e9c4b8a1f60533e7a2b9c8d4f1e06"  # noqa: S105
+# 未配置时：整条上报通道关闭（与 URL 为空、DO_NOT_TRACK 同一条禁用路径），
+# 不会用一份源码里的明文去签一个服务端认不出的签名。
+_SURVEY_HMAC_SECRET = (
+    os.getenv("SURVEY_HMAC_SECRET", "").strip()
+    or os.getenv("NEKO_SURVEY_HMAC_SECRET", "").strip()
+)
+
+if _SURVEY_SERVER_URL and not _SURVEY_HMAC_SECRET:
+    logger.warning(
+        "Survey client: SURVEY_HMAC_SECRET is not configured, disabling remote reporting"
+    )
+    _SURVEY_SERVER_URL = ""
 
 _SURVEY_TIMEOUT = 10  # 秒
 _SURVEY_GZIP_THRESHOLD = 1024  # >= 1KB 才 gzip（小 payload 不划算）

@@ -1,0 +1,26 @@
+{
+  "demo": "受控篡改第一条的 launch_hash",
+  "tampered_key": "mcp_agent:mcpserver/academic/agent-manifest.json",
+  "diff": {
+    "added": [],
+    "removed": [],
+    "changed": [
+      {
+        "name": "mcp_agent:mcpserver/academic/agent-manifest.json",
+        "fields": [
+          "launch_hash"
+        ],
+        "launch_vector_changed": true,
+        "old": {
+          "launch_hash": "f2b46457960441b8"
+        },
+        "new": {
+          "launch_hash": "TAMPERED"
+        }
+      }
+    ],
+    "launch_vector_changes": [
+      "mcp_agent:mcpserver/academic/agent-manifest.json"
+    ]
+  }
+}

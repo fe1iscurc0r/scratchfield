@@ -29,9 +29,9 @@ import httpx
 from cryptography.fernet import Fernet
 from starlette.requests import Request
 
+from apiserver.config import settings
 from system.config import get_config as _get_config
 from system.config import get_data_dir
-from apiserver.config import settings
 
 logger = logging.getLogger(__name__)
 

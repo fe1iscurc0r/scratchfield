@@ -127,6 +127,9 @@ def test_cat_mind_runtime_keeps_dom_free_observation_and_request_boundaries():
         "getReturnSummaryDraft",
         "consumeReturnSummaryDraft",
         "getDebugSnapshot",
+        "getDebugTimeline",
+        "exportDebugTimeline",
+        "clearDebugTimeline",
         "recordDecision",
         "acknowledgeActionRequest",
         "observe",
@@ -1111,7 +1114,21 @@ def test_cat_mind_phase2_social_ping_runner_ignores_stale_audio_callbacks():
         `, context);
         const walkingPlayDecision = win.NekoCatMindActionProviders.dryRun('cat1_play_yarn', { button });
         assert.equal(walkingPlayDecision.allowed, false);
-        assert.equal(walkingPlayDecision.reason, 'near_chat_unavailable');
+        assert.equal(walkingPlayDecision.reason, 'cat1_position_presentation_busy');
+        // A cat settled on the compact top edge is parked, not moving: Cat Mind
+        // may still ping there, while desktop-window interactions keep treating
+        // the perch as occupied.
+        vm.runInContext(`
+          document.querySelector('#live2d-btn-return').__nekoIdleReturnSubactionState = {
+            targetKind: _NEKO_IDLE_CAT1_TARGET_KIND_COMPACT_TOP_EDGE,
+            substate: _NEKO_IDLE_RETURN_SUBACTION_CAT1_CHAT_FOLLOW.idleSubstate,
+            actionSettled: true,
+            profile: _NEKO_IDLE_RETURN_SUBACTION_CAT1_CHAT_FOLLOW
+          };
+        `, context);
+        assert.equal(win.NekoCatMindActionProviders.getRuntimeGateSnapshot().cat1PositionPresentationBusy, false);
+        assert.equal(win.NekoCatMindActionProviders.dryRun('cat1_social_ping', { button }).allowed, true);
+        assert.equal(vm.runInContext(`_isNekoIdleCat1PositionPresentationBusy(document.querySelector('#live2d-btn-return'))`, context), true);
         vm.runInContext(`document.querySelector('#live2d-btn-return').__nekoIdleReturnSubactionState = null;`, context);
 
         vm.runInContext(`
@@ -1199,6 +1216,9 @@ def test_cat_mind_phase1_runtime_observes_without_dispatching_actions():
         assert.ok(win.nekoCatMind);
         assert.equal(typeof win.nekoCatMind.getState, 'function');
         assert.equal(typeof win.nekoCatMind.getRecentEvents, 'function');
+        assert.equal(typeof win.nekoCatMind.getDebugTimeline, 'function');
+        assert.equal(typeof win.nekoCatMind.exportDebugTimeline, 'function');
+        assert.equal(typeof win.nekoCatMind.clearDebugTimeline, 'function');
         assert.equal(typeof win.nekoCatMind.observe, 'function');
         assert.equal(typeof win.nekoCatMind.reset, 'function');
 
@@ -1247,6 +1267,15 @@ def test_cat_mind_phase1_runtime_observes_without_dispatching_actions():
         }}));
         win.dispatchEvent(new CustomEventLike('neko:cat-mind:observation', {{
           detail: {{
+            type: 'cat_local_text_received',
+            source: 'cat-local-chat',
+            tier: 'cat2',
+            timestamp: 2450,
+            detail: {{ requestId: 'local-text-debug-1', text: 'private-conversation-text' }}
+          }}
+        }}));
+        win.dispatchEvent(new CustomEventLike('neko:cat-mind:observation', {{
+          detail: {{
             type: 'cat1_walk_done_near_chat',
             source: 'cat1-journey',
             tier: 'cat1',
@@ -1281,6 +1310,20 @@ def test_cat_mind_phase1_runtime_observes_without_dispatching_actions():
         assert.equal(debugSnapshot.lastDecision.candidates[1].reason, 'near_chat_unavailable');
         assert.ok(stateChanges.some((change) => change.reason === 'observation'));
         assert.ok(stateChanges.some((change) => change.reason === 'decision'));
+        const debugTimeline = win.nekoCatMind.getDebugTimeline();
+        assert.ok(debugTimeline.some((entry) =>
+          entry.reason === 'observation' && entry.observation && entry.observation.type === 'drag_end'
+        ));
+        assert.ok(debugTimeline.some((entry) =>
+          entry.reason === 'decision' && entry.decision && entry.decision.outcome === 'cat1_eat_snack'
+        ));
+        const exportedTimeline = win.nekoCatMind.exportDebugTimeline();
+        assert.equal(exportedTimeline.includes('private-conversation-text'), false);
+        const parsedTimeline = JSON.parse(exportedTimeline);
+        assert.equal(parsedTimeline.schemaVersion, 1);
+        assert.equal(parsedTimeline.entryCount, debugTimeline.length);
+        win.nekoCatMind.clearDebugTimeline();
+        assert.equal(win.nekoCatMind.getDebugTimeline().length, 0);
 
         win.dispatchEvent(new CustomEventLike('neko:cat-local-active-change', {{
           detail: {{ active: false, returnCommitted: true, returnSource: 'live2d-return-click' }}
@@ -1561,7 +1604,7 @@ def test_cat_mind_selector_defers_provider_checks_and_requests_only_after_gates(
           activeHardGate = gate;
           win.dispatchEvent(new CustomEventLike('neko:cat-mind:observation', {{
             detail: {{ type: gate === 'edgePeekActive' ? 'edge_peek_after_drag' : 'cat_hover_reaction',
-              source: 'unit-test', tier: 'cat1', timestamp: ++now, detail: {{ reason: gate }} }}
+              source: 'unit-test', tier: 'cat1', timestamp: now += 1500, detail: {{ reason: gate }} }}
           }}));
           assert.equal(timers.length, 1);
           timers.shift()();
@@ -1647,6 +1690,21 @@ def test_cat_mind_phase1_treats_unchanged_desktop_polls_as_heartbeats():
         const expanded = (timestamp) => win.dispatchEvent(new CustomEventLike('neko:idle-chat-minimized-state', {{
           detail: {{ source: 'chat-window', reason: 'poll', minimized: false, timestamp }}
         }}));
+        const unavailable = (timestamp) => win.dispatchEvent(new CustomEventLike('neko:idle-chat-minimized-state', {{
+          detail: {{ source: 'chat-window', reason: 'window-hidden', available: false, timestamp }}
+        }}));
+        const compactUnavailable = (timestamp) => win.dispatchEvent(new CustomEventLike('neko:idle-chat-compact-surface-state', {{
+          detail: {{ source: 'chat-window', reason: 'pagehide', available: false, timestamp }}
+        }}));
+        const compactVisible = (timestamp) => win.dispatchEvent(new CustomEventLike('neko:idle-chat-compact-surface-state', {{
+          detail: {{ source: 'chat-window', reason: 'visibility-visible', available: true, visible: true, timestamp, screenRect: {{ left: 10, top: 20, width: 300, height: 160 }} }}
+        }}));
+        const compactHeartbeat = (timestamp) => win.dispatchEvent(new CustomEventLike('neko:idle-chat-compact-surface-state', {{
+          detail: {{ source: 'chat-window', available: true, visible: true, heartbeat: true, timestamp, screenRect: {{ left: 10, top: 20, width: 300, height: 160 }} }}
+        }}));
+        const compactInactive = (timestamp) => win.dispatchEvent(new CustomEventLike('neko:idle-chat-compact-surface-state', {{
+          detail: {{ source: 'chat-window', reason: 'compact-tracking-disabled', available: true, visible: false, timestamp }}
+        }}));
 
         // The first desktop state is still meaningful; only its repeats are heartbeats.
         expanded(1050);
@@ -1662,6 +1720,21 @@ def test_cat_mind_phase1_treats_unchanged_desktop_polls_as_heartbeats():
         assert.deepEqual(win.nekoCatMind.getState().fields, afterFirstMinimized);
         assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 1);
 
+        // A delayed terminal cannot erase a newer minimized snapshot and turn
+        // the next unchanged poll into a new observation.
+        unavailable(3050);
+        minimized(3125);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 1);
+
+        // The compact pagehide terminal shares the minimized lifecycle: stale
+        // copies are ignored, while a current one retires the dedupe snapshot.
+        compactUnavailable(3110);
+        minimized(3150);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 1);
+        compactUnavailable(3160);
+        minimized(3170);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 2);
+
         // The native bridge and BroadcastChannel can use different reasons
         // for the same rect. Neither a pointer sync nor its forwarded copy is
         // a new window experience.
@@ -1672,11 +1745,16 @@ def test_cat_mind_phase1_treats_unchanged_desktop_polls_as_heartbeats():
           detail: {{ source: 'chat-window', via: 'broadcast-channel', reason: 'pointer', minimized: true, timestamp: 3250, screenRect: {{ left: 1, top: 2, width: 80, height: 80 }} }}
         }}));
         assert.deepEqual(win.nekoCatMind.getState().fields, afterFirstMinimized);
-        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 1);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 2);
 
         // A changed rect remains a real observation, even when delivered by poll.
         minimized(4100, 4);
-        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 2);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 3);
+
+        // A genuinely newer terminal still starts a new lifecycle.
+        unavailable(4200);
+        minimized(4300, 4);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 4);
 
         expanded(5100);
         const afterFirstExpanded = win.nekoCatMind.getState().fields;
@@ -1692,13 +1770,64 @@ def test_cat_mind_phase1_treats_unchanged_desktop_polls_as_heartbeats():
           detail: {{ source: 'neko-pc', reason: 'idle-dock-enter', minimized: true, timestamp: 7150, screenRect: {{ left: 4, top: 2, width: 80, height: 80 }} }}
         }}));
         assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_idle_docked_near_cat').length, 1);
+        compactUnavailable(7160);
+        win.dispatchEvent(new CustomEventLike('neko:idle-chat-minimized-state', {{
+          detail: {{ source: 'chat-window', reason: 'idle-dock-enter', minimized: true, timestamp: 7170, screenRect: {{ left: 4, top: 2, width: 80, height: 80 }} }}
+        }}));
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_idle_docked_near_cat').length, 2);
         win.dispatchEvent(new CustomEventLike('neko:idle-chat-minimized-state', {{
           detail: {{ source: 'neko-pc', reason: 'idle-dock-exit', minimized: true, timestamp: 7200, screenRect: {{ left: 4, top: 2, width: 80, height: 80 }} }}
         }}));
         win.dispatchEvent(new CustomEventLike('neko:idle-chat-minimized-state', {{
           detail: {{ source: 'chat-window', reason: 'idle-dock-enter', minimized: true, timestamp: 7300, screenRect: {{ left: 4, top: 2, width: 80, height: 80 }} }}
         }}));
-        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_idle_docked_near_cat').length, 2);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_idle_docked_near_cat').length, 3);
+
+        // A compact reopen retires the minimized lifecycle and advances the
+        // shared watermark, so delayed pre-reopen terminal/positive copies are ignored.
+        compactVisible(8000);
+        unavailable(7900);
+        minimized(7950, 4);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 4);
+        minimized(8100, 4);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 5);
+
+        // Disabling compact tracking while minimized advances ordering but does
+        // not retire the active minimized dedupe snapshot.
+        compactInactive(8200);
+        minimized(8150, 4);
+        minimized(8300, 4);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 5);
+
+        // Millisecond timestamps alone cannot order a terminal against a
+        // delayed positive. The producer sequence keeps the old positive
+        // retired while still allowing a real reopen in that same millisecond.
+        win.dispatchEvent(new CustomEventLike('neko:idle-chat-compact-surface-state', {{
+          detail: {{ source: 'chat-window', available: false, timestamp: 8400, lifecycleSequence: 2 }}
+        }}));
+        win.dispatchEvent(new CustomEventLike('neko:idle-chat-minimized-state', {{
+          detail: {{ source: 'chat-window', minimized: true, timestamp: 8400, lifecycleSequence: 1,
+            screenRect: {{ left: 4, top: 2, width: 80, height: 80 }} }}
+        }}));
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 5);
+        win.dispatchEvent(new CustomEventLike('neko:idle-chat-minimized-state', {{
+          detail: {{ source: 'chat-window', minimized: true, timestamp: 8400, lifecycleSequence: 3,
+            screenRect: {{ left: 4, top: 2, width: 80, height: 80 }} }}
+        }}));
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 6);
+
+        // If the first compact recovery publication is missed, its first visible
+        // heartbeat advances the retired lifecycle without becoming an observation.
+        // Later ordinary heartbeats keep the recovered watermark stable.
+        compactUnavailable(8500);
+        expanded(8600);
+        compactHeartbeat(9000);
+        compactHeartbeat(9100);
+        minimized(8700, 4);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 6);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_compact_surface_visible').length, 1);
+        minimized(9050, 4);
+        assert.equal(win.nekoCatMind.getRecentEvents().filter((event) => event.type === 'chat_minimized_visible').length, 7);
         """
     )
 
@@ -2727,6 +2856,20 @@ def test_cat_mind_cat1_score_feedback_forms_a_bounded_near_chat_cycle():
             {{ atMs: 6500, type: 'drag_end', phase: 'drag_end' }},
             {{ atMs: 6620, type: 'cat1_stretch_done_near_chat', phase: 'settled' }},
           ] }},
+          interruptedDragChain: {{ burstTimeline: Array.from({{ length: 6 }}, (_, index) => {{
+            const offset = 500 + index * 4000;
+            return [
+              {{ atMs: offset, type: 'drag_start', phase: 'drag_start' }},
+              {{ atMs: offset + 200, phase: 'drag_active' }},
+              {{ atMs: offset + 1050, type: 'drag_end', phase: 'drag_end', detail: {{
+                activityId: 'interrupted-drag-chain-' + index,
+                pathDistancePx: 110,
+                displacementPx: 85,
+                durationMs: 850,
+              }} }},
+              {{ atMs: offset + 1170, type: 'cat1_stretch_done_near_chat', phase: 'settled' }},
+            ];
+          }}).flat() }},
         }};
         const total = (result) => Object.values(result.counts).reduce((sum, count) => sum + count, 0);
         const startsInWindow = (result, startMinute) => result.starts.filter(
@@ -2780,6 +2923,7 @@ def test_cat_mind_cat1_score_feedback_forms_a_bounded_near_chat_cycle():
         const shortOrdinaryHigh = simulate(true, shortBurstProfiles.ordinaryHigh);
         const shortOrdinaryHighFullLoad = simulate(true, shortBurstProfiles.ordinaryHighFullLoad);
         const shortHigh = simulate(true, shortBurstProfiles.high);
+        const interruptedDragChain = simulate(true, shortBurstProfiles.interruptedDragChain);
         const timingVariants = [
           {{ socialDurationMs: 936, smallMoveDurationMs: 720 }},
           {{ socialDurationMs: 2040, smallMoveDurationMs: 1320 }},
@@ -2954,6 +3098,14 @@ def test_cat_mind_cat1_score_feedback_forms_a_bounded_near_chat_cycle():
           'three ordinary drags must still respond promptly after their real physical load is settled: ' +
             JSON.stringify(shortOrdinaryHighFullLoad.starts.slice(0, 3)));
         assert.ok(startsByMinute(shortHigh, 3).length >= 3 && startsByMinute(shortHigh, 3).length <= 5);
+        const interruptedDragChainEarlyStarts = startsByMinute(interruptedDragChain, 0.5);
+        assert.equal(interruptedDragChainEarlyStarts.length, 1,
+          'six compressed drags may advance the first response but must not start one action per drag: ' +
+            JSON.stringify(interruptedDragChainEarlyStarts));
+        assert.equal(interruptedDragChain.terminals.filter(
+          (item) => item.result === 'interrupted' && item.reason === 'return-ball-drag-active'
+        ).length, 1);
+        assertLifecycle(interruptedDragChain);
         assert.ok(startsByMinute(shortNone, 10).length <= startsByMinute(shortLow, 10).length,
           'one easy hover may preserve the quiet count instead of forcing an extra action');
         assert.ok(startsByMinute(shortLow, 10).length <= startsByMinute(shortNormal, 10).length);
@@ -3187,6 +3339,7 @@ def test_cat_mind_scores_use_five_dimensions_shared_cadence_and_ranking_cooldown
     assert "positiveNeedCurveRange: 8" in source
     assert "positiveNeedCurveCeiling: 78" in source
     assert "cadenceFloor: -58" in source
+    assert "dragInterruptionCadenceFloor: -98" in source
     assert "cadenceCeiling: 18" in source
     assert "cooldownMultiplier" not in source
     assert "immediateRepeat" not in source
@@ -3985,7 +4138,11 @@ def test_cat_mind_phase4_return_episode_uses_only_strict_completed_chapters():
           finishAction(actionId, lifecycle, 'done');
         }}
         function primeInteraction(count) {{
-          for (let index = 0; index < count; index += 1) observe('cat_hover_reaction');
+          // Cat Mind drops hover observations closer than 1.5s apart.
+          for (let index = 0; index < count; index += 1) {{
+            now += 1500;
+            observe('cat_hover_reaction');
+          }}
         }}
         function returnSummary() {{
           now += 10;
@@ -4161,6 +4318,7 @@ def test_cat_mind_phase4_return_episode_uses_only_strict_completed_chapters():
           detail: {{ source: 'desktop-window', tier: 'cat1', timestamp: now, visible: true }}
         }}));
         flushDecision();
+        assert.equal(win.nekoCatMind.getRecentEvents().at(-1).type, 'desktop_occlusion_or_layer_change');
         assert.equal(Object.prototype.hasOwnProperty.call(returnSummary(), 'episode'), false);
 
         // Reset/new entry always starts with an empty local accumulator.

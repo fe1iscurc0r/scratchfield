@@ -1,0 +1,15 @@
+# mcpserver/rf_evolve —— 依赖清单
+#
+# 运行时依赖
+# ----------
+#   numpy  —— 本仓**既有**依赖（mcpserver/rf_brain 全系已在用），非本模块新增。
+#
+# 本模块**不新增任何第三方包**：约束门是纯算术，评分器转调 rf_brain 的既有实现，
+# 白盒产物只依赖 numpy（刻意如此 —— 产物要能脱离本仓独立运行）。
+#
+# 可选依赖（仅当显式启用 LLM 提案时）
+# ----------------------------------
+#   mcpserver/llm_gateway/anthropic_compat.py（工单228 的兼容层）+
+#   ANTHROPIC_API_KEY（或仓内 config）。**缺凭据时按设计走 rules 路径**，
+#   不会静默降级 —— 见 proposal_mode / notes 字段。
+numpy>=1.26

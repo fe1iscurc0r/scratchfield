@@ -32,6 +32,7 @@ import os
 import re
 import sqlite3
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -163,6 +164,32 @@ def _parse_date_arg(value: str, field: str) -> datetime:
 
 # ---- HTTP legacy 后端（HAMLOG_API_URL 显式设置时启用） ----
 
+_SESSION: Any = None
+_SESSION_LOCK = threading.Lock()
+
+
+def _local_session() -> Any:
+    """内部服务调用专用 requests.Session：**禁用系统代理**（trust_env=False）。
+
+    为什么必须关：HamLog 是**本机服务**（默认 localhost），若用户环境设了 http_proxy
+    （国内为访问 GitHub/PyPI 常见配置），本地调用会被代理劫持 → 返回 502
+    "upstream connect failed"，报错退化为「HamLog API 返回 HTTP 502」而不是「不可达」，
+    真实原因（服务没起）被掩盖。与仓库既有约定一致：api_server / event_bus /
+    local_search / naga_control / routes.auth 的内部调用均 trust_env=False。
+    （2026-10-10 实测：带 http_proxy 跑 test_hamlog_adapter 2 例假失败，去代理即过。）
+    """
+    global _SESSION
+    if _SESSION is None:  # DCL：与仓库单例约定一致
+        import requests
+
+        with _SESSION_LOCK:
+            if _SESSION is None:
+                sess = requests.Session()
+                sess.trust_env = False  # 忽略 http_proxy/https_proxy/no_proxy 环境变量
+                _SESSION = sess
+    return _SESSION
+
+
 def _base_url() -> str:
     return os.environ.get("HAMLOG_API_URL", "").rstrip("/")
 
@@ -183,7 +210,7 @@ def _request(
     url = f"{_base_url()}{_api_prefix()}{path}"
     clean_params = {k: v for k, v in (params or {}).items() if v not in (None, "")}
     try:
-        resp = requests.request(
+        resp = _local_session().request(
             method, url, params=clean_params, json=json_body, timeout=REQUEST_TIMEOUT
         )
     except requests.RequestException as exc:

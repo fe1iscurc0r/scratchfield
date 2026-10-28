@@ -242,7 +242,7 @@ function createOverlayWindowForDisplay(display) {
     webPreferences: {
       preload: path.join(__dirname, 'preload-tutorial-global-overlay.js'),
       nodeIntegration: false,
-      contextIsolation: false,
+      contextIsolation: false, // 侧栏 overlay：preload 只做 DOM 注入（DOM 跨世界共享），但触发链路未做运行期验证，暂留 false
       sandbox: false,
       backgroundThrottling: false,
     },
@@ -285,7 +285,7 @@ function getLoadingWindowOptions(bounds) {
     webPreferences: {
       preload: path.join(__dirname, 'preload-tutorial-loading-overlay.js'),
       nodeIntegration: false,
-      contextIsolation: false,
+      contextIsolation: false, // 侧栏 overlay：preload 只做 DOM 注入（DOM 跨世界共享），但触发链路未做运行期验证，暂留 false
       sandbox: false,
       backgroundThrottling: false,
     },

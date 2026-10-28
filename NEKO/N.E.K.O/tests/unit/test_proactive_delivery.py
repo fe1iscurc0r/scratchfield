@@ -984,3 +984,780 @@ def test_enqueue_coalesce_evicts_drained_extras_orphan():
     assert [r["summary"] for r in mgr.pending_extra_replies] == ["old snapshot"]
     mgr.enqueue_agent_callback(_proactive_cb("new snapshot", coalesce_key="gs"))
     assert [r["summary"] for r in mgr.pending_extra_replies] == ["new snapshot"]
+
+
+# ---------------------------------------------------------------------------
+# Per-turn image budget
+#
+# A trigger drains EVERY pending proactive callback into one model turn, so a
+# per-push cap does not bound the request. Cues pile up whenever the proactive
+# claim is denied (the user is mid-conversation) and then release together.
+# ---------------------------------------------------------------------------
+
+
+def _image_cb(name: str, images: list[str]) -> dict:
+    return {"_callback_delivery_id": name, "status": "completed",
+            "summary": name, "media_images": list(images)}
+
+
+def test_image_budget_constants_are_pinned() -> None:
+    """Anchor the literals the split tests below compute against."""
+    from main_logic.proactive_delivery import (
+        CALLBACK_IMAGE_MAX_COUNT,
+        CALLBACK_IMAGE_MAX_TOTAL_BYTES,
+    )
+
+    assert CALLBACK_IMAGE_MAX_COUNT == 8
+    assert CALLBACK_IMAGE_MAX_TOTAL_BYTES == 8 * 1024 * 1024
+
+
+def test_split_takes_a_callback_atomic_fifo_prefix() -> None:
+    """Whole callbacks only — a taken cb keeps its complete media set.
+
+    Splitting mid-callback would break the downstream preserve-until-success
+    retry, which re-streams ``media_images`` as one unit.
+    """
+    from main_logic.proactive_delivery import split_callbacks_by_image_budget
+
+    cbs = [_image_cb("a", ["a1", "a2", "a3", "a4"]),
+           _image_cb("b", ["b1", "b2", "b3", "b4"]),
+           _image_cb("c", ["c1", "c2", "c3", "c4"])]
+
+    taken, overflow = split_callbacks_by_image_budget(cbs)
+
+    assert [cb["summary"] for cb in taken] == ["a", "b"]
+    assert [cb["summary"] for cb in overflow] == ["c"]
+    assert taken[1]["media_images"] == ["b1", "b2", "b3", "b4"]
+
+
+def test_split_always_takes_the_head_even_when_it_alone_overflows() -> None:
+    """Guarantees forward progress.
+
+    Deferring an over-budget head would park a cue that can never fit and the
+    queue would spin on it forever — the exact wedge this bound exists to stop.
+    """
+    from main_logic.proactive_delivery import split_callbacks_by_image_budget
+
+    huge = _image_cb("huge", ["i%d" % i for i in range(40)])
+
+    taken, overflow = split_callbacks_by_image_budget([huge, _image_cb("next", ["n"])])
+
+    assert [cb["summary"] for cb in taken] == ["huge"]
+    assert [cb["summary"] for cb in overflow] == ["next"]
+
+
+def test_split_enforces_the_byte_budget_not_just_the_count() -> None:
+    from main_logic.proactive_delivery import (
+        CALLBACK_IMAGE_MAX_TOTAL_BYTES,
+        split_callbacks_by_image_budget,
+    )
+
+    five_mib = "A" * (5 * 1024 * 1024 * 4 // 3)
+    cbs = [_image_cb("first", [five_mib]), _image_cb("second", [five_mib])]
+
+    taken, overflow = split_callbacks_by_image_budget(cbs)
+
+    assert 2 * (len(five_mib) * 3 // 4) > CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    assert [cb["summary"] for cb in taken] == ["first"]
+    assert [cb["summary"] for cb in overflow] == ["second"]
+
+
+def test_split_defers_text_only_callbacks_behind_the_budget() -> None:
+    """Strict FIFO: later text must not jump ahead of deferred image cues.
+
+    The instruction renders callbacks in order, so letting text overtake would
+    reorder the narrative against what the user already saw queued.
+    """
+    from main_logic.proactive_delivery import split_callbacks_by_image_budget
+
+    text_only = {"_callback_delivery_id": "t", "status": "completed", "summary": "t"}
+    cbs = [_image_cb("a", ["i%d" % i for i in range(8)]),
+           _image_cb("b", ["b1"]),
+           text_only]
+
+    taken, overflow = split_callbacks_by_image_budget(cbs)
+
+    assert [cb["summary"] for cb in taken] == ["a"]
+    assert [cb["summary"] for cb in overflow] == ["b", "t"]
+
+
+def test_split_passes_text_only_callbacks_through_untouched() -> None:
+    """A batch with no images must never be deferred by an image budget."""
+    from main_logic.proactive_delivery import split_callbacks_by_image_budget
+
+    cbs = [{"summary": "x"}, {"summary": "y"}, {"summary": "z"}]
+
+    taken, overflow = split_callbacks_by_image_budget(cbs)
+
+    assert taken == cbs
+    assert overflow == []
+
+
+# ---------------------------------------------------------------------------
+# Queue budget: what the manager may HOLD, vs what one release may send.
+#
+# CALLBACK_IMAGE_MAX_* bound a single model turn. The queue itself had only a
+# TTL, so cues piling up while the user talks (the claim keeps being denied)
+# could hold hundreds of MB of base64 with nothing to stop them.
+# ---------------------------------------------------------------------------
+
+
+def _img_of_decoded_size(decoded_bytes: int) -> str:
+    """A base64 string whose approx decoded size is decoded_bytes."""
+    return "A" * ((decoded_bytes + 2) // 3 * 4)
+
+
+def test_queue_budget_numbers_are_the_agreed_ones():
+    """Pin the figures; every other test below derives from them."""
+    from main_logic import proactive_delivery as pd
+
+    assert pd.QUEUED_CUE_MAX_COUNT == 50
+    assert pd.QUEUED_IMAGE_MAX_TOTAL_BYTES == 4 * pd.CALLBACK_IMAGE_MAX_TOTAL_BYTES
+
+
+@pytest.mark.asyncio
+async def test_queue_depth_is_bounded_and_drops_are_acked():
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+    loop = asyncio.get_running_loop()
+    overflow = 15
+    acks = []
+    for i in range(pd.QUEUED_CUE_MAX_COUNT + overflow):
+        fut = loop.create_future()
+        acks.append(fut)
+        mgr.submit(
+            {"text": f"cue-{i}", pd.DELIVERY_ACK_FUTURE_KEY: fut},
+            coalesce_key=f"k{i}",
+        )
+
+    assert len(mgr._queue) == pd.QUEUED_CUE_MAX_COUNT
+    # Dropped producers were TOLD, not left waiting on a future forever --
+    # the same contract a TTL drop honours.
+    resolved = [f for f in acks if f.done()]
+    assert len(resolved) == overflow
+    assert all(f.result() is False for f in resolved)
+
+
+def test_an_important_waiting_cue_survives_a_flood_of_trivial_ones():
+    """The property that makes the drop policy defensible.
+
+    Dropping the oldest would let a burst of unimportant cues evict the
+    important one that has been waiting longest — the same failure shape that
+    made a shared image cap unworkable.
+    """
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+    important = {"text": "important"}
+    mgr.submit(important, priority=9, coalesce_key="important")
+
+    for i in range(pd.QUEUED_CUE_MAX_COUNT * 2):
+        mgr.submit({"text": f"noise-{i}"}, priority=0, coalesce_key=f"n{i}")
+
+    queued = [c.callback for c in mgr._queue]
+    assert important in queued
+    assert len(mgr._queue) == pd.QUEUED_CUE_MAX_COUNT
+
+
+def test_queued_image_bytes_are_bounded_independently_of_count():
+    """Count and bytes are independent axes: few cues can still be huge."""
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+    one_turn = pd.CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    # Ten turns' worth in ten cues — far under the count cap, far over bytes.
+    for i in range(10):
+        mgr.submit(
+            {"text": f"img-{i}", "media_images": [_img_of_decoded_size(one_turn)]},
+            coalesce_key=f"i{i}",
+        )
+
+    assert len(mgr._queue) < 10, "byte ceiling never fired"
+    total = sum(mgr._cue_image_bytes(c) for c in mgr._queue)
+    assert total <= pd.QUEUED_IMAGE_MAX_TOTAL_BYTES
+
+
+def test_text_only_cues_are_not_charged_image_bytes():
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+    for i in range(pd.QUEUED_CUE_MAX_COUNT):
+        mgr.submit({"text": f"plain-{i}"}, coalesce_key=f"p{i}")
+
+    assert len(mgr._queue) == pd.QUEUED_CUE_MAX_COUNT
+    assert sum(mgr._cue_image_bytes(c) for c in mgr._queue) == 0
+
+
+def test_budget_eviction_reports_the_keys_it_dropped():
+    """The manager coalesces on submit, so an eviction can strand bookkeeping.
+
+    If the newly submitted cue displaced an older same-key one and is then
+    itself evicted for budget, the key's recorded sequence still points at the
+    evicted cue. The owner uses that sequence to retract older same-key cues as
+    stale — so without this report BOTH are lost.
+    """
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+    for i in range(pd.QUEUED_CUE_MAX_COUNT):
+        mgr.submit({"text": f"important-{i}"}, priority=9, coalesce_key=f"hi{i}")
+
+    # Least important and newest: the budget's own victim by construction.
+    evicted = mgr.submit({"text": "loser"}, priority=0, coalesce_key="loser-key")
+
+    assert evicted == ["loser-key"]
+    assert len(mgr._queue) == pd.QUEUED_CUE_MAX_COUNT
+    assert all(c.callback.get("text") != "loser" for c in mgr._queue)
+
+
+def test_submit_reports_nothing_when_nothing_was_evicted():
+    delivered = []
+    mgr = _make(delivered)
+    assert mgr.submit({"text": "fits"}, coalesce_key="k") == []
+
+
+def _tiny_jpeg(px: int = 720) -> str:
+    """A JPEG that ALREADY sits at the model profile, encoded at high quality.
+
+    720 (not 1080 or 900) because the ladder test below has to measure the
+    LADDER, and rung 0 now normalizes every image to
+    MODEL_IMAGE_MAX_WIDTH x COMPRESS_TARGET_HEIGHT before the ladder is even
+    reached. A fixture over either bound would be rewritten by rung 0 first,
+    and the sample/compress/drop assertions would then be reading numbers that
+    rung 0 produced. 720x720 is inside both bounds, so rung 0 hands it straight
+    back -- which the "budget is loose" case asserts explicitly by requiring
+    ``notice is None``.
+
+    quality=95 while the profile is q80, so the compress rung still has real
+    work to do (measured ~0.38x). An image already at q80 would come back the
+    same size, the rung would keep the original, and the test would be
+    asserting nothing.
+    """
+    import base64
+    import io as _io
+
+    from PIL import Image
+
+    buf = _io.BytesIO()
+    Image.new("RGB", (px, px), (120, 30, 200)).save(buf, "JPEG", quality=95)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+@pytest.mark.asyncio
+async def test_over_budget_turn_samples_then_compresses_before_dropping():
+    """Going over the request budget must cost redundancy first, content last.
+
+    A rejected request loses the whole turn, so something has to give. The
+    order is deliberate: drop redundant frames (a burst's ends and midpoint
+    carry nearly all of it), then quality, and only then content -- and every
+    step is reported so the user is never silently short an image.
+    """
+    from main_logic.proactive_delivery import (
+        approx_base64_decoded_bytes,
+        fit_images_to_turn_budget,
+    )
+
+    images = [_tiny_jpeg() for _ in range(10)]
+    total = sum(approx_base64_decoded_bytes(i) for i in images)
+
+    # 预算宽松：一张都不动，也不打扰用户。
+    kept, notice = await fit_images_to_turn_budget(images, total * 2)
+    assert kept == images
+    assert notice is None
+
+    # 只需抽样：降到开头/中间/结尾三张，不压缩、不丢弃。
+    kept, notice = await fit_images_to_turn_budget(images, total // 2)
+    assert kept == [images[0], images[len(images) // 2], images[-1]]
+    assert notice["sampled"] is True
+    assert notice["compressed"] is False
+    assert notice["dropped"] == 0
+
+    # 抽样还不够：压缩，仍然一张不丢。
+    kept, notice = await fit_images_to_turn_budget(images, total // 8)
+    assert len(kept) == 3
+    assert notice["compressed"] is True
+    assert notice["dropped"] == 0
+    assert sum(approx_base64_decoded_bytes(i) for i in kept) < total // 8 * 2
+
+    # 压完仍超限才丢内容，且无条件保住至少一张。
+    kept, notice = await fit_images_to_turn_budget(images, 2000)
+    assert len(kept) >= 1
+    assert notice["dropped"] > 0
+    assert notice["final_count"] == len(kept)
+
+# ---------------------------------------------------------------------------
+# Byte-axis eviction must not eat text-only cues.
+#
+# Both axes drop "the cue that would go out last". For DEPTH that always makes
+# progress -- every cue holds a slot. For BYTES only image-bearing cues hold
+# budget, so the global maximum sort_key is almost always a text cue whose
+# eviction frees nothing, and the loop keeps going until it happens to reach
+# the image cues. The lowest priority in the system is first-party text
+# (topic hooks submit at -20), so the wrong victim is picked by default.
+# ---------------------------------------------------------------------------
+
+
+def _img_cue_payload(decoded_bytes: int, filler: str) -> dict:
+    """A callback whose media_images decode to roughly ``decoded_bytes``."""
+    return {"text": "img", "media_images": [filler * ((decoded_bytes * 4 // 3) // len(filler))]}
+
+
+def test_byte_axis_evicts_image_cues_not_text_cues():
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+
+    # ORDER IS LOAD-BEARING. The text cues must already be queued when the byte
+    # budget blows, because _enforce_queue_budget runs on every submit: if the
+    # image cues are submitted first they are trimmed into budget before any
+    # text cue exists, and a shared victim pool would look identical to a split
+    # one. Submitting text first is what makes the two versions diverge --
+    # verified by mutation (reverting to a shared pool must turn this red).
+    #
+    # priority=-20 is the value first-party topic hooks really submit at
+    # (main_logic/topic/delivery.py), which is BELOW the 0 an unspecified
+    # plugin priority normalises to -- so these are the first cues a shared
+    # pool would reach for.
+    for i in range(10):
+        mgr.submit({"text": f"hook-{i}"}, priority=-20, coalesce_key=f"hook{i}")
+
+    # Now overflow the 32 MiB queue ceiling: 8 MiB each, the per-push model
+    # budget a single cue can carry.
+    per_cue = pd.CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    for i in range(5):
+        mgr.submit(_img_cue_payload(per_cue, "I"), priority=9, coalesce_key=f"img{i}")
+
+    survivors = [c.callback.get("text") for c in mgr._queue]
+    # Every text cue survives: they never held a single byte of the budget.
+    for i in range(10):
+        assert f"hook-{i}" in survivors, f"text cue hook-{i} was evicted by the byte axis"
+    # And the budget is actually enforced -- this is not "the loop did nothing".
+    assert sum(mgr._cue_image_bytes(c) for c in mgr._queue) <= pd.QUEUED_IMAGE_MAX_TOTAL_BYTES
+    # Which means image cues DID get dropped.
+    assert sum(1 for c in mgr._queue if mgr._cue_image_bytes(c) > 0) < 5
+
+
+def test_byte_axis_keeps_the_queue_within_the_depth_ceiling_too():
+    """The shared-pool version cut a 56-cue burst down to 4 against a 50 ceiling.
+
+    Enforcing the byte budget must not collapse the queue far below the depth
+    limit it also advertises.
+    """
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+    per_cue = pd.CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    # Text first -- see the ordering note in the test above.
+    for i in range(40):
+        mgr.submit({"text": f"plain-{i}"}, priority=0, coalesce_key=f"p{i}")
+    for i in range(8):
+        mgr.submit(_img_cue_payload(per_cue, "I"), priority=9, coalesce_key=f"img{i}")
+
+    assert len(mgr._queue) > 40, f"queue collapsed to {len(mgr._queue)}"
+    assert len(mgr._queue) <= pd.QUEUED_CUE_MAX_COUNT
+    assert sum(mgr._cue_image_bytes(c) for c in mgr._queue) <= pd.QUEUED_IMAGE_MAX_TOTAL_BYTES
+
+
+def test_byte_axis_victim_is_the_last_image_cue_to_release():
+    """Ordering rule is unchanged -- only the candidate pool narrowed."""
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+    per_cue = pd.CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    # Same priority, so FIFO decides: the newest image cue goes first.
+    for i in range(5):
+        cb = _img_cue_payload(per_cue, "I")
+        cb["tag"] = f"img{i}"
+        mgr.submit(cb, priority=5, coalesce_key=f"img{i}")
+
+    remaining = [c.callback.get("tag") for c in mgr._queue]
+    assert "img0" in remaining, "the longest-waiting image cue must survive"
+    assert "img4" not in remaining, "the newest image cue must be the first evicted"
+
+
+def test_depth_axis_victim_rule_is_unchanged():
+    """Guards the half of the loop that was NOT supposed to change."""
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+    mgr.submit({"text": "important"}, priority=9, coalesce_key="imp")
+    for i in range(pd.QUEUED_CUE_MAX_COUNT):
+        mgr.submit({"text": f"noise-{i}"}, priority=0, coalesce_key=f"n{i}")
+
+    survivors = [c.callback.get("text") for c in mgr._queue]
+    assert len(survivors) == pd.QUEUED_CUE_MAX_COUNT
+    # High-priority waiter survives; the newest low-priority cue is the victim.
+    assert "important" in survivors
+    assert f"noise-{pd.QUEUED_CUE_MAX_COUNT - 1}" not in survivors
+    assert "noise-0" in survivors
+
+
+def test_byte_axis_still_acks_the_cues_it_drops():
+    """Dropped cues must be told, same as a TTL drop."""
+    from main_logic import proactive_delivery as pd
+
+    delivered = []
+    mgr = _make(delivered)
+    per_cue = pd.CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    keys = []
+    for i in range(6):
+        keys.append(mgr.submit(_img_cue_payload(per_cue, "I"), priority=5, coalesce_key=f"img{i}"))
+
+    assert any(k for k in keys), "byte-axis eviction must report evicted keys"
+
+
+# ---------------------------------------------------------------------------
+# Rung 0: the model resolution profile.
+#
+# fit_images_to_turn_budget used to be a pure CEILING -- it totalled the
+# payloads and returned them unchanged when they already fit, BEFORE sampling,
+# compressing or dropping. So an image was only ever downscaled when it was too
+# BIG, and nothing anywhere guaranteed a bounded resolution: a plugin frame the
+# SDK had normalized to 2048x1536 / ~49 KiB sailed under the 8 MiB budget and
+# reached the model at 1536px high. compress_screenshot could not have caught
+# it either -- it bounds HEIGHT ONLY, so 16000x400 passes through completely
+# untouched and 5120x1440 still comes out 2560 wide.
+# ---------------------------------------------------------------------------
+
+
+def _jpeg_of(width: int, height: int, *, quality: int = 95) -> str:
+    """A JPEG of exact pixel dimensions, base64 without the ``data:`` prefix."""
+    import base64
+    import io as _io
+
+    from PIL import Image
+
+    buf = _io.BytesIO()
+    Image.new("RGB", (width, height), (120, 30, 200)).save(
+        buf, "JPEG", quality=quality
+    )
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _size_of_b64(b64: str) -> tuple:
+    import base64
+    import io as _io
+
+    from PIL import Image
+
+    with Image.open(_io.BytesIO(base64.b64decode(b64))) as img:
+        return img.size
+
+
+def _size_of_jpeg_bytes(raw: bytes) -> tuple:
+    import io as _io
+
+    from PIL import Image
+
+    with Image.open(_io.BytesIO(raw)) as img:
+        return img.size
+
+
+def test_model_image_profile_constants_are_pinned() -> None:
+    """Anchor the literals every derived assertion below computes against.
+
+    Without these pins a change to either constant would move the profile and
+    the size assertions would quietly follow it, still green, while the images
+    actually sent to the model changed shape.
+
+    1280 is not a fresh number: static/app/app-state.js captures at
+    MAX_SCREENSHOT_WIDTH: 1280, so backend and frontend agree instead of
+    diverging silently.
+    """
+    from utils.screenshot_utils import COMPRESS_TARGET_HEIGHT, MODEL_IMAGE_MAX_WIDTH
+
+    assert COMPRESS_TARGET_HEIGHT == 720
+    assert MODEL_IMAGE_MAX_WIDTH == 1280
+
+
+def test_compress_screenshot_bounds_width_only_when_asked() -> None:
+    """``max_w`` is opt-in, so existing callers keep their exact old output.
+
+    brain/computer_use.py asks for target_h=1080 deliberately; making the width
+    bound a new floor everyone inherits would have changed what it produces.
+    """
+    from PIL import Image
+
+    from utils.screenshot_utils import compress_screenshot
+
+    ultrawide = Image.new("RGB", (5120, 1440), (10, 200, 90))
+
+    height_only = compress_screenshot(ultrawide, target_h=720)
+    assert _size_of_jpeg_bytes(height_only) == (2560, 720), (
+        "the default must stay HEIGHT ONLY -- width unclamped, exactly as before"
+    )
+
+    both_bounds = compress_screenshot(ultrawide, target_h=720, max_w=1280)
+    assert _size_of_jpeg_bytes(both_bounds) == (1280, 360)
+
+
+@pytest.mark.asyncio
+async def test_under_budget_image_is_normalized_and_stays_quiet() -> None:
+    """Rung 0 runs even when the byte budget was never in danger.
+
+    This is the case the old ceiling missed entirely, and the reason rung 0
+    sits ABOVE the early return rather than inside the ladder.
+    """
+    from main_logic.proactive_delivery import (
+        CALLBACK_IMAGE_MAX_TOTAL_BYTES,
+        approx_base64_decoded_bytes,
+        fit_images_to_turn_budget,
+    )
+    from utils.screenshot_utils import COMPRESS_TARGET_HEIGHT, MODEL_IMAGE_MAX_WIDTH
+
+    plugin_image = _jpeg_of(2048, 1536)
+    assert approx_base64_decoded_bytes(plugin_image) < CALLBACK_IMAGE_MAX_TOTAL_BYTES, (
+        "fixture must be UNDER budget, or this tests the ladder and not rung 0"
+    )
+
+    kept, notice = await fit_images_to_turn_budget(
+        [plugin_image], CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    )
+
+    width, height = _size_of_b64(kept[0])
+    assert height <= COMPRESS_TARGET_HEIGHT
+    assert width <= MODEL_IMAGE_MAX_WIDTH
+    assert notice is not None, "rung 0 did something, so it has to be reported"
+    assert notice["normalized"] is True
+    assert notice["dropped"] == 0
+    # 例行归一化不弹窗。rung 0 几乎每个带图的回合都会跑，照旧「有 notice 就弹」
+    # 的话用户会被刷屏，而他其实什么都没损失。
+    assert notice["user_visible"] is False
+
+
+@pytest.mark.asyncio
+async def test_model_normalization_is_a_fixed_point(monkeypatch) -> None:
+    """Feeding the normalizer its own output must NOT re-encode.
+
+    Load-bearing rather than a nicety: images ride ``_conversation_history``
+    for several more turns, so this code runs over the same payload again and
+    again. A normalizer that re-encoded every time would degrade the picture
+    generationally, one JPEG round-trip per turn, for no benefit at all.
+    """
+    from main_logic.proactive_delivery import (
+        CALLBACK_IMAGE_MAX_TOTAL_BYTES,
+        fit_images_to_turn_budget,
+    )
+    from utils import screenshot_utils as su
+
+    once = su.normalize_image_for_model(_jpeg_of(2048, 1536))
+    assert _size_of_b64(once)[1] <= su.COMPRESS_TARGET_HEIGHT, "fixture never normalized"
+
+    class _ReEncodeAttempted(BaseException):
+        # 刻意**不**继承 Exception：normalize_image_for_model 的失败兜底和 fit
+        # 里的归一化循环都是 `except Exception`，用普通异常会被它们吞掉，这个
+        # 测试就永远绿——连「删掉头部探测的跳过分支」这种变异都照样绿。
+        pass
+
+    def _boom(*args, **kwargs):
+        raise _ReEncodeAttempted("re-encoded a payload that already fits the profile")
+
+    monkeypatch.setattr(su, "compress_screenshot", _boom)
+
+    assert su.normalize_image_for_model(once) is once
+
+    # 再走一遍真实调用路径：rung 0 对已经合规的图必须是彻底的 no-op。
+    kept, notice = await fit_images_to_turn_budget(
+        [once], CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    )
+    assert kept == [once]
+    assert notice is None
+
+
+@pytest.mark.asyncio
+async def test_ultrawide_frame_is_bounded_on_width_too() -> None:
+    """5120x1440 came out 2560x720 -- inside the height bound, still 2560 wide."""
+    from main_logic.proactive_delivery import (
+        CALLBACK_IMAGE_MAX_TOTAL_BYTES,
+        fit_images_to_turn_budget,
+    )
+    from utils.screenshot_utils import COMPRESS_TARGET_HEIGHT, MODEL_IMAGE_MAX_WIDTH
+
+    kept, _ = await fit_images_to_turn_budget(
+        [_jpeg_of(5120, 1440)], CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    )
+
+    width, height = _size_of_b64(kept[0])
+    assert width <= MODEL_IMAGE_MAX_WIDTH, f"still {width}px wide"
+    assert height <= COMPRESS_TARGET_HEIGHT
+
+
+@pytest.mark.asyncio
+async def test_letterbox_frame_that_used_to_pass_through_is_bounded() -> None:
+    """16000x400 was the worst case: the height bound never even fired.
+
+    Its height already fits, so the resize branch never ran and the frame
+    reached the model at its full 16000px width.
+    """
+    from main_logic.proactive_delivery import (
+        CALLBACK_IMAGE_MAX_TOTAL_BYTES,
+        fit_images_to_turn_budget,
+    )
+    from utils.screenshot_utils import COMPRESS_TARGET_HEIGHT, MODEL_IMAGE_MAX_WIDTH
+
+    kept, _ = await fit_images_to_turn_budget(
+        [_jpeg_of(16000, 400)], CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    )
+
+    width, height = _size_of_b64(kept[0])
+    assert (width, height) != (16000, 400), "passed through completely untouched"
+    assert width <= MODEL_IMAGE_MAX_WIDTH
+    assert height <= COMPRESS_TARGET_HEIGHT
+
+
+@pytest.mark.asyncio
+async def test_losing_whole_images_is_user_visible_however_it_happened() -> None:
+    """The toast gate is "a picture is gone", not "the drop rung ran".
+
+    Sampling and dropping are different rungs in here -- one is framed as
+    shedding redundancy, the other as shedding content -- but they are the
+    same event from the reader's side: ``_sample_head_middle_tail`` keeps
+    three frames and discards every other one WHOLE, exactly like the trim
+    does. Gating the toast on ``dropped`` alone meant a ten-frame burst could
+    silently arrive as three, and what she says next would not line up with
+    what he sent.
+
+    Both directions are asserted, because the one-sided version of this test
+    is what let the sampling case slip: normalizing and re-compressing must
+    stay quiet, and this test would pass just as well if the gate were wired
+    to ``True``.
+
+    Mutation A: put the gate back to ``notice["dropped"] > 0`` -- the sampling
+    case fails.
+    Mutation B: make the gate ``or notice["normalized"]`` (or just ``True``)
+    -- the normalization case fails.
+    """
+    from main_logic.proactive_delivery import (
+        TURN_IMAGE_SAMPLE_KEEP,
+        CALLBACK_IMAGE_MAX_TOTAL_BYTES,
+        approx_base64_decoded_bytes,
+        fit_images_to_turn_budget,
+    )
+
+    images = [_tiny_jpeg() for _ in range(10)]
+    total = sum(approx_base64_decoded_bytes(i) for i in images)
+
+    # ── Sampling alone: no drop rung, no compress rung, and seven of the ten
+    #    frames are nevertheless not in the turn any more.
+    kept, sampled = await fit_images_to_turn_budget(images, total // 2)
+    assert sampled["sampled"] is True
+    assert sampled["compressed"] is False
+    assert sampled["dropped"] == 0
+    assert len(kept) == TURN_IMAGE_SAMPLE_KEEP < len(images), (
+        "if sampling did not actually remove frames this asserts nothing"
+    )
+    assert sampled["user_visible"] is True
+
+    # ── The trim rung: the case that was always user-visible.
+    kept, dropped = await fit_images_to_turn_budget(images, 2000)
+    assert dropped["dropped"] > 0
+    assert dropped["user_visible"] is True
+    assert len(kept) >= 1, "the turn must never lose every image"
+
+    # ── Pure rung 0: one oversized frame, budget never in danger. The picture
+    #    is rewritten smaller but nothing left the turn, so this stays a log
+    #    line. Rung 0 fires on nearly every turn that carries an image, and a
+    #    toast here would be a permanent stream of "images adjusted".
+    only = _jpeg_of(2048, 1536)
+    assert (
+        approx_base64_decoded_bytes(only) < CALLBACK_IMAGE_MAX_TOTAL_BYTES
+    ), "fixture must be UNDER budget, or the ladder runs and this proves nothing"
+    kept, quiet = await fit_images_to_turn_budget([only], CALLBACK_IMAGE_MAX_TOTAL_BYTES)
+    assert quiet is not None and quiet["normalized"] is True
+    assert quiet["sampled"] is False and quiet["dropped"] == 0
+    assert len(kept) == 1, "nothing may leave the turn on the normalize-only path"
+    assert quiet["user_visible"] is False
+
+
+def _jpeg_with_orientation(width: int, height: int, orientation: int | None) -> str:
+    """A base64 JPEG whose STORED matrix is width x height, tagged for display."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    image = Image.new("RGB", (width, height), "white")
+    buffer = io.BytesIO()
+    if orientation is None:
+        image.save(buffer, format="JPEG")
+    else:
+        exif = Image.Exif()
+        exif[0x0112] = orientation
+        image.save(buffer, format="JPEG", exif=exif)
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _displayed_size(b64: str) -> tuple[int, int]:
+    import base64
+    import io
+
+    from PIL import Image, ImageOps
+
+    image = Image.open(io.BytesIO(base64.b64decode(b64)))
+    return ImageOps.exif_transpose(image).size
+
+
+@pytest.mark.parametrize("orientation", [5, 6, 7, 8])
+def test_model_normalization_honours_exif_orientation(orientation) -> None:
+    """A rotated photo must not reach the model lying on its side.
+
+    ``compress_screenshot`` writes a JPEG without an EXIF block, so any
+    orientation tag on the input is dropped by the re-encode. Resizing the
+    stored matrix and then discarding the tag hands the model a picture rotated
+    90 degrees with no way to tell -- and the caller cannot tell either, because
+    the bytes look perfectly valid.
+
+    Measured before the fix: a 3000x1000 JPEG tagged orientation=6 (so it
+    DISPLAYS as 1000x3000) came out 1280x426 with EXIF None -- landscape, from a
+    portrait source.
+
+    Orientations 5-8 are exactly the ones that transpose width and height, which
+    is why they are the parametrised set: 1-4 keep the aspect the same and could
+    not expose this.
+    """
+    from utils.screenshot_utils import (
+        COMPRESS_TARGET_HEIGHT,
+        MODEL_IMAGE_MAX_WIDTH,
+        normalize_image_for_model,
+    )
+
+    source = _jpeg_with_orientation(3000, 1000, orientation)
+    assert _displayed_size(source) == (1000, 3000), "fixture must display as portrait"
+
+    out = normalize_image_for_model(source)
+    width, height = _displayed_size(out)
+
+    assert height > width, (
+        f"portrait source came back as {width}x{height}: the model is being "
+        "shown a sideways picture"
+    )
+    assert width <= MODEL_IMAGE_MAX_WIDTH
+    assert height <= COMPRESS_TARGET_HEIGHT
+
+
+def test_profile_probe_measures_the_displayed_shape_not_the_stored_one() -> None:
+    """The skip test must compare the profile against what will be SEEN.
+
+    A JPEG stored 720x1280 and tagged orientation=6 displays as 1280x720 --
+    already exactly the model profile. Judging it by the stored matrix reads
+    1280 as the height, decides it is over the 720 ceiling, and re-encodes a
+    payload that needed nothing done to it. That is not just wasted work: it is
+    a fixed-point break, and these payloads live on _conversation_history for
+    several turns, so it would re-encode once per turn forever.
+    """
+    from utils.screenshot_utils import normalize_image_for_model
+
+    already_fine = _jpeg_with_orientation(720, 1280, 6)
+    assert _displayed_size(already_fine) == (1280, 720)
+
+    assert normalize_image_for_model(already_fine) is already_fine

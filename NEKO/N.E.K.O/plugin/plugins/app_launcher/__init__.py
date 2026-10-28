@@ -6,19 +6,30 @@ App Launcher Plugin (应用启动器)
 
 功能：
 - 添加/删除/列出软件
-- 通过路径启动软件
-- 支持 .exe、.lnk、.url 等类型
+- 启动**已在清单中登记**的软件（不接受调用方临时给的路径）
+- 支持 .exe、.lnk、.url、.bat/.cmd 类型
 - 支持别名设置，方便猫娘识别
 - 支持开机自启功能（通过 Windows 注册表实现）
-- 猫娘可以通过插件调用来管理软件的开机自启状态
+
+安全边界（WO-269 T2 / P0-7）：
+- 开机自启会往 HKCU\\...\\Run 落一条"开机即执行"的命令，属于跨重启的持久化写入，
+  因此**不能由模型单次调用完成**：set_autostart 退出 Agent 自动路由面
+  （metadata.agent_auto=False），且函数级再要求一次性确认令牌；
+  令牌只出现在返回体里，不进 llm_result_fields，模型读不到也就无法自我确认。
+- 登记/改路径时校验：绝对路径、非 UNC、不含 ..、文件必须存在、扩展名必须在白名单内。
+- 关（删除自启项）方向不设闸：它是往"更少持久化"的方向走，拦住只会拖累用户自救。
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
-import sys
+import secrets
 import subprocess
+import sys
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -42,6 +53,15 @@ _AUTORUN_PREFIX = "NekoAppLauncher_"
 _CATEGORIES_KEY = "app_launcher_categories"
 _RECENT_KEY = "app_launcher_recent"
 
+# 允许登记与允许启动的类型。_get_file_type() 返回 "other" 的（未知扩展名）不在内：
+# 那种情况会落到 os.startfile()，由外壳关联决定"点开它到底执行什么"，等于任意执行。
+_EXECUTABLE_TYPES: tuple[str, ...] = ("exe", "lnk", "url", "script")
+
+# 自启确认门（WO-269 T2）
+_AUTOSTART_CONFIRM_ACTION = "app_launcher.autostart"
+_AUTOSTART_CONFIRM_TTL_SECONDS = 300.0
+_AUTOSTART_CONFIRM_MAX_PENDING = 64
+
 
 def _now() -> str:
     return datetime.now().isoformat()
@@ -64,26 +84,10 @@ def _is_windows() -> bool:
     return sys.platform == "win32"
 
 
-def _is_valid_path(path: str) -> bool:
-    """检查路径是否看起来有效"""
-    if not path or not isinstance(path, str):
-        return False
-    path = path.strip()
-    if not path:
-        return False
-    # 先去除引号，支持 Windows 资源管理器复制的带引号路径
-    if (path.startswith('"') and path.endswith('"')) or (path.startswith("'") and path.endswith("'")):
-        path = path[1:-1]
-    path = os.path.expandvars(path)
-    if not os.path.isabs(path):
-        return False
-    return True
-
-
 def _resolve_path(path: str) -> str:
     """解析路径，展开环境变量"""
     path = path.strip()
-    # 先去除引号，与 _is_valid_path 保持一致
+    # 先去除引号，支持 Windows 资源管理器复制的带引号路径
     if (path.startswith('"') and path.endswith('"')) or (path.startswith("'") and path.endswith("'")):
         path = path[1:-1]
     path = os.path.expandvars(path)
@@ -121,6 +125,13 @@ def _launch_file(path: str) -> tuple[bool, str]:
             return False, f"文件不存在: {path}"
 
         file_type = _get_file_type(path)
+        if file_type not in _EXECUTABLE_TYPES:
+            # 兜闸：登记时已按同一张白名单校验过，这里拦的是"改动前就存在的老清单"里
+            # type=="other" 的条目——它们会落到 os.startfile()，执行什么由外壳关联说了算。
+            return False, (
+                f"拒绝启动 {path}：{file_type} 类型不在允许列表内"
+                f"（仅 {'/'.join(_EXECUTABLE_TYPES)}），请重新登记为可执行文件"
+            )
 
         if file_type == "lnk":
             subprocess.Popen(
@@ -188,7 +199,119 @@ def _normalize_aliases(aliases: Optional[List[str]]) -> List[str]:
     return processed
 
 
-def _set_autostart_windows(app_id: str, name: str, path: str, enabled: bool) -> tuple[bool, str]:
+def _reject_reason(path: str) -> str:
+    """登记/改路径的硬校验，返回拒绝原因；空串表示放行（WO-269 T2 / P0-7）。
+
+    顺序即优先级：先判形状（空 / UNC / ``..``），再判类型白名单，最后判存在性——
+    存在性放最后是因为它要碰磁盘，而前三条就能拦住绝大多数恶意输入。
+
+    UNC 单独拦：``\\\\host\\share\\x.exe`` 是绝对路径也确实"存在"，但让它在开机
+    时被加载意味着把一台机器的启动流程挂到别人可控的网络份额上。
+    """
+    text = str(path or "").strip()
+    if not text:
+        return "路径不能为空"
+    normalized = text.replace("/", "\\")
+    if normalized.startswith("\\\\"):
+        return f"拒绝 UNC 路径（开机加载网络共享上的可执行文件）: {path}"
+    if ".." in [part for part in normalized.split("\\") if part]:
+        return f"拒绝包含 .. 的路径: {path}"
+    resolved = _resolve_path(text)
+    if not os.path.isabs(resolved):
+        return f"路径无效或不是绝对路径: {path}"
+    file_type = _get_file_type(resolved)
+    if file_type not in _EXECUTABLE_TYPES:
+        return (
+            f"不支持的文件类型: {path}（仅允许 .exe/.lnk/.url/.bat/.cmd；"
+            f"未知扩展名会交给外壳关联决定执行什么）"
+        )
+    if not _file_exists(resolved):
+        return f"文件不存在: {resolved}"
+    return ""
+
+
+def _autostart_command(resolved_path: str) -> str:
+    """将要落盘到注册表的完整命令串（与 _set_autostart_windows 写的一模一样）。"""
+    return f'"{resolved_path}"'
+
+
+def _confirmation_scope(ctx: Any) -> str:
+    """把确认令牌绑到发起会话上；无上下文（UI 直连）时为空串。"""
+    if not isinstance(ctx, dict):
+        return ""
+    value = ctx.get("conversation_id")
+    return str(value).strip() if value is not None else ""
+
+
+class _AutostartConfirmationGate:
+    """一次性确认令牌：把放行范围钉死在"刚刚给人看过的那一条命令"上。
+
+    语义与 ``plugin/plugins/lifekit/_write_confirmation.py`` 的
+    ``WriteConfirmationGate`` 一致（TTL + 一次性消费 + payload 指纹）。没有直接
+    复用那个模块：跨插件 import 会拉起 lifekit 整包 ``__init__``（连带 msgpack
+    依赖），app_launcher 不该因为另一个插件装没装而失效。
+
+    指纹覆盖 ``{app_id, path, command}``：令牌签发后如果这条自启项指向的路径被改过，
+    指纹不再相等，旧令牌自动作废，必须重新确认——不给"确认一次、之后随便换命令"留口子。
+    """
+
+    def __init__(
+        self,
+        *,
+        ttl_seconds: float = _AUTOSTART_CONFIRM_TTL_SECONDS,
+        max_pending: int = _AUTOSTART_CONFIRM_MAX_PENDING,
+    ) -> None:
+        self._ttl_seconds = ttl_seconds
+        self._max_pending = max(1, max_pending)
+        self._pending: Dict[str, tuple] = {}
+
+    def issue(self, payload: Dict[str, Any], *, scope: str = "") -> str:
+        self._discard_expired()
+        while len(self._pending) >= self._max_pending:
+            oldest = min(self._pending, key=lambda token: self._pending[token][0])
+            self._pending.pop(oldest, None)
+        token = secrets.token_urlsafe(18)
+        expires_at = time.monotonic() + self._ttl_seconds
+        self._pending[token] = (expires_at, scope, self._fingerprint(payload))
+        return token
+
+    def consume(self, token: str, payload: Dict[str, Any], *, scope: str = "") -> bool:
+        self._discard_expired()
+        if not token:
+            return False
+        # 先 pop 再判：无论成不成，一个令牌只准用一次（失败的重试不能拿它反复试）
+        record = self._pending.pop(str(token), None)
+        if record is None:
+            return False
+        expires_at, record_scope, record_fingerprint = record
+        return (
+            expires_at >= time.monotonic()
+            and record_scope == scope
+            and record_fingerprint == self._fingerprint(payload)
+        )
+
+    def _discard_expired(self) -> None:
+        now = time.monotonic()
+        self._pending = {
+            token: record
+            for token, record in self._pending.items()
+            if record[0] >= now
+        }
+
+    @staticmethod
+    def _fingerprint(payload: Dict[str, Any]) -> str:
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _set_autostart_windows(
+    app_id: str,
+    name: str,
+    path: str,
+    enabled: bool,
+    *,
+    log: Any = None,
+) -> tuple[bool, str]:
     """
     设置开机自启（Windows 注册表）
     
@@ -197,7 +320,8 @@ def _set_autostart_windows(app_id: str, name: str, path: str, enabled: bool) -> 
         name: 应用名称
         path: 可执行文件路径
         enabled: True=启用, False=禁用
-        
+        log: logger.info 形状的日志函数；写注册表前把完整 command 打出来
+
     Returns:
         (是否成功, 错误信息)
     """
@@ -220,7 +344,15 @@ def _set_autostart_windows(app_id: str, name: str, path: str, enabled: bool) -> 
             if file_type != "exe":
                 return False, f"开机自启仅支持 .exe 文件: {resolved_path}"
 
-            command = f'"{resolved_path}"'
+            command = _autostart_command(resolved_path)
+            # 落盘前把「开机时到底会执行什么」原样打进日志：这是审计能看到的唯一凭据
+            if log is not None:
+                log(
+                    "Autostart WRITE: hive=HKCU key={} value={} command={}",
+                    _AUTORUN_KEY_PATH,
+                    reg_name,
+                    command,
+                )
 
             with winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER,
@@ -323,7 +455,59 @@ class AppLauncherPlugin(NekoPluginBase):
         self.logger = self.file_logger
         self._apps_lock = threading.Lock()
         self._recent_lock = threading.Lock()
+        self._autostart_confirmations = _AutostartConfirmationGate()
         # i18n 已通过 SDK 自动加载（plugin.toml 中的 [plugin.i18n] 配置）
+
+    def _autostart_payload(self, app_id: str, resolved_path: str) -> Dict[str, Any]:
+        """确认令牌绑定的内容：命令原文变了，旧令牌就作废。"""
+        return {
+            "action": _AUTOSTART_CONFIRM_ACTION,
+            "app_id": app_id,
+            "path": resolved_path,
+            "command": _autostart_command(resolved_path),
+        }
+
+    def _authorize_autostart(
+        self,
+        app_id: str,
+        resolved_path: str,
+        *,
+        confirmed: bool,
+        token: str,
+        scope: str,
+    ) -> tuple[bool, str]:
+        """自启写入的唯一放行口。返回 (是否放行, 下一枚一次性令牌)。
+
+        未放行时调用方**不准碰注册表**，只把命令原文和令牌交还给调用方（UI/CLI），
+        由人确认后再来一次。令牌不进 llm_result_fields，模型侧读不到 ⇒ 无法自我确认。
+        """
+        payload = self._autostart_payload(app_id, resolved_path)
+        if confirmed and self._autostart_confirmations.consume(token, payload, scope=scope):
+            return True, ""
+        return False, self._autostart_confirmations.issue(payload, scope=scope)
+
+    def _needs_confirmation_result(
+        self,
+        app_id: str,
+        app_name: str,
+        resolved_path: str,
+        next_token: str,
+    ) -> Dict[str, Any]:
+        """统一的"待确认"返回体：命令原文 + 一次性令牌，注册表一字节未动。"""
+        return {
+            "success": False,
+            "needs_confirmation": True,
+            "app_id": app_id,
+            "app_name": app_name,
+            "enabled": True,
+            "command": _autostart_command(resolved_path),
+            "confirmation_token": next_token,
+            "message": (
+                f"开机自启需要主人亲自确认，本次没有改动注册表。将写入的命令："
+                f"{_autostart_command(resolved_path)}。"
+                "请让主人在插件界面点确认（5 分钟内有效，一次性）。"
+            ),
+        }
 
     def _load_apps_unlocked(self) -> List[Dict[str, Any]]:
         """从存储加载应用列表（无锁）"""
@@ -507,7 +691,7 @@ class AppLauncherPlugin(NekoPluginBase):
     @plugin_entry(
         id="add_app",
         name=tr("entry.add_app.name", default="添加软件"),
-        description=tr("entry.add_app.description", default="注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（支持 .exe、.lnk 快捷方式等），aliases 是可选的别名列表方便识别。"),
+        description=tr("entry.add_app.description", default="注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（必须真实存在，支持 .exe、.lnk、.url、.bat/.cmd），aliases 是可选的别名列表方便识别。"),
         input_schema={
             "type": "object",
             "properties": {
@@ -530,14 +714,14 @@ class AppLauncherPlugin(NekoPluginBase):
                 },
                 "autostart": {
                     "type": "boolean",
-                    "description": tr("entry.add_app.param.autostart", default="是否设置开机自启（可选，默认 false，仅支持 .exe 文件）"),
+                    "description": tr("entry.add_app.param.autostart", default="是否申请开机自启（可选，默认 false，仅支持 .exe）。不会直接写注册表：返回一次性确认令牌，需主人在界面确认后由 set_autostart 落盘。"),
                 },
             },
             "required": ["name", "path"],
         },
         llm_result_fields=["app_id", "name", "path", "message"],
     )
-    async def add_app(self, name: str, path: str, aliases: Optional[List[str]] = None, description: str = "", autostart: bool = False, **_):
+    async def add_app(self, name: str, path: str, aliases: Optional[List[str]] = None, description: str = "", autostart: bool = False, _ctx: Any = None, **_):
         """添加软件"""
         name = name.strip()
         path = path.strip()
@@ -550,8 +734,10 @@ class AppLauncherPlugin(NekoPluginBase):
         if not name:
             return Err(SdkError("软件名称不能为空"))
 
-        if not _is_valid_path(path):
-            return Err(SdkError(f"路径无效或不是绝对路径: {path}"))
+        reject_reason = _reject_reason(path)
+        if reject_reason:
+            self.logger.warning("App add refused: name={} path={} reason={}", name, path, reject_reason)
+            return Err(SdkError(reject_reason))
 
         resolved_path = _resolve_path(path)
         file_type = _get_file_type(resolved_path)
@@ -579,21 +765,28 @@ class AppLauncherPlugin(NekoPluginBase):
 
         self.logger.info("App added: id={} name={} path={}", app_id, name, path)
 
-        # 处理开机自启
+        # 申请自启：只签发一次性确认令牌，注册表一字节不动（WO-269 T2 / P0-7）
         autostart_msg = ""
-        if autostart and file_type == "exe":
-            success, msg = _set_autostart_windows(app_id, name, resolved_path, True)
-            if success:
-                with self._apps_lock:
-                    apps = self._load_apps_unlocked()
-                    for a in apps:
-                        if a.get("id") == app_id:
-                            a["autostart"] = True
-                            break
-                    self._save_apps_unlocked(apps)
-                autostart_msg = "，已设置开机自启"
+        confirmation: Dict[str, Any] = {}
+        if autostart:
+            if file_type != "exe":
+                autostart_msg = "，开机自启仅支持 .exe，未申请"
             else:
-                autostart_msg = f"，开机自启设置失败: {msg}"
+                _, next_token = self._authorize_autostart(
+                    app_id,
+                    resolved_path,
+                    confirmed=False,
+                    token="",
+                    scope=_confirmation_scope(_ctx),
+                )
+                autostart_msg = "，开机自启已申请，等主人确认后才会写入注册表"
+                confirmation = self._needs_confirmation_result(app_id, name, resolved_path, next_token)
+                self.logger.info(
+                    "Autostart confirmation issued on add: id={} name={} command={}",
+                    app_id,
+                    name,
+                    _autostart_command(resolved_path),
+                )
 
         return Ok({
             "app_id": app_id,
@@ -602,6 +795,7 @@ class AppLauncherPlugin(NekoPluginBase):
             "type": file_type,
             "aliases": processed_aliases,
             "message": f"已成功添加软件「{name}」，ID: {app_id}{autostart_msg}",
+            **confirmation,
         })
 
     @plugin_entry(
@@ -798,7 +992,7 @@ class AppLauncherPlugin(NekoPluginBase):
         },
         llm_result_fields=["app_id", "name", "message"],
     )
-    async def update_app(self, app_id: str, name: str = "", path: str = "", aliases: Optional[List[str]] = None, description: Optional[str] = None, **_):
+    async def update_app(self, app_id: str, name: str = "", path: str = "", aliases: Optional[List[str]] = None, description: Optional[str] = None, _ctx: Any = None, **_):
         """更新软件信息"""
         app_id = app_id.strip()
         if not app_id:
@@ -823,8 +1017,9 @@ class AppLauncherPlugin(NekoPluginBase):
                 app["name"] = name.strip()
             if path and path.strip():
                 new_path = path.strip()
-                if not _is_valid_path(new_path):
-                    return Err(SdkError(f"路径无效: {new_path}"))
+                reject_reason = _reject_reason(new_path)
+                if reject_reason:
+                    return Err(SdkError(reject_reason))
                 new_resolved = _resolve_path(new_path)
                 # 检查是否与其他应用的路径重复
                 for other in apps:
@@ -846,33 +1041,40 @@ class AppLauncherPlugin(NekoPluginBase):
             apps[target_idx] = app
             self._save_apps_unlocked(apps)
 
-            # 路径改变时刷新开机自启命令
+            # 路径变了 ⇒ 主人先前确认过的那条命令已经不成立了。关是安全方向，立即
+            # 执行；新路径必须重新确认，绝不"顺手"把自启项指向一条没给人看过的命令。
             autostart_msg = ""
+            confirmation: Dict[str, Any] = {}
             if path_changed and app.get("autostart", False):
-                if app.get("type") != "exe":
-                    success, msg = _set_autostart_windows(app_id, app.get("name", ""), old_path, False)
-                    if success:
-                        app["autostart"] = False
-                        apps[target_idx] = app
-                        self._save_apps_unlocked(apps)
-                        autostart_msg = "，已关闭开机自启（仅支持 .exe 文件）"
-                    else:
-                        autostart_msg = f"，但开机自启关闭失败: {msg}"
-                        self.logger.warning("Failed to disable autostart for app {}: {}", app_id, msg)
+                success, msg = _set_autostart_windows(
+                    app_id, app.get("name", ""), old_path, False, log=self.logger.info
+                )
+                if not success:
+                    autostart_msg = f"，但原开机自启关闭失败: {msg}"
+                    self.logger.warning("Failed to drop stale autostart for app {}: {}", app_id, msg)
                 else:
-                    success, msg = _set_autostart_windows(app_id, app.get("name", ""), app.get("path", ""), True)
-                    if not success:
-                        disable_success, disable_msg = _set_autostart_windows(
-                            app_id, app.get("name", ""), old_path, False
+                    app["autostart"] = False
+                    apps[target_idx] = app
+                    self._save_apps_unlocked(apps)
+                    if app.get("type") != "exe":
+                        autostart_msg = "，原开机自启已关闭（新路径不是 .exe，无法自启）"
+                    else:
+                        _, next_token = self._authorize_autostart(
+                            app_id,
+                            new_resolved,
+                            confirmed=False,
+                            token="",
+                            scope=_confirmation_scope(_ctx),
                         )
-                        if disable_success:
-                            app["autostart"] = False
-                            apps[target_idx] = app
-                            self._save_apps_unlocked(apps)
-                            autostart_msg = f"，开机自启更新失败并已关闭: {msg}"
-                        else:
-                            autostart_msg = f"，但开机自启更新失败: {msg}；旧自启项关闭失败: {disable_msg}"
-                        self.logger.warning("Failed to refresh autostart for app {}: {}", app_id, msg)
+                        confirmation = self._needs_confirmation_result(
+                            app_id, app.get("name", ""), new_resolved, next_token
+                        )
+                        autostart_msg = "，原开机自启已关闭，新路径待主人确认后才会重新写入"
+                        self.logger.info(
+                            "Autostart confirmation re-issued on path change: id={} command={}",
+                            app_id,
+                            _autostart_command(new_resolved),
+                        )
 
         self.logger.info("App updated: id={} name={}", app_id, app.get("name"))
 
@@ -880,12 +1082,13 @@ class AppLauncherPlugin(NekoPluginBase):
             "app_id": app_id,
             "name": app.get("name"),
             "message": f"已更新软件「{app.get('name')}」{autostart_msg}",
+            **confirmation,
         })
 
     @plugin_entry(
         id="set_autostart",
         name=tr("entry.set_autostart.name", default="设置开机自启"),
-        description=tr("entry.set_autostart.description", default="为已注册的软件设置开机自启功能。通过修改 Windows 注册表实现，支持开启或关闭。猫娘可以通过此功能帮主人设置软件开机自动启动。"),
+        description=tr("entry.set_autostart.description", default="为已注册的软件设置开机自启（Windows 注册表 HKCU\\...\\Run）。开启是跨重启的持久化写入，必须由主人显式确认：未确认时只返回一次性确认令牌，不改动注册表。此入口不对猫娘的自动路由开放。"),
         input_schema={
             "type": "object",
             "properties": {
@@ -897,16 +1100,34 @@ class AppLauncherPlugin(NekoPluginBase):
                     "type": "boolean",
                     "description": tr("entry.set_autostart.param.enabled", default="True=开启开机自启, False=关闭开机自启"),
                 },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": tr("entry.set_autostart.param.confirmed", default="主人已在界面确认（开启自启时必须为 true，并带上一次性确认令牌）"),
+                },
+                "confirmation_token": {
+                    "type": "string",
+                    "description": tr("entry.set_autostart.param.confirmation_token", default="上一次调用返回的一次性确认令牌（5 分钟有效，用过即废）"),
+                },
             },
             "required": ["app_id", "enabled"],
         },
         llm_result_fields=["success", "message", "app_name", "enabled"],
+        metadata={"agent_auto": False},
     )
-    async def set_autostart(self, app_id: str, enabled: bool, **_):
-        """设置开机自启"""
+    async def set_autostart(
+        self,
+        app_id: str,
+        enabled: bool,
+        confirmed: bool = False,
+        confirmation_token: str = "",
+        _ctx: Any = None,
+        **_,
+    ):
+        """设置开机自启（开启方向需一次性确认令牌，WO-269 T2 / P0-7）"""
         app_id = app_id.strip()
         try:
             enabled = _coerce_bool_param(enabled, field_name="enabled")
+            confirmed = _coerce_bool_param(confirmed, field_name="confirmed")
         except SdkError as exc:
             return Err(exc)
 
@@ -915,21 +1136,48 @@ class AppLauncherPlugin(NekoPluginBase):
 
         apps = self._load_apps()
         target = self._find_app_by_id(apps, app_id)
-        
+
         if not target:
             return Err(SdkError(f"未找到软件: {app_id}"))
 
         app_name = target.get("name", "未知")
         app_path = target.get("path", "")
 
-        success, message = _set_autostart_windows(app_id, app_name, app_path, enabled)
-        
+        if enabled:
+            # 开启前先按登记口径复核一遍：老清单里指向不存在/越界路径的条目不能开机自启
+            reject_reason = _reject_reason(app_path)
+            if reject_reason:
+                self.logger.warning(
+                    "Autostart enable refused: id={} name={} reason={}", app_id, app_name, reject_reason
+                )
+                return Err(SdkError(reject_reason))
+            resolved_path = _resolve_path(app_path)
+            authorized, next_token = self._authorize_autostart(
+                app_id,
+                resolved_path,
+                confirmed=confirmed,
+                token=confirmation_token,
+                scope=_confirmation_scope(_ctx),
+            )
+            if not authorized:
+                self.logger.warning(
+                    "Autostart confirmation required: id={} name={} command={}",
+                    app_id,
+                    app_name,
+                    _autostart_command(resolved_path),
+                )
+                return Ok(self._needs_confirmation_result(app_id, app_name, resolved_path, next_token))
+
+        success, message = _set_autostart_windows(
+            app_id, app_name, app_path, enabled, log=self.logger.info
+        )
+
         if success:
             self._update_app_autostart_field(app_id, enabled)
-            
+
             action = "开启" if enabled else "关闭"
             self.logger.info("Autostart {} for app: id={} name={}", action, app_id, app_name)
-            
+
             return Ok({
                 "success": True,
                 "app_id": app_id,

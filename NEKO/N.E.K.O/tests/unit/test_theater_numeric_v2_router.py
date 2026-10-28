@@ -21,6 +21,7 @@ from services.theater.numeric_v2_archive import (
     NumericV2ArchiveStore,
     build_numeric_v2_memory_messages,
     build_numeric_v2_public_archive,
+    quarantined_file_name,
 )
 from services.theater.numeric_v2_evaluator import (
     NumericV2EvaluationResult,
@@ -2245,7 +2246,7 @@ def test_numeric_v2_unsafe_button_does_not_override_body_offer_validity(
     assert review_calls == (1 if offer_valid else 2)
     assert submitted.json()["performance"]["transition_offered"] is offer_valid
     assert submitted.json()["suggested_inputs"] == (
-        ["（点头确认）好，就按这个安排。"]
+        []
         if offer_valid
         else ["先说说现在的情况。"]
     )
@@ -5834,7 +5835,30 @@ def test_numeric_v2_review_fallback_replay_and_next_turn_keep_same_history(tmp_p
         replay = client.post("/api/theater-numeric/session/input", json=body)
         assert replay.status_code == 200 and replay.json()["idempotent_replay"]
         assert replay.json()["session"] == submitted.json()["session"]
-        assert path.read_bytes() == committed
+        # Background ledger settlement may update derived narrative fields while
+        # an idempotent HTTP replay must not advance or change delivered history.
+        replayed_store = json.loads(path.read_bytes())
+        assert [
+            {key: value for key, value in event.items() if key not in {"narrative_record", "narrative_pending"}}
+            for event in replayed_store["ledger_events"]
+        ] == [
+            {key: value for key, value in event.items() if key not in {"narrative_record", "narrative_pending"}}
+            for event in stored["ledger_events"]
+        ]
+        assert {
+            key: value for key, value in replayed_store["session"].items()
+            if key not in {"narrative_state", "performance_history"}
+        } == {
+            key: value for key, value in stored["session"].items()
+            if key not in {"narrative_state", "performance_history"}
+        }
+        assert [
+            {key: value for key, value in item.items() if key != "narrative_record"}
+            for item in replayed_store["session"]["performance_history"]
+        ] == [
+            {key: value for key, value in item.items() if key != "narrative_record"}
+            for item in stored["session"]["performance_history"]
+        ]
         assert calls == {"actor": 2, "review": 3, "evaluator": 1}
         resumed = client.get("/api/theater-numeric/session/fallback_replay", params={"story_id": body["story_id"]})
         assert resumed.json()["session"] == submitted.json()["session"]
@@ -5977,7 +6001,7 @@ def test_forget_erases_story_and_unattributable_quarantined_public_archives(tmp_
     def quarantined(session_id, content):
         quarantine_root.mkdir(parents=True, exist_ok=True)
         key = hashlib.sha256(session_id.encode('utf-8')).hexdigest()
-        path = quarantine_root / f'invalid-1-{"0" * 32}-{key}.json'
+        path = quarantine_root / quarantined_file_name('invalid', f'{key}.json')
         path.write_text(content, encoding='utf-8')
         return path
 

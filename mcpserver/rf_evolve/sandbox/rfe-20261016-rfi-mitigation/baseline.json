@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "tool": "baseline",
+  "data": {
+    "scenarios": [
+      "three_strong_tones",
+      "one_strong_two_weak",
+      "interferer_inside_band"
+    ],
+    "per_scenario": {
+      "three_strong_tones": {
+        "snr_before_db": -3.7152,
+        "snr_after_db": 7.8597,
+        "improvement_db": 11.5748,
+        "detected_freq_count": 6
+      },
+      "one_strong_two_weak": {
+        "snr_before_db": -1.4757,
+        "snr_after_db": 3.8512,
+        "improvement_db": 5.3269,
+        "detected_freq_count": 26
+      },
+      "interferer_inside_band": {
+        "snr_before_db": -2.8553,
+        "snr_after_db": 0.5405,
+        "improvement_db": 3.3958,
+        "detected_freq_count": 68
+      }
+    }
+  }
+}

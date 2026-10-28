@@ -292,7 +292,12 @@ def create_agent_instance(manifest: dict[str, Any], agent_dir_name: str = "") ->
         return instance
 
     except Exception as e:
-        logger.warning("创建agent实例失败 %s: %s", manifest.get('displayName', 'unknown'), e)
+        # ⚠️ 2026-10-16：(manifest or {}) —— 原写法 manifest.get(...) 在 manifest 为 None 时
+        #    会让**错误处理器自身**再抛 AttributeError，把真实异常掩盖成
+        #    "'NoneType' object has no attribute 'get'"（2026-10-16 排查时实际踩到）。
+        #    生产两条调用路都守住了（ensure_hot 的 or {} / 扫描循环的 if not manifest: continue），
+        #    但本函数在 __all__ 里是公共 API，直接调用方仍会踩 ⇒ 处理器必须先保住自己。
+        logger.warning("创建agent实例失败 %s: %s", (manifest or {}).get('displayName', 'unknown'), e)
         return None
 
 

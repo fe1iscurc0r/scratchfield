@@ -918,7 +918,7 @@ function createWindow(urlToLoad) {
     webPreferences: {
       preload: preloadPath,
       sandbox: false,
-      contextIsolation: false,
+      contextIsolation: false, // 同一份 preload-pet.js：直写 14 处 window.*（nekoPetDrag / electronDesktopCapturer 等）并替换 window.WebSocket，页面按全局读取
       nodeIntegration: false,
       enableRemoteModule: false,
       webSecurity: true,

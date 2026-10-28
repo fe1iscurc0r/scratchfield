@@ -48,6 +48,8 @@ from typing import Optional, Callable, Dict, Any, Awaitable, List  # noqa: F401
 
 from enum import Enum
 
+from dataclasses import dataclass
+
 from main_logic.tool_calling import (  # noqa: F401
     OnToolCallCallback,
     ToolCall,
@@ -84,9 +86,54 @@ logger = get_module_logger(__name__, "Main")
 
 _IMAGE_ANALYSIS_PENDING_DESCRIPTION = "[实时屏幕截图或相机画面正在分析中。先不要瞎编内容，可以稍等片刻。在此期间不要用搜索功能应付。等收到画面分析结果后再描述画面。]"
 
+# OpenAI Realtime GA 拒收超过 32 字符的 item.id（invalid_request_error /
+# string_above_max_length），条目建不成、整轮没有回复（#3350）。客户端自己生成的
+# item id 一律走 new_client_item_id，不要在调用点手拼「前缀 + 完整 uuid hex」。
+CLIENT_ITEM_ID_MAX_LENGTH = 32
+# 截断后至少留这么多位随机 hex（80 bit），同一连接里撞 id 的概率可以忽略。
+_CLIENT_ITEM_ID_MIN_RANDOM_HEX = 20
+
+
+def new_client_item_id(kind: str = "") -> str:
+    """Return a client-assigned conversation item id within provider limits.
+
+    ``kind`` is a short tag that only makes the id readable in logs
+    (``neko_vis_...``); nothing parses it back.
+    """
+
+    prefix = f"neko_{kind}_" if kind else "neko_"
+    random_len = CLIENT_ITEM_ID_MAX_LENGTH - len(prefix)
+    if random_len < _CLIENT_ITEM_ID_MIN_RANDOM_HEX:
+        raise ValueError(f"client item id kind too long: {kind!r}")
+    return prefix + uuid.uuid4().hex[:random_len]
+
+
 class TurnDetectionMode(Enum):
     SERVER_VAD = "server_vad"
     MANUAL = "manual"
+
+
+class VisualDeliveryMode(str, Enum):
+    """How ambient images are delivered to the active realtime session."""
+
+    NATIVE = "native"
+    EXTERNAL_DESCRIPTION = "external_description"
+
+
+@dataclass(frozen=True, slots=True)
+class ImageStageResult:
+    """Observable result of staging or delivering one image."""
+
+    accepted: bool
+    mode: str
+    generation: int | None = None
+    description: str | None = None
+    rejection_reason: str | None = None
+    # 成功送出后仍然注册着的拒绝回调的 event_id。拒绝可能晚于 send 返回才到，所以
+    # stream_image 不能自己摘掉它；但一旦调用方拿到「provider 已处理」的更强证据
+    # （例如 session.updated 屏障），这个 handler 就无关了，而它的闭包扣着整条
+    # callback（可能有数张 ~13MB 的 base64）。把 id 交出去，让那个证据点去摘。
+    rejection_event_id: str | None = None
 
 
 # Opt-in escape hatch for the response arbiter's escalation policy (issue
@@ -108,3 +155,94 @@ def response_arbiter_fail_open_enabled() -> bool:
 
     raw = os.getenv(_ARBITER_FAIL_OPEN_ENV_VAR, "").strip().lower()
     return raw in ("1", "true", "yes", "on")
+
+
+# Opt-in structural trace of the realtime wire and of the response arbiter's
+# decisions, for attributing provider lifecycle quirks from a field log. Same
+# support path as the hatch above: set it, restart, send the Main log. Read
+# once per client construction. Records carry types, ids, counts, names and
+# statuses (see ``_wire_trace``), never conversation content. The one free-text
+# exception: provider error messages, arbiter dispatch-failure exception text
+# and connection-loss reasons are included, truncated to 200 characters.
+_REALTIME_WIRE_TRACE_ENV_VAR = "NEKO_REALTIME_WIRE_TRACE"
+
+
+def realtime_wire_trace_enabled() -> bool:
+    """Read the realtime wire-trace switch. Default off."""
+
+    raw = os.getenv(_REALTIME_WIRE_TRACE_ENV_VAR, "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+# ``api_type`` carries the provider key that ``CORE_API_TYPE`` resolves to
+# ('openai', 'qwen_intl', ...), never a model-name fragment. Several wire
+# branches were written against 'gpt' — a value the config layer has never
+# produced — so an OpenAI session silently missed every mid-session tool
+# update while its connect-time tools still went out (that path matches on
+# the model name, where 'gpt' really does appear). 'qwen_intl' missed the
+# 'qwen' branch the same way. Normalising here keeps the dialect branches
+# keyed on one vocabulary; 'gpt' stays accepted so existing callers and
+# fixtures that pass it keep working.
+_REALTIME_DIALECT_ALIASES = {
+    "openai": "gpt",
+    "gpt": "gpt",
+    "qwen_intl": "qwen",
+}
+
+
+# 取消欠账的存活上限。被取消的那一轮欠一条终结事件，而 Gemini 没有
+# response.cancel —— 它是被**后继内容送达**叫停的，所以计时从那一刻起算
+# （_gemini_send_user_turn），不是从 handle_interruption 决定取消那一刻。
+# 取值方向不对称：取小了最多多一次早结算，会话读作空闲，下一轮自愈；取大了会让
+# 陈旧欠账吃掉一条**合法**终结，那一轮的 external token 没人结算，
+# is_active_response() 恒真、主动搭话彻底哑。所以宁可短。
+GEMINI_CANCELLED_TERMINAL_TTL_SECONDS = 3.0
+
+# The mime a Gemini user turn's frames are sent under. One definition, because
+# it is read twice: once by the sender and once by the frame-bus publisher that
+# labels the very same bytes. Two literals would let a changed format mislabel
+# every record on the bus without anything going red.
+GEMINI_TURN_IMAGE_MIME = "image/jpeg"
+
+# GLM 的 session.update 是整包重置，不是补丁。漏掉 beta_fields 时服务端会把
+# chat_mode 从 video_passive 打回默认 audio，视频下游跟着拆掉，网关重连 3 次
+# 后回 downstream_reconnect_exceeded 并关掉 WebSocket。connect() 和之后每一次
+# 局部更新（工具同步、instructions）都必须带上同一份。
+GLM_REALTIME_BETA_FIELDS = {
+    "chat_mode": "video_passive",
+    "auto_search": True,
+}
+
+# 公开 WebSocket 的 ?model= 只放行这些名字。glm-realtime-plus 写在查询参数里
+# 会在握手后被 code 1234 / close 1003 拒绝。查询参数用已放行的型号进门，
+# 真正的型号放进 session.update。只对智谱官方网关这样改写：自定义地址（代理、
+# 自建）可能按查询参数路由，照旧用用户填的型号。
+_GLM_REALTIME_PUBLIC_HOST = "open.bigmodel.cn"
+_GLM_REALTIME_GATEWAY_MODELS = frozenset({
+    "glm-realtime",
+    "glm-realtime-air",
+    "glm-realtime-flash",
+})
+_GLM_REALTIME_GATEWAY_FALLBACK = "glm-realtime-air"
+
+
+def glm_realtime_gateway_model(model: object, base_url: object) -> str:
+    """Model name to put on the URL; remapped only for the public GLM gateway."""
+
+    name = str(model or "").strip()
+    from urllib.parse import urlparse
+
+    try:
+        host = (urlparse(str(base_url or "")).hostname or "").lower()
+    except ValueError:
+        host = ""
+    if host != _GLM_REALTIME_PUBLIC_HOST or name in _GLM_REALTIME_GATEWAY_MODELS:
+        return name
+    return _GLM_REALTIME_GATEWAY_FALLBACK
+
+
+def canonical_realtime_dialect(api_type: object) -> str:
+    """Map a provider key to the wire dialect its session speaks."""
+
+    raw = str(api_type or "").strip().lower()
+    return _REALTIME_DIALECT_ALIASES.get(raw, raw)

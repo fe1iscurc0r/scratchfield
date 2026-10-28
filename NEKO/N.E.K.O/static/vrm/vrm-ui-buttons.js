@@ -541,18 +541,20 @@ VRMManager.prototype._startUIUpdateLoop = function() {
     let lastMobileUpdate = 0;
     const MOBILE_UPDATE_INTERVAL = 100;
 
-    // 空闲低频模式下改用 ~33ms 定时器转一次性 rAF：一次性 rAF 不形成连续
-    // vsync 链，Blink 主帧调度随渲染循环一起降到地板频率。否则本循环单独
-    // 就能把 BeginMainFrame 顶回显示器刷新率，渲染侧的空闲化收益归零。
+    // 定时器驱动模式下本循环也改走定时器、周期跟随渲染 tick（活动态=配置帧率、空闲=地板 30）：
+    // 不排 rAF，Blink 主帧调度才能随渲染循环一起降下来；否则本循环单独就能把
+    // BeginMainFrame 顶回显示器刷新率，渲染侧的收益归零。定时器到点直接调 update，
+    // 不再转一次性 rAF——那会再等一个 vsync，按钮位置比模型慢半拍。
     const scheduleNext = () => {
         if (this._uiUpdateLoopId === null || this._uiUpdateLoopId === undefined) return;
         if (this._idleTickMode) {
             if (this._uiLoopIdleTimeout) clearTimeout(this._uiLoopIdleTimeout);
+            const tickFps = Number(this._idleTickFps) > 0 ? Number(this._idleTickFps) : 30;
             this._uiLoopIdleTimeout = setTimeout(() => {
                 this._uiLoopIdleTimeout = null;
                 if (this._uiUpdateLoopId === null || this._uiUpdateLoopId === undefined) return;
-                this._uiUpdateLoopId = requestAnimationFrame(update);
-            }, 33);
+                update();
+            }, Math.max(4, Math.round(1000 / tickFps)));
             return;
         }
         this._uiUpdateLoopId = requestAnimationFrame(update);
@@ -894,7 +896,11 @@ VRMManager.prototype._setupReturnButtonDrag = function (returnButtonContainer) {
         window.dispatchEvent(new CustomEvent('neko:return-ball-manual-move', {
             detail: {
                 reason: 'return-ball-drag-start',
-                container: returnButtonContainer
+                container: returnButtonContainer,
+                dragSessionId: dragActivitySequence + 1,
+                screenX: clientX + (Number(window.screenX) || 0),
+                screenY: clientY + (Number(window.screenY) || 0),
+                timestamp: Date.now()
             }
         }));
         isDragging = true;
@@ -946,7 +952,8 @@ VRMManager.prototype._setupReturnButtonDrag = function (returnButtonContainer) {
                 window.dispatchEvent(new CustomEvent('neko:return-ball-manual-move', {
                     detail: {
                         reason: 'return-ball-drag-active',
-                        container: returnButtonContainer
+                        container: returnButtonContainer,
+                        dragSessionId: dragActivitySequence
                     }
                 }));
             }
@@ -972,7 +979,8 @@ VRMManager.prototype._setupReturnButtonDrag = function (returnButtonContainer) {
                 window.dispatchEvent(new CustomEvent('neko:return-ball-manual-move', {
                     detail: {
                         reason: 'return-ball-drag-active',
-                        container: returnButtonContainer
+                        container: returnButtonContainer,
+                        dragSessionId: dragActivitySequence
                     }
                 }));
             }
@@ -990,6 +998,22 @@ VRMManager.prototype._setupReturnButtonDrag = function (returnButtonContainer) {
         if (!isDragging) return;
         pendingClientX = clientX;
         pendingClientY = clientY;
+        if (dragActiveDispatched || Math.abs(clientX - dragStartX) > 5 || Math.abs(clientY - dragStartY) > 5) {
+            window.dispatchEvent(new CustomEvent('neko:return-ball-manual-move', {
+                detail: {
+                    reason: 'return-ball-drag-motion',
+                    container: returnButtonContainer,
+                    dragSessionId: dragActivitySequence,
+                    clientX,
+                    clientY,
+                    screenX: clientX + (Number(window.screenX) || 0),
+                    screenY: clientY + (Number(window.screenY) || 0),
+                    deltaX: clientX - dragStartX,
+                    deltaY: clientY - dragStartY,
+                    timestamp: Date.now()
+                }
+            }));
+        }
         if (!dragRAFId) {
             dragRAFId = requestAnimationFrame(applyDragPosition);
         }
@@ -1007,7 +1031,13 @@ VRMManager.prototype._setupReturnButtonDrag = function (returnButtonContainer) {
             const movedDistancePx = Math.hypot(pendingClientX - dragStartX, pendingClientY - dragStartY);
             const dragActivityFacts = finishDragActivity();
 
-            setTimeout(() => returnButtonContainer.setAttribute('data-dragging', 'false'), 10);
+            // Release physics immediately, while keeping the subsequent DOM
+            // click suppressed just like the shared avatar drag implementation.
+            returnButtonContainer.setAttribute('data-dragging', 'false');
+            if (moved) {
+                returnButtonContainer.setAttribute('data-neko-return-click-suppressed', 'true');
+                setTimeout(() => returnButtonContainer.removeAttribute('data-neko-return-click-suppressed'), 120);
+            }
             isDragging = false;
             dragActiveDispatched = false;
             returnButtonContainer.style.cursor = 'grab';
@@ -1016,6 +1046,8 @@ VRMManager.prototype._setupReturnButtonDrag = function (returnButtonContainer) {
                 dispatchDragTerminal(
                     dragCancelled ? 'return-ball-drag-cancel' : 'return-ball-drag-end',
                     Object.assign({
+                        dragSessionId: dragActivitySequence,
+                        releasedAt: Date.now(),
                         movedDistancePx: moved ? movedDistancePx : 0,
                         dragCancelled: dragCancelled
                     }, dragActivityFacts)

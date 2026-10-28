@@ -1,33 +1,52 @@
 name: mirror-gitee
 on:
   workflow_dispatch:
+    inputs:
+      tags:
+        description: "逗号分隔的 tag 名，留空则只推 main（tag 必须已存在于 GitHub 侧）"
+        required: false
+        default: ""
 
 permissions:
   contents: read
+
+# 同一时刻只允许一个镜像任务：并发跑会各自算出不同的 staged 序列，
+# 后完成的把一个半截的 main 推到对端。不取消在跑的任务（推一半被掐断更糟）。
+concurrency:
+  group: mirror-gitee
+  cancel-in-progress: false
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
-      - name: Push mirror to Gitee (staged)
+      - name: Push mirror to Gitee (whitelist main + listed tags)
         env:
           GH_TOKEN: ${{ github.token }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          MIRROR_TAGS: ${{ inputs.tags }}
         run: |
           set -euo pipefail
           export GIT_TERMINAL_PROMPT=0
+          # 目标主机名写死在一个变量里：远端 URL 和审计日志取自同一份，不可能分叉。
+          MIRROR_HOST=gitee.com
+          MIRROR_REPO=fe1iscurc0r/scratchpad
+          echo "[audit] target remote host : ${MIRROR_HOST}"
+          echo "[audit] ref whitelist      : refs/heads/main + tags listed in the form input"
+          echo "[audit] force push         : DISABLED (镜像只前进；对端分叉时本任务失败，人工处理)"
           git config --global http.postBuffer 524288000
           git config --global http.version HTTP/1.1
           git config --global http.lowSpeedLimit 1000
           git config --global http.lowSpeedTime 240
           echo "[1] clone (blob:none) ..."
           git clone --quiet --filter=blob:none \
-            "https://x-access-token:${GH_TOKEN}@github.com/fe1iscurc0r/scratchpad.git" repo
+            "https://x-access-token:${GH_TOKEN}@github.com/${MIRROR_REPO}.git" repo
           cd repo
-          git remote add gitee "https://fe1iscurc0r:${GITEE_TOKEN}@gitee.com/fe1iscurc0r/scratchpad.git"
+          # 注意：不要把这个 URL 打进日志（含 GITEE_TOKEN）。
+          git remote add gitee "https://fe1iscurc0r:${GITEE_TOKEN}@${MIRROR_HOST}/${MIRROR_REPO}.git"
           push_ref() {
             for a in 1 2 3; do
-              if git push gitee "+$1" --quiet; then return 0; fi
+              if git push gitee "$1" --quiet; then return 0; fi
               echo "    retry $a for $1"
               sleep 15
             done
@@ -46,7 +65,23 @@ jobs:
             push_ref "$sha:refs/heads/main"
           done
           echo "    stages pushed: $n"
-          echo "[3] final full refs push (branches + tags) ..."
-          push_ref "refs/heads/*:refs/heads/*"
-          push_ref "refs/tags/*:refs/tags/*"
-          echo "[4] mirror OK"
+          echo "[3] whitelisted refs push ..."
+          push_ref "main:refs/heads/main"
+          tag_count=0
+          pushed_tags=" "
+          TAGS=()
+          IFS=',' read -r -a TAGS <<< "${MIRROR_TAGS:-}" || true
+          for t in "${TAGS[@]}"; do
+            t="${t//[[:space:]]/}"
+            if [ -z "$t" ]; then continue; fi
+            case "$pushed_tags" in *" $t "*) continue ;; esac
+            pushed_tags="$pushed_tags$t "
+            if ! git rev-parse -q --verify "refs/tags/$t" >/dev/null; then
+              echo "!! tag not found on the GitHub side, refusing to guess: $t"
+              exit 1
+            fi
+            tag_count=$((tag_count+1))
+            echo "    push tag: $t"
+            push_ref "refs/tags/$t:refs/tags/$t"
+          done
+          echo "[4] mirror OK (heads/main + ${tag_count} tag(s))"

@@ -274,7 +274,8 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
             "POST",
             f"{args.api_base}/v1/chat/completions",
             expected=400,
-            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": "ping"}]},
+            # 工单229：统一用规范名 deepseek-flash（此处 model 仅为占位，本地占位端点固定回 400）
+            json={"model": "deepseek-flash", "messages": [{"role": "user", "content": "ping"}]},
         )
     else:
         summary["checks"]["local_placeholder_completion"] = {

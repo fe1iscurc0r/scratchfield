@@ -92,6 +92,84 @@ __FETCH_JS__
 }
 """
 
+_AUTOSTART_ELIGIBLE_SETUP_JS = """
+    window.__requestLog = [];
+    window.nekoAutostartProvider = {
+        getStatus: async function() {
+            return {
+                ok: true,
+                supported: true,
+                enabled: false,
+                authoritative: true,
+                provider: 'backend',
+            };
+        },
+        enable: async function() {
+            throw new Error('enable should not be called');
+        },
+    };
+"""
+
+_AUTOSTART_ELIGIBLE_FETCH_JS = """
+    window.__requestLog.push({
+        url: requestUrl,
+        method: method,
+        body: body,
+    });
+
+    if (requestUrl === '/api/autostart-prompt/state') {
+        return jsonResponse({
+            state: {
+                status: 'observing',
+                never_remind: false,
+                deferred_until: 0,
+                autostart_enabled: false,
+                can_never_remind: false,
+            },
+        });
+    }
+    if (requestUrl === '/api/autostart-prompt/heartbeat') {
+        return jsonResponse({
+            ok: true,
+            should_prompt: true,
+            prompt_reason: 'usage_timeout',
+            prompt_token: 'tutorial-race-token',
+            state: {
+                status: 'observing',
+                never_remind: false,
+                deferred_until: 0,
+                autostart_enabled: false,
+                can_never_remind: false,
+            },
+        });
+    }
+    if (requestUrl === '/api/autostart-prompt/shown') {
+        return jsonResponse({
+            ok: true,
+            already_acknowledged: false,
+            state: {
+                status: 'prompted',
+                never_remind: false,
+                deferred_until: 0,
+                autostart_enabled: false,
+                can_never_remind: false,
+            },
+        });
+    }
+    if (requestUrl === '/api/autostart-prompt/decision') {
+        return jsonResponse({
+            ok: true,
+            state: {
+                status: 'deferred',
+                never_remind: false,
+                deferred_until: Date.now() + 1000,
+                autostart_enabled: false,
+                can_never_remind: false,
+            },
+        });
+    }
+"""
+
 
 def _expand_script_dependencies(script_names: tuple[str, ...]) -> tuple[str, ...]:
     expanded = []
@@ -195,6 +273,11 @@ def _bootstrap_home_runtime_page(
     script_names.append("app/app-prompt-shared.js")
     script_names.append("tutorial/core/home-tutorial-runtime.js")
     if include_autostart_prompt or include_autostart_provider:
+        setup_js = setup_js + """
+            if (typeof window.__NEKO_TUTORIAL_STARTUP_SETTLED__ !== 'boolean') {
+                window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = true;
+            }
+        """
         script_names.append("app/app-autostart-prompt.js")
     _bootstrap_page(
         mock_page,
@@ -236,6 +319,228 @@ def _has_playwright_browser() -> bool:
             return Path(playwright.chromium.executable_path).exists()
     except Exception:
         return False
+
+
+@pytest.mark.frontend
+@pytest.mark.parametrize("activity_context", ("play", "work"))
+def test_context_prompt_is_skipped_while_internal_game_route_is_active(
+    mock_page: Page,
+    activity_context: str,
+):
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = {
+                gameRouteActive: true,
+                proactiveChatEnabled: false,
+                proactiveVisionChatEnabled: false,
+            };
+            window.nekoTelemetryBranch = 'main';
+            window.__contextPromptCalls = 0;
+            window.showDecisionPrompt = async function() {
+                window.__contextPromptCalls += 1;
+                return 'decline';
+            };
+        """,
+        script_names=("app/app-context-prompt.js",),
+    )
+
+    result = mock_page.evaluate(
+        """
+        async (context) => {
+            await window.appContextPrompt.handle(context);
+            window.appState.gameRouteActive = false;
+            await window.appContextPrompt.handle(context);
+            return { calls: window.__contextPromptCalls };
+        }
+        """,
+        activity_context,
+    )
+
+    assert result["calls"] == 0
+
+
+@pytest.mark.frontend
+def test_context_prompt_defers_while_home_tutorial_suppresses_and_replays_after(
+    mock_page: Page,
+):
+    # 教程抑制期间不弹情境弹窗（modal 会压在导览上、且此时的功能开关状态
+    # 属于教程接管面）：信号暂存不标已弹，收口（active:false 事件）后重放。
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = {
+                gameRouteActive: false,
+                proactiveChatEnabled: false,
+                proactiveVisionChatEnabled: false,
+            };
+            window.nekoTelemetryBranch = 'main';
+            window.__tutorialActive = true;
+            window.NekoHomeTutorialFeatureController = {
+                isActive: () => window.__tutorialActive === true,
+            };
+            window.__contextPromptCalls = 0;
+            window.showDecisionPrompt = async function() {
+                window.__contextPromptCalls += 1;
+                return 'decline';
+            };
+        """,
+        script_names=("app/app-context-prompt.js",),
+    )
+
+    result = mock_page.evaluate(
+        """
+        async () => {
+            await window.appContextPrompt.handle('play');
+            const during = window.__contextPromptCalls;
+            window.__tutorialActive = false;
+            window.dispatchEvent(new CustomEvent('neko:home-tutorial-features-suppressed', {
+                detail: { active: false },
+            }));
+            await new Promise((resolve) => setTimeout(resolve, 80));
+            return { during, after: window.__contextPromptCalls };
+        }
+        """
+    )
+
+    assert result["during"] == 0
+    assert result["after"] == 1
+
+
+@pytest.mark.frontend
+def test_context_prompt_defers_on_suppression_event_without_feature_controller(
+    mock_page: Page,
+):
+    # director fallback 环境（feature controller 缺失、头像层无 hold）：
+    # 仅凭抑制事件的跟踪标志也必须拦住弹窗，释放事件后重放。
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = {
+                gameRouteActive: false,
+                proactiveChatEnabled: false,
+                proactiveVisionChatEnabled: false,
+            };
+            window.nekoTelemetryBranch = 'main';
+            window.__contextPromptCalls = 0;
+            window.showDecisionPrompt = async function() {
+                window.__contextPromptCalls += 1;
+                return 'decline';
+            };
+        """,
+        script_names=("app/app-context-prompt.js",),
+    )
+
+    result = mock_page.evaluate(
+        """
+        async () => {
+            window.dispatchEvent(new CustomEvent('neko:home-tutorial-features-suppressed', {
+                detail: { active: true, source: 'yui-guide-director' },
+            }));
+            await window.appContextPrompt.handle('play');
+            const during = window.__contextPromptCalls;
+            window.dispatchEvent(new CustomEvent('neko:home-tutorial-features-suppressed', {
+                detail: { active: false, source: 'yui-guide-director' },
+            }));
+            await new Promise((resolve) => setTimeout(resolve, 80));
+            return { during, after: window.__contextPromptCalls };
+        }
+        """
+    )
+
+    assert result["during"] == 0
+    assert result["after"] == 1
+
+
+@pytest.mark.frontend
+@pytest.mark.parametrize("already_declined", [False, True])
+def test_context_prompt_requeues_only_unresolved_decisions_during_tutorial(
+    mock_page: Page, already_declined: bool,
+):
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = { proactiveChatEnabled: false, proactiveVisionChatEnabled: false };
+            window.nekoTelemetryBranch = 'main';
+        """,
+        script_names=("common_dialogs.js", "app/app-context-prompt.js"),
+    )
+    mock_page.evaluate(
+        """() => {
+            const show = window.showDecisionPrompt;
+            window.__promptCalls = 0;
+            window.showDecisionPrompt = (config) => {
+                window.__promptCalls += 1;
+                return show(config);
+            };
+            window.__promptDone = window.appContextPrompt.handle('play');
+        }"""
+    )
+    mock_page.wait_for_selector(".modal-overlay")
+    mock_page.evaluate(
+        """async (alreadyDeclined) => {
+            // Resolve and suppress in the same task, inside the real 200ms fade-out.
+            if (alreadyDeclined) document.querySelector('.modal-overlay').click();
+            window.dispatchEvent(new CustomEvent('neko:home-tutorial-features-suppressed', {
+                detail: { active: true, source: 'test' },
+            }));
+            await window.__promptDone;
+            window.dispatchEvent(new CustomEvent('neko:home-tutorial-features-suppressed', {
+                detail: { active: false, source: 'test' },
+            }));
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }""",
+        already_declined,
+    )
+    assert mock_page.evaluate("window.__promptCalls") == (1 if already_declined else 2)
+    assert mock_page.locator(".modal-overlay").count() == (0 if already_declined else 1)
+    if not already_declined:
+        mock_page.evaluate("document.querySelector('.modal-overlay').click()")
+        mock_page.wait_for_selector(".modal-overlay", state="detached")
+
+
+@pytest.mark.frontend
+def test_open_context_prompt_is_dismissed_when_internal_game_opens(mock_page: Page):
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = {
+                gameRouteActive: false,
+                proactiveChatEnabled: false,
+                proactiveVisionChatEnabled: false,
+            };
+            window.nekoTelemetryBranch = 'main';
+        """,
+        script_names=("common_dialogs.js", "app/app-context-prompt.js"),
+    )
+
+    mock_page.evaluate(
+        """
+        () => {
+            window.__contextPromptSettled = false;
+            window.appContextPrompt.handle('play').then(function () {
+                window.__contextPromptSettled = true;
+            });
+        }
+        """
+    )
+    mock_page.wait_for_selector(".modal-overlay")
+
+    mock_page.evaluate(
+        """
+        () => {
+            window.appState.gameRouteActive = true;
+            window.dispatchEvent(new CustomEvent('neko-game-window-state-change', {
+                detail: { action: 'opened', gameType: 'drawing_guess' },
+            }));
+        }
+        """
+    )
+
+    mock_page.wait_for_function(
+        "() => window.__contextPromptSettled && !document.querySelector('.modal-overlay')",
+        timeout=5000,
+    )
 
 
 @pytest.mark.frontend
@@ -447,6 +752,360 @@ def test_autostart_prompt_offers_never_after_backend_allows_it(
 
     assert autostart_decisions
     assert autostart_decisions[-1]["body"]["decision"] == "never"
+
+
+@pytest.mark.frontend
+def test_autostart_prompt_waits_for_tutorial_release_and_teardown(
+    mock_page: Page,
+):
+    _bootstrap_home_runtime_page(
+        mock_page,
+        include_common_dialogs=True,
+        include_autostart_prompt=True,
+        setup_js="""
+            window.__requestLog = [];
+            window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = false;
+            window.isNekoHomeTutorialPending = true;
+            window.nekoAutostartProvider = {
+                getStatus: async function() {
+                    return {
+                        ok: true,
+                        supported: true,
+                        enabled: false,
+                        authoritative: true,
+                        provider: 'backend',
+                    };
+                },
+                enable: async function() {
+                    throw new Error('enable should not be called');
+                },
+            };
+        """,
+        fetch_js="""
+            window.__requestLog.push({
+                url: requestUrl,
+                method: method,
+                body: body,
+            });
+
+            if (requestUrl === '/api/autostart-prompt/state') {
+                return jsonResponse({
+                    state: {
+                        status: 'observing',
+                        never_remind: false,
+                        deferred_until: 0,
+                        autostart_enabled: false,
+                        can_never_remind: false,
+                    },
+                });
+            }
+            if (requestUrl === '/api/autostart-prompt/heartbeat') {
+                return jsonResponse({
+                    ok: true,
+                    should_prompt: true,
+                    prompt_reason: 'usage_timeout',
+                    prompt_token: 'tutorial-race-token',
+                    state: {
+                        status: 'observing',
+                        never_remind: false,
+                        deferred_until: 0,
+                        autostart_enabled: false,
+                        can_never_remind: false,
+                    },
+                });
+            }
+            if (requestUrl === '/api/autostart-prompt/shown') {
+                return jsonResponse({
+                    ok: true,
+                    already_acknowledged: false,
+                    state: {
+                        status: 'prompted',
+                        never_remind: false,
+                        deferred_until: 0,
+                        autostart_enabled: false,
+                        can_never_remind: false,
+                    },
+                });
+            }
+            if (requestUrl === '/api/autostart-prompt/decision') {
+                return jsonResponse({
+                    ok: true,
+                    state: {
+                        status: 'deferred',
+                        never_remind: false,
+                        deferred_until: Date.now() + 1000,
+                        autostart_enabled: false,
+                        can_never_remind: false,
+                    },
+                });
+            }
+        """,
+    )
+
+    mock_page.wait_for_function(
+        """
+        () => window.__requestLog.some(
+            (entry) => entry.url === '/api/autostart-prompt/heartbeat'
+        )
+        """
+    )
+    expect(mock_page.locator(".modal-dialog-autostart-retention")).to_have_count(0)
+    assert not any(
+        entry["url"] == "/api/autostart-prompt/shown"
+        for entry in mock_page.evaluate("() => window.__requestLog")
+    )
+
+    mock_page.evaluate(
+        """
+        () => {
+            window.isNekoHomeTutorialPending = false;
+            window.isInTutorial = false;
+            window.universalTutorialManager.isTutorialRunning = false;
+            window.universalTutorialManager.activeAvatarFloatingGuideRound = null;
+            let resolveTeardown;
+            const teardownPromise = new Promise((resolve) => {
+                resolveTeardown = resolve;
+            });
+            window.universalTutorialManager._teardownPromise = teardownPromise;
+            window.__finishTutorialTeardown = function() {
+                resolveTeardown();
+                teardownPromise.finally(() => {
+                    window.universalTutorialManager._teardownPromise = null;
+                });
+            };
+            window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = true;
+            window.dispatchEvent(new CustomEvent('neko:startup-greeting-release', {
+                detail: { released: true, reason: 'tutorial-completed' },
+            }));
+        }
+        """
+    )
+
+    mock_page.wait_for_timeout(350)
+    expect(mock_page.locator(".modal-dialog-autostart-retention")).to_have_count(0)
+    assert not any(
+        entry["url"] == "/api/autostart-prompt/shown"
+        for entry in mock_page.evaluate("() => window.__requestLog")
+    )
+
+    mock_page.evaluate("() => window.__finishTutorialTeardown()")
+    expect(mock_page.locator(".modal-dialog-autostart-retention")).to_have_count(1, timeout=5000)
+    shown_requests = [
+        entry for entry in mock_page.evaluate("() => window.__requestLog")
+        if entry["url"] == "/api/autostart-prompt/shown"
+    ]
+    assert len(shown_requests) == 1
+    mock_page.locator(".modal-dialog-autostart-retention .modal-btn").first.click()
+    expect(mock_page.locator(".modal-overlay-autostart-retention")).to_have_count(0, timeout=5000)
+
+
+@pytest.mark.frontend
+def test_autostart_prompt_waits_for_tutorial_when_prerequisite_rejects(
+    mock_page: Page,
+):
+    _bootstrap_home_runtime_page(
+        mock_page,
+        include_autostart_prompt=True,
+        setup_js=_AUTOSTART_ELIGIBLE_SETUP_JS + """
+            window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = false;
+            window.__promptCalls = 0;
+            window.waitForStorageLocationStartupBarrier = async function() {
+                throw new Error('storage gate failed');
+            };
+            window.showDecisionPrompt = async function() {
+                window.__promptCalls += 1;
+                return null;
+            };
+        """,
+        fetch_js=_AUTOSTART_ELIGIBLE_FETCH_JS,
+    )
+
+    mock_page.wait_for_function(
+        """
+        () => window.__requestLog.some(
+            (entry) => entry.url === '/api/autostart-prompt/heartbeat'
+        )
+        """
+    )
+    mock_page.wait_for_timeout(350)
+    assert mock_page.evaluate("() => window.__promptCalls") == 0
+
+    mock_page.evaluate(
+        """
+        () => {
+            window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = true;
+            window.dispatchEvent(new CustomEvent('neko:startup-greeting-release', {
+                detail: { released: true, reason: 'no-avatar-floating-round' },
+            }));
+        }
+        """
+    )
+    mock_page.wait_for_function("() => window.__promptCalls === 1", timeout=5000)
+
+
+@pytest.mark.frontend
+def test_autostart_prompt_waits_for_pending_tutorial_start(
+    mock_page: Page,
+):
+    _bootstrap_home_runtime_page(
+        mock_page,
+        include_autostart_prompt=True,
+        setup_js=_AUTOSTART_ELIGIBLE_SETUP_JS + """
+            window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = true;
+            window.__promptCalls = 0;
+            window.universalTutorialManager.pendingTutorialStartSource = 'manual';
+            window.showDecisionPrompt = async function() {
+                window.__promptCalls += 1;
+                return null;
+            };
+        """,
+        fetch_js=_AUTOSTART_ELIGIBLE_FETCH_JS,
+    )
+
+    mock_page.wait_for_function(
+        """
+        () => window.__requestLog.some(
+            (entry) => entry.url === '/api/autostart-prompt/heartbeat'
+        )
+        """
+    )
+    mock_page.wait_for_timeout(350)
+    assert mock_page.evaluate("() => window.__promptCalls") == 0
+
+    mock_page.evaluate(
+        "() => { window.universalTutorialManager.pendingTutorialStartSource = null; }"
+    )
+    mock_page.wait_for_function("() => window.__promptCalls === 1", timeout=5000)
+
+
+@pytest.mark.frontend
+def test_autostart_prompt_on_shown_closes_and_releases_token_when_tutorial_starts(
+    mock_page: Page,
+):
+    _bootstrap_home_runtime_page(
+        mock_page,
+        include_common_dialogs=True,
+        include_autostart_prompt=True,
+        setup_js=_AUTOSTART_ELIGIBLE_SETUP_JS + """
+            window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = true;
+            window.__audioStarts = 0;
+            window.__autostartPromptOpened = 0;
+            window.__autostartPromptClosed = 0;
+            window.i18next = { language: 'en' };
+            window.Audio = function() {
+                this.pause = function() {};
+                this.play = function() {
+                    window.__audioStarts += 1;
+                    return Promise.resolve();
+                };
+                this.currentTime = 0;
+            };
+            window.addEventListener('neko:decision-prompt-opened', function(event) {
+                if (event.detail && event.detail.skin === 'autostart-retention') {
+                    window.__autostartPromptOpened += 1;
+                    if (window.__autostartPromptOpened === 1) {
+                        window.isInTutorial = true;
+                        window.universalTutorialManager.isTutorialRunning = true;
+                    }
+                }
+            });
+            window.addEventListener('neko:decision-prompt-closed', function(event) {
+                if (event.detail && event.detail.skin === 'autostart-retention') {
+                    window.__autostartPromptClosed += 1;
+                }
+            });
+        """,
+        fetch_js=_AUTOSTART_ELIGIBLE_FETCH_JS,
+    )
+
+    mock_page.wait_for_function(
+        "() => window.__autostartPromptOpened === 1",
+        timeout=5000,
+    )
+    expect(mock_page.locator(".modal-overlay-autostart-retention")).to_have_count(0, timeout=5000)
+    assert mock_page.evaluate("() => window.__autostartPromptClosed") == 1
+    assert mock_page.evaluate("() => window.__audioStarts") == 0
+    assert not any(
+        entry["url"] == "/api/autostart-prompt/shown"
+        for entry in mock_page.evaluate("() => window.__requestLog")
+    )
+
+    mock_page.evaluate(
+        """
+        () => {
+            window.isInTutorial = false;
+            window.universalTutorialManager.isTutorialRunning = false;
+            window.dispatchEvent(new CustomEvent('neko:user-content-sent'));
+        }
+        """
+    )
+    mock_page.wait_for_function(
+        "() => window.__autostartPromptOpened === 2",
+        timeout=5000,
+    )
+    expect(mock_page.locator(".modal-overlay-autostart-retention")).to_have_count(1)
+    shown_requests = [
+        entry for entry in mock_page.evaluate("() => window.__requestLog")
+        if entry["url"] == "/api/autostart-prompt/shown"
+    ]
+    assert len(shown_requests) == 1
+    mock_page.locator(".modal-dialog-autostart-retention .modal-btn").first.click()
+    expect(mock_page.locator(".modal-overlay-autostart-retention")).to_have_count(0, timeout=5000)
+
+
+@pytest.mark.frontend
+def test_autostart_prompt_stays_open_until_user_decides_when_tutorial_rearms(
+    mock_page: Page,
+):
+    _bootstrap_home_runtime_page(
+        mock_page,
+        include_common_dialogs=True,
+        include_autostart_prompt=True,
+        setup_js=_AUTOSTART_ELIGIBLE_SETUP_JS + """
+            window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = true;
+            window.__audioStops = 0;
+            window.i18next = { language: 'en' };
+            window.Audio = function() {
+                this.currentTime = 0;
+                this.play = function() {
+                    return Promise.resolve();
+                };
+                this.pause = function() {
+                    window.__audioStops += 1;
+                };
+            };
+        """,
+        fetch_js=_AUTOSTART_ELIGIBLE_FETCH_JS,
+    )
+
+    expect(mock_page.locator(".modal-overlay-autostart-retention")).to_have_count(1, timeout=5000)
+    mock_page.wait_for_function(
+        """
+        () => window.__requestLog.some(
+            (entry) => entry.url === '/api/autostart-prompt/shown'
+        )
+        """,
+        timeout=5000,
+    )
+
+    mock_page.evaluate(
+        """
+        () => {
+            window.__NEKO_TUTORIAL_STARTUP_SETTLED__ = false;
+            window.isNekoHomeTutorialPending = true;
+            window.dispatchEvent(new CustomEvent('neko:startup-greeting-release', {
+                detail: { released: false, reason: 'tutorial-manager-resize-init' },
+            }));
+        }
+        """
+    )
+
+    expect(mock_page.locator(".modal-overlay-autostart-retention")).to_have_count(1)
+    assert mock_page.evaluate("() => window.__audioStops") == 0
+
+    mock_page.locator(".modal-dialog-autostart-retention .modal-btn").first.click()
+    expect(mock_page.locator(".modal-overlay-autostart-retention")).to_have_count(0, timeout=5000)
+    assert mock_page.evaluate("() => window.__audioStops") == 1
 
 
 @pytest.mark.frontend
@@ -700,7 +1359,6 @@ def test_home_tutorial_feature_controller_restores_live_galgame_state(
                         browser_use_enabled: false,
                         user_plugin_enabled: false,
                         openclaw_enabled: false,
-                        openfang_enabled: false,
                     },
                 });
             }
@@ -792,7 +1450,7 @@ def test_home_tutorial_feature_controller_restores_live_galgame_state(
 
 
 @pytest.mark.frontend
-def test_home_tutorial_feature_controller_enforce_reapplies_suppression_after_chat_host_ready(
+def test_home_tutorial_feature_controller_enforce_stops_runtime_without_rewriting_settings(
     mock_page: Page,
 ):
     _bootstrap_page(
@@ -868,10 +1526,14 @@ def test_home_tutorial_feature_controller_enforce_reapplies_suppression_after_ch
 
     assert result["active"] is True
     assert result["galgame"] is False
-    assert result["proactiveChatEnabled"] is False
-    assert result["proactiveVisionEnabled"] is False
-    assert result["appStateProactiveChatEnabled"] is False
-    assert result["appStateProactiveVisionEnabled"] is False
+    # 纯运行时抑制（与小剧场约定一致）：设置内存镜像从不被改写——它们由
+    # saveSettings 持久化并跨窗口同步，临时改写会在抑制期的任意一次保存里
+    # 被固化成用户设置。抑制只体现为 stop 调用与 isHomeTutorialFeatureSuppressed
+    # 触发闸门；即便有外部代码把内存翻回 true，enforce 也只重复 stop、不回写。
+    assert result["proactiveChatEnabled"] is True
+    assert result["proactiveVisionEnabled"] is True
+    assert result["appStateProactiveChatEnabled"] is True
+    assert result["appStateProactiveVisionEnabled"] is True
     assert result["stoppedChat"] >= 2
     assert result["stoppedVision"] >= 2
     assert result["releasedVision"] >= 2
@@ -3191,7 +3853,7 @@ def test_avatar_floating_tutorial_marks_global_tutorial_mode_while_active(mock_p
 
 
 @pytest.mark.frontend
-def test_avatar_floating_director_fallback_enforcement_disables_proactive_and_galgame(
+def test_avatar_floating_director_fallback_enforcement_stops_runtime_without_rewriting_settings(
     mock_page: Page,
 ):
     _bootstrap_page(
@@ -3206,6 +3868,10 @@ def test_avatar_floating_director_fallback_enforcement_disables_proactive_and_ga
             window.proactiveVisionEnabled = true;
             window.__fallbackGalgameRequests = [];
             window.__fallbackProactiveStops = [];
+            window.__fallbackSuppressed = false;
+            window.addEventListener('neko:home-tutorial-features-suppressed', (event) => {
+                window.__fallbackSuppressed = event.detail.active === true;
+            });
             window.reactChatWindowHost = {
                 setGalgameModeEnabled: (enabled, options) => {
                     window.__fallbackGalgameRequests.push({ enabled, options });
@@ -3213,7 +3879,9 @@ def test_avatar_floating_director_fallback_enforcement_disables_proactive_and_ga
             };
             window.stopProactiveChatSchedule = () => { window.__fallbackProactiveStops.push('chat'); };
             window.stopProactiveVisionDuringSpeech = () => { window.__fallbackProactiveStops.push('vision'); };
-            window.releaseProactiveVisionStream = () => { window.__fallbackProactiveStops.push('stream'); };
+            window.releaseProactiveVisionStream = () => {
+                window.__fallbackProactiveStops.push(window.__fallbackSuppressed ? 'stream' : 'ungated-stream');
+            };
         """,
         script_names=("tutorial/yui-guide/overlay.js", *_YUI_DIRECTOR_SCRIPTS),
     )
@@ -3246,10 +3914,12 @@ def test_avatar_floating_director_fallback_enforcement_disables_proactive_and_ga
         }
     ]
     assert result["proactiveStops"] == ["chat", "vision", "stream"]
-    assert result["proactiveChatEnabled"] is False
-    assert result["proactiveVisionEnabled"] is False
-    assert result["appStateProactiveChatEnabled"] is False
-    assert result["appStateProactiveVisionEnabled"] is False
+    # fallback 同样只做运行时抑制：停调度/视觉 + 派发事件，不改写设置内存
+    # （旧实现此处还漏写了 proactiveCommunityChatEnabled——键列表已整体移除）。
+    assert result["proactiveChatEnabled"] is True
+    assert result["proactiveVisionEnabled"] is True
+    assert result["appStateProactiveChatEnabled"] is True
+    assert result["appStateProactiveVisionEnabled"] is True
 
 
 @pytest.mark.frontend
@@ -5071,6 +5741,631 @@ def test_tutorial_skip_and_angry_exit_do_not_start_new_user_icebreaker(mock_page
     )
 
     assert result == {"fetchCount": 0, "activeSession": None}
+
+
+@pytest.mark.frontend
+def test_interrupted_icebreaker_restores_choices_after_old_route_already_ended(mock_page: Page):
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = { lanlan_name: '' };
+            window.__NEKO_MULTI_WINDOW__ = true;
+            window.__NEKO_MANAGED_WINDOW_REBUILD__ = true;
+            window.__icebreakerBridgeEvents = [];
+            window.__icebreakerRouteStarts = [];
+            window.__icebreakerRouteStateUrls = [];
+            window.nekoElectronIcebreakerBridge = {
+                send: function(message) {
+                    window.__icebreakerBridgeEvents.push(message);
+                },
+            };
+            window.appStorageLocation = {
+                waitUntilMainUiAllowed: function() {
+                    return new Promise(function(resolve) {
+                        window.__resolveIcebreakerStorageGate = function() {
+                            resolve({ canContinue: true });
+                        };
+                    });
+                },
+            };
+            window.pageConfigReady = new Promise(function(resolve) {
+                window.__resolveIcebreakerPageConfig = function() {
+                    window.appState.lanlan_name = 'yui';
+                    resolve({ success: true, lanlan_name: 'yui' });
+                };
+            });
+            window.nekoLocalMutationSecurity = {
+                getMutationHeaders: async function() {
+                    return { 'X-CSRF-Token': 'test-token' };
+                },
+            };
+            localStorage.setItem('i18nextLng', 'en');
+            localStorage.setItem('neko.new_user_icebreaker.v1', JSON.stringify({
+                version: 1,
+                days: {
+                    '1': {
+                        started: true,
+                        completed: false,
+                        lanlanName: 'yui',
+                        sessionId: 'icebreaker-before-reload',
+                        nodeId: 'root',
+                        updatedAt: Date.now(),
+                    },
+                },
+            }));
+        """,
+        fetch_js="""
+            if (requestUrl === '/api/icebreaker/route/state?lanlan_name=yui') {
+                window.__icebreakerRouteStateUrls.push(requestUrl);
+                return jsonResponse({
+                    ok: true,
+                    state: { icebreaker_active: false },
+                });
+            }
+            if (requestUrl === '/static/tutorial/icebreaker/icebreaker_scripts.json') {
+                return jsonResponse({
+                    days: {
+                        '1': {
+                            root: 'root',
+                            nodes: {
+                                root: {
+                                    lineKey: 'root.line',
+                                    options: [
+                                        { id: 'A', labelKey: 'root.A', next: 'next' },
+                                        { id: 'B', labelKey: 'root.B', next: 'next' },
+                                    ],
+                                },
+                                next: {
+                                    lineKey: 'next.line',
+                                    options: [
+                                        { id: 'A', labelKey: 'next.A', handoffKey: 'next.done' },
+                                        { id: 'B', labelKey: 'next.B', handoffKey: 'next.done' },
+                                    ],
+                                },
+                            },
+                        },
+                    },
+                });
+            }
+            if (requestUrl === '/static/tutorial/icebreaker/locales/en.json') {
+                return jsonResponse({
+                    'root.line': 'Welcome back.',
+                    'root.A': 'Continue A',
+                    'root.B': 'Continue B',
+                    'next.line': 'The next question.',
+                    'next.A': 'Finish A',
+                    'next.B': 'Finish B',
+                    'next.done': 'Done.',
+                });
+            }
+            if (requestUrl === '/api/icebreaker/route/start' && method === 'POST') {
+                window.__icebreakerRouteStarts.push(body);
+                return jsonResponse({ ok: true });
+            }
+            if (requestUrl === '/api/icebreaker/context' && method === 'POST') {
+                return jsonResponse({ ok: true });
+            }
+            if (requestUrl === '/api/icebreaker/choice' && method === 'POST') {
+                return jsonResponse({ ok: true });
+            }
+            if (requestUrl === '/api/icebreaker/speak' && method === 'POST') {
+                return jsonResponse({ ok: true });
+            }
+        """,
+        script_names=("tutorial/icebreaker/new-user-icebreaker.js",),
+    )
+
+    assert mock_page.evaluate("() => window.NekoNewUserIcebreakerState.isPeriodActive()") is True
+    assert mock_page.evaluate("() => window.__icebreakerRouteStateUrls") == []
+    mock_page.evaluate("() => window.__resolveIcebreakerPageConfig()")
+    mock_page.wait_for_timeout(600)
+    assert mock_page.evaluate("() => window.__icebreakerRouteStateUrls") == []
+    mock_page.evaluate("() => window.__resolveIcebreakerStorageGate()")
+    mock_page.wait_for_function(
+        """() => {
+            const session = window.newUserIcebreaker.getActiveSession();
+            const prompts = window.__icebreakerBridgeEvents.filter(
+                (event) => event.action === 'icebreaker_set_choice_prompt'
+            );
+            return session && session.nodeId === 'root' && prompts.length === 1;
+        }"""
+    )
+    restored = mock_page.evaluate(
+        """() => ({
+            session: window.newUserIcebreaker.getActiveSession(),
+            prompt: window.__icebreakerBridgeEvents.find(
+                (event) => event.action === 'icebreaker_set_choice_prompt'
+            ).prompt,
+            routeStarts: window.__icebreakerRouteStarts,
+        })"""
+    )
+
+    assert restored["session"]["sessionId"] != "icebreaker-before-reload"
+    assert restored["session"]["lanlanName"] == "yui"
+    assert restored["prompt"]["sessionId"] == restored["session"]["sessionId"]
+    assert [option["choice"] for option in restored["prompt"]["options"]] == ["A", "B"]
+    assert restored["routeStarts"] == [
+        {
+            "lanlan_name": "yui",
+            "session_id": restored["session"]["sessionId"],
+            "render_language": "en",
+            "source": "new_user_icebreaker",
+        }
+    ]
+
+    mock_page.evaluate(
+        """() => {
+            const prompt = window.__icebreakerBridgeEvents.find(
+                (event) => event.action === 'icebreaker_set_choice_prompt'
+            ).prompt;
+            window.dispatchEvent(new CustomEvent('neko:icebreaker-choice-selected', {
+                detail: {
+                    sessionId: prompt.sessionId,
+                    choice: 'A',
+                    option: prompt.options[0],
+                },
+            }));
+        }"""
+    )
+    mock_page.wait_for_function(
+        """() => {
+            const session = window.newUserIcebreaker.getActiveSession();
+            const prompts = window.__icebreakerBridgeEvents.filter(
+                (event) => event.action === 'icebreaker_set_choice_prompt'
+            );
+            return session && session.nodeId === 'next' && prompts.length === 2;
+        }"""
+    )
+
+    advanced = mock_page.evaluate(
+        """() => ({
+            session: window.newUserIcebreaker.getActiveSession(),
+            prompt: window.__icebreakerBridgeEvents.filter(
+                (event) => event.action === 'icebreaker_set_choice_prompt'
+            ).at(-1).prompt,
+            messages: window.__icebreakerBridgeEvents.filter(
+                (event) => event.action === 'icebreaker_append_chat_message'
+            ).map((event) => ({
+                role: event.message.role,
+                text: event.message.blocks[0].text,
+            })),
+        })"""
+    )
+    assert advanced["session"]["nodeId"] == "next"
+    assert [option["label"] for option in advanced["prompt"]["options"]] == ["Finish A", "Finish B"]
+    assert advanced["messages"] == [
+        {"role": "user", "text": "Continue A"},
+        {"role": "assistant", "text": "The next question."},
+    ]
+
+
+@pytest.mark.frontend
+def test_interrupted_icebreaker_does_not_restore_without_managed_rebuild_marker(mock_page: Page):
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = { lanlan_name: 'yui' };
+            window.__icebreakerFetchCount = 0;
+            localStorage.setItem('neko.new_user_icebreaker.v1', JSON.stringify({
+                version: 1,
+                days: {
+                    '1': {
+                        started: true,
+                        completed: false,
+                        lanlanName: 'yui',
+                        sessionId: 'ordinary-page-session',
+                        nodeId: 'root',
+                        updatedAt: Date.now(),
+                    },
+                },
+            }));
+        """,
+        fetch_js="""
+            window.__icebreakerFetchCount += 1;
+        """,
+        script_names=("tutorial/icebreaker/new-user-icebreaker.js",),
+    )
+
+    mock_page.wait_for_timeout(700)
+    assert mock_page.evaluate(
+        """() => ({
+            fetchCount: window.__icebreakerFetchCount,
+            activeSession: window.newUserIcebreaker.getActiveSession(),
+        })"""
+    ) == {"fetchCount": 0, "activeSession": None}
+
+
+@pytest.mark.frontend
+def test_interrupted_icebreaker_does_not_take_over_when_route_state_is_unknown(mock_page: Page):
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = { lanlan_name: 'yui' };
+            window.__NEKO_MULTI_WINDOW__ = true;
+            window.__NEKO_MANAGED_WINDOW_REBUILD__ = true;
+            window.__icebreakerRouteStarts = 0;
+            window.__icebreakerBridgeEvents = [];
+            window.nekoElectronIcebreakerBridge = {
+                send: (message) => window.__icebreakerBridgeEvents.push(message),
+            };
+            localStorage.setItem('neko.new_user_icebreaker.v1', JSON.stringify({
+                version: 1,
+                days: {
+                    '1': {
+                        started: true,
+                        completed: false,
+                        lanlanName: 'yui',
+                        sessionId: 'unknown-route-session',
+                        nodeId: 'root',
+                        updatedAt: Date.now(),
+                    },
+                },
+            }));
+        """,
+        fetch_js="""
+            if (requestUrl === '/api/icebreaker/route/state?lanlan_name=yui') {
+                return jsonResponse({ ok: false });
+            }
+            if (requestUrl === '/static/tutorial/icebreaker/icebreaker_scripts.json') {
+                return jsonResponse({
+                    days: {
+                        '1': {
+                            root: 'root',
+                            nodes: {
+                                root: {
+                                    lineKey: 'root.line',
+                                    options: [{ id: 'A', labelKey: 'root.A', handoffKey: 'root.done' }],
+                                },
+                            },
+                        },
+                    },
+                });
+            }
+            if (requestUrl === '/static/tutorial/icebreaker/locales/en.json') {
+                return jsonResponse({
+                    'root.line': 'Question',
+                    'root.A': 'Answer',
+                    'root.done': 'Done',
+                });
+            }
+            if (requestUrl === '/api/icebreaker/route/start' && method === 'POST') {
+                window.__icebreakerRouteStarts += 1;
+                return jsonResponse({ ok: true });
+            }
+        """,
+        script_names=("tutorial/icebreaker/new-user-icebreaker.js",),
+    )
+
+    mock_page.wait_for_timeout(900)
+    result = mock_page.evaluate(
+        """() => ({
+            activeSession: window.newUserIcebreaker.getActiveSession(),
+            routeStarts: window.__icebreakerRouteStarts,
+            clearEvents: window.__icebreakerBridgeEvents.filter(
+                (event) => event.action === 'icebreaker_clear_choice_prompt_source'
+            ).length,
+        })"""
+    )
+
+    assert result == {"activeSession": None, "routeStarts": 0, "clearEvents": 0}
+
+
+@pytest.mark.frontend
+def test_interrupted_icebreaker_ignores_another_characters_snapshot(mock_page: Page):
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = { lanlan_name: 'yui' };
+            window.__NEKO_MULTI_WINDOW__ = true;
+            window.__NEKO_MANAGED_WINDOW_REBUILD__ = true;
+            window.__icebreakerFetchCount = 0;
+            window.__icebreakerBridgeEvents = [];
+            window.nekoElectronIcebreakerBridge = {
+                send: (message) => window.__icebreakerBridgeEvents.push(message),
+            };
+            localStorage.setItem('neko.new_user_icebreaker.v1', JSON.stringify({
+                version: 1,
+                days: {
+                    '1': {
+                        started: true,
+                        completed: false,
+                        lanlanName: 'other-character',
+                        sessionId: 'other-session',
+                        nodeId: 'root',
+                        updatedAt: Date.now(),
+                    },
+                },
+            }));
+        """,
+        fetch_js="""
+            window.__icebreakerFetchCount += 1;
+        """,
+        script_names=("tutorial/icebreaker/new-user-icebreaker.js",),
+    )
+
+    mock_page.wait_for_timeout(900)
+    result = mock_page.evaluate(
+        """() => ({
+            activeSession: window.newUserIcebreaker.getActiveSession(),
+            fetchCount: window.__icebreakerFetchCount,
+            bridgeEventCount: window.__icebreakerBridgeEvents.length,
+        })"""
+    )
+
+    assert result == {"activeSession": None, "fetchCount": 0, "bridgeEventCount": 0}
+
+
+@pytest.mark.frontend
+def test_icebreaker_free_text_release_dispatches_galgame_handoff_for_release_message(
+    mock_page: Page,
+):
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = { lanlan_name: 'yui' };
+            window.__NEKO_MULTI_WINDOW__ = true;
+            window.__icebreakerBridgeEvents = [];
+            window.__routeEndCount = 0;
+            window.nekoElectronIcebreakerBridge = {
+                send: (message) => window.__icebreakerBridgeEvents.push(message),
+            };
+            window.nekoLocalMutationSecurity = {
+                getMutationHeaders: async () => ({ 'X-CSRF-Token': 'test-token' }),
+            };
+            localStorage.setItem('i18nextLng', 'en');
+        """,
+        fetch_js="""
+            if (requestUrl === '/static/tutorial/icebreaker/icebreaker_scripts.json') {
+                return jsonResponse({
+                    days: {
+                        '1': {
+                            root: 'root',
+                            fallback: {
+                                releaseKey: 'fallback.release',
+                                releaseVoiceKey: 'fallback.release.voice',
+                            },
+                            nodes: {
+                                root: {
+                                    lineKey: 'root.line',
+                                    options: [{ id: 'A', labelKey: 'root.A', next: 'root' }],
+                                },
+                            },
+                        },
+                    },
+                });
+            }
+            if (requestUrl === '/static/tutorial/icebreaker/locales/en.json') {
+                return jsonResponse({
+                    'root.line': 'Question',
+                    'root.A': 'Answer',
+                    'fallback.release': 'Let us continue normally.',
+                });
+            }
+            if (requestUrl === '/api/icebreaker/route/start' && method === 'POST') {
+                return jsonResponse({ ok: true });
+            }
+            if (requestUrl === '/api/icebreaker/context' && method === 'POST') {
+                return jsonResponse({ ok: true });
+            }
+            if (requestUrl === '/api/icebreaker/free-text/interpret' && method === 'POST') {
+                return jsonResponse({
+                    ok: true,
+                    action: 'release',
+                    choice: '',
+                    reply: 'Let us continue normally.',
+                    topic_state: 'soft_derail',
+                });
+            }
+            if (requestUrl === '/api/icebreaker/route/end' && method === 'POST') {
+                window.__routeEndCount += 1;
+                return jsonResponse({ ok: true });
+            }
+            if (requestUrl === '/api/icebreaker/speak' && method === 'POST') {
+                return jsonResponse({ ok: true });
+            }
+        """,
+        script_names=(
+            "tutorial/icebreaker/free-text-runtime.js",
+            "tutorial/icebreaker/new-user-icebreaker.js",
+        ),
+    )
+
+    mock_page.evaluate("() => window.newUserIcebreaker.start(1)")
+    mock_page.wait_for_function(
+        """() => window.__icebreakerBridgeEvents.some(
+            (event) => event.action === 'icebreaker_set_choice_prompt'
+        )"""
+    )
+    session_id = mock_page.evaluate("() => window.newUserIcebreaker.getActiveSession().sessionId")
+    mock_page.evaluate(
+        """(sessionId) => window.dispatchEvent(new CustomEvent(
+            'neko:icebreaker-free-text-submitted',
+            { detail: { sessionId, text: '聊点别的', requestId: 'free-release-1' } }
+        ))""",
+        session_id,
+    )
+    mock_page.wait_for_function(
+        """() => window.__icebreakerBridgeEvents.some(
+            (event) => event.action === 'icebreaker_galgame_handoff'
+        )"""
+    )
+
+    result = mock_page.evaluate(
+        """() => {
+            const messages = window.__icebreakerBridgeEvents
+                .filter((event) => event.action === 'icebreaker_append_chat_message')
+                .map((event) => event.message);
+            const handoff = window.__icebreakerBridgeEvents.find(
+                (event) => event.action === 'icebreaker_galgame_handoff'
+            );
+            return {
+                activeSession: window.newUserIcebreaker.getActiveSession(),
+                routeEndCount: window.__routeEndCount,
+                roles: messages.map((message) => message.role),
+                finalText: messages.at(-1).blocks[0].text,
+                handoffMatchesFinalMessage: handoff.detail.messageId === messages.at(-1).id,
+                handoffSessionId: handoff.detail.sessionId,
+            };
+        }"""
+    )
+
+    assert result == {
+        "activeSession": None,
+        "routeEndCount": 1,
+        "roles": ["assistant", "user", "assistant"],
+        "finalText": "Let us continue normally.",
+        "handoffMatchesFinalMessage": True,
+        "handoffSessionId": session_id,
+    }
+
+
+@pytest.mark.frontend
+def test_icebreaker_marks_terminal_complete_only_after_choice_and_route_end_succeed(mock_page: Page):
+    _bootstrap_page(
+        mock_page,
+        setup_js="""
+            window.appState = { lanlan_name: 'yui' };
+            window.__NEKO_MULTI_WINDOW__ = true;
+            window.__terminalChoiceAttempts = 0;
+            window.__routeEndCount = 0;
+            window.__routeStateCount = 0;
+            window.__routeActive = true;
+            window.__icebreakerBridgeEvents = [];
+            window.nekoElectronIcebreakerBridge = {
+                send: (message) => window.__icebreakerBridgeEvents.push(message),
+            };
+            window.nekoLocalMutationSecurity = {
+                getMutationHeaders: async () => ({ 'X-CSRF-Token': 'test-token' }),
+            };
+            localStorage.setItem('i18nextLng', 'en');
+        """,
+        fetch_js="""
+            if (requestUrl === '/static/tutorial/icebreaker/icebreaker_scripts.json') {
+                return jsonResponse({
+                    days: {
+                        '1': {
+                            root: 'root',
+                            nodes: {
+                                root: {
+                                    lineKey: 'root.line',
+                                    options: [{
+                                        id: 'A',
+                                        labelKey: 'root.A',
+                                        handoffKey: 'root.done',
+                                        handoffVoiceKey: 'root.done.voice',
+                                    }],
+                                },
+                            },
+                        },
+                    },
+                });
+            }
+            if (requestUrl === '/static/tutorial/icebreaker/locales/en.json') {
+                return jsonResponse({
+                    'root.line': 'Question',
+                    'root.A': 'Answer',
+                    'root.done': 'Done',
+                });
+            }
+            if (requestUrl === '/api/icebreaker/route/start' && method === 'POST') {
+                window.__routeSessionId = body.session_id;
+                return jsonResponse({ ok: true });
+            }
+            if (requestUrl === '/api/icebreaker/context' && method === 'POST') {
+                return jsonResponse({ ok: true });
+            }
+            if (requestUrl === '/api/icebreaker/choice' && method === 'POST') {
+                window.__terminalChoiceAttempts += 1;
+                if (window.__terminalChoiceAttempts === 1) {
+                    return jsonResponse({ ok: false });
+                }
+                return new Promise((resolve) => {
+                    window.__resolveTerminalChoice = () => {
+                        resolve(jsonResponse({ ok: true }));
+                    };
+                });
+            }
+            if (requestUrl === '/api/icebreaker/route/end' && method === 'POST') {
+                window.__routeEndCount += 1;
+                if (window.__routeEndCount > 1) window.__routeActive = false;
+                return jsonResponse({ ok: false });
+            }
+            if (requestUrl === '/api/icebreaker/route/state?lanlan_name=yui') {
+                window.__routeStateCount += 1;
+                return jsonResponse({
+                    ok: true,
+                    state: {
+                        icebreaker_active: window.__routeActive,
+                        session_id: window.__routeSessionId,
+                    },
+                });
+            }
+            if (requestUrl === '/api/icebreaker/speak' && method === 'POST') {
+                return jsonResponse({ ok: true });
+            }
+        """,
+        script_names=("tutorial/icebreaker/new-user-icebreaker.js",),
+    )
+
+    mock_page.evaluate("() => window.newUserIcebreaker.start(1)")
+    mock_page.wait_for_function("() => !!window.newUserIcebreaker.getActiveSession()")
+    session_id = mock_page.evaluate("() => window.newUserIcebreaker.getActiveSession().sessionId")
+    mock_page.evaluate(
+        """(sessionId) => window.dispatchEvent(new CustomEvent(
+            'neko:icebreaker-choice-selected',
+            { detail: { sessionId, choice: 'A', option: { label: 'Answer' } } }
+        ))""",
+        session_id,
+    )
+    mock_page.wait_for_function(
+        """() => window.__terminalChoiceAttempts === 2
+            && typeof window.__resolveTerminalChoice === 'function'"""
+    )
+
+    pending = mock_page.evaluate(
+        """() => ({
+            completed: JSON.parse(localStorage.getItem('neko.new_user_icebreaker.v1')).days['1'].completed,
+            routeEndCount: window.__routeEndCount,
+        })"""
+    )
+    assert pending == {"completed": False, "routeEndCount": 0}
+    assert mock_page.evaluate("() => window.__terminalChoiceAttempts") == 2
+
+    mock_page.evaluate("() => window.__resolveTerminalChoice()")
+    mock_page.wait_for_function(
+        """() => JSON.parse(
+            localStorage.getItem('neko.new_user_icebreaker.v1')
+        ).days['1'].completed === true"""
+    )
+    mock_page.wait_for_function(
+        """() => window.__icebreakerBridgeEvents.some(
+            (event) => event.action === 'icebreaker_galgame_handoff'
+        )"""
+    )
+    completed = mock_page.evaluate(
+        """() => {
+            const messageEvents = window.__icebreakerBridgeEvents
+                .filter((event) => event.action === 'icebreaker_append_chat_message')
+            const handoff = window.__icebreakerBridgeEvents.find(
+                (event) => event.action === 'icebreaker_galgame_handoff'
+            );
+            return {
+                routeEndCount: window.__routeEndCount,
+                routeStateCount: window.__routeStateCount,
+                messages: messageEvents.map((event) => event.message.role),
+                handoffMatchesFinalMessage: handoff.detail.messageId
+                    === messageEvents[messageEvents.length - 1].message.id,
+                handoffSessionId: handoff.detail.sessionId,
+            };
+        }"""
+    )
+    assert completed == {
+        "routeEndCount": 2,
+        "routeStateCount": 2,
+        "messages": ["assistant", "user", "assistant"],
+        "handoffMatchesFinalMessage": True,
+        "handoffSessionId": session_id,
+    }
 
 
 @pytest.mark.frontend

@@ -386,8 +386,11 @@ async def health(request: Request):
 def main() -> None:  # pragma: no cover
     import uvicorn
 
+    from system.net_boundary import enforce_startup_policy
+
     port = int(os.environ.get("SITAWARE_PORT", "18000"))
-    uvicorn.run("sitaware.api_server:app", host="0.0.0.0", port=port,
+    bind_host = enforce_startup_policy("sitaware 事件服务")
+    uvicorn.run("sitaware.api_server:app", host=bind_host, port=port,
                 reload=False, log_level="info")
 
 

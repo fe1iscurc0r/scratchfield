@@ -1,0 +1,66 @@
+{
+  "ok": true,
+  "tool": "board_summary",
+  "data": {
+    "path": "mcpserver\\kicad_mcp\\tests\\fixtures\\lora_node.kicad_pcb",
+    "version": "20240108",
+    "generator": "pcbnew",
+    "legacy_coords_warning": false,
+    "thickness_mm": 1.6,
+    "copper_layers": [
+      "F.Cu",
+      "In1.Cu",
+      "In2.Cu",
+      "B.Cu"
+    ],
+    "copper_layer_count": 4,
+    "footprint_count": 5,
+    "pad_count": 17,
+    "net_count": 8,
+    "board_size_mm": [
+      40.0,
+      28.0
+    ],
+    "routing": {
+      "track_count": 13,
+      "total_length_mm": 89.1515,
+      "min_width_mm": 0.15,
+      "by_layer": {
+        "F.Cu": {
+          "tracks": 10,
+          "length_mm": 70.599,
+          "min_width_mm": 0.15
+        },
+        "In2.Cu": {
+          "tracks": 1,
+          "length_mm": 6.0,
+          "min_width_mm": 0.3
+        },
+        "B.Cu": {
+          "tracks": 2,
+          "length_mm": 12.5525,
+          "min_width_mm": 0.35
+        }
+      },
+      "width_histogram": {
+        "0.15": 1,
+        "0.25": 5,
+        "0.3": 3,
+        "0.35": 1,
+        "0.4": 2,
+        "0.5": 1
+      }
+    },
+    "vias": {
+      "via_count": 3,
+      "min_drill_mm": 0.3,
+      "min_size_mm": 0.6,
+      "min_annular_ring_mm": 0.15
+    },
+    "through_pad_drills": {
+      "through_pad_count": 2,
+      "min_drill_mm": 1.0
+    },
+    "unrouted_net_count": 1
+  }
+}

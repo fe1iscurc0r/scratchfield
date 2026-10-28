@@ -23,7 +23,7 @@ RUN adduser --system --no-create-home appuser \
 EXPOSE 8099
 
 # 环境变量（部署时覆盖）：
-#   TELEMETRY_HMAC_SECRET   - HMAC 签名密钥
+#   TELEMETRY_HMAC_SECRET   - HMAC 签名密钥（★ 必填，源码无默认值；缺失时进程启动即退出）
 #   TELEMETRY_ADMIN_TOKEN   - 管理端 API 鉴权 token
 #   TELEMETRY_DB_PATH       - SQLite 数据库路径
 #   TELEMETRY_ENABLE_DOCS   - 设为 "1" 启用 /docs 页面

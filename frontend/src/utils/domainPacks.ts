@@ -1,3 +1,5 @@
+import API from '@/api/core'
+
 /**
  * 领域包（Domain Pack）前端支持 —— 卷162
  *
@@ -132,7 +134,8 @@ export async function fetchDomainPacks(): Promise<DomainPack[]> {
   domainsLoading.value = true
   domainsError.value = ''
   try {
-    const resp = await fetch('/api/domains', {
+    // 必须用后端绝对基址：dev 下 vite 没有 /api 代理，相对路径会命中 SPA 兜底（返回 index.html）
+      const resp = await fetch(`${API.endpoint}/api/domains`, {
       headers: { Accept: 'application/json' },
     })
     if (!resp.ok)

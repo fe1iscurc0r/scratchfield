@@ -15,13 +15,17 @@ MAX_SPEAKER_SHADOW_CANDIDATE_PCM_BYTES = (
     // 1_000
     * 2
 )
+# Shared process-host ceiling. Activation retains up to eight seconds of
+# continuous PCM, including pauses; legacy shadow keeps its four-second default.
+MAX_SPEAKER_BACKEND_PCM_BYTES = SPEAKER_SHADOW_SAMPLE_RATE_HZ * 8 * 2
 # Lifecycle pre-roll may arrive as one payload, so its per-submit ceiling must
 # match the candidate ceiling. The runtime still truncates to the configured
 # candidate duration before retaining PCM.
 MAX_SPEAKER_SHADOW_FRAME_AUDIO_MS = MAX_SPEAKER_SHADOW_CANDIDATE_AUDIO_MS
 MAX_SPEAKER_SHADOW_FRAME_PCM_BYTES = MAX_SPEAKER_SHADOW_CANDIDATE_PCM_BYTES
 MAX_SPEAKER_SHADOW_THRESHOLDS = 16
-MAX_SPEAKER_SHADOW_QUEUE_CAPACITY = 64
+MAX_SPEAKER_SHADOW_CHECKPOINTS = 16
+MAX_SPEAKER_SHADOW_QUEUE_CAPACITY = 512
 MAX_SPEAKER_SHADOW_BUFFERED_CANDIDATES = 32
 MAX_SPEAKER_SHADOW_FINALIZED_CANDIDATES = 4_096
 # This independent global budget keeps aggregate retained PCM below 8 MiB even
@@ -87,8 +91,12 @@ class SpeakerShadowConfig:
     similarity_thresholds: tuple[float, ...] = (0.40, 0.44, 0.48, 0.52, 0.55)
     minimum_audio_ms: int = 1_500
     maximum_audio_ms: int = 4_000
+    observation_checkpoints_ms: tuple[int, ...] | None = None
     idle_unload_seconds: float = 60.0
-    queue_capacity: int = 32
+    # A four-second candidate can contribute roughly 400 ten-millisecond
+    # frames. Keep them queued while a checkpoint waits on a cold backend;
+    # the independent retained-PCM budget remains the memory authority.
+    queue_capacity: int = MAX_SPEAKER_SHADOW_QUEUE_CAPACITY
     buffered_candidate_capacity: int = 32
     finalized_candidate_capacity: int = 1_024
     load_retry_initial_seconds: float = 5.0
@@ -129,6 +137,27 @@ class SpeakerShadowConfig:
             raise ValueError(
                 "maximum_audio_ms cannot exceed "
                 f"{MAX_SPEAKER_SHADOW_CANDIDATE_AUDIO_MS}"
+            )
+        checkpoints = self.observation_checkpoints_ms
+        if checkpoints is not None and (
+            type(checkpoints) is not tuple
+            or not checkpoints
+            or len(checkpoints) > MAX_SPEAKER_SHADOW_CHECKPOINTS
+            or any(
+                type(checkpoint) is not int
+                or checkpoint < self.minimum_audio_ms
+                or checkpoint > self.maximum_audio_ms
+                for checkpoint in checkpoints
+            )
+            or any(
+                left >= right
+                for left, right in zip(checkpoints, checkpoints[1:])
+            )
+        ):
+            raise ValueError(
+                "observation_checkpoints_ms must contain at most "
+                f"{MAX_SPEAKER_SHADOW_CHECKPOINTS} unique, increasing integer "
+                "values within [minimum_audio_ms, maximum_audio_ms]"
             )
         if not math.isfinite(self.idle_unload_seconds) or self.idle_unload_seconds <= 0:
             raise ValueError("idle_unload_seconds must be positive")
@@ -212,6 +241,7 @@ class SpeakerShadowObservation:
     similarity: float
     would_block: tuple[tuple[float, bool], ...]
     audio_ms: int
+    checkpoint_ms: int | None = None
 
 
 ObservationCallback = Callable[

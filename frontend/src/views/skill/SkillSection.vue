@@ -82,7 +82,6 @@ async function deleteScopedSkill(skill: SkillCatalogItem) {
   }
 }
 
-
 const installedSkills = computed(() => {
   const merged = [...publicSkills.value, ...localCacheSkills.value]
   return merged.sort((a, b) => {
@@ -102,63 +101,62 @@ const installedSkills = computed(() => {
   })
 })
 
-
 void loadSkillCatalog()
 </script>
 
 <template>
   <section class="workshop-section workshop-section-wide">
-        <div class="section-head">
-          <div>
-            <div class="section-title">Skill</div>
-            <div class="section-meta">
-              通用 Skill。这里管理全局可用的 Skill。启用后，陆墨和多个干员都可以共用。
-            </div>
+    <div class="section-head">
+      <div>
+        <div class="section-title">Skill</div>
+        <div class="section-meta">
+          通用 Skill。这里管理全局可用的 Skill。启用后，陆墨和多个干员都可以共用。
+        </div>
+      </div>
+      <div class="section-actions">
+        <button class="add-btn add-btn-compact" @click="openSkillDialog()">
+          添加 Skill
+        </button>
+      </div>
+    </div>
+
+    <SkeletonCard v-if="skillCatalogLoading" :rows="5" />
+    <template v-else>
+      <div
+        v-for="skill in installedSkills"
+        :key="`${skill.source}:${skill.name}`"
+        class="skill-item min-w-0"
+      >
+        <div class="flex-1 min-w-0 overflow-hidden">
+          <div class="flex items-center gap-2">
+            <div class="font-bold text-sm text-white truncate">{{ skill.name }}</div>
           </div>
-          <div class="section-actions">
-            <button class="add-btn add-btn-compact" @click="openSkillDialog()">
-              添加 Skill
-            </button>
+          <div class="text-xs op-50 truncate">
+            {{ skill.description || '暂无描述' }}
           </div>
         </div>
-
-        <SkeletonCard v-if="skillCatalogLoading" :rows="5" />
-        <template v-else>
-          <div
-            v-for="skill in installedSkills"
-            :key="`${skill.source}:${skill.name}`"
-            class="skill-item min-w-0"
-          >
-            <div class="flex-1 min-w-0 overflow-hidden">
-              <div class="flex items-center gap-2">
-                <div class="font-bold text-sm text-white truncate">{{ skill.name }}</div>
-              </div>
-              <div class="text-xs op-50 truncate">
-                {{ skill.description || '暂无描述' }}
-              </div>
-            </div>
-            <button class="skill-action-btn skill-action-delete" title="删除 Skill" @click="deleteScopedSkill(skill)">
-              删除
-            </button>
-          </div>
-          <EmptyState
-            icon="🛠"
-            title="还没有安装技能"
-            description="从市场安装，或添加本地 SKILL.md"
-            action-label="去市场看看"
-            @action="$router.push('/market')"
-          />
-        </template>
+        <button class="skill-action-btn skill-action-delete" title="删除 Skill" @click="deleteScopedSkill(skill)">
+          删除
+        </button>
+      </div>
+      <EmptyState
+        icon="🛠"
+        title="还没有安装技能"
+        description="从市场安装，或添加本地 SKILL.md"
+        action-label="去市场看看"
+        @action="$router.push('/market')"
+      />
+    </template>
   </section>
 
-    <SkillAddDialog
-      :visible="showSkillDialog"
-      fixed-scope="public"
-      hub-enabled
-      title="添加 Skill"
-      @confirm="onSkillConfirm"
-      @cancel="showSkillDialog = false"
-    />
+  <SkillAddDialog
+    :visible="showSkillDialog"
+    fixed-scope="public"
+    hub-enabled
+    title="添加 Skill"
+    @confirm="onSkillConfirm"
+    @cancel="showSkillDialog = false"
+  />
 </template>
 
 <style scoped>
@@ -190,7 +188,6 @@ void loadSkillCatalog()
   gap: 0.55rem;
   flex-shrink: 0;
 }
-
 
 .add-btn {
   display: flex;

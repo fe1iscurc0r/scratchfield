@@ -21,7 +21,9 @@ except ImportError:
 class AgentServerConfig:
     """Agent服务器全局配置"""
     # 服务器配置
-    host: str = "0.0.0.0"
+    # 默认回环（WO-267 / P0-1）：跨机必须由 NEKO_BIND_HOST 显式给出并通过
+    # system.net_boundary 的启动校验，不能留一份 0.0.0.0 的潜伏默认值。
+    host: str = "127.0.0.1"
     port: int = None
 
     # 日志配置

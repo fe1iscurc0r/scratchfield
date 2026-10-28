@@ -11,21 +11,51 @@
  * 不注入任何 stub（appButtons、appState、lanlan_config 等全由页面自己的 app-*.js 提供）。
  */
 
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, contextBridge } = require('electron');
 // [compact-ball-removed] COMPACT_CHAT_BALL_CHANNELS：compact 悬浮球已停用，整套清理时移除其使用与解构。
 const { WINDOW_CONTROL_CHANNELS, WS_PROXY_CHANNELS, CHAT_CHANNELS, CHAT_ACTION_CHANNELS, JUKEBOX_CHANNELS, PET_CHANNELS, COMPACT_CHAT_BALL_CHANNELS, CHAT_SURFACE_CHANNELS, SUBTITLE_CHANNELS } = require('./ipc-channels');
 const { setupToastOverride, suppressVoiceToast, setupDarkMode, setupElectronShell, setupHostCapabilityBridge, setupTutorialOverlayBridge, setupTutorialLoadingOverlayBridge, setupGoodbyeChatComposerHiddenBridge, setupVoiceConfigSwitchingBridge, setupMusicPlayerBridge, setupSettingsSync, syncSubtitleToggleFromWindow } = require('./preload-common');
 const desktopCompactLayoutTools = require('./desktop-compact-layout');
 
+// 隔离走 contextBridge，非隔离直接挂 window（与 preload-chat.js 同构）
+function exposeToPage(name, value) {
+  if (process.contextIsolated && contextBridge && typeof contextBridge.exposeInMainWorld === 'function') {
+    contextBridge.exposeInMainWorld(name, value);
+  } else {
+    window[name] = value;
+  }
+}
+
+// exposeInMainWorld 的对象形状在暴露那一刻就固定了，之后往实现对象上补挂的方法页面看不到。
+// nekoChatWindow 有 5 个方法要等 DOMContentLoaded 才补挂，所以页面拿到的是这层门面：
+// 方法名全部预留，调用时再从 preload 世界的实现对象取，晚挂/重挂都能命中。
+function exposeLiveFacade(name, methodNames, getImpl) {
+  var facade = {};
+  methodNames.forEach(function (method) {
+    facade[method] = function () {
+      var impl = getImpl();
+      var fn = impl && impl[method];
+      if (typeof fn !== 'function') return undefined;
+      return fn.apply(impl, arguments);
+    };
+  });
+  exposeToPage(name, facade);
+  return facade;
+}
+
 // ===== 1. WebSocket → IPC 代理 =====
-// chat.html 加载了 app-websocket.js，它会 new WebSocket(url)。
-// 在页面脚本运行前替换 window.WebSocket，使其通过 Pet 窗口的 WS 中转，
-// 不建立自己的连接。
+// chat.html 加载了 ws-adapter.js + app-websocket.js，建连点是 `__nekoCreateWebSocket()`。
+// 本 preload 暴露 `nekoWebSocket.create(url)`，页面适配器补回原生语义后所有连接都走
+// Pet 窗口的 WS 中转，不建立自己的连接。
 //
-// 关键设计：IPC 监听注册在 preload 全局作用域（而非 WSProxy 构造函数内），
+// 引擎仍是下面的 WSProxy（不是 websocket-bridge.js 的简化版）：它带着生产上修过的
+// 会话代际过滤与构造前消息缓冲（READY/greeting 早到时不能丢）。桥工厂只把 WSProxy 的
+// Event 对象换成纯 payload —— Event 过 contextBridge 会被克隆成 {isTrusted}，data/code 全丢。
+//
+// 关键设计：IPC 监听注册在 preload 全局作用域（而非页面建连时），
 // 解决竞态问题——Pet 的 WS READY / greeting RAW_MESSAGE 可能在页面 JS
-// 执行 new WebSocket() 之前到达。缓冲区暂存这些早到的消息，
-// WSProxy 构造时一次性重放。
+// 执行 `__nekoCreateWebSocket()` 之前到达。缓冲区暂存这些早到的消息，
+// 页面建连时一次性重放。
 (function setupWSProxy() {
   const _Real = window.WebSocket;
 
@@ -363,7 +393,60 @@ const desktopCompactLayoutTools = require('./desktop-compact-layout');
   WSProxy.prototype.OPEN = _Real.OPEN;
   WSProxy.prototype.CLOSING = _Real.CLOSING;
   WSProxy.prototype.CLOSED = _Real.CLOSED;
-  window.WebSocket = WSProxy;
+
+  // ---- 页面侧桥（WO-278 P1）----
+  // 页面适配器只接受「纯函数 + 纯数据」：create() 返回的句柄成员全是函数，
+  // 回调收到的是 payload（message → 数据本体、close → {code, reason}），
+  // 页面世界由 ws-adapter.js 重建 Event。Event 实例不能过桥，会被克隆成 {isTrusted}。
+  function createPageSocket(url, protocols) {
+    var proxy = new WSProxy(url, protocols);
+    var listeners = Object.create(null);
+
+    function emit(type, payload) {
+      var list = listeners[type];
+      if (!list || !list.length) return;
+      list.slice().forEach(function (fn) {
+        try { fn(payload); } catch (_) {}
+      });
+    }
+
+    proxy.addEventListener('open', function () { emit('open'); });
+    proxy.addEventListener('message', function (event) { emit('message', event && event.data); });
+    proxy.addEventListener('close', function (event) {
+      emit('close', { code: event && event.code, reason: event && event.reason });
+    });
+    proxy.addEventListener('error', function () { emit('error'); });
+
+    return {
+      url: url,
+      protocols: protocols,
+      CONNECTING: _Real.CONNECTING,
+      OPEN: _Real.OPEN,
+      CLOSING: _Real.CLOSING,
+      CLOSED: _Real.CLOSED,
+      send: function (data) { proxy.send(data); },
+      close: function (code, reason) { proxy.close(code, reason); },
+      addEventListener: function (type, fn) {
+        if (typeof fn !== 'function') return;
+        if (!listeners[type]) listeners[type] = [];
+        listeners[type].push(fn);
+      },
+      removeEventListener: function (type, fn) {
+        var list = listeners[type];
+        if (!list) return;
+        listeners[type] = list.filter(function (f) { return f !== fn; });
+      },
+      getReadyState: function () { return proxy.readyState; },
+    };
+  }
+
+  exposeToPage('nekoWebSocket', {
+    create: createPageSocket,
+    CONNECTING: _Real.CONNECTING,
+    OPEN: _Real.OPEN,
+    CLOSING: _Real.CLOSING,
+    CLOSED: _Real.CLOSED,
+  });
 })();
 
 // ===== 2. 窗口管理 =====
@@ -372,7 +455,9 @@ function setCompactChatBallTemporarilyHidden(hidden) {
   ipcRenderer.send(COMPACT_CHAT_BALL_CHANNELS.SET_TEMPORARY_HIDDEN, { hidden: !!hidden });
 }
 
-window.nekoChatWindow = {
+// 实现对象留在 preload 世界，页面拿到的是 exposeLiveFacade 的门面（见上）。
+// preload 内部一律直接用这个变量，不走 window，否则隔离后读到的是页面那份门面。
+var nekoChatWindowImpl = {
   getBounds: () => ipcRenderer.invoke(WINDOW_CONTROL_CHANNELS.GET_BOUNDS),
   getWorkArea: () => ipcRenderer.invoke(WINDOW_CONTROL_CHANNELS.GET_WORKAREA),
   setPosition: (x, y) => ipcRenderer.send(WINDOW_CONTROL_CHANNELS.SET_POSITION, { x, y }),
@@ -397,13 +482,42 @@ window.nekoChatWindow = {
   setCompactChatBallTemporarilyHidden,
 };
 
+exposeLiveFacade('nekoChatWindow', [
+  'getBounds', 'getWorkArea', 'setPosition', 'setSize', 'setBounds', 'setResizable',
+  'bringToFront', 'dragStart', 'dragStop', 'dragStopAndGetBounds',
+  'resizeStart', 'resizeStop', 'collapse', 'expand', 'enableInteraction',
+  'setCompactChatBallTemporarilyHidden',
+  // DOMContentLoaded 的 setupReactChatDomInterceptors 里补挂：
+  'isCollapsed', 'idleDockCollapse', 'idleDockExpand',
+  'idleDockCommitCollapsedBounds', 'ensureExpandedForTutorial',
+], function () { return nekoChatWindowImpl; });
+
 // 多窗口模式标志
-window.__NEKO_MULTI_WINDOW__ = true;
+exposeToPage('__NEKO_MULTI_WINDOW__', true);
+
+// 热键走主进程 executeJavaScript，读的是页面世界，隔离后必须在页面世界可见。
+// 实现要等 DOMContentLoaded 的 setupReactChatDomInterceptors 才挂上来，所以先暴露转发壳；
+// preload 内部只认 impl，避免非隔离时 window 上的壳与实现互相调用成环。
+var nekoFocusReactChatInputFromHotkeyImpl = null;
+exposeToPage('__nekoFocusReactChatInputFromHotkey', function () {
+  if (typeof nekoFocusReactChatInputFromHotkeyImpl === 'function') {
+    return nekoFocusReactChatInputFromHotkeyImpl.apply(null, arguments);
+  }
+  // 与 hotkey-manager.js 里同段兜底保持一致：function 没挂上时直接聚焦输入框
+  var input = document.querySelector('#react-chat-window-shell textarea.composer-input, #react-chat-window-root textarea.composer-input, textarea.composer-input');
+  if (!input || input.disabled || input.readOnly) return false;
+  input.focus({ preventScroll: true });
+  if (typeof input.setSelectionRange === 'function') {
+    var len = input.value ? input.value.length : 0;
+    input.setSelectionRange(len, len);
+  }
+  return true;
+});
 
 // ===== 屏幕捕获源 API（与 Pet 窗口的 preload.js / preload-pet.js 对齐）=====
 // 独立 Chat 窗口原本没有此 API，导致 captureScreenshotToPendingList 走不到
 // 主进程直截路径，只能落回流路径 / pyautogui —— 都不认选中源，总是截主屏。
-window.electronDesktopCapturer = {
+var electronDesktopCapturerApi = {
   getSources: (options = {}) => ipcRenderer.invoke('get-desktop-sources', options),
   setSelectedSource: (sourceId) => ipcRenderer.invoke('set-selected-screen-source', sourceId || null),
   captureSourceAsDataUrl: (sourceId) => ipcRenderer.invoke('capture-source-as-dataurl', sourceId),
@@ -411,23 +525,24 @@ window.electronDesktopCapturer = {
   hideNekoWindows: () => ipcRenderer.invoke('hide-neko-windows'),
   restoreNekoWindows: (hiddenIds) => ipcRenderer.invoke('restore-neko-windows', hiddenIds),
 };
+exposeToPage('electronDesktopCapturer', electronDesktopCapturerApi);
 
 // ===== 截图代理（多窗口模式下让 Pet 窗口代为全屏截图裁剪）=====
-window.nekoScreenshotProxy = {
+exposeToPage('nekoScreenshotProxy', {
   request: () => ipcRenderer.send(CHAT_CHANNELS.REQUEST_SCREENSHOT)
-};
+});
 ipcRenderer.on(CHAT_CHANNELS.SCREENSHOT_RESULT, (event, result) => {
   window.dispatchEvent(new CustomEvent('neko:screenshot-result', { detail: result || {} }));
 });
 
-window.nekoSubtitleWindow = {
+exposeToPage('nekoSubtitleWindow', {
   setEnabled: (enabled) => ipcRenderer.send(SUBTITLE_CHANNELS.SETTINGS_CHANGE, {
     type: 'toggle',
     value: !!enabled,
   }),
   show: () => ipcRenderer.send('neko:show-subtitle'),
   hide: () => ipcRenderer.send('neko:hide-subtitle'),
-};
+});
 
 // ===== 3. Toast / 暗色模式 / 外部链接 / 设置同步 =====
 setupToastOverride();
@@ -448,9 +563,9 @@ ipcRenderer.on(SUBTITLE_CHANNELS.SETTINGS_CHANGE, function (_event, data) {
 });
 
 // ===== Jukebox 独立窗口：直接发给主进程 =====
-window.__nekoJukeboxToggle = function() {
+exposeToPage('__nekoJukeboxToggle', function() {
   ipcRenderer.send(JUKEBOX_CHANNELS.TOGGLE);
-};
+});
 
 function forwardAvatarToolStateToPet(detail) {
   var payload = detail && typeof detail === 'object' ? detail : {
@@ -659,8 +774,8 @@ function requestAvatarToolVisualCursorLayerRaise(reason) {
   if (now - avatarToolVisualCursorRaiseAt < 500) return;
   avatarToolVisualCursorRaiseAt = now;
   try {
-    if (window.nekoChatWindow && typeof window.nekoChatWindow.bringToFront === 'function') {
-      window.nekoChatWindow.bringToFront({ reason: reason || 'avatar-tool-cursor' });
+    if (nekoChatWindowImpl && typeof nekoChatWindowImpl.bringToFront === 'function') {
+      nekoChatWindowImpl.bringToFront({ reason: reason || 'avatar-tool-cursor' });
     }
   } catch (_) {}
 }
@@ -934,10 +1049,11 @@ ipcRenderer.on(CHAT_ACTION_CHANNELS.CONFIG_RESULT, (_event, data) => {
   window.__nekoInjectedConfig = data || {};
   window.dispatchEvent(new CustomEvent('neko:config-injected', { detail: data }));
 });
-window.__nekoRequestConfigInjection = function() {
+function requestConfigInjection() {
   ipcRenderer.send(CHAT_ACTION_CHANNELS.CONFIG_REQUEST);
-};
-window.__nekoRequestConfigInjection();
+}
+exposeToPage('__nekoRequestConfigInjection', requestConfigInjection);
+requestConfigInjection();
 
 // ===== 5. 从 Pet 窗口获取初始头像 =====
 ipcRenderer.on(CHAT_ACTION_CHANNELS.AVATAR_PREVIEW_RESULT, (_event, data) => {
@@ -951,9 +1067,9 @@ ipcRenderer.on(CHAT_ACTION_CHANNELS.AVATAR_PREVIEW_RESULT, (_event, data) => {
 });
 
 // 暴露给页面 JS：触发一次从 Pet 窗口的头像截取
-window.__nekoRequestAvatarPreview = function() {
+exposeToPage('__nekoRequestAvatarPreview', function() {
   ipcRenderer.send(CHAT_ACTION_CHANNELS.AVATAR_PREVIEW);
-};
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
@@ -984,7 +1100,7 @@ var reactChatDomInterceptorsInitialized = false;
 function setupReactChatDomInterceptors() {
   if (reactChatDomInterceptorsInitialized) return;
   reactChatDomInterceptorsInitialized = true;
-  var W = window.nekoChatWindow;
+  var W = nekoChatWindowImpl;
   var WIN_SIZE = 88;   // 折叠窗口物理尺寸（给放大的 yarn ball 保留点击余量）
   var BALL_SIZE = 58;  // 72px 缩小 20%
   var BALL_DOWN_OFFSET = 14;
@@ -6610,11 +6726,11 @@ function setupReactChatDomInterceptors() {
     }, 32); });
   }
 
-  window.nekoChatWindow.isCollapsed = function () {
+  nekoChatWindowImpl.isCollapsed = function () {
     return !!eMinimized;
   };
 
-  window.nekoChatWindow.idleDockCollapse = function () {
+  nekoChatWindowImpl.idleDockCollapse = function () {
     if (isSurfaceActionLocked()) return Promise.resolve(false);
     if (eMinimized) {
       var waylandSelfBallAnchor = getDesktopCompactWaylandSelfBallAnchorBounds();
@@ -6709,7 +6825,7 @@ function setupReactChatDomInterceptors() {
       });
   };
 
-  window.nekoChatWindow.idleDockExpand = function (savedBounds) {
+  nekoChatWindowImpl.idleDockExpand = function (savedBounds) {
     if (isSurfaceActionLocked()) return Promise.resolve(false);
     var target = normalizeExpandBounds(savedBounds) || loadExpandBounds();
     if (!target) return Promise.resolve(false);
@@ -6759,7 +6875,7 @@ function setupReactChatDomInterceptors() {
     });
   }
 
-  window.nekoChatWindow.idleDockCommitCollapsedBounds = function (bounds) {
+  nekoChatWindowImpl.idleDockCommitCollapsedBounds = function (bounds) {
     if (eBusy) return Promise.resolve(false);
     var target = normalizeCollapsedBounds(bounds);
     var shell = document.getElementById('react-chat-window-shell');
@@ -6819,7 +6935,7 @@ function setupReactChatDomInterceptors() {
     return focusComposerInputElement(input);
   }
 
-  window.__nekoFocusReactChatInputFromHotkey = function () {
+  nekoFocusReactChatInputFromHotkeyImpl = function () {
     if (eMinimized) {
       if (isSurfaceActionLocked()) {
         return true;
@@ -6869,7 +6985,7 @@ function setupReactChatDomInterceptors() {
     setTimeout(checkTutorialExpandAfterBusy, TUTORIAL_EXPAND_BUSY_POLL_MS);
   }
 
-  window.nekoChatWindow.ensureExpandedForTutorial = function () {
+  nekoChatWindowImpl.ensureExpandedForTutorial = function () {
     if (eMinimized) {
       doExpand();
       return true;

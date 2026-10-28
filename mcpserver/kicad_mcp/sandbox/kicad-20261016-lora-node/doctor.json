@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "tool": "doctor",
+  "module": "mcpserver.kicad_mcp",
+  "external_deps": [],
+  "requires_kicad": false,
+  "can": [
+    "读 .kicad_pcb / .kicad_sch（KiCAD 6+ 的 mm 口径）",
+    "板子结构统计（层栈/板框/元件/焊盘/网络/走线/过孔）",
+    "原理图↔PCB 器件对账（引用号/值/封装）",
+    "嘉立创制造前预检（线宽/孔径/环宽/层数/尺寸/板厚）",
+    "上游能力地图检索（17 类别 / 184 已索引工具）"
+  ],
+  "cannot": [
+    "**写**回 .kicad_pcb/.kicad_sch（需要 UUID/实例路径完整语义，属上游工具链）",
+    "生成 Gerber/钻孔/坐标文件（需要 KiCAD 的 kicad-cli，本机未装）",
+    "跑真实 DRC/ERC（同上）",
+    "自动布线（上游走 Freerouting，需 Java/Docker）"
+  ],
+  "notes": [
+    "本模块是**离线读取核**，与上游 KiCAD-MCP-Server 是互补关系：上游要 KiCAD 运行时，本模块零依赖但只读。",
+    "序列化（sexpr.dumps）是**结构等价**，不保证与 KiCAD 自己的排版逐字节一致。"
+  ]
+}

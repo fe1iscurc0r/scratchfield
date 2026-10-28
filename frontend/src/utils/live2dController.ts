@@ -662,6 +662,29 @@ export function updateTracking(x: number, y: number) {
   trackTargetY = y
 }
 
+/**
+ * 幂等地包装 model.update（2026-10-21 修）。
+ *
+ * 原实现每次 `initController()` 都 `originalUpdate = model.update.bind(model)`；
+ * 当 init 被重复调用（热重载 / 组件重建 / 双实例）时，第二次绑到的是**上一次的 wrapper**，
+ * wrapper 内部再调 originalUpdate ⇒ 自我递归 ⇒
+ * `RangeError: Maximum call stack size exceeded` ⇒ 整页白屏（实测）。
+ */
+function patchModelUpdate(target: Live2DModel) {
+  const patched = target as Live2DModel & { __lumoCtrlPatched?: boolean }
+  if (patched.__lumoCtrlPatched) {
+    console.log('[Live2D] update already patched, skip re-patch')
+    return
+  }
+  originalUpdate = target.update.bind(target)
+  target.update = function (dt: number) {
+    const now = performance.now()
+    originalUpdate!(dt)
+    tick(now)
+  }
+  patched.__lumoCtrlPatched = true
+}
+
 export async function initController(modelInstance: Live2DModel, modelSource: string) {
   model = modelInstance
 
@@ -686,29 +709,22 @@ export async function initController(modelInstance: Live2DModel, modelSource: st
       await loadExpressions(basePath, modelSource, cacheBust)
     }
 
-    originalUpdate = model.update.bind(model)
-    model.update = function (dt: number) {
-      const now = performance.now()
-      originalUpdate!(dt)
-      tick(now)
-    }
+    patchModelUpdate(model)
     console.log('[Live2D] Controller initialized for:', modelSource)
   }
   catch (e) {
     actionsData = null
-    originalUpdate = model.update.bind(model)
-    model.update = function (dt: number) {
-      const now = performance.now()
-      originalUpdate!(dt)
-      tick(now)
-    }
+    patchModelUpdate(model)
     console.warn('[Live2D] Controller assets unavailable during startup, using degraded mode:', e)
   }
 }
 
 export function destroyController() {
-  if (model && originalUpdate) {
-    model.update = originalUpdate
+  if (model) {
+    if (originalUpdate) {
+      model.update = originalUpdate
+    }
+    delete (model as Live2DModel & { __lumoCtrlPatched?: boolean }).__lumoCtrlPatched
   }
   model = null
   actionsData = null

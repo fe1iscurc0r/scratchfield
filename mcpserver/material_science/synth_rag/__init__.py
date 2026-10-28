@@ -6,10 +6,16 @@
 3. validator.validate  物理校验（规则表，非 LLM）
 4. cli                  add / search / validate / seed 子命令
 5. example_data         5 条木质素示例路线（is_example，来源标注待收集）
+6. inspiration          灵感素材池检索（工单 237：索引层，词元重合，不判定真伪）
 
 数据库默认 %APPDATA%/Lumo/synth_rag/routes.db（LUMO_SYNTHRAG_DB 可覆盖）。
 硬约束：只做旁路，不触碰 graphrag 主流程；示例数据非科研引用依据。
 """
-from . import example_data, retrieve, schema, store, validator
+from . import example_data, inspiration, retrieve, schema, store, validator
+from .inspiration import available_themes, search_inspiration
+from .store import load_inspiration_pool
 
-__all__ = ["schema", "store", "retrieve", "validator", "example_data"]
+__all__ = [
+    "schema", "store", "retrieve", "validator", "example_data", "inspiration",
+    "load_inspiration_pool", "search_inspiration", "available_themes",
+]

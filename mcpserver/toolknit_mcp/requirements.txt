@@ -1,0 +1,91 @@
+# toolknit_mcp 依赖（工单244；244b 补 `pdf_text` 的唯一例外说明）
+
+**CLI 驱动层（`__init__` / `workspace` / `tools` / `server`）Python 侧零第三方运行时依赖。**
+这是刻意的，且理由与工单字面表述不同，故说明。**唯一例外是 `pdf_text.py`**（见下）。
+
+## Python 依赖：无（CLI 驱动层）
+
+- `workspace.py` 只用 `os` / `re` / `pathlib`
+- `tools.py` 只用 `json` / `os` / `shutil` / `subprocess` / `tempfile` / `time` /
+  `uuid` / `zipfile`（`renderer_probe` 用 `zipfile` 现场打包一个 1 页 PPTX 做探测载荷）
+- `server.py` 只用 `argparse` / `asyncio` / `json` / `logging` / `time`
+- `pdf_text.py` **顶层**只用标准库；第三方（引擎）一律**函数体内惰性导入**
+
+## `pdf_text.py` 的可选引擎（244b 新增）
+
+`pdf_text` 不经 toolknit CLI（上游没有 PDF 文本提取），而是按 `pypdf → pymupdf → adapter`
+顺序惰性导入仓内可用的引擎。**三级全缺时返回 `ENGINE_UNAVAILABLE`，不返回空文本冒充成功。**
+
+| 引擎 | 安装 | 特点 | 仓库 venv（真运行时） | 托管 venv（244b 验证环境） |
+|---|---|---|---|---|
+| `pypdf` | `pip install pypdf` | 纯 Python、最轻；逐页提取 ⇒ **天然带页码** | ✅ 6.19.0 | ✅ 6.16.1 |
+| `pymupdf` | `pip install pymupdf` | 原生库；`layout=True` 时给**行级 bbox**（页码位置） | ❌ 未装 | ✅ 1.28.2 |
+| `docling-slim[standard]` / `markitdown` | 见根 `pyproject.toml` 的 `pdf2md` extra | OCR + 表格，质量最高；**只给整篇 markdown ⇒ 丢页码** | docling 2.130.0 + markitdown 0.1.8（**docling 模型快照损坏，实际走 markitdown 降级**） | ❌ 未装 |
+
+⚠️ **第三级的可用性取决于「哪个解释器在跑」**（244e 复核纠正 244b 的表述）：
+244b 当时查的是托管 venv ⇒ 写「第三级不可用」；实测**仓库自己的 venv 里早就装着**
+`pdf2md` extra ⇒ 真运行时 `available_chain = ['pypdf', 'adapter']`。
+两边都至少两级可用，只是级别不同。现场判断用 `list_tools()` 的 `pdf_text_engines`。
+
+`docling` / `markitdown` 属于根项目的 `pdf2md` extra，**本模块不把它们写进依赖**——
+它们由 `mcpserver/adapters/pdf2md_adapter` 拥有，本模块只按需按文件路径加载调用。
+
+## ⚠️ 工单 §2 任务一.2 要求「加 `mcp` 与 `@toolknit/cli`」——两条都不能照字面做
+
+1. **`@toolknit/cli` 是 npm 包，不是 Python 包**（PyPI 上 `toolknit-cli` / `toolknit`
+   均 404）。它由 `npx -y @toolknit/cli@<ver>` 按需拉起，**不能**出现在 Python 依赖里。
+   本模块对它的「依赖声明」在 `agent-manifest.json` 的 `requires.external_binaries`。
+
+2. **`mcp` Python SDK 在本仓并不使用**：实测根 `requirements.txt` 不含 `mcp`，
+   且 `mcpserver/AGENTS.md` 明载本仓原生范式是「子模块 + `agent-manifest.json` +
+   `handle_handoff` 契约」（`ALLOWED_MODULE_PREFIXES = ["mcpserver.", "vendor."]`）。
+   工单要的**实质**是「Python server 用 subprocess 驱动 npm CLI」——本模块完全满足
+   （见 `tools.run_cli`），只是接线走仓内既有契约，不另引一个用不上的 SDK 依赖。
+
+如果将来确实需要独立以 stdio 方式对外提供 MCP（而非接入本仓注册中心），
+再在此按 PEP 508 增加 `mcp>=1.0` 并说明用途；**不要**为了对齐工单字面而先加空依赖。
+
+## 外部依赖（非 Python）
+
+| 依赖 | 必需性 | 实测状态（2026-10-15，244b 复核） |
+|---|---|---|
+| Node.js ≥ 20.12.0 | **必需** | v22.22.2 ✅ |
+| `npx` / `npm` | **必需** | 10.9.7 ✅ |
+| npm registry 可达 | 首次冷启动必需 | ✅（首拉 `@toolknit/cli@2.3.1`） |
+| qpdf | 随 npm 包自带 | ✅ `<npx 缓存>/node_modules/@toolknit/cli/vendor/qpdf/qpdf.exe` |
+| LibreOffice | **仅 `ppt_to_pdf` 需要** | ✅ 26.8.1.1（`%ProgramFiles%\LibreOffice\program\soffice.com`） |
+| ffmpeg | 白名单工具**均不需要**（只影响 `doctor` 的 ok/rc） | ⚠️ 已装 9.0.2，但**必须用 `TOOLKNIT_FFMPEG_PATH` 指向真实文件**（见下） |
+
+### ffmpeg 实测坑（244b，务必先读）
+
+`@toolknit/cli` 找 ffmpeg **只认三处**，且**拒绝符号链接**
+（源码 `lib/ffmpeg-runtime.mjs::resolveFfmpeg`，`lstat().isSymbolicLink()` 为真即拒）：
+
+1. `%APPDATA%\ToolKnit\ffmpeg\ffmpeg.exe`（桌面端托管目录）
+2. `<包内>/vendor/ffmpeg/ffmpeg.exe`
+3. 环境变量 `TOOLKNIT_FFMPEG_PATH`（要求是**普通文件**）
+
+**PATH 上的 `ffmpeg` 不算**——它最后才退化成裸命令交给 `spawn(shell:false)`，
+而 winget 在本机创建的 `%LOCALAPPDATA%\Microsoft\WinGet\Links\ffmpeg.exe`
+是**0 字节填充文件**（符号链接创建失败，未开开发者模式 / 无管理员权限）
+⇒ Node `spawn` 报 `EFTYPE` ⇒ `available=false`。
+
+⇒ 本机处置：用户级环境变量 `TOOLKNIT_FFMPEG_PATH` 指向 winget 装出来的**真实二进制**，
+`doctor` 随即由 `ok=false / rc=5` 变为 `ok=true / rc=0 / missing=[]`。
+
+```
+# 无第三方 Python 依赖（本行为占位，便于工具识别；请勿在此添加包名）
+# pdf_text 的可选引擎见上文表格 —— 它们是「按需安装」，不是本模块的硬依赖
+```
+
+## 环境变量（全部可选）
+
+| 变量 | 作用 | 默认 |
+|---|---|---|
+| `TOOLKNIT_WORKSPACE_ROOT` | 工作区根 | `<仓库根>/research` |
+| `TOOLKNIT_CLI_VERSION` | 覆盖钉死版本 | `2.3.1` |
+| `TOOLKNIT_LIBREOFFICE_PATH` | 指定 `soffice.com` / `soffice.exe` | 空（走 CLI 自动发现） |
+| `TOOLKNIT_LOG_PATH` | 覆盖 JSONL 日志路径 | `<工作区>/toolknit-logs/toolknit-calls.jsonl` |
+| `TOOLKNIT_FFMPEG_PATH` | 指向**真实** ffmpeg 可执行文件（见上文坑） | 空 |
+| `TOOLKNIT_PDF_ENGINE` | `pdf_text` 的默认引擎（`auto`/`pypdf`/`pymupdf`/`adapter`） | `auto` |
+| `TOOLKNIT_NO_PATH_FALLBACK` | 设 `1` 关掉「长输出路径自动降级重试」 | 空（即开启降级） |

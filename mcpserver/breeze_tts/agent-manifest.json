@@ -1,0 +1,47 @@
+{
+  "name": "breeze_tts",
+  "display_name": "Breeze TTS 2",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Breeze TTS 2 引擎的 MCP 封装（本单只做接口与情绪标记解析，不含推理实现）",
+  "tools": [
+    {
+      "name": "breeze_synthesize",
+      "description": "把带情绪标记的文本合成为语音（占位实现；权重需通过 BREEZE_TTS_MODEL_DIR 提供）",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "voice_id": {
+            "type": "string"
+          },
+          "speed": {
+            "type": "number",
+            "default": 1.0
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "breeze_list_voices",
+      "description": "列出可用音色（本单返回空列表，不伪造）",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "breeze_health",
+      "description": "引擎健康检查（是否已配置权重目录）",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

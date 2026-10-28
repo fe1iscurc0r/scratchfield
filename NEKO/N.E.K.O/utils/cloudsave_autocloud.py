@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -275,6 +276,7 @@ class CloudSaveManager:
         manifest_fingerprint = str(manifest.get("fingerprint") or "")
         snapshot_sequence_number = int(manifest.get("sequence_number") or 0)
         snapshot_exported_at_utc = str(manifest.get("exported_at_utc") or "")
+        snapshot_kind = str(manifest.get("snapshot_kind") or "")
         last_applied_manifest_fingerprint = str(cloud_state.get("last_applied_manifest_fingerprint") or "")
         runtime_has_user_content = runtime_root_has_user_content(
             self.config_manager.app_docs_dir,
@@ -317,6 +319,7 @@ class CloudSaveManager:
             "has_snapshot": has_snapshot,
             "snapshot_sequence_number": snapshot_sequence_number,
             "snapshot_exported_at_utc": snapshot_exported_at_utc,
+            "snapshot_kind": snapshot_kind,
             "manifest_fingerprint": manifest_fingerprint,
             "last_applied_manifest_fingerprint": last_applied_manifest_fingerprint,
             "startup_import_required": startup_import_required,
@@ -346,7 +349,14 @@ class CloudSaveManager:
         steamworks=None,
         deadline_monotonic: float | None = None,
         fence_already_active: bool = False,
+        on_characters_removed: Callable[..., Any]
+        | None = None,
     ) -> dict[str, Any]:
+        """Download the remote bundle and import the snapshot when startup needs it.
+
+        ``on_characters_removed`` is handed to
+        :func:`import_local_cloudsave_snapshot` (see there).
+        """
         if is_cloudsave_disabled():
             return _build_cloudsave_disabled_action_result(
                 self.config_manager,
@@ -384,10 +394,14 @@ class CloudSaveManager:
             if reason_code == "manual_download_required":
                 result_payload["hint"] = _build_manual_download_hint(status)
             return result_payload
+        import_kwargs: dict[str, Any] = {}
+        if on_characters_removed is not None:
+            import_kwargs["on_characters_removed"] = on_characters_removed
         result = import_local_cloudsave_snapshot(
             self.config_manager,
             deadline_monotonic=deadline_monotonic,
             use_cloud_apply_fence=not fence_already_active,
+            **import_kwargs,
         )
         return {
             "success": True,

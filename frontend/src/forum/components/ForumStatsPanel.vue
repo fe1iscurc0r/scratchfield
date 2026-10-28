@@ -14,7 +14,8 @@ const router = useRouter()
 
 const quotaPercent = computed(() => {
   const q = props.profile?.quota
-  if (!q || q.dailyBudget === 0) return 0
+  if (!q || q.dailyBudget === 0)
+    return 0
   const remaining = Math.max(0, q.dailyBudget - q.usedToday)
   return Math.round((remaining / q.dailyBudget) * 100)
 })
@@ -24,98 +25,98 @@ const hasUnread = computed(() => (props.profile?.unreadCount ?? 0) > 0)
 
 <template>
   <div>
-      <div class="sep" />
+    <div class="sep" />
 
-      <div class="section-label">活动概览</div>
-      <div class="flex flex-col gap-0.5">
-        <button class="stat-btn" @click="router.push('/forum/my-posts')">
-          <span class="flex items-center gap-1.5">
-            <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
-            发帖
-          </span>
-          <span class="stat-num">
-            {{ profile.stats?.posts ?? 0 }}
-            <svg class="w-3 h-3 text-white/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
-          </span>
-        </button>
-
-        <button class="stat-btn" @click="router.push('/forum/my-replies')">
-          <span class="flex items-center gap-1.5">
-            <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-            回帖
-          </span>
-          <span class="stat-num">
-            {{ profile.stats?.replies ?? 0 }}
-            <svg class="w-3 h-3 text-white/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
-          </span>
-        </button>
-
-        <button class="stat-btn" @click="router.push('/forum/messages')">
-          <span class="flex items-center gap-1.5">
-            <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-            收信
-          </span>
-          <span class="stat-num">
-            {{ profile.stats?.messages ?? 0 }}
-            <span v-if="hasUnread" class="unread-dot" />
-            <svg class="w-3 h-3 text-white/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
-          </span>
-        </button>
-
-        <button class="stat-btn" @click="router.push('/forum/friends')">
-          <span class="flex items-center gap-1.5">
-            <svg class="w-3 h-3 text-#d4af37/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-            好友
-          </span>
-          <span class="stat-num">
-            {{ profile.stats?.friends ?? 0 }}
-            <svg class="w-3 h-3 text-white/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
-          </span>
-        </button>
-
-        <div class="stat-row">
-          <span class="flex items-center gap-1.5">
-            <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
-            获赞
-          </span>
-          <span class="stat-num">{{ profile.stats?.likes ?? 0 }}</span>
-        </div>
-
-        <div class="stat-row">
-          <span class="flex items-center gap-1.5">
-            <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17l9.2-9.2M17 17V7H7" /></svg>
-            转发
-          </span>
-          <span class="stat-num">{{ profile.stats?.shares ?? 0 }}</span>
-        </div>
-      </div>
-
-      <div class="sep" />
-
-      <div class="section-label">今日流量</div>
-      <template v-if="profile.quota">
-        <div class="progress-bar mb-1">
-          <div
-            class="progress-fill"
-            :class="{ low: quotaPercent < 20 }"
-            :style="{ width: `${quotaPercent}%` }"
-          />
-        </div>
-        <div class="flex justify-between text-[10px] text-white/30 mb-2">
-          <span>{{ profile.quota.usedToday }} / {{ profile.quota.dailyBudget }}</span>
-          <span>{{ quotaPercent }}%</span>
-        </div>
-      </template>
-      <div v-else class="text-white/20 text-[10px] mb-2">暂无配额数据</div>
-      <button class="quota-nav-btn" @click="router.push('/forum/quota')">
-        网络探索
+    <div class="section-label">活动概览</div>
+    <div class="flex flex-col gap-0.5">
+      <button class="stat-btn" @click="router.push('/forum/my-posts')">
+        <span class="flex items-center gap-1.5">
+          <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+          发帖
+        </span>
+        <span class="stat-num">
+          {{ profile.stats?.posts ?? 0 }}
+          <svg class="w-3 h-3 text-white/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
+        </span>
       </button>
 
-      <div class="sep" />
+      <button class="stat-btn" @click="router.push('/forum/my-replies')">
+        <span class="flex items-center gap-1.5">
+          <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+          回帖
+        </span>
+        <span class="stat-num">
+          {{ profile.stats?.replies ?? 0 }}
+          <svg class="w-3 h-3 text-white/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
+        </span>
+      </button>
 
-      <div class="text-white/20 text-[10px] text-center">
-        注册于 {{ new Date(profile.createdAt).getFullYear() }}/{{ new Date(profile.createdAt).getMonth() + 1 }}
+      <button class="stat-btn" @click="router.push('/forum/messages')">
+        <span class="flex items-center gap-1.5">
+          <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+          收信
+        </span>
+        <span class="stat-num">
+          {{ profile.stats?.messages ?? 0 }}
+          <span v-if="hasUnread" class="unread-dot" />
+          <svg class="w-3 h-3 text-white/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
+        </span>
+      </button>
+
+      <button class="stat-btn" @click="router.push('/forum/friends')">
+        <span class="flex items-center gap-1.5">
+          <svg class="w-3 h-3 text-#d4af37/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          好友
+        </span>
+        <span class="stat-num">
+          {{ profile.stats?.friends ?? 0 }}
+          <svg class="w-3 h-3 text-white/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
+        </span>
+      </button>
+
+      <div class="stat-row">
+        <span class="flex items-center gap-1.5">
+          <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
+          获赞
+        </span>
+        <span class="stat-num">{{ profile.stats?.likes ?? 0 }}</span>
       </div>
+
+      <div class="stat-row">
+        <span class="flex items-center gap-1.5">
+          <svg class="w-3 h-3 text-#d4af37/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17l9.2-9.2M17 17V7H7" /></svg>
+          转发
+        </span>
+        <span class="stat-num">{{ profile.stats?.shares ?? 0 }}</span>
+      </div>
+    </div>
+
+    <div class="sep" />
+
+    <div class="section-label">今日流量</div>
+    <template v-if="profile.quota">
+      <div class="progress-bar mb-1">
+        <div
+          class="progress-fill"
+          :class="{ low: quotaPercent < 20 }"
+          :style="{ width: `${quotaPercent}%` }"
+        />
+      </div>
+      <div class="flex justify-between text-[10px] text-white/30 mb-2">
+        <span>{{ profile.quota.usedToday }} / {{ profile.quota.dailyBudget }}</span>
+        <span>{{ quotaPercent }}%</span>
+      </div>
+    </template>
+    <div v-else class="text-white/20 text-[10px] mb-2">暂无配额数据</div>
+    <button class="quota-nav-btn" @click="router.push('/forum/quota')">
+      网络探索
+    </button>
+
+    <div class="sep" />
+
+    <div class="text-white/20 text-[10px] text-center">
+      注册于 {{ new Date(profile.createdAt).getFullYear() }}/{{ new Date(profile.createdAt).getMonth() + 1 }}
+    </div>
   </div>
 </template>
 
@@ -214,5 +215,4 @@ const hasUnread = computed(() => (props.profile?.unreadCount ?? 0) > 0)
   background: rgba(212, 175, 55, 0.2);
   border-color: rgba(212, 175, 55, 0.5);
 }
-
 </style>

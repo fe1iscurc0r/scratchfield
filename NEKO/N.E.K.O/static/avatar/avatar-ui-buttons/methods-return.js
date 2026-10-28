@@ -141,7 +141,8 @@ Object.assign(AvatarButtonMixin.methods, {
 
             const returnArt = document.createElement('img');
             returnArt.className = 'neko-idle-return-art';
-            returnArt.src = _getNekoIdleReturnAssetUrl(currentTier);
+            const initialReturnArtUrl = _getNekoIdleReturnAssetUrl(currentTier);
+            if (initialReturnArtUrl) returnArt.src = initialReturnArtUrl;
             returnArt.alt = window.t ? window.t('buttons.return') : '请她回来';
             returnArt.draggable = false;
             Object.assign(returnArt.style, {
@@ -205,6 +206,23 @@ Object.assign(AvatarButtonMixin.methods, {
                     return;
                 }
                 e.stopPropagation();
+                const desktopInteractions = window.NekoDesktopWindowInteractions;
+                if (desktopInteractions && typeof desktopInteractions.cancel === 'function') {
+                    desktopInteractions.cancel(returnBtn, {
+                        reason: 'return-click',
+                        restoreArt: false
+                    });
+                } else {
+                    [window.NekoDesktopWindowTopEdgePerch, window.NekoDesktopWindowEdgePeek].forEach((runner) => {
+                        if (runner && typeof runner.cancel === 'function') {
+                            runner.cancel(returnBtn, {
+                                reason: 'return-click',
+                                restoreArt: false
+                            });
+                        }
+                    });
+                }
+                window.NekoDesktopWindowGravity?.cancel(returnBtn);
                 _clearNekoIdleCat1QuestionMark(returnBtn);
                 _cancelNekoIdleCat1EatAction(returnBtn, { restoreArt: false });
                 _cancelNekoIdleCat1StretchAction(returnBtn, { restoreArt: false });
@@ -265,7 +283,11 @@ Object.assign(AvatarButtonMixin.methods, {
             document.body.appendChild(returnButtonContainer);
             this._returnButtonContainer = returnButtonContainer;
             _applyNekoIdleReturnPresentation(returnBtn, currentTier);
-            if (!window.__NEKO_MULTI_WINDOW__ || _isNekoNativeReturnBallDragDisabled()) {
+            // Windows cats can switch to continuous DOM dragging after creation
+            // (including a ball -> cat appearance change). Register that path up
+            // front; the native capture listener still owns ordinary ball drags.
+            if (!window.__NEKO_MULTI_WINDOW__ || _isNekoNativeReturnBallDragDisabled()
+                || window.__NEKO_DESKTOP_RUNTIME__?.platform === 'win32') {
                 this._setupReturnButtonDrag(returnButtonContainer);
             }
 
@@ -665,6 +687,7 @@ Object.assign(AvatarButtonMixin.methods, {
                     const dispatchTop = parseFloat(container.style.top);
                     _dispatchNekoIdleReturnBallManualMove(container, 'return-ball-drag-end', {
                         dragSessionId: safetyToken,
+                        releasedAt: Number.isFinite(dragActivity.releasedAt) ? dragActivity.releasedAt : Date.now(),
                         movedDistancePx: Math.hypot(
                             (Number.isFinite(dispatchLeft) ? dispatchLeft : containerStartX) - containerStartX,
                             (Number.isFinite(dispatchTop) ? dispatchTop : containerStartY) - containerStartY
@@ -866,10 +889,23 @@ Object.assign(AvatarButtonMixin.methods, {
                 scheduleDragCursorPollFrame();
             };
 
+            const isEdgePeekLockedForDrag = (button, containerNode = container) => {
+                const controller = typeof window !== 'undefined' ? window.NekoEdgePeekController : null;
+                if (controller && typeof controller.shouldBlockReturnBallDrag === 'function' && controller.shouldBlockReturnBallDrag(button, containerNode)) return true;
+                if (containerNode && containerNode.getAttribute('data-edge-peek-locked') === 'true') return true;
+                if (typeof window !== 'undefined' && window.edgePeekLockEnabled === true) {
+                    if (typeof _isNekoIdleCat1EdgePeekActive === 'function' && _isNekoIdleCat1EdgePeekActive(button)) return true;
+                    const runners = [window.NekoDesktopWindowEdgePeek, window.NekoDesktopWindowTopEdgePerch];
+                    if (runners.some((runner) => runner && typeof runner.isLocked === 'function' && runner.isLocked())) return true;
+                }
+                return false;
+            };
+
             const handleStart = (clientX, clientY, pointerType = 'mouse', sourceEvent = null, startPoint = null) => {
                 if (isDragging) return;
                 const button = _getNekoIdleReturnButtonFromContainer(container);
                 if (_isNekoIdleCat1PlaygroundEntryOrDropActive(button)) return;
+                if (isEdgePeekLockedForDrag(button)) return;
                 clearDragSafetyTimer();
                 stopDragCursorPolling();
                 clearDragReleasePending();
@@ -894,8 +930,15 @@ Object.assign(AvatarButtonMixin.methods, {
                 dragSafetyToken = safetyToken;
                 startDragActivity(safetyToken, rect.left, rect.top);
                 _restoreNekoIdleCat1EdgePeekBeforeDrag(container);
+                const dragScreenPoint = getDragScreenPointFromVirtualPoint(
+                    rect.left + dragVisualWidth / 2, rect.top + dragVisualHeight / 2,
+                    sourceEvent, clientX, clientY
+                );
                 _dispatchNekoIdleReturnBallManualMove(container, 'return-ball-drag-start', {
-                    dragSessionId: safetyToken
+                    dragSessionId: safetyToken,
+                    screenX: dragScreenPoint.x,
+                    screenY: dragScreenPoint.y,
+                    timestamp: Date.now()
                 });
                 isDragging = true;
                 dragActiveDispatched = false;
@@ -935,6 +978,7 @@ Object.assign(AvatarButtonMixin.methods, {
                 stopDragCursorPolling();
                 if (!isDragging || dragReleasePending) return;
                 const safetyToken = dragSafetyToken;
+                if (dragActivity) dragActivity.releasedAt = Date.now();
                 const movedPastThreshold = container.getAttribute('data-dragging') === 'true';
                 if (movedPastThreshold && dragCropHoldPending) {
                     // The pointer can be released before Niri confirms the full
@@ -962,7 +1006,7 @@ Object.assign(AvatarButtonMixin.methods, {
                 dragUsesGlobalCursor = false;
                 clearDragCropHoldPending();
                 container.style.cursor = 'grab';
-                if (movedPastThreshold) {
+                if (movedPastThreshold && !window.NekoDesktopWindowGravity?.usesContinuousDrag?.(container)) {
                     // Let the final virtual position paint while the full carrier
                     // is still active. Releasing the crop hold in the same frame
                     // can make shape collection observe the previous kitten rect.
@@ -972,9 +1016,21 @@ Object.assign(AvatarButtonMixin.methods, {
                         });
                     });
                 } else {
-                    finishDragState(false, safetyToken);
+                    finishDragState(movedPastThreshold, safetyToken);
                 }
             };
+
+            // Pointer events are the primary input path in Chromium/Electron.
+            // Guard them before the compatibility mousedown event is emitted;
+            // otherwise a locked edge peek can still enter the drag pipeline.
+            container.addEventListener('pointerdown', (e) => {
+                const button = _getNekoIdleReturnButtonFromContainer(container);
+                if (_isNekoIdleCat1PlaygroundEntryOrDropActive(button)) return;
+                if (isEdgePeekLockedForDrag(button)) {
+                    if (e.pointerType !== 'touch') e.preventDefault();
+                    e.stopImmediatePropagation();
+                }
+            }, true);
 
             container.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) {
@@ -984,6 +1040,25 @@ Object.assign(AvatarButtonMixin.methods, {
                 }
                 const button = _getNekoIdleReturnButtonFromContainer(container);
                 if (_isNekoIdleCat1PlaygroundEntryOrDropActive(button)) return;
+                const edgeVisual = button && button.classList && Array.from(button.classList).some((name) =>
+                        name === 'is-cat1-desktop-window-edge-peek-peeking'
+                        || name === 'is-cat1-desktop-window-edge-peek-walking'
+                        || name === 'is-cat1-desktop-window-top-edge-active'
+                        || name === 'is-cat1-desktop-window-top-edge-walking');
+                const legacyEdgePeekVisual = typeof _isNekoIdleCat1EdgePeekActive === 'function'
+                    && _isNekoIdleCat1EdgePeekActive(button);
+                const edgeContainerVisual = container.classList && Array.from(container.classList).some((name) =>
+                        name === 'is-cat1-desktop-window-edge-peek-peeking'
+                        || name === 'is-cat1-desktop-window-edge-peek-walking'
+                        || name === 'is-cat1-desktop-window-top-edge-active'
+                        || name === 'is-cat1-desktop-window-top-edge-walking');
+                if (container.getAttribute('data-edge-peek-locked') === 'true'
+                    || (window.edgePeekLockEnabled === true
+                        && (edgeVisual || edgeContainerVisual || legacyEdgePeekVisual))) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    return;
+                }
                 if (_isNekoIdleThoughtBubbleEventHit(container.querySelector('.neko-idle-return-btn'), e)) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -1093,6 +1168,24 @@ Object.assign(AvatarButtonMixin.methods, {
             container.addEventListener('touchstart', (e) => {
                 const button = _getNekoIdleReturnButtonFromContainer(container);
                 if (_isNekoIdleCat1PlaygroundEntryOrDropActive(button)) return;
+                const edgeVisual = button && button.classList && Array.from(button.classList).some((name) =>
+                    name === 'is-cat1-desktop-window-edge-peek-peeking'
+                    || name === 'is-cat1-desktop-window-edge-peek-walking'
+                    || name === 'is-cat1-desktop-window-top-edge-active'
+                    || name === 'is-cat1-desktop-window-top-edge-walking');
+                const legacyEdgePeekVisual = typeof _isNekoIdleCat1EdgePeekActive === 'function'
+                    && _isNekoIdleCat1EdgePeekActive(button);
+                const edgeContainerVisual = container.classList && Array.from(container.classList).some((name) =>
+                    name === 'is-cat1-desktop-window-edge-peek-peeking'
+                    || name === 'is-cat1-desktop-window-edge-peek-walking'
+                    || name === 'is-cat1-desktop-window-top-edge-active'
+                    || name === 'is-cat1-desktop-window-top-edge-walking');
+                if (container.getAttribute('data-edge-peek-locked') === 'true'
+                    || (window.edgePeekLockEnabled === true
+                        && (edgeVisual || edgeContainerVisual || legacyEdgePeekVisual))) {
+                    e.stopImmediatePropagation();
+                    return;
+                }
                 if (_isNekoIdleThoughtBubbleEventHit(container.querySelector('.neko-idle-return-btn'), e.touches && e.touches[0])) {
                     e.preventDefault();
                     e.stopPropagation();

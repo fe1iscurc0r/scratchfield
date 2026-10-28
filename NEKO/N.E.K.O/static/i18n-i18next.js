@@ -29,8 +29,8 @@
     const SUPPORTED_LANGUAGES = ['zh-CN', 'zh-TW', 'en', 'ja', 'ko', 'ru', 'es', 'pt'];
 
     // locale 资源版本（用于 cache-busting，避免客户端长期缓存旧语言包导致新增 key 不生效）
-    // 合并消息表情、已有音色导入与上游八语文案，刷新客户端缓存。
-    const LOCALE_VERSION = '2026-10-07-message-reactions-voice-import-merge';
+    // 串门 PR-12（含「串门期间非输入框来源的文本被拒」提示）合入 main 上的屏幕来源、Day1 托盘介绍等文案，刷新八语言客户端缓存。
+    const LOCALE_VERSION = '2026-10-13-visit-pr12-main-merge-pr3415';
     function initDecorativeImageDragGuard() {
         const markImage = (img) => {
             if (!(img instanceof HTMLImageElement)) return;

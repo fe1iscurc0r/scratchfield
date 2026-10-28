@@ -4,6 +4,8 @@
     :class="{
       'plugin-workbench--market-open': marketPanelVisible,
       'plugin-workbench--package-open': packagePanelVisible,
+      'plugin-workbench--mirror-open': mirrorPanelVisible,
+      'plugin-workbench--multi-select': multiSelectEnabled,
     }"
     data-yui-guide-id="plugin-list-workbench"
   >
@@ -26,9 +28,6 @@
     <section
       class="plugin-workbench__main"
       data-yui-guide-id="plugin-list-main"
-      v-motion
-      :initial="{ opacity: 0, y: 16, filter: 'blur(4px)' }"
-      :enter="{ opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 360, type: 'spring', stiffness: 240, damping: 24 } }"
     >
       <el-card class="plugin-list-card" data-yui-guide-id="plugin-list-card-shell">
         <template #header>
@@ -51,6 +50,22 @@
                   <component :is="marketPanelVisible ? ArrowLeft : ArrowRight" />
                 </el-icon>
               </button>
+              <el-button
+                v-if="marketUrl"
+                class="plugin-update-trigger"
+                :loading="pluginUpdatesStore.checking"
+                plain
+                data-yui-guide-id="plugin-list-update-check"
+                :title="$t('pluginUpdates.button')"
+                @click="handleCheckUpdates"
+              >
+                <el-icon><Top /></el-icon>
+                <span>{{ pluginUpdatesStore.checking ? $t('pluginUpdates.buttonBusy') : $t('pluginUpdates.button') }}</span>
+                <span
+                  v-if="pluginUpdatesStore.candidates.length > 0"
+                  class="plugin-update-trigger__badge"
+                >{{ pluginUpdatesStore.candidates.length }}</span>
+              </el-button>
               <el-button
                 v-if="marketUrl && marketAuth.auth_state === 'pending'"
                 class="market-auth-trigger"
@@ -143,18 +158,11 @@
                 class="header-btn header-btn--accent"
                 :disabled="importing"
                 data-yui-guide-id="plugin-list-import"
-                @click="triggerImportFile"
+                @click="openImportDialog"
               >
                 <el-icon><Upload /></el-icon>
                 <span>{{ importing ? $t('plugins.importing') : $t('plugins.import') }}</span>
               </button>
-              <input
-                ref="importFileInputRef"
-                type="file"
-                accept=".neko-plugin,.neko-bundle"
-                class="import-file-input"
-                @change="handleImportFileChange"
-              />
               <button
                 class="header-btn"
                 :class="{ 'header-btn--active': packagePanelVisible }"
@@ -163,6 +171,15 @@
               >
                 <el-icon><Box /></el-icon>
                 <span>{{ packagePanelVisible ? $t('plugins.closePackageManager') : $t('plugins.openPackageManager') }}</span>
+              </button>
+              <button
+                class="header-btn"
+                :class="{ 'header-btn--active': mirrorPanelVisible }"
+                data-yui-guide-id="plugin-list-mirror-source-toggle"
+                @click="toggleMirrorPanel"
+              >
+                <el-icon><Connection /></el-icon>
+                <span>{{ mirrorPanelVisible ? $t('plugins.closeMirrorSource') : $t('plugins.openMirrorSource') }}</span>
               </button>
               <button
                 class="header-btn"
@@ -234,6 +251,7 @@
           </WorkbenchToolbar>
         </template>
 
+
         <LoadingSpinner
           v-if="loading && rawPlugins.length === 0"
           :loading="true"
@@ -243,23 +261,23 @@
 
         <template v-else>
           <div
-            v-for="(section, si) in pluginSections"
+            v-for="section in pluginSections"
             :key="section.key"
-            v-motion
-            :initial="{ opacity: 0, y: 20 }"
-            :enter="{ opacity: 1, y: 0, transition: { delay: 120 + si * 80, duration: 420, type: 'spring', stiffness: 220, damping: 22 } }"
           >
             <PluginGridSection
               :title="section.title"
               :icon="section.icon"
               :items="section.items"
+              :motion-phase="filterText.trim() ? 'filter' : 'initial'"
               :layout-mode="layoutMode"
               :multi-select-enabled="multiSelectEnabled"
               :selected-plugin-ids="selectedPluginIds"
               :show-metrics="showMetrics"
               :show-source-detail="showSourceDetail"
+              :identity-plugin-ids="duplicateDisplayNamePluginIds"
               :variant="section.variant"
               @item-click="handlePluginPrimaryAction"
+              @item-open-ui="handlePluginUiAction"
               @item-contextmenu="handlePluginContextMenu"
               @toggle-selection="togglePluginSelection"
             />
@@ -284,90 +302,107 @@
       </div>
     </aside>
 
-    <!-- Floating multi-select action bar -->
-    <Transition name="float-bar">
-      <div v-if="multiSelectEnabled" class="floating-select-bar" data-yui-guide-id="plugin-list-float-bar">
-        <!-- Batch operations row (visible when plugins are selected) -->
-        <Transition name="batch-row">
-          <div v-if="selectedCount > 0" class="floating-select-bar__batch">
-            <button
-              class="fab-action fab-action--batch fab-action--success"
-              :disabled="batchBusy"
-              @click="handleBatchStart"
-            >
-              <el-icon><VideoPlay /></el-icon>
-              <span>{{ $t('plugins.start') }}</span>
-            </button>
-            <button
-              class="fab-action fab-action--batch fab-action--warn"
-              :disabled="batchBusy"
-              @click="handleBatchStop"
-            >
-              <el-icon><VideoPause /></el-icon>
-              <span>{{ $t('plugins.stop') }}</span>
-            </button>
-            <button
-              class="fab-action fab-action--batch"
-              :disabled="batchBusy"
-              @click="handleBatchReload"
-            >
-              <el-icon><RefreshRight /></el-icon>
-              <span>{{ $t('plugins.reload') }}</span>
-            </button>
-            <div class="floating-select-bar__batch-divider" />
-            <button
-              class="fab-action fab-action--batch fab-action--danger"
-              :disabled="batchBusy"
-              @click="handleBatchDelete"
-            >
-              <el-icon><Delete /></el-icon>
-              <span>{{ $t('plugins.delete') }}</span>
-            </button>
-            <div class="floating-select-bar__batch-divider" />
-            <button
-              class="fab-action fab-action--batch fab-action--export"
-              :disabled="batchBusy"
-              @click="handleBatchExport"
-            >
-              <el-icon><Download /></el-icon>
-              <span>{{ $t('plugins.export') }}</span>
-            </button>
-          </div>
-        </Transition>
-
-        <!-- Selection controls row -->
-        <div class="floating-select-bar__inner">
-          <div class="floating-select-bar__count">
-            <span class="floating-select-bar__count-num">{{ selectedCount }}</span>
-            <span class="floating-select-bar__count-label">{{ $t('plugins.selectedCount', { count: selectedCount }) }}</span>
-          </div>
-
-          <div class="floating-select-bar__divider" />
-
-          <div class="floating-select-bar__actions">
-            <button class="fab-action" @click="selectAllVisible">
-              <el-icon><Finished /></el-icon>
-              <span>{{ $t('plugins.selectAllVisible') }}</span>
-            </button>
-            <button class="fab-action" @click="invertVisibleSelection">
-              <el-icon><Sort /></el-icon>
-              <span>{{ $t('plugins.invertVisibleSelection') }}</span>
-            </button>
-            <button class="fab-action fab-action--danger" @click="clearSelection">
-              <el-icon><CircleClose /></el-icon>
-              <span>{{ $t('plugins.clearSelection') }}</span>
-            </button>
-          </div>
-
-          <div class="floating-select-bar__divider" />
-
-          <button class="fab-action fab-action--exit" @click="toggleMultiSelectMode">
-            <el-icon><Close /></el-icon>
-            <span>{{ $t('plugins.exitMultiSelect') }}</span>
-          </button>
-        </div>
+    <aside
+      class="plugin-workbench__rail plugin-workbench__rail--mirror"
+      :aria-hidden="!mirrorPanelVisible"
+      :inert="!mirrorPanelVisible"
+    >
+      <div class="plugin-workbench__rail-inner">
+        <GithubMirrorSourcePanel
+          v-if="mirrorPanelEverOpened"
+          v-show="mirrorPanelVisible"
+          @close="closeMirrorPanel"
+        />
       </div>
-    </Transition>
+    </aside>
+
+    <!-- Floating multi-select action bar; teleported so the route transition's
+         transform never becomes its containing block. -->
+    <Teleport to="body">
+      <Transition name="float-bar">
+        <div v-if="multiSelectEnabled" class="floating-select-bar" data-yui-guide-id="plugin-list-float-bar">
+          <!-- Batch operations row (visible when plugins are selected) -->
+          <Transition name="batch-row">
+            <div v-if="selectedCount > 0" class="floating-select-bar__batch">
+              <button
+                class="fab-action fab-action--batch fab-action--success"
+                :disabled="batchBusy"
+                @click="handleBatchStart"
+              >
+                <el-icon><VideoPlay /></el-icon>
+                <span>{{ $t('plugins.start') }}</span>
+              </button>
+              <button
+                class="fab-action fab-action--batch fab-action--warn"
+                :disabled="batchBusy"
+                @click="handleBatchStop"
+              >
+                <el-icon><VideoPause /></el-icon>
+                <span>{{ $t('plugins.stop') }}</span>
+              </button>
+              <button
+                class="fab-action fab-action--batch"
+                :disabled="batchBusy"
+                @click="handleBatchReload"
+              >
+                <el-icon><RefreshRight /></el-icon>
+                <span>{{ $t('plugins.reload') }}</span>
+              </button>
+              <div class="floating-select-bar__batch-divider" />
+              <button
+                class="fab-action fab-action--batch fab-action--danger"
+                :disabled="batchBusy"
+                @click="handleBatchDelete"
+              >
+                <el-icon><Delete /></el-icon>
+                <span>{{ $t('plugins.delete') }}</span>
+              </button>
+              <div class="floating-select-bar__batch-divider" />
+              <button
+                class="fab-action fab-action--batch fab-action--export"
+                :disabled="batchBusy"
+                @click="handleBatchExport"
+              >
+                <el-icon><Download /></el-icon>
+                <span>{{ $t('plugins.export') }}</span>
+              </button>
+            </div>
+          </Transition>
+
+          <!-- Selection controls row -->
+          <div class="floating-select-bar__inner">
+            <div class="floating-select-bar__count">
+              <span class="floating-select-bar__count-num">{{ selectedCount }}</span>
+              <span class="floating-select-bar__count-label">{{ $t('plugins.selectedCount', { count: selectedCount }) }}</span>
+            </div>
+
+            <div class="floating-select-bar__divider" />
+
+            <div class="floating-select-bar__actions">
+              <button class="fab-action" @click="selectAllVisible">
+                <el-icon><Finished /></el-icon>
+                <span>{{ $t('plugins.selectAllVisible') }}</span>
+              </button>
+              <button class="fab-action" @click="invertVisibleSelection">
+                <el-icon><Sort /></el-icon>
+                <span>{{ $t('plugins.invertVisibleSelection') }}</span>
+              </button>
+              <button class="fab-action fab-action--danger" @click="clearSelection">
+                <el-icon><CircleClose /></el-icon>
+                <span>{{ $t('plugins.clearSelection') }}</span>
+              </button>
+            </div>
+
+            <div class="floating-select-bar__divider" />
+
+            <button class="fab-action fab-action--exit" @click="toggleMultiSelectMode">
+              <el-icon><Close /></el-icon>
+              <span>{{ $t('plugins.exitMultiSelect') }}</span>
+            </button>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <PluginContextMenu
       :visible="contextMenuVisible"
@@ -393,22 +428,82 @@
       @close="closeDangerDialog"
       @confirm="handleDangerActionConfirm"
     />
+
+    <el-dialog
+      v-model="importDialogVisible"
+      class="plugin-import-dialog"
+      :title="t('plugins.importDialogTitle')"
+      width="min(520px, calc(100vw - 32px))"
+      :close-on-click-modal="!importing"
+      :close-on-press-escape="!importing"
+      :show-close="!importing"
+      @closed="clearSelectedImportFile"
+    >
+      <div
+        class="plugin-import-dropzone"
+        :class="{
+          'plugin-import-dropzone--active': importDropActive,
+          'plugin-import-dropzone--selected': selectedImportFile,
+          'plugin-import-dropzone--disabled': importing,
+        }"
+        role="button"
+        :tabindex="importing ? -1 : 0"
+        :aria-disabled="importing"
+        @click="triggerImportFile"
+        @keydown.enter.prevent="triggerImportFile"
+        @keydown.space.prevent="triggerImportFile"
+        @dragenter.prevent="importDropActive = true"
+        @dragover.prevent="importDropActive = true"
+        @dragleave.prevent="importDropActive = false"
+        @drop.prevent="handleImportDrop"
+      >
+        <el-icon class="plugin-import-dropzone__icon"><Upload /></el-icon>
+        <template v-if="selectedImportFile">
+          <strong class="plugin-import-dropzone__filename">{{ selectedImportFile.name }}</strong>
+          <span>{{ formatImportFileSize(selectedImportFile.size) }}</span>
+        </template>
+        <template v-else>
+          <strong>{{ t('plugins.importDropHint') }}</strong>
+          <span>{{ t('plugins.importDropSubHint') }}</span>
+        </template>
+      </div>
+      <input
+        ref="importFileInputRef"
+        type="file"
+        accept=".neko-plugin,.neko-bundle"
+        class="import-file-input"
+        @change="handleImportFileChange"
+      />
+      <p class="plugin-import-dialog__limit">{{ t('plugins.importFileLimit') }}</p>
+
+      <template #footer>
+        <el-button :disabled="importing" @click="importDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button :disabled="importing" @click="triggerImportFile">{{ t('plugins.importChooseFile') }}</el-button>
+        <el-button type="primary" :disabled="!selectedImportFile" :loading="importing" @click="importSelectedPluginPackage">
+          {{ importing ? t('plugins.importing') : t('plugins.import') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Refresh, DataAnalysis, RefreshRight, Box, Connection, Finished, Sort, CircleClose, Close, VideoPlay, VideoPause, Delete, Upload, Download, ShoppingCart, ArrowRight, ArrowLeft, InfoFilled, User } from '@element-plus/icons-vue'
+import type { AxiosError } from 'axios'
+import { Refresh, DataAnalysis, RefreshRight, Box, Connection, Finished, Sort, CircleClose, Close, VideoPlay, VideoPause, Delete, Upload, Download, ShoppingCart, ArrowRight, ArrowLeft, InfoFilled, User, Top } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePluginStore } from '@/stores/plugin'
 import { useMetricsStore } from '@/stores/metrics'
-import { useMarketVersionsStore } from '@/stores/marketVersions'
+import { useMarketVersionsStore, type MarketVersionTarget } from '@/stores/marketVersions'
+import { usePluginUpdatesStore } from '@/stores/pluginUpdates'
 import PluginGridSection from '@/components/plugin/PluginGridSection.vue'
 import PluginContextMenu from '@/components/plugin/PluginContextMenu.vue'
 import PluginDangerConfirmDialog from '@/components/plugin/PluginDangerConfirmDialog.vue'
-import PackageManagerPanel from '@/components/plugin/PackageManagerPanel.vue'
-import MarketPanel from '@/components/plugin/MarketPanel.vue'
+import { deferredPanel } from '@/components/common/deferredPanel'
+const PackageManagerPanel = deferredPanel(() => import('@/components/plugin/PackageManagerPanel.vue'))
+const GithubMirrorSourcePanel = deferredPanel(() => import('@/components/plugin/GithubMirrorSourcePanel.vue'))
+const MarketPanel = deferredPanel(() => import('@/components/plugin/MarketPanel.vue'))
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import WorkbenchFilterBar from '@/components/common/WorkbenchFilterBar.vue'
@@ -421,17 +516,26 @@ import type {
   LayoutChoiceDescriptor,
 } from '@/composables/workbenchDescriptors'
 import { getMarketUrl } from '@/api/market'
-import { reloadAllPlugins, deletePlugin } from '@/api/plugins'
+import { deletePlugin } from '@/api/plugins'
 import { uploadPluginPackage, buildPluginCli, downloadPluginPackage } from '@/api/pluginCli'
 import { usePluginPackageInstaller } from '@/composables/usePluginPackageInstaller'
 import { usePluginListContextActions, type ResolvedPluginListAction } from '@/composables/usePluginListContextActions'
 import { usePluginWorkbench } from '@/composables/usePluginWorkbench'
 import { useMarketAuth } from '@/composables/useMarketAuth'
-import { METRICS_REFRESH_INTERVAL } from '@/utils/constants'
-import { formatHttpError } from '@/utils/request'
+import { METRICS_REFRESH_INTERVAL, PANEL_HOST_MIN_HEIGHT } from '@/utils/constants'
+import { formatHttpError, isRequestTimeout } from '@/utils/request'
+import { resolvePluginPackageErrorMessage } from '@/utils/pluginPackageError'
+import { notifyPluginInstallOutcome } from '@/utils/pluginInstallResult'
 import { resolveLocalizedText } from '@/utils/i18nLabel'
+import { findDuplicatePluginDisplayNameIds, isOrdinaryPlugin } from '@/utils/pluginDisplay'
+import { openExternalUrl } from '@/utils/openExternal'
+import { isOpenUiNavigationAction } from '@/utils/pluginListActions'
 import { useI18n } from 'vue-i18n'
-import type { PluginMeta } from '@/types/api'
+import type {
+  PluginInstallSourceDetailMarket,
+  PluginListAction,
+  PluginMeta,
+} from '@/types/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -446,8 +550,13 @@ const reloadingAll = ref(false)
 const batchBusy = ref(false)
 const importing = ref(false)
 const importFileInputRef = ref<HTMLInputElement | null>(null)
+const importDialogVisible = ref(false)
+const selectedImportFile = ref<File | null>(null)
+const importDropActive = ref(false)
 const packagePanelVisible = ref(false)
 const packagePanelEverOpened = ref(false)
+const mirrorPanelVisible = ref(false)
+const mirrorPanelEverOpened = ref(false)
 const marketPanelVisible = ref(false)
 const marketPanelEverOpened = ref(false)
 const contextMenuVisible = ref(false)
@@ -511,8 +620,10 @@ const dangerDialogMessage = computed(() => {
   )
 })
 
-const rawPlugins = computed(() => pluginStore.pluginsWithStatus)
-const rawNormalPlugins = computed(() => pluginStore.normalPlugins)
+const rawPlugins = computed(() => pluginStore.pluginSummariesWithStatus.filter(isOrdinaryPlugin))
+const duplicateDisplayNamePluginIds = computed(() => [
+  ...findDuplicatePluginDisplayNameIds(rawPlugins.value, locale.value),
+])
 const {
   filterText,
   useRegex,
@@ -534,7 +645,10 @@ const {
   toggleMultiSelect,
 } = usePluginWorkbench(rawPlugins)
 
-const loading = computed(() => pluginStore.loading)
+// Covers the registry sync that precedes the summary fetch, so a first open
+// shows the skeleton instead of flashing the empty state.
+const pendingListRefreshes = ref(0)
+const loading = computed(() => pendingListRefreshes.value > 0)
 const showMetrics = ref(false)
 let metricsRefreshTimer: number | null = null
 
@@ -543,17 +657,63 @@ let metricsRefreshTimer: number | null = null
 // the "update available" badge can light up on market-installed plugins.
 const showSourceDetail = ref(false)
 const marketVersionsStore = useMarketVersionsStore()
+const pluginUpdatesStore = usePluginUpdatesStore()
+
+/** Toolbar entry point for the update float window. The check itself is
+ *  best-effort — a failure only lands in the logs, never in the UI. */
+function handleCheckUpdates(): void {
+  void pluginUpdatesStore.openFromButton()
+}
+
+function installedMarketVersionTargets(): MarketVersionTarget[] {
+  const targets: MarketVersionTarget[] = []
+  for (const plugin of pluginStore.pluginSummariesWithStatus) {
+    const installSource = plugin.install_source
+    if (installSource?.source !== 'market') continue
+    const detail = installSource.source_detail as PluginInstallSourceDetailMarket | null
+    const pluginId = String(detail?.plugin_market_id || '').trim()
+    if (!/^\d+$/.test(pluginId)) continue
+    targets.push({
+      pluginId,
+      channel: detail?.channel === 'beta' ? 'beta' : 'stable',
+    })
+  }
+  return targets
+}
+
+function refreshInstalledMarketVersions(): void {
+  // Fire-and-forget; if Market is unreachable the badge simply won't appear.
+  // ``ensureFresh`` compares the target signature, so status-only updates do
+  // not cause a network request while a newly installed Market plugin does.
+  marketVersionsStore.ensureFresh(installedMarketVersionTargets()).catch((err) => {
+    console.warn('Failed to refresh market versions:', err)
+  })
+}
 
 async function toggleSourceDetail() {
   showSourceDetail.value = !showSourceDetail.value
   if (showSourceDetail.value) {
-    // Fire-and-forget; if Market is unreachable the badge simply won't
-    // appear, which is a fine degraded state.
-    marketVersionsStore.ensureFresh().catch((err) => {
-      console.warn('Failed to refresh market versions:', err)
-    })
+    refreshInstalledMarketVersions()
   }
 }
+
+// The initial plugin fetch and a Market install can both finish after source
+// details become visible. Recompute the target set on either change so update
+// badges are not held to the empty/stale snapshot from the original toggle.
+function marketVersionTargetSignature() {
+  return installedMarketVersionTargets()
+    .map((target) => `${target.pluginId}:${target.channel}`)
+    .sort()
+    .join('|')
+}
+
+watch(
+  marketVersionTargetSignature,
+  () => {
+    if (showSourceDetail.value) refreshInstalledMarketVersions()
+  },
+)
+
 const pluginSections = computed(() => [
   {
     key: 'plugin',
@@ -623,27 +783,31 @@ type PluginListRefreshMode = 'full' | 'initial-open' | 'light'
 
 async function refreshPluginListData(mode: PluginListRefreshMode) {
   let warningMessage = ''
+  pendingListRefreshes.value += 1
   try {
     if (mode === 'full') {
-      const syncResult = await pluginStore.syncRegistryAndFetch()
+      const syncResult = await pluginStore.syncRegistryAndFetchSummaries()
       warningMessage = syncResult.warningMessage || ''
     } else if (mode === 'initial-open') {
       try {
         const syncResult = await pluginStore.ensurePluginListRegistrySynced()
         warningMessage = syncResult?.warningMessage || ''
         if (!syncResult) {
-          await pluginStore.fetchPlugins()
+          await pluginStore.fetchPluginSummaries()
         }
       } catch (syncError) {
         console.warn('Failed to sync plugin registry on first plugin list open:', syncError)
-        await pluginStore.fetchPlugins()
+        await pluginStore.fetchPluginSummaries()
       }
     } else {
-      await pluginStore.fetchPlugins()
+      await pluginStore.fetchPluginSummaries()
     }
-    await pluginStore.fetchPluginStatus()
+    if (mode === 'full') await pluginStore.fetchPluginStatus(undefined, true)
+    else await pluginStore.ensurePluginStatus()
   } catch (error) {
     console.warn('Failed to refresh plugin data:', error)
+  } finally {
+    pendingListRefreshes.value -= 1
   }
   if (showMetrics.value) {
     try {
@@ -688,6 +852,7 @@ async function toggleMetrics() {
 }
 
 function startMetricsAutoRefresh() {
+  if (document.hidden) return
   stopMetricsAutoRefresh()
   metricsRefreshTimer = window.setInterval(() => {
     // Skip refresh if no running plugins
@@ -696,6 +861,11 @@ function startMetricsAutoRefresh() {
       console.warn('Auto-refresh metrics failed:', error)
     })
   }, METRICS_REFRESH_INTERVAL)
+}
+
+function handleMetricsVisibilityChange() {
+  if (document.hidden) stopMetricsAutoRefresh()
+  else if (showMetrics.value) startMetricsAutoRefresh()
 }
 
 function stopMetricsAutoRefresh() {
@@ -718,6 +888,47 @@ function handlePluginPrimaryAction(pluginId: string) {
   handlePluginClick(pluginId)
 }
 
+async function handlePluginUiAction(plugin: PluginMeta, action: PluginListAction) {
+  const resolvedAction = buildActions(plugin).find((candidate) => (
+    candidate.source === 'plugin'
+      && isOpenUiNavigationAction(candidate)
+      && candidate.id === action.id
+  ))
+  if (!resolvedAction || resolvedAction.disabled) return
+
+  if (shouldUseHoldConfirm(resolvedAction)) {
+    openDangerDialog(resolvedAction, plugin)
+    return
+  }
+
+  const target = action.target?.trim() || ''
+  if (target) {
+    await executeAction(resolvedAction, plugin)
+    return
+  }
+
+  const confirmMessage = resolveLocalizedText(action.confirm_message, locale.value, '')
+  if (confirmMessage) {
+    try {
+      await ElMessageBox.confirm(confirmMessage, t('common.confirm'), {
+        type: action.danger ? 'warning' : 'info',
+      })
+    } catch {
+      return
+    }
+  }
+
+  const fallback = {
+    path: `/plugins/${encodeURIComponent(plugin.id)}`,
+    query: { tab: 'ui' },
+  }
+  if (action.open_in === 'same_tab') {
+    await router.push(fallback)
+  } else {
+    openExternalUrl(router.resolve(fallback).href)
+  }
+}
+
 function toggleMultiSelectMode() {
   toggleMultiSelect()
 }
@@ -728,6 +939,7 @@ function togglePackagePanel() {
   if (next) {
     packagePanelEverOpened.value = true
     marketPanelVisible.value = false
+    mirrorPanelVisible.value = false
   }
 }
 
@@ -735,10 +947,25 @@ function openPackagePanel() {
   packagePanelVisible.value = true
   packagePanelEverOpened.value = true
   marketPanelVisible.value = false
+  mirrorPanelVisible.value = false
 }
 
 function closePackagePanel() {
   packagePanelVisible.value = false
+}
+
+function toggleMirrorPanel() {
+  const next = !mirrorPanelVisible.value
+  mirrorPanelVisible.value = next
+  if (next) {
+    mirrorPanelEverOpened.value = true
+    packagePanelVisible.value = false
+    marketPanelVisible.value = false
+  }
+}
+
+function closeMirrorPanel() {
+  mirrorPanelVisible.value = false
 }
 
 function toggleMarketPanel() {
@@ -747,6 +974,7 @@ function toggleMarketPanel() {
   if (next) {
     marketPanelEverOpened.value = true
     packagePanelVisible.value = false
+    mirrorPanelVisible.value = false
   }
 }
 
@@ -792,6 +1020,9 @@ function resolveActionErrorMessage(error: any): string {
 }
 
 function shouldShowLocalError(error: any): boolean {
+  if (isRequestTimeout(error)) {
+    return false
+  }
   const status = error?.response?.status
   if (status === 401 || status === 403 || status === 404) {
     return true
@@ -902,35 +1133,89 @@ async function handleDangerActionConfirm() {
 }
 
 const runningPlugins = computed(() => {
-  return rawNormalPlugins.value.filter((plugin) => plugin.status === 'running')
+  return rawPlugins.value.filter((plugin) => plugin.status === 'running')
 })
 
 // ── Import (upload + install) ─────────────────────────────────────────
 
+const PLUGIN_PACKAGE_MAX_BYTES = 500 * 1024 * 1024
+const PLUGIN_PACKAGE_SUFFIXES = ['.neko-plugin', '.neko-bundle']
+
+function openImportDialog() {
+  clearSelectedImportFile()
+  importDialogVisible.value = true
+}
+
 function triggerImportFile() {
+  if (importing.value) return
   importFileInputRef.value?.click()
 }
 
-async function handleImportFileChange(event: Event) {
+function clearSelectedImportFile() {
+  selectedImportFile.value = null
+  importDropActive.value = false
+}
+
+function formatImportFileSize(size: number): string {
+  const sizeInMiB = size / 1024 / 1024
+  return `${Number.isInteger(sizeInMiB) ? sizeInMiB : sizeInMiB.toFixed(size >= 10 * 1024 * 1024 ? 1 : 2)} MiB`
+}
+
+function selectImportFile(file: File) {
+  if (importing.value) return
+  const filename = file.name.toLowerCase()
+  if (!PLUGIN_PACKAGE_SUFFIXES.some((suffix) => filename.endsWith(suffix))) {
+    selectedImportFile.value = null
+    ElMessage.error(t('plugins.importUnsupportedFile'))
+    return
+  }
+  if (file.size > PLUGIN_PACKAGE_MAX_BYTES) {
+    selectedImportFile.value = null
+    ElMessage.error(t('plugins.importFileTooLarge', { limit: formatImportFileSize(PLUGIN_PACKAGE_MAX_BYTES) }))
+    return
+  }
+  selectedImportFile.value = file
+}
+
+function handleImportFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
-
   // Reset input so the same file can be re-selected
   input.value = ''
+  if (importing.value) return
+  if (file) selectImportFile(file)
+}
 
+function handleImportDrop(event: DragEvent) {
+  importDropActive.value = false
+  if (importing.value) return
+  const file = event.dataTransfer?.files?.[0]
+  if (file) selectImportFile(file)
+}
+
+async function importSelectedPluginPackage() {
+  const file = selectedImportFile.value
+  if (!file) return
+
+  importDropActive.value = false
   importing.value = true
   try {
     const upload = await uploadPluginPackage(file)
-    const result = await installImportedPackage(upload.path, { installSource: 'imported' })
+    const result = await installImportedPackage(upload.path, {
+      installSource: 'imported',
+      discardOnFailure: true,
+    })
     if (!result) return
     const count = result.installed_plugin_count ?? 0
-    ElMessage.success(t('plugins.importSuccess', { name: file.name, count }))
+    notifyPluginInstallOutcome(result, t, ElMessage, {
+      plugin: file.name,
+      successMessage: t('plugins.importSuccess', { name: file.name, count }),
+    })
+    importDialogVisible.value = false
     await refreshAfterPluginChange()
   } catch (error: any) {
     console.error('Failed to import plugin package:', error)
-    const detail = formatHttpError(error)
-    ElMessage.error(detail ? t('plugins.importFailed') + ': ' + detail : t('plugins.importFailed'))
+    ElMessage.error(resolvePluginPackageErrorMessage(error, t, 'upload'))
   } finally {
     importing.value = false
   }
@@ -1077,13 +1362,26 @@ async function handleBatchDelete() {
 
   batchBusy.value = true
   let ok = 0; let fail = 0
+  const restartWarnings: string[] = []
   for (const p of plugins) {
-    try { await deletePlugin(p.id); ok++ } catch { fail++ }
+    try {
+      const result = await deletePlugin(p.id)
+      ok++
+      if (result.restored_builtin_restart_error) {
+        restartWarnings.push(t('messages.pluginDeletedBuiltinRestartFailed', {
+          plugin: p.name,
+          error: result.restored_builtin_restart_error.message,
+        }))
+      }
+    } catch { fail++ }
   }
   batchBusy.value = false
   clearSelection()
-  if (fail === 0) ElMessage.success(t('plugins.batchDeleteSuccess', { count: ok }))
-  else ElMessage.warning(t('plugins.batchPartial', { success: ok, fail }))
+  if (restartWarnings.length > 0) ElMessage.warning(restartWarnings.join('; '))
+  if (fail > 0) ElMessage.warning(t('plugins.batchPartial', { success: ok, fail }))
+  else if (restartWarnings.length === 0) {
+    ElMessage.success(t('plugins.batchDeleteSuccess', { count: ok }))
+  }
   await refreshAfterPluginChange()
 }
 
@@ -1108,7 +1406,8 @@ async function handleReloadAll() {
   reloadingAll.value = true
 
   try {
-    const result = await reloadAllPlugins()
+    // 全部重载也要清掉被重启插件的待重载标记，否则列表重载后编辑器仍会显示提示。
+    const result = await pluginStore.reloadAll({ refresh: false })
     const successCount = result.reloaded.length
     const failCount = result.failed.length
 
@@ -1123,7 +1422,9 @@ async function handleReloadAll() {
     }
   } catch (error) {
     console.error('Failed to reload all plugins:', error)
-    ElMessage.error(t('messages.reloadFailed'))
+    if (!isRequestTimeout(error as AxiosError)) {
+      ElMessage.error(t('messages.reloadFailed'))
+    }
   } finally {
     reloadingAll.value = false
   }
@@ -1148,6 +1449,7 @@ watch(
       if (shouldOpen) {
         packagePanelEverOpened.value = true
         marketPanelVisible.value = false
+        mirrorPanelVisible.value = false
       }
     }
   },
@@ -1172,11 +1474,13 @@ watch(packagePanelVisible, (visible) => {
 
 onMounted(async () => {
   window.addEventListener(TUTORIAL_ACTION_EVENT, handleTutorialAction)
+  document.addEventListener('visibilitychange', handleMetricsVisibilityChange)
   await Promise.all([loadMarketEntry(), refreshForInitialOpen()])
 })
 
 onUnmounted(() => {
   window.removeEventListener(TUTORIAL_ACTION_EVENT, handleTutorialAction)
+  document.removeEventListener('visibilitychange', handleMetricsVisibilityChange)
   closePluginContextMenu()
   closeDangerDialog()
   stopMetricsAutoRefresh()
@@ -1184,26 +1488,62 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.plugin-workbench,
+.floating-select-bar {
+  /* ── Unified radius system (the floating bar is teleported out of the workbench) ── */
+  --radius-card: 16px;       /* large containers: card, dropdown */
+  --radius-panel: 14px;      /* medium panels: filter bar, toolbar, floating bar */
+  --radius-control: 10px;    /* buttons, inputs, interactive controls */
+  --radius-chip: 8px;
+}
+
 .plugin-workbench {
   --plugin-entry-radius: var(--radius-card);
   --drawer-width: clamp(320px, 42vw, 620px);
   --drawer-duration: 320ms;
   --drawer-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  /* ── Unified radius system ── */
-  --radius-card: 16px;       /* large containers: card, dropdown */
-  --radius-panel: 14px;      /* medium panels: filter bar, toolbar, floating bar */
-  --radius-control: 10px;    /* buttons, inputs, interactive controls */
-  --radius-chip: 8px;
   display: flex;
   align-items: stretch;
+  /*
+    页面根绑定到 .app-main 内容盒的确定高度，让这个工作台变成"视口内固定、两栅各自滚动"。
+    不绑的话，右侧抽屉（rail）的高度会被**左侧列表栅的内容高度**左右：列表长时抽屉被拉到
+    3459px（里面一大片空白，面板内容一长就多出一条滚动条）；列表短/为空时抽屉被压到 0px，
+    而 rail 是 overflow:hidden → 整个面板被裁掉、看不全。
+    矮窗口用与详情页同一个下限常量兜底，不够高时由 .app-main 滚动。
+    详见文件末尾 .plugin-workbench__main 与抽屉打开态的说明。
+  */
+  height: 100%;
+  min-height: v-bind('PANEL_HOST_MIN_HEIGHT');
   gap: 20px;
   min-width: 0;
-  padding-bottom: 80px; /* space for floating bar */
+}
+
+/* 多选浮动条预留。原先写在上面的 .plugin-workbench 里（padding-bottom: 80px），
+   但浮动条是 position:fixed，而预留挂在**整个工作台**上就意味着给页面底部永久留白：
+   工作台绑成视口高度后，底部会一直露出一条 80px 的空白带，面板背景到不了底。
+   改成：只在该模式下给**可滚内容**加底部内边距（它们本来就是滚动容器），
+   最后一行依旧能滚到浮动条上方；抽屉的高度则是 padding box，绝对定位的内容会自动让位。 */
+.plugin-workbench--multi-select .plugin-list-card :deep(.el-card__body),
+.plugin-workbench--multi-select .plugin-workbench__rail--market,
+.plugin-workbench--multi-select .plugin-workbench__rail--package,
+.plugin-workbench--multi-select .plugin-workbench__rail--mirror {
+  padding-bottom: 80px;
 }
 
 .plugin-workbench__main {
   flex: 1 1 0;
   min-width: 0;
+  /* 列表栅不再由内容撑高：撑高就会把抽屉一起拉长（见 .plugin-workbench 上的说明）。
+     改为自己滞：卡片体内阶滚动（el-card__body 本身已是 overflow:auto）。 */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 只命中最外层列表卡片；切记不要写成后代选择器，否则会连网格里的插件卡片一起 flex 化。 */
+.plugin-workbench__main > .el-card {
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .plugin-workbench__rail {
@@ -1224,12 +1564,17 @@ onUnmounted(() => {
 /* 收起时取消它那一侧的 gap，避免主列表多出一条空白 */
 .plugin-workbench__rail--market { margin-right: -20px; }
 .plugin-workbench__rail--package { margin-left: -20px; }
+.plugin-workbench__rail--mirror { margin-left: -20px; }
 
 .plugin-workbench--market-open .plugin-workbench__rail--market,
-.plugin-workbench--package-open .plugin-workbench__rail--package {
+.plugin-workbench--package-open .plugin-workbench__rail--package,
+.plugin-workbench--mirror-open .plugin-workbench__rail--mirror {
   flex-basis: var(--drawer-width);
   width: var(--drawer-width);
   margin: 0;
+  /* 抽屉自己滞：rail 是 overflow:hidden + contain:paint，不自滞的话超出部分直接
+     被裁掉（尤其把高度绑到视口之后）。三个抽屉共用同一套 rail 机制，一起改。 */
+  overflow-y: auto;
 }
 
 /* 面板内容固定宽度，完全脱离 rail 的 flex 布局，只靠 transform 滑入 */
@@ -1240,7 +1585,6 @@ onUnmounted(() => {
   width: var(--drawer-width);
   max-width: 100%;
   transition: transform var(--drawer-duration) var(--drawer-ease);
-  will-change: transform;
 }
 
 .plugin-workbench__rail--market .plugin-workbench__rail-inner {
@@ -1253,14 +1597,28 @@ onUnmounted(() => {
   transform: translate3d(100%, 0, 0);
 }
 
+.plugin-workbench__rail--mirror .plugin-workbench__rail-inner {
+  right: 0;
+  transform: translate3d(100%, 0, 0);
+}
+
 .plugin-workbench--market-open .plugin-workbench__rail--market .plugin-workbench__rail-inner,
-.plugin-workbench--package-open .plugin-workbench__rail--package .plugin-workbench__rail-inner {
+.plugin-workbench--package-open .plugin-workbench__rail--package .plugin-workbench__rail-inner,
+.plugin-workbench--mirror-open .plugin-workbench__rail--mirror .plugin-workbench__rail-inner {
   transform: translate3d(0, 0, 0);
 }
 
 .plugin-workbench__rail-inner > * {
   width: 100%;
-  height: 100%;
+  /*
+    用 min-height 而不是 height：抽屉里的面板（如 .market-panel--embedded）自带白底、
+    圆角和阴影，这些都是“画在元素自己盒子上”的。写成 height:100% 就把它钉成固定高度，
+    面板内容一旦高于抽屉，溢出的部分（后面的卡片、分页条）就落在页面底色上——
+    实测小窗口下市场列表滚到底时，分页条两侧是 rgb(242,243,245) 而不是白底。
+    min-height 让面板随内容长高，白纸面始终覆盖全部内容；抽屉自己是滚动容器
+    （打开态 overflow-y:auto），所以滚动行为不变。
+  */
+  min-height: 100%;
 }
 
 .plugin-list-card {
@@ -1339,6 +1697,29 @@ onUnmounted(() => {
 .market-trigger--active .market-trigger__arrow {
   opacity: 1;
   transform: translateX(0);
+}
+
+.plugin-update-trigger {
+  --el-button-border-radius: var(--radius-control);
+  font-weight: 600;
+}
+
+/* Count lives inside the button so the toolbar keeps a single row. */
+.plugin-update-trigger__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--el-color-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .market-auth-trigger {
@@ -1518,6 +1899,66 @@ onUnmounted(() => {
 
 .import-file-input {
   display: none;
+}
+
+.plugin-import-dropzone {
+  display: flex;
+  min-height: 190px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  border: 1.5px dashed color-mix(in srgb, var(--el-color-primary) 46%, var(--el-border-color));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--el-color-primary) 4%, var(--el-bg-color));
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.plugin-import-dropzone:hover,
+.plugin-import-dropzone--active {
+  border-color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-bg-color));
+  transform: translateY(-1px);
+}
+
+.plugin-import-dropzone--selected {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--el-color-success) 62%, var(--el-border-color));
+  background: color-mix(in srgb, var(--el-color-success) 7%, var(--el-bg-color));
+}
+
+.plugin-import-dropzone--disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  pointer-events: none;
+  transform: none;
+}
+
+.plugin-import-dropzone strong {
+  color: var(--el-text-color-primary);
+}
+
+.plugin-import-dropzone__icon {
+  font-size: 34px;
+  color: var(--el-color-primary);
+}
+
+.plugin-import-dropzone__filename {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-import-dialog__limit {
+  margin: 12px 2px 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  text-align: center;
 }
 
 /* ── Export button in batch row ── */

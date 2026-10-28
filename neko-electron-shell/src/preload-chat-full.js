@@ -11,14 +11,27 @@
  * 不注入任何 stub（appButtons、appState、lanlan_config 等全由页面自己的 app-*.js 提供）。
  */
 
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, contextBridge } = require('electron');
 const { WINDOW_CONTROL_CHANNELS, WS_PROXY_CHANNELS, CHAT_CHANNELS, CHAT_ACTION_CHANNELS, JUKEBOX_CHANNELS, SUBTITLE_CHANNELS, PET_CHANNELS } = require('./ipc-channels');
 const { setupToastOverride, suppressVoiceToast, setupDarkMode, setupElectronShell, setupHostCapabilityBridge, setupGoodbyeChatComposerHiddenBridge, setupVoiceConfigSwitchingBridge, setupMusicPlayerBridge, setupSettingsSync, syncSubtitleToggleFromWindow } = require('./preload-common');
 
+// 隔离走 contextBridge，非隔离直接挂 window（与 preload-chat.js / preload-chat-react.js 同构）
+function exposeToPage(name, value) {
+  if (process.contextIsolated && contextBridge && typeof contextBridge.exposeInMainWorld === 'function') {
+    contextBridge.exposeInMainWorld(name, value);
+  } else {
+    window[name] = value;
+  }
+}
+
 // ===== 1. WebSocket → IPC 代理 =====
-// chat.html 加载了 app-websocket.js，它会 new WebSocket(url)。
-// 在页面脚本运行前替换 window.WebSocket，使其通过 Pet 窗口的 WS 中转，
-// 不建立自己的连接。
+// chat.html 加载了 ws-adapter.js + app-websocket.js，建连点是 `__nekoCreateWebSocket()`。
+// 本 preload 暴露 `nekoWebSocket.create(url)`，页面适配器补回原生语义后所有连接都走
+// Pet 窗口的 WS 中转，不建立自己的连接。
+//
+// 引擎仍是下面的 WSProxy（不是 websocket-bridge.js 的简化版）：它带着生产上修过的
+// 会话代际过滤与构造前消息缓冲（READY/greeting 早到时不能丢）。桥只把 WSProxy 的
+// Event 对象换成纯 payload —— Event 过 contextBridge 会被克隆成 {isTrusted}，data/code 全丢。
 //
 // 关键设计：IPC 监听注册在 preload 全局作用域（而非 WSProxy 构造函数内），
 // 解决竞态问题——Pet 的 WS READY / greeting RAW_MESSAGE 可能在页面 JS
@@ -361,7 +374,60 @@ const { setupToastOverride, suppressVoiceToast, setupDarkMode, setupElectronShel
   WSProxy.prototype.OPEN = _Real.OPEN;
   WSProxy.prototype.CLOSING = _Real.CLOSING;
   WSProxy.prototype.CLOSED = _Real.CLOSED;
-  window.WebSocket = WSProxy;
+
+  // ---- 页面侧桥（WO-278 P1-c）----
+  // 页面适配器只接受「纯函数 + 纯数据」：create() 返回的句柄成员全是函数，
+  // 回调收到的是 payload（message → 数据本体、close → {code, reason}），
+  // 页面世界由 ws-adapter.js 重建 Event。Event 实例不能过桥，会被克隆成 {isTrusted}。
+  function createPageSocket(url, protocols) {
+    var proxy = new WSProxy(url, protocols);
+    var listeners = Object.create(null);
+
+    function emit(type, payload) {
+      var list = listeners[type];
+      if (!list || !list.length) return;
+      list.slice().forEach(function (fn) {
+        try { fn(payload); } catch (_) {}
+      });
+    }
+
+    proxy.addEventListener('open', function () { emit('open'); });
+    proxy.addEventListener('message', function (event) { emit('message', event && event.data); });
+    proxy.addEventListener('close', function (event) {
+      emit('close', { code: event && event.code, reason: event && event.reason });
+    });
+    proxy.addEventListener('error', function () { emit('error'); });
+
+    return {
+      url: url,
+      protocols: protocols,
+      CONNECTING: _Real.CONNECTING,
+      OPEN: _Real.OPEN,
+      CLOSING: _Real.CLOSING,
+      CLOSED: _Real.CLOSED,
+      send: function (data) { proxy.send(data); },
+      close: function (code, reason) { proxy.close(code, reason); },
+      addEventListener: function (type, fn) {
+        if (typeof fn !== 'function') return;
+        if (!listeners[type]) listeners[type] = [];
+        listeners[type].push(fn);
+      },
+      removeEventListener: function (type, fn) {
+        var list = listeners[type];
+        if (!list) return;
+        listeners[type] = list.filter(function (f) { return f !== fn; });
+      },
+      getReadyState: function () { return proxy.readyState; },
+    };
+  }
+
+  exposeToPage('nekoWebSocket', {
+    create: createPageSocket,
+    CONNECTING: _Real.CONNECTING,
+    OPEN: _Real.OPEN,
+    CLOSING: _Real.CLOSING,
+    CLOSED: _Real.CLOSED,
+  });
 })();
 
 // ===== 2. 窗口管理 =====

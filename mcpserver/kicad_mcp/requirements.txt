@@ -1,0 +1,15 @@
+# mcpserver/kicad_mcp —— 依赖清单
+#
+# **零第三方依赖**（刻意）：只用 Python 标准库
+#   dataclasses / json / math / pathlib / typing / argparse / asyncio / logging
+#
+# 为什么不用上游那套
+# ------------------
+# 上游 mixelpixx/KiCAD-MCP-Server 的 requirements.txt 需要：
+#   kicad-python（IPC，要本机装 KiCAD）、sexpdata、kicad-skip、
+#   Pillow / pymupdf / cairosvg（渲染）、requests、colorlog、pydantic、dotenv
+# 本模块只做**文本解析**，这些一个都不需要 —— 解析器 `sexpr.py` 是自研的
+# （上游用 sexpdata，但 S-expression 解析本身只需一个几百行的状态机）。
+#
+# 因此：本文件**没有任何 pip 依赖**，也不需要 `pip install`。
+# 若将来要接 GuiDriver/IPC 实时联动或 Gerber 导出，才需要引入 kicad-python 与 KiCAD 本体。

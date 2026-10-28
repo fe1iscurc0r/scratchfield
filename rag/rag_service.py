@@ -1,6 +1,7 @@
 """
 RAG 服务模块 - 材料科研知识检索服务
 """
+import json
 import logging
 import threading
 import time
@@ -197,7 +198,7 @@ class RAGService:
     
     def query(self, query_text: str, top_k: int = 5,
               tags: list[str] = None, min_score: float = 0.6,
-              rerank: bool = True) -> dict[str, Any]:
+              rerank: bool = True, filter_theme: str | None = None) -> dict[str, Any]:
         """知识检索
         
         Args:
@@ -206,6 +207,8 @@ class RAGService:
             tags: 标签过滤
             min_score: 最低分数阈值
             rerank: 是否启用重排序
+            filter_theme: 限定素材主题（工单 237 任务二，如 "sdr"）。经文档 tags 过滤，
+                与 tags 合并为「任一命中」语义；None 表示不限定。
             
         Returns:
             检索结果
@@ -221,6 +224,10 @@ class RAGService:
             # 一路缺失不阻断，两路都有则用 RRF(k=60) 合并：score += 1/(k+rank)
             fetch_k = top_k * 3 if rerank else top_k * 2
 
+            # 工单 237 任务二：filter_theme 与 tags 合并为文档级 tag 过滤（OR 语义）
+            scope_tags = list(dict.fromkeys(
+                ([filter_theme] if filter_theme else []) + list(tags or []))) or None
+
             vec_results: list[dict] = []
             kw_results: list[dict] = []
 
@@ -228,13 +235,14 @@ class RAGService:
                 vec_results = self._vec_db.search_by_vector(
                     query_vector=query_embedding[0],
                     top_k=fetch_k,
-                    tag_filter=tags
+                    tag_filter=scope_tags
                 )
             else:
                 logger.warning("嵌入引擎不可用，跳过向量检索（仅用关键词）")
 
             try:
-                kw_results = self._vec_db.search_by_keyword(query_text, top_k=fetch_k)
+                kw_results = self._vec_db.search_by_keyword(
+                    query_text, top_k=fetch_k, tag_filter=scope_tags)
             except Exception as e:
                 logger.warning(f"关键词检索异常，跳过关键词路: {e}")
                 kw_results = []
@@ -264,6 +272,119 @@ class RAGService:
             logger.error(f"检索失败: {e}")
             return {'query_id': '', 'results': [], 'total_matches': 0, 'error': '检索服务暂不可用，请稍后重试'}
     
+    # ---------- 灵感素材库索引（工单 237 任务二） ----------
+
+    INSPIRATION_SOURCE = "inspiration"
+
+    @staticmethod
+    def _compose_inspiration_text(item: dict[str, Any]) -> str:
+        """把一条灵感素材拼成可检索文本（保留 pid / 靶向场景 / 摘要 / 来源）。"""
+        pid = str(item.get("pid") or "")
+        target = str(item.get("target") or "").strip()
+        abstract = str(item.get("abstract") or "").strip()
+        url = str(item.get("arxiv_url") or "").strip()
+        parts: list[str] = []
+        if pid:
+            parts.append(f"pid: {pid}")
+        if target:
+            parts.append(f"目标场景: {target}")
+        if abstract:
+            parts.append(abstract)
+        if url:
+            parts.append(f"来源: {url}")
+        return "\n".join(parts)
+
+    def index_inspiration_pool(self, corpus_path: str | Path, theme: str | None = None) -> int:
+        """把灵感素材库索引进 vecdb，作为**额外文档源**（不替换既有 corpus）。
+
+        Args:
+            corpus_path: 语料目录（读其中的 index.json）或 index.json 路径本身
+            theme: 主题名；缺省取 index.json 的 ``meta.theme``，再退回目录名
+
+        Returns:
+            实际写入的 chunk 数（= 引入的素材条数）
+
+        约定：
+            - 每条素材作为一个 chunk；``doc_id = inspiration_<theme>``（每主题一个文档）
+            - 幂等：先按 metadata ``{"source":"inspiration","theme":<theme>}`` 清旧数据再写
+            - 嵌入失败**抛异常**（fail-fast，不写随机向量）
+            - 诚实标注（工单 237 §1/§6）：素材 target 句为 LLM 联想结果，非论文真实方向；
+              本接口只做检索召回，不做真伪判定（留工单 238）
+        """
+        path = Path(corpus_path)
+        index_file = path if path.suffix == ".json" else path / "index.json"
+        if not index_file.is_file():
+            raise FileNotFoundError(f"灵感素材库索引不存在: {index_file}")
+
+        with index_file.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            raise ValueError(f"灵感素材索引格式非法（应为 JSON 对象）: {index_file}")
+
+        items = data.get("items") or []
+        meta = data.get("meta") or {}
+        theme = str(theme or meta.get("theme") or index_file.parent.name or "unknown").strip()
+
+        doc_id = f"inspiration_{theme}"
+        # 幂等：清掉该主题旧数据（documents + chunks + FTS 一并清）
+        try:
+            self._vec_db.delete_docs_by_metadata(
+                {"source": self.INSPIRATION_SOURCE, "theme": theme})
+        except Exception as e:  # noqa: BLE001 - 清理失败不阻断重索引
+            logger.warning(f"[RAG] 清理旧灵感素材失败（继续重建）: {e}")
+
+        chunk_texts: list[str] = []
+        chunk_data: list[dict[str, Any]] = []
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            content = self._compose_inspiration_text(item)
+            if not content.strip():
+                continue
+            pid = str(item.get("pid") or idx)
+            chunk_texts.append(content)
+            chunk_data.append({
+                "id": f"insp_{theme}_{idx}_{pid}",
+                "chunk_index": idx,
+                "content": content,
+                "token_count": len(content),
+            })
+
+        if not chunk_data:
+            logger.info(f"[RAG] 灵感素材库为空，未索引: theme={theme}")
+            return 0
+
+        # 嵌入（端侧优先 + 云端回退，与 ingest_document 同一条路径）
+        embeddings = self._encode_chunk_texts(chunk_texts)
+        if embeddings is None:
+            msg = "灵感素材嵌入失败（模型未加载或编码异常），请检查嵌入引擎后重试。"
+            logger.error(msg)
+            raise RuntimeError(msg)
+        if len(embeddings) != len(chunk_data):
+            raise RuntimeError(
+                f"嵌入数量({len(embeddings)})与素材条数({len(chunk_data)})不匹配")
+        for cd, emb in zip(chunk_data, embeddings):
+            cd["embedding"] = emb
+
+        ok = self._vec_db.insert_document(
+            doc_id=doc_id,
+            title=f"灵感素材库·{theme}",
+            source_type="manual",
+            file_path=str(index_file),
+            tags=[theme, self.INSPIRATION_SOURCE],
+            metadata={"source": self.INSPIRATION_SOURCE, "theme": theme,
+                      "count": len(chunk_data)},
+        )
+        if not ok:
+            db_err = getattr(self._vec_db, "last_error", None) or "unknown"
+            raise RuntimeError(f"灵感素材文档元数据写入失败: {db_err}")
+        if not self._vec_db.insert_chunks(chunk_data, doc_id):
+            db_err = getattr(self._vec_db, "last_error", None) or "unknown"
+            raise RuntimeError(f"灵感素材分块写入失败: {db_err}")
+
+        logger.info(f"[RAG] 灵感素材库索引完成: theme={theme} chunks={len(chunk_data)}")
+        return len(chunk_data)
+
     def delete_document(self, doc_id: str) -> dict[str, Any]:
         """删除文档
         

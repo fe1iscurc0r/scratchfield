@@ -6,12 +6,12 @@
   "entry.list_apps.description": "Get all registered software list, including name, path, aliases, autostart status, etc.",
   
   "entry.add_app.name": "Add App",
-  "entry.add_app.description": "Register a new software to the launcher. name is display name, path is full path (supports .exe, .lnk shortcuts, etc.), aliases is optional alias list for easy recognition.",
+  "entry.add_app.description": "Register a new program in the launcher. name is the display name, path is the full path (the file must exist; .exe, .lnk, .url, .bat/.cmd), aliases is an optional list of aliases.",
   "entry.add_app.param.name": "Software name, e.g.: Steam, Chrome, Spotify",
   "entry.add_app.param.path": "Full path, e.g.: C:\\Program Files (x86)\\Steam\\Steam.exe or shortcut path",
   "entry.add_app.param.aliases": "Alias list for easy recognition, e.g.: [\"steam\", \"gaming platform\"]",
   "entry.add_app.param.description": "Description (optional)",
-  "entry.add_app.param.autostart": "Whether to enable autostart (optional, default false, .exe only)",
+  "entry.add_app.param.autostart": "Whether to request autostart (optional, default false, .exe only). Does not write the registry: it returns a one-time confirmation token that set_autostart consumes after the user confirms in the UI.",
   
   "entry.remove_app.name": "Remove App",
   "entry.remove_app.description": "Delete registered software by app_id.",
@@ -34,7 +34,7 @@
   "entry.update_app.param.description": "New description (optional)",
   
   "entry.set_autostart.name": "Set Autostart",
-  "entry.set_autostart.description": "Enable or disable autostart for registered software. Works via Windows Registry. Neko can help you set apps to start automatically on boot.",
+  "entry.set_autostart.description": "Enable or disable autostart for registered software (Windows registry HKCU\\...\\Run). Enabling is a write that survives reboots, so it needs the user's explicit confirmation: without it this only returns a one-time confirmation token and leaves the registry untouched. This entry is excluded from the agent's automatic routing.",
   "entry.set_autostart.param.app_id": "App ID to set",
   "entry.set_autostart.param.enabled": "True=enable autostart, False=disable autostart",
   
@@ -109,6 +109,8 @@
   "ui.tag.other": "Other",
   "ui.tag.autostart": "Autostart",
   "ui.confirm.delete": "Are you sure to delete「{name}」?",
+  "ui.confirm.autostart": "Autostart needs your own confirmation.\n\nThe exact command that will be written to the registry:\n{command}\n\nWrite it? Cancelling changes nothing.",
+  "ui.info.autostart_cancelled": "Cancelled. No autostart entry was written.",
   "ui.loading": "⏳ Loading...",
   "ui.loading.apps": "⏳ Loading app list...",
   "ui.loading.launch": "⏳ Launching...",
@@ -174,5 +176,7 @@
   "tutorial.tip.path": "Supports quoted paths - paste directly, no need to remove quotes",
   "tutorial.tip.alias": "Set multiple aliases for better recognition",
   "tutorial.tip.autostart": ".exe files can be set to autostart",
-  "tutorial.btn.show": "📚 View Tutorial"
+  "tutorial.btn.show": "📚 View Tutorial",
+  "entry.set_autostart.param.confirmed": "The user confirmed it in the UI (must be true to enable autostart, together with the one-time token)",
+  "entry.set_autostart.param.confirmation_token": "One-time confirmation token returned by the previous call (valid 5 minutes, single use)"
 }

@@ -15,6 +15,17 @@
 用法：
     .venv/Scripts/python.exe tools/split_agent_server.py --check   # 只报告 块→模块 映射与依赖图
     .venv/Scripts/python.exe tools/split_agent_server.py --write   # 生成 parts/ + 薄入口
+
+⚠️ **已冻结（2026-10-15，工单244d 补记）** —— 本脚本是**一次性** codemod：
+
+1. 它的输入 `agentserver/agent_server.py` 已被**它自己的输出**（约 30 行的薄入口）取代
+   ⇒ **重跑 `--write` 无意义，且会把薄入口再拆一遍、破坏 `agent_server_parts/`**。
+2. 它生成的子模块头是 `from .common import *  # noqa: F401,F403` ——
+   `# noqa` 压得住 F401/F403，**压不住 F405**，这正是全仓 **254 条 F405**
+   （`ruff check .` 314 errors）的来源；因 CI 的 lint job 默认关闭，从拆分起无人发现。
+3. 244d 已把 `agent_server_parts/` 里那些星号导入改成**显式名字列表**，
+   并由 `tests/test_agent_server_parts_imports.py` 钉住（守「无星号导入 + 无不可解析名」）。
+   ⇒ **若将来真的需要重跑，必须先改 `gen_module()` 里那行**，否则 F405 会全部复活。
 """
 from __future__ import annotations
 
@@ -263,7 +274,7 @@ def main() -> int:
         "",
     ]
     (OUT_DIR / "__init__.py").write_bytes(
-        '"""agent_server_parts —— agent_server 拆分产物（工单204 任务一）。"""\n'.encode("utf-8"))
+        '"""agent_server_parts —— agent_server 拆分产物（工单204 任务一）。"""\n'.encode())
     SRC.write_bytes("\n".join(shell).encode("utf-8"))
     print(f"  薄入口已重写: {SRC.relative_to(ROOT)}")
     return 0

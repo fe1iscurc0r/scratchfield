@@ -6,12 +6,12 @@
   "entry.list_apps.description": "获取用户已注册的所有软件列表，包含名称、路径、别名、开机自启状态等信息。",
   
   "entry.add_app.name": "添加软件",
-  "entry.add_app.description": "注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（支持 .exe、.lnk 快捷方式等），aliases 是可选的别名列表方便识别。",
+  "entry.add_app.description": "注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（必须真实存在，支持 .exe、.lnk、.url、.bat/.cmd），aliases 是可选的别名列表方便识别。",
   "entry.add_app.param.name": "软件名称，例如：Steam、Chrome、网易云音乐",
   "entry.add_app.param.path": "软件的完整路径，例如：C:\\Program Files (x86)\\Steam\\Steam.exe 或快捷方式路径",
   "entry.add_app.param.aliases": "别名列表，方便猫娘识别，例如：[\"steam\", \"游戏平台\"]",
   "entry.add_app.param.description": "软件描述（可选）",
-  "entry.add_app.param.autostart": "是否设置开机自启（可选，默认 false，仅支持 .exe 文件）",
+  "entry.add_app.param.autostart": "是否申请开机自启（可选，默认 false，仅支持 .exe）。不会直接写注册表：返回一次性确认令牌，需主人在界面确认后由 set_autostart 落盘。",
   
   "entry.remove_app.name": "删除软件",
   "entry.remove_app.description": "根据 app_id 删除已注册的软件。",
@@ -34,7 +34,7 @@
   "entry.update_app.param.description": "新描述（可选）",
   
   "entry.set_autostart.name": "设置开机自启",
-  "entry.set_autostart.description": "为已注册的软件设置开机自启功能。通过修改 Windows 注册表实现，支持开启或关闭。猫娘可以通过此功能帮主人设置软件开机自动启动。",
+  "entry.set_autostart.description": "为已注册的软件设置开机自启（Windows 注册表 HKCU\\...\\Run）。开启是跨重启的持久化写入，必须由主人显式确认：未确认时只返回一次性确认令牌，不改动注册表。此入口不对猫娘的自动路由开放。",
   "entry.set_autostart.param.app_id": "要设置的软件 ID",
   "entry.set_autostart.param.enabled": "True=开启开机自启, False=关闭开机自启",
   
@@ -109,6 +109,8 @@
   "ui.tag.other": "其他",
   "ui.tag.autostart": "开机自启",
   "ui.confirm.delete": "确定要删除「{name}」吗？",
+  "ui.confirm.autostart": "开机自启需要主人亲自确认。\n\n将写入注册表的完整命令：\n{command}\n\n确认写入吗？取消则不做任何改动。",
+  "ui.info.autostart_cancelled": "已取消，未写入开机自启",
   "ui.loading": "⏳ 正在加载...",
   "ui.loading.apps": "⏳ 正在加载软件列表...",
   "ui.loading.launch": "⏳ 正在启动...",
@@ -174,5 +176,7 @@
   "tutorial.tip.path": "支持带双引号的路径，直接粘贴即可，无需手动删除引号",
   "tutorial.tip.alias": "设置多个别名，猫娘更容易识别",
   "tutorial.tip.autostart": ".exe 文件可设置开机自启",
-  "tutorial.btn.show": "📚 查看教程"
+  "tutorial.btn.show": "📚 查看教程",
+  "entry.set_autostart.param.confirmed": "主人已在界面确认（开启自启时必须为 true，并带上一次性确认令牌）",
+  "entry.set_autostart.param.confirmation_token": "上一次调用返回的一次性确认令牌（5 分钟有效，用过即废）"
 }

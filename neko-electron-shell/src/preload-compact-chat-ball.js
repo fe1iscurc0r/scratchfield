@@ -69,7 +69,10 @@ window.addEventListener('DOMContentLoaded', () => {
   // compat recreate 缩短入场动画：F8 恢复场景不需要 380ms 的 scale 动画，
   // 但完全跳过会在精灵图未解码时揭示白圈。等具体背景图解码完成后再发 APPEAR_DONE，
   // 把延迟从 ~600ms 压到 ~100-150ms。
-  if (window.__nekoSkipAppear) {
+  // contextIsolation:true 后 preload 与页面不再共享全局；这个开关由 main 通过
+  // webPreferences.additionalArguments 传进来（见 window-manager.js 的 NEKO_SKIP_APPEAR_ARG）。
+  const skipAppear = process.argv.includes('--neko-skip-appear');
+  if (skipAppear) {
     var _sendDone = function () {
       button.style.opacity = '1';
       try { ipcRenderer.send(COMPACT_CHAT_BALL_CHANNELS.APPEAR_DONE); } catch (_) {}

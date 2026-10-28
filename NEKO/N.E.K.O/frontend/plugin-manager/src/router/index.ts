@@ -4,6 +4,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { i18n } from '@/i18n'
+import { watch } from 'vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -35,6 +36,14 @@ const routes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'model-api',
+        name: 'ModelApi',
+        component: () => import('@/views/ModelApi.vue'),
+        meta: {
+          titleKey: 'modelApi.title'
+        }
+      },
+      {
         path: 'market',
         name: 'MarketBrowse',
         component: () => import('@/views/MarketBrowse.vue'),
@@ -63,6 +72,14 @@ const routes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'knowledge',
+        name: 'KnowledgeManager',
+        component: () => import('@/views/KnowledgeManager.vue'),
+        meta: {
+          titleKey: 'nav.knowledge'
+        }
+      },
+      {
         path: 'logs/:id',
         name: 'Logs',
         component: () => import('@/views/Logs.vue'),
@@ -77,6 +94,18 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: 'nav.adapterUI'
         }
+      },
+      {
+        path: 'development',
+        name: 'Development',
+        component: () => import('@/views/Development.vue'),
+        meta: {
+          titleKey: 'development.title'
+        }
+      },
+      {
+        path: ':pathMatch(.*)*',
+        redirect: '/'
       }
     ]
   }
@@ -99,5 +128,9 @@ router.beforeEach((to, from, next) => {
   next()
 })
 
-export default router
+watch(i18n.global.locale, () => {
+  const key = router.currentRoute.value.meta.titleKey
+  if (key) document.title = `${i18n.global.t(key as string)} - ${i18n.global.t('app.titleSuffix')}`
+})
 
+export default router

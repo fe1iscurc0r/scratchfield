@@ -25,29 +25,29 @@ MMD_UI_BUTTONS_PATH = PROJECT_ROOT / "static" / "mmd" / "mmd-ui-buttons.js"
 LIVE2D_CORE_PATH = PROJECT_ROOT / "static" / "live2d" / "live2d-core.js"
 LIVE2D_INTERACTION_PATH = PROJECT_ROOT / "static" / "live2d" / "live2d-interaction.js"
 INDEX_CSS_PATH = PROJECT_ROOT / "static" / "css" / "index.css"
-CAT1_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat1.gif"
-CAT1_CLICK_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat1-click.gif"
-CAT2_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat2.gif"
-CAT2_CLICK_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat2-click.gif"
-CAT3_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat3.gif"
-CAT3_CLICK_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat3-click.gif"
-CAT1_VOICE_CLICK_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat1-voice-click.mp3"
-CAT1_VOICE1_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat1-voice1.mp3"
-CAT1_VOICE2_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat1-voice2.mp3"
-CAT1_VOICE3_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat1-voice3.mp3"
-CAT2_SLEEP_SOUND_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat2-sleep1.mp3"
-CAT2_SLEEP_SOUND2_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat2-sleep2.mp3"
-CAT3_SLEEP_SOUND_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat3-sleep1.mp3"
-CAT3_SLEEP_SOUND2_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat3-sleep2.mp3"
-CAT1_WALK_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat4-1.gif"
-CAT1_STRETCH_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat4-2.gif"
-CAT1_INTERACTIVE_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat4-3.gif"
-CAT1_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat-move-1.gif"
-CAT2_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat-move-2.gif"
-CAT3_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat-move-3.gif"
-CAT4_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat-move-4.gif"
-CAT1_RAPID_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat-idle-cat-move-5.gif"
-CAT1_RAPID_DRAG_SOUND_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat1-voice-funny.mp3"
+CAT1_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "idle" / "cat-idle-cat1.gif"
+CAT1_CLICK_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "click" / "cat-idle-cat1-click.gif"
+CAT2_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "idle" / "cat-idle-cat2.gif"
+CAT2_CLICK_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "click" / "cat-idle-cat2-click.gif"
+CAT3_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "idle" / "cat-idle-cat3.gif"
+CAT3_CLICK_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "click" / "cat-idle-cat3-click.gif"
+CAT1_VOICE_CLICK_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "voice" / "dev_neko" / "interaction" / "cat1-voice-click.mp3"
+CAT1_VOICE1_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "voice" / "dev_neko" / "ambient" / "cat1-voice1.mp3"
+CAT1_VOICE2_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "voice" / "dev_neko" / "ambient" / "cat1-voice2.mp3"
+CAT1_VOICE3_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "voice" / "dev_neko" / "ambient" / "cat1-voice3.mp3"
+CAT2_SLEEP_SOUND_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "voice" / "dev_neko" / "sleep" / "cat2-sleep1.mp3"
+CAT2_SLEEP_SOUND2_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "voice" / "dev_neko" / "sleep" / "cat2-sleep2.mp3"
+CAT3_SLEEP_SOUND_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "voice" / "dev_neko" / "sleep" / "cat3-sleep1.mp3"
+CAT3_SLEEP_SOUND2_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "voice" / "dev_neko" / "sleep" / "cat3-sleep2.mp3"
+CAT1_WALK_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "movement" / "cat-idle-cat4-1.gif"
+CAT1_STRETCH_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "movement" / "cat-idle-cat4-2.gif"
+CAT1_INTERACTIVE_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "movement" / "cat-idle-cat4-3.gif"
+CAT1_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "drag" / "cat-idle-cat-move-1.gif"
+CAT2_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "drag" / "cat-idle-cat-move-2.gif"
+CAT3_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "drag" / "cat-idle-cat-move-3.gif"
+CAT4_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "drag" / "cat-idle-cat-move-4.gif"
+CAT1_RAPID_DRAG_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "appearance" / "dev_neko" / "drag" / "cat-idle-cat-move-5.gif"
+CAT1_RAPID_DRAG_SOUND_PATH = PROJECT_ROOT / "static" / "assets" / "cat-resources" / "voice" / "dev_neko" / "interaction" / "cat1-voice-funny.mp3"
 CAT1_QUESTION_MARK_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat1-question-mark.png"
 CAT_MODEL_CHANGE_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "cat_model_change.gif"
 THOUGHT_BUBBLE_ASSET_PATH = PROJECT_ROOT / "static" / "assets" / "neko-idle" / "thought-items" / "cloud-thought-bubble.gif"
@@ -87,32 +87,32 @@ def test_return_button_idle_tier_assets_are_mapped_in_source():
     app_ui_source = read_js_parts(APP_UI_PATH)
 
     # Non-click states
-    assert "/static/assets/neko-idle/cat-idle-cat1.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat2.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat3.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat4-1.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat4-2.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/idle/cat-idle-cat1.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/idle/cat-idle-cat2.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/idle/cat-idle-cat3.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/movement/cat-idle-cat4-1.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/movement/cat-idle-cat4-2.gif" in source
     assert '_NEKO_IDLE_TIER_CAT1' in source
     assert '_NEKO_IDLE_TIER_CAT2' in source
     assert '_NEKO_IDLE_TIER_CAT3' in source
 
     # Click states
-    assert "/static/assets/neko-idle/cat-idle-cat1-click.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat2-click.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat3-click.gif" in source
-    assert "/static/assets/neko-idle/cat1-voice-click.mp3" in source
-    assert "/static/assets/neko-idle/cat1-voice1.mp3" in source
-    assert "/static/assets/neko-idle/cat1-voice2.mp3" in source
-    assert "/static/assets/neko-idle/cat1-voice3.mp3" in source
-    assert "/static/assets/neko-idle/cat2-sleep1.mp3" in source
-    assert "/static/assets/neko-idle/cat3-sleep1.mp3" in source
-    assert "/static/assets/neko-idle/cat-idle-cat4-3.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat-move-1.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat-move-2.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat-move-3.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat-move-4.gif" in source
-    assert "/static/assets/neko-idle/cat-idle-cat-move-5.gif" in source
-    assert "/static/assets/neko-idle/cat1-voice-funny.mp3" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/click/cat-idle-cat1-click.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/click/cat-idle-cat2-click.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/click/cat-idle-cat3-click.gif" in source
+    assert "/static/assets/cat-resources/voice/dev_neko/interaction/cat1-voice-click.mp3" in source
+    assert "/static/assets/cat-resources/voice/dev_neko/ambient/cat1-voice1.mp3" in source
+    assert "/static/assets/cat-resources/voice/dev_neko/ambient/cat1-voice2.mp3" in source
+    assert "/static/assets/cat-resources/voice/dev_neko/ambient/cat1-voice3.mp3" in source
+    assert "/static/assets/cat-resources/voice/dev_neko/sleep/cat2-sleep1.mp3" in source
+    assert "/static/assets/cat-resources/voice/dev_neko/sleep/cat3-sleep1.mp3" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/movement/cat-idle-cat4-3.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/drag/cat-idle-cat-move-1.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/drag/cat-idle-cat-move-2.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/drag/cat-idle-cat-move-3.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/drag/cat-idle-cat-move-4.gif" in source
+    assert "/static/assets/cat-resources/appearance/dev_neko/drag/cat-idle-cat-move-5.gif" in source
+    assert "/static/assets/cat-resources/voice/dev_neko/interaction/cat1-voice-funny.mp3" in source
     assert "/static/assets/neko-idle/cat_model_change.gif" in app_ui_source
     assert '_getNekoIdleReturnClickAssetUrl' in source
     assert '_getNekoIdleReturnDragAssetUrl' in source
@@ -128,8 +128,7 @@ def test_return_button_idle_tier_assets_are_mapped_in_source():
         "]),\n    [_NEKO_IDLE_TIER_CAT2]",
         "cat1 drag asset pool",
     )
-    assert "cat-idle-cat-move-1.gif" in cat1_drag_pool
-    assert "cat-idle-cat-move-2.gif" in cat1_drag_pool
+    assert "..._getNekoCatAppearanceUrls('drag.cat1')" in cat1_drag_pool
 
     cat2_drag_pool = _source_slice_between(
         source,
@@ -137,8 +136,7 @@ def test_return_button_idle_tier_assets_are_mapped_in_source():
         "]),\n    [_NEKO_IDLE_TIER_CAT3]",
         "cat2 drag asset pool",
     )
-    assert "cat-idle-cat-move-2.gif" in cat2_drag_pool
-    assert "cat-idle-cat-move-3.gif" in cat2_drag_pool
+    assert "..._getNekoCatAppearanceUrls('drag.cat2')" in cat2_drag_pool
 
     cat3_drag_pool = _source_slice_between(
         source,
@@ -146,8 +144,7 @@ def test_return_button_idle_tier_assets_are_mapped_in_source():
         "])\n});",
         "cat3 drag asset pool",
     )
-    assert "cat-idle-cat-move-3.gif" in cat3_drag_pool
-    assert "cat-idle-cat-move-4.gif" in cat3_drag_pool
+    assert "..._getNekoCatAppearanceUrls('drag.cat3')" in cat3_drag_pool
 
 
 def test_cat1_question_mark_keyboard_trigger_replaces_drag_sequence():
@@ -220,7 +217,7 @@ def test_cat1_playground_drop_lifecycle_and_physics_are_centralized():
     assert "function _handleNekoIdleCat1PlaygroundEntryRequest(event)" in source
     assert "window.addEventListener('neko:idle-cat1-playground-entry-request', _handleNekoIdleCat1PlaygroundEntryRequest);" in source
     assert "button.__nekoIdleCat1PlaygroundDropState" in source
-    assert "_NEKO_IDLE_CAT1_PLAYGROUND_AIR_ASSET_URL = '/static/assets/neko-idle/cat-idle-cat-move-2.gif'" in source
+    assert "_NEKO_IDLE_CAT1_PLAYGROUND_AIR_ASSET_URL = _getNekoCatAppearanceUrl('playground.cat1.air', { random: false })" in source
     assert "_NEKO_IDLE_CAT1_PLAYGROUND_YARN_ASSET_URL = '/static/assets/neko-idle/chat-minimized-yarn-ball.png'" in source
     assert "_NEKO_IDLE_CAT1_PLAYGROUND_GROUND_DAMPING = 0.988" in source
     assert "_NEKO_IDLE_CAT1_PLAYGROUND_GROUND_STOP_VELOCITY_PX_PER_SEC = 3" in source
@@ -518,7 +515,7 @@ def test_cat1_playground_drop_lifecycle_and_physics_are_centralized():
 def test_cat1_playground_click_exit_is_not_armed_as_drag_on_pointerdown():
     source = _read_avatar_ui_buttons_source()
 
-    assert "function _getNekoIdleCat1PlaygroundPointerVelocity(samples)" in source
+    assert "function _getNekoIdleCat1PlaygroundPointerVelocity(state, cancelled = false, releasedAt = Date.now())" in source
     assert "function _handleNekoIdleCat1PlaygroundCatClick(button, event)" in source
     assert "function _handleNekoIdleCat1PlaygroundPointerDownForBody(button, body, event)" in source
     assert "function _handleNekoIdleCat1PlaygroundDesktopPointerEvent(event)" in source
@@ -577,6 +574,16 @@ def test_cat1_playground_click_exit_is_not_armed_as_drag_on_pointerdown():
     )
     assert "if (!state.draggingBodyId) {" in pointer_up_block
     assert "state.pointerBodyId = '';" in pointer_up_block
+    _assert_source_order(
+        pointer_up_block,
+        "playground yarn only activates on a completed click and waits for desktop confirmation",
+        "const cancelled = !!(event && event.type === 'pointercancel');",
+        "if (!cancelled && !state.pendingYarnActivationId && (body.id === 'yarn' || body.id === 'desktop-yarn')) {",
+        "const activationResult = _dispatchNekoIdleCat1PlaygroundYarnActivate",
+        "if (activationResult === true) {",
+        "_removeNekoIdleCat1PlaygroundYarnBody(button);",
+        "state.pendingYarnActivationId = activationResult;",
+    )
     assert "state.phase = 'ballistic';" in pointer_up_block
     assert "state.suppressClickBodyId = body.id;" in pointer_up_block
     assert "body.angularVelocity = _getNekoIdleCat1PlaygroundThrowAngularVelocity(body, velocity, state);" in pointer_up_block
@@ -617,6 +624,14 @@ def test_cat1_playground_click_exit_is_not_armed_as_drag_on_pointerdown():
     assert "_dispatchNekoIdleReturnClickFromButton(button);" not in question_click_block
 
     assert "function _suppressNekoIdleCat1PlaygroundNonCatNativeEvent(event)" in source
+    assert "function _removeNekoIdleCat1PlaygroundYarnBody(button)" in source
+    assert "function _dispatchNekoIdleCat1PlaygroundYarnActivate(detail)" in source
+    assert "activationId," in source
+    assert "neko:idle-cat1-playground-yarn-activate" in source
+    assert "neko:idle-cat1-playground-yarn-activation-ack" in source
+    assert "if (detail.confirmed === true) _removeNekoIdleCat1PlaygroundYarnBody(button);" in source
+    assert "return window.__NEKO_DESKTOP_RUNTIME__ ? activationId : dispatched;" in source
+    assert "action: 'idle_cat1_playground_yarn_activate'" in source
     assert "function _bindNekoIdleCat1PlaygroundBodyInput(button, body, bind)" in source
 
     body_input_block = _source_slice_between(
@@ -718,6 +733,8 @@ def test_cat1_playground_entry_minimizes_chat_to_yarn_before_drop():
 
     assert "case 'idle_cat1_playground_yarn_request':" in interpage_source
     assert "function dispatchIdleCat1PlaygroundYarnRequest(detail)" in interpage_source
+    assert "case 'idle_cat1_playground_yarn_activate':" in interpage_source
+    assert "function dispatchIdleCat1PlaygroundYarnActivate(detail)" in interpage_source
     interpage_yarn_block = _source_slice_between(
         interpage_source,
         "function dispatchIdleCat1PlaygroundYarnRequest(detail)",
@@ -760,6 +777,8 @@ def test_cat1_playground_entry_minimizes_chat_to_yarn_before_drop():
 
     assert "function _handleIdleCat1PlaygroundYarnRequest(event)" in app_source
     assert "window.addEventListener('neko:idle-cat1-playground-yarn-request', _handleIdleCat1PlaygroundYarnRequest);" in app_source
+    assert "function _handleIdleCat1PlaygroundYarnActivate(event)" in app_source
+    assert "window.addEventListener('neko:idle-cat1-playground-yarn-activate', _handleIdleCat1PlaygroundYarnActivate);" in app_source
     app_block = _source_slice_between(
         app_source,
         "function _handleIdleCat1PlaygroundYarnRequest(event)",
@@ -768,6 +787,7 @@ def test_cat1_playground_entry_minimizes_chat_to_yarn_before_drop():
     )
     assert "setChatSurfaceMode('minimized')" in app_block
     assert "getCurrentChatSurfaceMode() === 'minimized'" in app_block
+    assert "window.__NEKO_DESKTOP_RUNTIME__ && detail.via === 'broadcast-channel'" in app_block
     assert "detail.reason" not in app_block
     assert "cat1-playground-entry" not in app_block
 
@@ -1129,7 +1149,7 @@ def test_goodbye_idle_breathing_ball_shape_contract_is_present():
     assert "!_isNekoGoodbyeIdleBallButton(button)" in dispatch_click_block
     auto_goodbye_listener_block = _source_slice_between(
         avatar_source,
-        "window.addEventListener('neko:auto-goodbye:state-change'",
+        "window.addEventListener('neko:auto-goodbye:state-change', (event) => {",
         "window.addEventListener('neko:goodbye-idle-appearance'",
         "auto goodbye visual tier listener",
     )
@@ -1191,6 +1211,27 @@ def test_pngtuber_return_replays_model_enter_animation_after_preparing_container
     assert "if (modelReturnEnterRect) {" in branch
     assert "playModelReturnEnter(pngtuberContainer, modelReturnEnterRect);" in branch
     assert branch.index("prepareModelReturnContainer(pngtuberContainer, modelReturnEnterRect, { clearPointerEvents: true });") < branch.index("playModelReturnEnter(pngtuberContainer, modelReturnEnterRect);")
+
+
+def test_pngtuber_show_without_return_rect_clears_prepared_inline_opacity():
+    # prepareModelReturnContainer leaves inline opacity:1 / transition:none when there is
+    # no return rect. Inline opacity outranks #pngtuber-container.locked-hover-fade, so the
+    # locked hover fade only works if the no-rect path clears both (flush first so the
+    # minimized -> visible snap does not animate).
+    source = read_js_parts(APP_UI_PATH)
+    branch = source[
+        source.index("} else if (effectiveModelType === 'pngtuber') {"):
+        source.index("const live2dContainerPngtuber = document.getElementById('live2d-container');")
+    ]
+
+    enter_call = branch.index("playModelReturnEnter(pngtuberContainer, modelReturnEnterRect);")
+    no_rect_branch = branch[
+        branch.index("} else {", enter_call):
+        branch.index("pngtuberContainer.style.setProperty('pointer-events', 'none', 'important');")
+    ]
+    flush = no_rect_branch.index("void pngtuberContainer.offsetWidth;")
+    assert flush < no_rect_branch.index("pngtuberContainer.style.removeProperty('transition');")
+    assert flush < no_rect_branch.index("pngtuberContainer.style.removeProperty('opacity');")
 
 
 def test_return_button_idle_tier_styles_are_present():
@@ -1290,11 +1331,84 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
     )
     assert "if (!container || !_isNekoIdleCat1EdgePeekEligible(container)) return false;" in edge_apply_block
     assert "_getNekoIdleCat1EdgePeekPlacement(left, top, w, h, viewportWidth, viewportHeight)" in edge_apply_block
+    assert "EDGE_PEEK_AFTER_DRAG" not in edge_apply_block
+    assert "_dispatchNekoIdleCat1EdgePeekAfterDragObservation" not in edge_apply_block
     assert "function _isNekoIdleCat1EdgePeekActive(containerOrButton)" in source
+    assert "function _isNekoIdleCat1TransferredPeekAnchorActive(containerOrButton)" in source
+    assert "function _isNekoIdleCat1MovementAnchored(containerOrButton)" in source
     assert "function _getNekoIdleCat1EdgePeekActiveEdge(containerOrButton)" in source
     assert "function _reclampNekoIdleCat1EdgePeekToViewport(containerOrButton)" in source
     assert "return button.classList.contains(className);" in source
     assert "function _clearNekoIdleCat1EdgePeekForTierExit(container)" in source
+
+    clear_edge_block = _source_slice_between(
+        source,
+        "function _clearNekoIdleCat1EdgePeek(containerOrButton)",
+        "function _isNekoIdleCat1EdgePeekActive(containerOrButton)",
+        "cat1 edge peek clear",
+    )
+    _assert_source_order(
+        clear_edge_block,
+        "cat1 edge peek clear owns the visual shift lifecycle",
+        "button.classList.remove(className);",
+        "button.querySelector('.neko-idle-return-art');",
+        "art.style.removeProperty('--neko-idle-return-edge-visual-shift-y');",
+        "_syncNekoIdleCat1QuestionMarkKeyboardAvailabilityForButton(button);",
+    )
+
+    edge_active_block = _source_slice_between(
+        source,
+        "function _isNekoIdleCat1EdgePeekActive(containerOrButton)",
+        "function _getNekoIdleCat1EdgePeekActiveEdge(containerOrButton)",
+        "cat1 edge peek active predicate",
+    )
+    assert "_NEKO_IDLE_CAT1_EDGE_PEEK_CLASSES.some" in edge_active_block
+    assert "data-neko-live2d-peek-anchor" not in edge_active_block
+
+    transferred_anchor_block = _source_slice_between(
+        source,
+        "function _isNekoIdleCat1TransferredPeekAnchorActive(containerOrButton)",
+        "function _isNekoIdleCat1MovementAnchored(containerOrButton)",
+        "transferred live2d peek anchor predicate",
+    )
+    assert "data-neko-live2d-peek-anchor" in transferred_anchor_block
+    assert "_NEKO_IDLE_CAT1_EDGE_PEEK_CLASSES" not in transferred_anchor_block
+
+    movement_anchor_block = _source_slice_between(
+        source,
+        "function _isNekoIdleCat1MovementAnchored(containerOrButton)",
+        "function _dispatchNekoIdleCat1EdgePeekAfterDragObservation(containerOrButton)",
+        "cat1 movement anchor predicate",
+    )
+    _assert_source_order(
+        movement_anchor_block,
+        "cat1 movement anchor combines but does not merge edge states",
+        "_isNekoIdleCat1EdgePeekActive(containerOrButton)",
+        "_isNekoIdleCat1TransferredPeekAnchorActive(containerOrButton)",
+    )
+    assert source.count("_isNekoIdleCat1MovementAnchored(") == 8
+    assert source.count("_isNekoIdleCat1TransferredPeekAnchorActive(") == 2
+
+    edge_observation_block = _source_slice_between(
+        source,
+        "function _dispatchNekoIdleCat1EdgePeekAfterDragObservation(containerOrButton)",
+        "function _isNekoIdleCat1EdgePeekEligible(containerOrButton)",
+        "cat1 edge peek drag observation",
+    )
+    _assert_source_order(
+        edge_observation_block,
+        "cat1 edge peek drag observation retains its detail contract",
+        "const edge = _getNekoIdleCat1EdgePeekActiveEdge(button);",
+        "if (!button || !edge) return false;",
+        "_NEKO_CAT_IDLE_OBSERVATION_TYPES.EDGE_PEEK_AFTER_DRAG",
+        "source: 'return-ball'",
+        "tier: button.getAttribute('data-neko-idle-tier')",
+        "reason: 'drag-edge-peek'",
+        "edge: edge",
+        "return true;",
+    )
+    assert "data-neko-live2d-peek-anchor" not in edge_observation_block
+    assert source.count("_dispatchNekoIdleCat1EdgePeekAfterDragObservation(") == 2
 
     apply_edge_block = _source_slice_between(
         source,
@@ -1376,9 +1490,9 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
     )
     _assert_source_order(
         journey_sync_block,
-        "cat1 edge peek blocks automatic walk",
+        "cat1 movement anchors block automatic walk",
         "if (!button) return;",
-        "if (_isNekoIdleCat1EdgePeekActive(button)) {",
+        "if (_isNekoIdleCat1MovementAnchored(button)) {",
         "_cancelNekoIdleCat1Journey(button, { resetArt: false, preserveObservers: true });",
         "if (_isNekoIdleCompactSurfaceDragging()) return;",
     )
@@ -1397,9 +1511,9 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
     )
     _assert_source_order(
         walk_start_block,
-        "cat1 edge peek blocks already queued walk start",
+        "cat1 movement anchors block already queued walk start",
         "if (!state) return;",
-        "if (_isNekoIdleCat1EdgePeekActive(button)) {",
+        "if (_isNekoIdleCat1MovementAnchored(button)) {",
         "_cancelNekoIdleCat1Journey(button, { resetArt: false, preserveObservers: true });",
     )
     assert (
@@ -1417,9 +1531,9 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
     )
     _assert_source_order(
         schedule_walk_block,
-        "cat1 edge peek blocks new walk scheduling",
+        "cat1 movement anchors block new walk scheduling",
         "if (!state || state.paused) return;",
-        "if (_isNekoIdleCat1EdgePeekActive(button)) {",
+        "if (_isNekoIdleCat1MovementAnchored(button)) {",
         "_cancelNekoIdleCat1Journey(button, { resetArt: false, preserveObservers: true });",
     )
     assert (
@@ -1429,6 +1543,20 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
         "    const profile = state.profile || _NEKO_IDLE_RETURN_SUBACTION_CAT1_CHAT_FOLLOW;"
     ) in schedule_walk_block
 
+    pair_move_prepare_block = _source_slice_between(
+        source,
+        "function _prepareNekoIdleCat1PairMoveStart(button, state)",
+        "function _canScheduleNekoIdleCat1PairMove(button, state)",
+        "cat1 pair move preparation gate",
+    )
+    _assert_source_order(
+        pair_move_prepare_block,
+        "cat1 movement anchors block pair move preparation",
+        "if (!button || !state || state.paused || state.pairMovePlan || state.pairMoveFrame) return;",
+        "if (_isNekoIdleCat1MovementAnchored(button)) return;",
+        "if (_isNekoIdleCat1IndependentActionActive(button)) return;",
+    )
+
     pair_move_gate_block = _source_slice_between(
         source,
         "function _canScheduleNekoIdleCat1PairMove(button, state)",
@@ -1437,9 +1565,9 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
     )
     _assert_source_order(
         pair_move_gate_block,
-        "cat1 edge peek blocks random pair move scheduling",
+        "cat1 movement anchors block random pair move scheduling",
         "if (!button || !state || state.paused || state.pairMovePlan || state.pairMoveFrame) return false;",
-        "if (_isNekoIdleCat1EdgePeekActive(button)) return false;",
+        "if (_isNekoIdleCat1MovementAnchored(button)) return false;",
         "const profile = state.profile || _NEKO_IDLE_RETURN_SUBACTION_CAT1_CHAT_FOLLOW;",
     )
 
@@ -1451,11 +1579,11 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
     )
     _assert_source_order(
         start_pair_move_block,
-        "cat1 edge peek blocks already queued pair move",
+        "cat1 movement anchors block already queued pair move",
         "const isCatMindRun = catMindRunOptions.source === 'cat_mind';",
         "if (!isCatMindRun) return false;",
         "const state = _getNekoIdleCat1Journey(button);",
-        "if (_isNekoIdleCat1EdgePeekActive(button)) {",
+        "if (_isNekoIdleCat1MovementAnchored(button)) {",
         "_cancelNekoIdleCat1Journey(button, { resetArt: false, preserveObservers: true });",
     )
     assert (
@@ -1473,7 +1601,8 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
     )
     _assert_source_order(
         journey_schedule_block,
-        "cat1 edge peek reclamps before blocking queued journey sync",
+        "cat1 movement anchors block queued journey sync while only cat edge peek reclamps",
+        "if (_isNekoIdleCat1MovementAnchored(button)) {",
         "if (_isNekoIdleCat1EdgePeekActive(button)) {",
         "_reclampNekoIdleCat1EdgePeekToViewport(button);",
         "_cancelNekoIdleCat1Journey(button, { resetArt: false, preserveObservers: true });",
@@ -1481,7 +1610,10 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
         "if (!state || state.syncFrame) return;",
     )
     assert (
-        "_reclampNekoIdleCat1EdgePeekToViewport(button);\n"
+        "if (_isNekoIdleCat1MovementAnchored(button)) {\n"
+        "        if (_isNekoIdleCat1EdgePeekActive(button)) {\n"
+        "            _reclampNekoIdleCat1EdgePeekToViewport(button);\n"
+        "        }\n"
         "        _cancelNekoIdleCat1Journey(button, { resetArt: false, preserveObservers: true });\n"
         "        return;\n"
         "    }\n"
@@ -1489,6 +1621,7 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
         "    if (!state || state.syncFrame) return;\n"
         "    if (_isNekoIdleCompactSurfaceDragging() || _nekoIdleCompactSurfaceSettleTimer) return;"
     ) in journey_schedule_block
+    assert journey_schedule_block.count("_reclampNekoIdleCat1EdgePeekToViewport(button);") == 1
 
     drag_start_block = _source_slice_between(
         source,
@@ -1540,15 +1673,23 @@ def test_cat1_edge_peek_only_applies_after_drag_release():
     )
     _assert_source_order(
         manual_move_block,
-        "cat1 edge peek skips drag-end recheck",
+        "cat1 edge peek dispatches one shared drag-end observation before cancelling movement",
         "if (detail.reason === 'return-ball-drag-end') {",
         "_finishNekoIdleReturnDragActionForContainer(detail.container);",
         "if (_isNekoIdleCat1EdgePeekActive(detail.container)) {",
+        "const dragMoved = [",
+        "detail.movedDistancePx,",
+        "detail.displacementPx,",
+        "detail.pathDistancePx",
+        "].some((distance) => Number(distance) > 0);",
+        "if (detail.dragCancelled !== true && dragMoved) {",
+        "_dispatchNekoIdleCat1EdgePeekAfterDragObservation(detail.container);",
         "_cancelNekoIdleCat1JourneyForContainer(detail.container, {",
         "resetArt: false,",
         "preserveObservers: true",
         "_updateNekoIdleCat1CompactTopEdgeRearmAfterManualMove(detail.container);",
     )
+    assert manual_move_block.count("_dispatchNekoIdleCat1EdgePeekAfterDragObservation(detail.container);") == 1
     assert (
         "_cancelNekoIdleCat1JourneyForContainer(detail.container, {\n"
         "                    resetArt: false,\n"
@@ -1906,7 +2047,10 @@ def test_return_button_drag_has_single_owner_per_runtime_path():
     mmd_source = MMD_UI_BUTTONS_PATH.read_text(encoding="utf-8")
 
     assert "function _isNekoNativeReturnBallDragDisabled()" in avatar_source
-    assert "if (!window.__NEKO_MULTI_WINDOW__ || _isNekoNativeReturnBallDragDisabled())" in avatar_source
+    assert (
+        "if (!window.__NEKO_MULTI_WINDOW__ || _isNekoNativeReturnBallDragDisabled()"
+        "\n                || window.__NEKO_DESKTOP_RUNTIME__?.platform === 'win32')"
+    ) in avatar_source
     assert "this._setupReturnButtonDrag(returnButtonContainer)" in avatar_source
     assert "Live2DManager.prototype.setupReturnButtonContainerDrag = function(container)" in live2d_source
     assert "this.setupReturnButtonContainerDrag(returnButtonContainer)" not in live2d_source
@@ -2467,8 +2611,8 @@ def test_cat1_rapid_drag_reaction_is_same_drag_motion_only():
     source = _read_avatar_ui_buttons_source()
     app_ui_source = read_js_parts(APP_UI_PATH)
 
-    assert "_NEKO_IDLE_CAT1_RAPID_DRAG_ASSET_URL = '/static/assets/neko-idle/cat-idle-cat-move-5.gif'" in source
-    assert "_NEKO_IDLE_CAT1_RAPID_DRAG_SOUND_URL = '/static/assets/neko-idle/cat1-voice-funny.mp3'" in source
+    assert "_NEKO_IDLE_CAT1_RAPID_DRAG_ASSET_URL = _getNekoCatAppearanceUrl('drag.rapid', { random: false })" in source
+    assert "_getNekoCatVoiceUrl('cat1.rapid_drag')" in source
     assert "_NEKO_IDLE_CAT1_RAPID_DRAG_REACTION_MS = 5000" in source
     assert "_NEKO_IDLE_CAT1_RAPID_DRAG_WINDOW_MS = 1100" in source
     assert "_NEKO_IDLE_CAT1_RAPID_DRAG_MIN_DISTANCE_PX = 28" in source
@@ -3068,7 +3212,8 @@ def test_idle_thought_bubble_is_sound_triggered_with_fade():
     _assert_source_order(
         sleep_play_block,
         "sleep sound playback",
-        "const audio = _playNekoIdleSound(_nekoIdleSleepSoundState, _pickNekoIdleSleepSoundSrc(config), config.volume);",
+        "const sleepSlot = tier === _NEKO_IDLE_TIER_CAT3 ? 'cat3.sleep' : 'cat2.sleep';",
+        "_getNekoCatVoiceUrl(sleepSlot),",
         "_runAfterNekoIdleSoundStarted(_nekoIdleSleepSoundState, audio, () => {",
         "if (token !== _nekoIdleSleepSoundState.token || _nekoIdleSleepSoundState.tier !== tier) return;",
         "_showNekoIdleThoughtBubbleForSound(tier, audio);",
@@ -3237,11 +3382,27 @@ def test_idle_thought_bubble_is_sound_triggered_with_fade():
         "state.handleTouchMove = (event) => {",
         "desktop native return-ball touch drag start",
     )
-    _assert_source_order(
+    native_touch_lock_block = _source_slice_between(
         native_touch_drag_block,
+        "if (window.NekoEdgePeekController && window.NekoEdgePeekController.shouldBlockReturnBallDrag(edgeButton, container)) {",
+        "const point = getTouchScreenPoint(event.touches[0]);",
+        "locked native touch returns before starting a drag",
+    )
+    assert "preventDefault" not in native_touch_lock_block
+    _assert_source_order(
+        native_touch_lock_block,
+        "locked native touch preserves tap activation while blocking drag propagation",
+        "event.stopImmediatePropagation();",
+        "return;",
+    )
+    # Scope the ordinary drag assertions past the early-return guard: the same
+    # propagation call occurs in both branches, and the helper finds the first.
+    native_touch_unlocked_block = native_touch_drag_block[
+        native_touch_drag_block.index("const point = getTouchScreenPoint(event.touches[0]);"):
+    ]
+    _assert_source_order(
+        native_touch_unlocked_block,
         "desktop native return-ball touch drag blocks default gestures before drag",
-        "state.handleTouchStart = (event) => {",
-        "if (isThoughtBubbleEventTarget(event)) return;",
         "const point = getTouchScreenPoint(event.touches[0]);",
         "if (!point) return;",
         "event.preventDefault();",
@@ -3346,13 +3507,11 @@ def test_sleeping_cat_tiers_schedule_soft_random_sound_once_per_interval():
     assert "[_NEKO_IDLE_TIER_CAT2]" in source
     assert "[_NEKO_IDLE_TIER_CAT3]" in source
     assert "srcs: Object.freeze([" in source
-    assert "'/static/assets/neko-idle/cat2-sleep1.mp3'" in source
-    assert "'/static/assets/neko-idle/cat2-sleep2.mp3'" in source
-    assert "'/static/assets/neko-idle/cat3-sleep1.mp3'" in source
-    assert "'/static/assets/neko-idle/cat3-sleep2.mp3'" in source
-    assert "function _pickNekoIdleSleepSoundSrc(config)" in source
-    assert "Math.floor(Math.random() * srcs.length)" in source
-    assert "_playNekoIdleSound(_nekoIdleSleepSoundState, _pickNekoIdleSleepSoundSrc(config), config.volume)" in source
+    assert "..._getNekoCatVoiceUrls('cat2.sleep')" in source
+    assert "..._getNekoCatVoiceUrls('cat3.sleep')" in source
+    assert "function _pickNekoIdleSleepSoundSrc" not in source
+    assert "_playNekoIdleSound(" in source
+    assert "_getNekoCatVoiceUrl(sleepSlot)" in source
     assert "audio.volume = Math.max(0, Math.min(1, Number(volume) || 0.2))" in source
     assert "audio.__nekoIdlePlayStarted = playStarted;" in source
     assert "audio.dispatchEvent(new Event('error'));" in source
@@ -3372,11 +3531,14 @@ def test_cat1_voice_sounds_are_limited_to_non_drag_and_drag_states():
     assert "_NEKO_IDLE_CAT1_AMBIENT_SOUND_VOLUME = 0.10" in source
     assert "_NEKO_IDLE_CAT1_DRAG_SOUND_VOLUME = 0.12" in source
     assert "_NEKO_IDLE_CAT1_DRAG_SOUND_FADE_OUT_MS = 900" in source
-    assert "'/static/assets/neko-idle/cat1-voice1.mp3'" in source
-    assert "'/static/assets/neko-idle/cat1-voice2.mp3'" in source
-    assert "'/static/assets/neko-idle/cat1-voice3.mp3'" in source
-    assert "_NEKO_IDLE_CAT1_DRAG_SOUND_URL = '/static/assets/neko-idle/cat1-voice-click.mp3'" in source
-    assert "_NEKO_IDLE_CAT1_RAPID_DRAG_SOUND_URL = '/static/assets/neko-idle/cat1-voice-funny.mp3'" in source
+    assert "_getNekoCatVoiceUrl('cat1.ambient')" in source
+    assert "_getNekoCatVoiceUrl('cat1.drag')" in source
+    assert "_getNekoCatVoiceUrl('cat1.rapid_drag')" in source
+    # Sounds are looked up per call; no load-time URL constants linger beside the registry.
+    for retired in ("_NEKO_IDLE_CAT1_AMBIENT_SOUND_URLS", "_NEKO_IDLE_CAT1_DRAG_SOUND_URL",
+                    "_NEKO_IDLE_CAT1_RAPID_DRAG_SOUND_URL", "_NEKO_IDLE_CAT1_EAT_SOUND_URL",
+                    "_NEKO_IDLE_CAT1_PLAY_SOUND_URL", "_NEKO_IDLE_CAT1_CHAT_HISS_SOUND_URL"):
+        assert retired not in source, retired
     assert "const _nekoIdleCat1RapidDragSoundState = {" in source
     assert "function _scheduleNekoIdleCat1AmbientSoundInterval" not in source
     assert "urls[Math.floor(Math.random() * urls.length)]" in source
@@ -3428,7 +3590,7 @@ def test_cat1_voice_sounds_are_limited_to_non_drag_and_drag_states():
         "_stopNekoIdleSoundAudio(_nekoIdleCat1DragSoundState);",
         "_playNekoIdleSound(",
         "_nekoIdleCat1RapidDragSoundState,",
-        "_NEKO_IDLE_CAT1_RAPID_DRAG_SOUND_URL,",
+        "_getNekoCatVoiceUrl('cat1.rapid_drag'),",
     )
 
     normal_drag_sound_block = _source_slice_between(
@@ -3443,7 +3605,7 @@ def test_cat1_voice_sounds_are_limited_to_non_drag_and_drag_states():
         "_stopNekoIdleSoundAudio(_nekoIdleCat1RapidDragSoundState);",
         "_playNekoIdleSound(",
         "_nekoIdleCat1DragSoundState,",
-        "_NEKO_IDLE_CAT1_DRAG_SOUND_URL,",
+        "_getNekoCatVoiceUrl('cat1.drag'),",
     )
 
 
@@ -3478,7 +3640,18 @@ def test_cat1_walk_to_minimized_chat_contract_is_present():
     assert "new CustomEvent('neko:idle-cat1-compact-mirror-state'" in source
     assert "via: 'local'" in source
     assert "return dispatchedLocal;" in source
-    assert "assetUrl: options.assetUrl || _getNekoIdleReturnAssetUrl(_NEKO_IDLE_TIER_CAT1)" in source
+    mirror_active_block = source.split(
+        "const surfaceScreenRect = _getNekoIdleScreenRectFromCompactSurfaceRect(options.surfaceRect)",
+        1,
+    )[1].split("if (!posted) return false;", 1)[0]
+    _assert_source_order(
+        mirror_active_block,
+        "cat1 compact mirror active payload",
+        "const assetUrl = options.assetUrl || _getNekoIdleReturnAssetUrl(_NEKO_IDLE_TIER_CAT1);",
+        "_postNekoIdleCat1CompactMirrorState({",
+        "active: true,",
+        "assetUrl,",
+    )
     mirror_state_block = source.split("function _setNekoIdleCat1CompactMirrorActive", 1)[1].split(
         "const surfaceScreenRect = _getNekoIdleScreenRectFromCompactSurfaceRect(options.surfaceRect)",
         1,
@@ -3604,7 +3777,10 @@ def test_cat1_walk_to_minimized_chat_contract_is_present():
     assert '_settleNekoIdleReturnSubactionToIdle' not in source
     assert '_NEKO_IDLE_CAT1_STRETCH_FINAL_HOLD_MS' in source
     assert 'containerObserver' in source
-    assert "attributeFilter: ['style', 'data-dragging']" in source
+    assert (
+        "attributeFilter: ['style', 'data-dragging', 'data-neko-live2d-peek-anchor']"
+        in source
+    )
     assert '_scheduleNekoIdleCat1JourneySyncForContainer' in source
     assert '_shouldRecheckNekoIdleCat1AfterManualMove' in source
     assert '_getNekoIdleRectCenterMoveDistance' in source
@@ -3652,7 +3828,10 @@ def test_cat1_walk_to_minimized_chat_contract_is_present():
     assert "'return-ball-drag-end'" in app_ui_source
     assert "movedDistancePx: movedDistancePx" in app_ui_source
     assert "this._setupReturnButtonDrag(returnButtonContainer)" in source
-    assert "if (!window.__NEKO_MULTI_WINDOW__ || _isNekoNativeReturnBallDragDisabled())" in source
+    assert (
+        "if (!window.__NEKO_MULTI_WINDOW__ || _isNekoNativeReturnBallDragDisabled()"
+        "\n                || window.__NEKO_DESKTOP_RUNTIME__?.platform === 'win32')"
+    ) in source
 
 
 def test_cat1_walk_is_blocked_while_return_ball_drag_is_active_or_pending():
@@ -3959,9 +4138,17 @@ def test_cat1_walk_is_blocked_while_return_ball_drag_is_active_or_pending():
 
     container_observer = _source_slice_between(
         source,
-        "state.containerObserver = new MutationObserver(() => {",
+        "state.containerObserver = new MutationObserver((mutations) => {",
         "state.containerObserver.observe(container",
         "cat1 container observer",
+    )
+    _assert_source_order(
+        container_observer,
+        "transferred anchor interrupts a running walk through the existing sync gate",
+        "const transferredAnchorChanged = mutations.some((mutation) =>",
+        "mutation.attributeName === 'data-neko-live2d-peek-anchor');",
+        "if (currentState.substate === currentState.profile.walkingSubstate && !transferredAnchorChanged) return;",
+        "_scheduleNekoIdleCat1JourneySync(button);",
     )
     _assert_source_contains(
         container_observer,
@@ -3971,6 +4158,11 @@ def test_cat1_walk_is_blocked_while_return_ball_drag_is_active_or_pending():
     _assert_source_contains(
         container_observer,
         "if (observerDragging && observerDragging !== 'false') return;",
+        "cat1 container observer",
+    )
+    _assert_source_contains(
+        source,
+        "attributeFilter: ['style', 'data-dragging', 'data-neko-live2d-peek-anchor']",
         "cat1 container observer",
     )
 
@@ -4137,7 +4329,7 @@ def test_live2d_renderer_ignores_and_recovers_return_ball_viewport_size():
 
     save_block = _source_slice_between(
         interaction_source,
-        "Live2DManager.prototype._savePositionAfterInteraction = async function () {",
+        "Live2DManager.prototype._savePositionAfterInteraction = async function (options = {}) {",
         "// 防抖动保存位置的辅助函数",
         "live2d save position",
     )

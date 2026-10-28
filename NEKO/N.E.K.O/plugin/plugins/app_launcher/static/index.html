@@ -1480,14 +1480,43 @@
         }
     }
 
+    // 开机自启会写 HKCU\...\Run，属于持久化动作：插件第一次调用只发放一次性令牌，
+    // 必须由这里（人点出来的浏览器，模型碰不到）弹出确认框后再走第二跳。
+    async function confirmAutostart(appId, first) {
+        const command = first.command || '';
+        const accepted = confirm(t('ui.confirm.autostart',
+            '开机自启需要主人亲自确认。\n\n将写入注册表的完整命令：\n{command}\n\n确认写入吗？取消则不做任何改动。',
+            { command }));
+        if (!accepted) {
+            return { cancelled: true, message: t('ui.info.autostart_cancelled', '已取消，未写入开机自启') };
+        }
+        const second = await callPlugin('set_autostart', {
+            app_id: appId,
+            enabled: true,
+            confirmed: true,
+            confirmation_token: first.confirmation_token
+        });
+        return { ...second, cancelled: false };
+    }
+
+    async function setAutostartConfirmed(args) {
+        const result = await callPlugin('set_autostart', args);
+        if (!result.needs_confirmation) return result;
+        return await confirmAutostart(args.app_id, result);
+    }
+
     async function toggleAutostart(appId, enabled) {
         const action = enabled ? t('ui.action.enable', '开启') : t('ui.action.disable', '关闭');
         showMessage(enabled
             ? t('ui.loading.autostart.enable', '🌸 正在开启开机自启...')
             : t('ui.loading.autostart.disable', '🌸 正在关闭开机自启...'), 'warning');
         try {
-            const result = await callPlugin('set_autostart', { app_id: appId, enabled: enabled });
+            const result = await setAutostartConfirmed({ app_id: appId, enabled: enabled });
             await loadApps();
+            if (result.cancelled) {
+                showMessage(`⚠️ ${result.message}`, 'warning');
+                return;
+            }
             showMessage(`✨ ${result.message || t('ui.success.action', '{action}成功', { action })}`, 'success');
         } catch (err) {
             await loadApps();
@@ -1563,7 +1592,26 @@
                 }
                 if (autostartChanged && canApplyAutostart) {
                     try {
-                        await callPlugin('set_autostart', { app_id: editingAppId, enabled: autostart });
+                        const done = await setAutostartConfirmed({ app_id: editingAppId, enabled: autostart });
+                        if (done.cancelled) {
+                            finalMessage = `⚠️ ${done.message}`;
+                            finalType = 'warning';
+                        }
+                    } catch (err) {
+                        finalMessage = t('ui.warning.update_autostart_failed', '⚠️ 更新成功，但开机自启设置失败: {error}', { error: err.message });
+                        finalType = 'warning';
+                    }
+                } else if (updateResult.needs_confirmation) {
+                    // 路径改了、自启原来是开的：插件已经把旧的 Run 值删掉并清掉标记，
+                    // 这里只负责把新命令拿给人看过一遍再确认。
+                    try {
+                        const done = await confirmAutostart(editingAppId, updateResult);
+                        if (done.cancelled) {
+                            finalMessage = `⚠️ ${done.message}`;
+                            finalType = 'warning';
+                        } else if (done.message) {
+                            finalMessage = `✨ ${done.message}`;
+                        }
                     } catch (err) {
                         finalMessage = t('ui.warning.update_autostart_failed', '⚠️ 更新成功，但开机自启设置失败: {error}', { error: err.message });
                         finalType = 'warning';
@@ -1576,7 +1624,19 @@
                 const result = await callPlugin('add_app', {
                     name, path, aliases, description: desc, autostart
                 });
-                if (result.message) {
+                if (result.needs_confirmation) {
+                    // 软件已经登记好了，只是自启还差人这一步
+                    let done;
+                    try {
+                        done = await confirmAutostart(result.app_id, result);
+                    } catch (err) {
+                        done = { cancelled: true, message: t('ui.error.autostart', '❌ {error}', { error: err.message }) };
+                    }
+                    finalMessage = done.cancelled
+                        ? `⚠️ ${done.message}`
+                        : `✨ ${done.message || t('ui.success.add', '✨ 添加成功')}`;
+                    if (done.cancelled) finalType = 'warning';
+                } else if (result.message) {
                     finalMessage = `✨ ${result.message}`;
                     if (isWarningMessage(result.message)) {
                         finalType = 'warning';

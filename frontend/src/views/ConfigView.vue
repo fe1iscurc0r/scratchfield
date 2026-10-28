@@ -5,7 +5,7 @@
  * 壳职责：tab 切换（含子路由可寻址 /config/<tab>）+ 设置内搜索（跨 tab 扫描）+ agent 入口。
  * 业务内容分到 src/views/config/{ModelTab,MemoryTab,AudioTab}.vue + 通知（NotificationSettingsPanel）。
  */
-import { Button, InputText } from 'primevue'
+import { Accordion, Button, InputText } from 'primevue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BoxContainer from '@/components/BoxContainer.vue'
@@ -163,6 +163,15 @@ async function gotoHit(hit: SearchHit) {
 
 watch(searchQuery, () => runSearch())
 
+/**
+ * 回主页面（2026-10-21）。
+ * 设置页是从侧边栏进入的平级路由，没有天然的"上级"，故固定 push('/')；
+ * 不用 router.back()：从 #/config/audio 直接进设置时 back 会回到另一个 config 子页。
+ */
+function goHome() {
+  void router.push('/')
+}
+
 /** 干员设置入口（卷181-C）：通讯录在聊天页（MessageView 内的 AgentContacts） */
 function gotoAgentContacts() {
   void router.push('/chat')
@@ -174,6 +183,14 @@ function gotoAgentContacts() {
     <!-- 设置内搜索（卷181-B）：输入即跨 tab 过滤，命中分组显示所属 tab -->
     <div class="config-search mb-3 px-1">
       <div class="flex items-center gap-2">
+        <button
+          class="config-back-btn"
+          data-testid="config-back"
+          title="返回主页面"
+          @click="goHome"
+        >
+          ← 返回
+        </button>
         <InputText
           v-model="searchQuery"
           class="config-search-input"
@@ -221,15 +238,19 @@ function gotoAgentContacts() {
     <!-- 模型 Tab -->
     <div v-show="activeTab === 'model'" data-config-tab="model">
       <!-- 领域切换（卷186-B3）：ELN 表单字段 / 文献主键随领域包切换，复用 DomainSwitcher（消费 domainPacks.ts，不新造轮子） -->
-      <ConfigGroup value="domain-pack" header="领域包">
-        <ConfigItem
-          name="领域切换"
-          description="切换 ELN 表单字段与文献主键的领域包（材料科研 / 法学），详细说明见 domains/README.md"
-          :search-keys="['领域', '领域包', 'domain', 'pack', '切换', 'ELN', '表单']"
-        >
-          <DomainSwitcher />
-        </ConfigItem>
-      </ConfigGroup>
+      <!-- ⚠️ ConfigGroup 内部是 AccordionPanel，必须有 Accordion 父级提供 $pcAccordion 上下文，
+           否则渲染时 isItemActive 读到 undefined ⇒ 整个设置页崩溃白屏（实测 2026-10-20）。 -->
+      <Accordion :value="['domain-pack']" multiple>
+        <ConfigGroup value="domain-pack" header="领域包">
+          <ConfigItem
+            name="领域切换"
+            description="切换 ELN 表单字段与文献主键的领域包（材料科研 / 法学），详细说明见 domains/README.md"
+            :search-keys="['领域', '领域包', 'domain', 'pack', '切换', 'ELN', '表单']"
+          >
+            <DomainSwitcher />
+          </ConfigItem>
+        </ConfigGroup>
+      </Accordion>
       <ModelTab />
     </div>
 
@@ -256,7 +277,8 @@ function gotoAgentContacts() {
     <!-- 干员设置入口（卷181-C）：AgentSettingsDialog 保留弹窗（内容强绑单个 agent 实例，
          与全局设置重叠低），此处提供统一入口 + 跳转 -->
     <div v-show="activeTab === 'agent'" data-config-tab="agent">
-      <ConfigGroup value="agent-entry" header="干员设置">
+      <Accordion :value="['agent-entry']" multiple>
+        <ConfigGroup value="agent-entry" header="干员设置">
         <div class="grid gap-4">
           <ConfigItem
             name="干员配置入口"
@@ -276,6 +298,7 @@ function gotoAgentContacts() {
           </ConfigItem>
         </div>
       </ConfigGroup>
+      </Accordion>
     </div>
   </BoxContainer>
 </template>
@@ -341,6 +364,23 @@ function gotoAgentContacts() {
   color: rgba(255, 255, 255, 0.4);
   cursor: pointer;
   transition: all 0.2s;
+}
+
+.config-back-btn {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.config-back-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .tab-btn:hover {

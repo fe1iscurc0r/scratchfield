@@ -6,12 +6,12 @@
   "entry.list_apps.description": "Obtém a lista de todos os softwares registrados pelo usuário, incluindo nome, caminho, aliases, status de inicialização automática etc.",
 
   "entry.add_app.name": "Adicionar App",
-  "entry.add_app.description": "Registra um novo software no inicializador. name é o nome exibido, path é o caminho completo (suporta .exe, atalhos .lnk etc.) e aliases é uma lista opcional de aliases para facilitar o reconhecimento.",
+  "entry.add_app.description": "Registra um novo programa no lançador. name é o nome de exibição, path é o caminho completo (o arquivo precisa existir; .exe, .lnk, .url, .bat/.cmd), aliases é uma lista opcional de apelidos.",
   "entry.add_app.param.name": "Nome do software, por exemplo: Steam, Chrome, Spotify",
   "entry.add_app.param.path": "Caminho completo, por exemplo: C:\\Program Files (x86)\\Steam\\Steam.exe ou caminho de atalho",
   "entry.add_app.param.aliases": "Lista de aliases para reconhecimento, por exemplo: [\"steam\", \"plataforma de jogos\"]",
   "entry.add_app.param.description": "Descrição (opcional)",
-  "entry.add_app.param.autostart": "Se deve ativar a inicialização automática (opcional, padrão false, somente .exe)",
+  "entry.add_app.param.autostart": "Se deve solicitar o início automático (opcional, padrão false, somente .exe). Não grava no registro diretamente: retorna um token de confirmação de uso único que set_autostart consome após o usuário confirmar.",
 
   "entry.remove_app.name": "Remover App",
   "entry.remove_app.description": "Exclui um software registrado pelo app_id.",
@@ -34,7 +34,7 @@
   "entry.update_app.param.description": "Nova descrição (opcional)",
 
   "entry.set_autostart.name": "Configurar Inicialização Automática",
-  "entry.set_autostart.description": "Ativa ou desativa a inicialização automática para o software registrado. Funciona pelo Registro do Windows. A Neko pode ajudar a configurar apps para iniciar automaticamente ao ligar o sistema.",
+  "entry.set_autostart.description": "Ativa ou desativa o início automático de programas registrados (registro do Windows HKCU\\...\\Run). Ativar é uma gravação que sobrevive ao reinício, então exige confirmação explícita do usuário: sem ela, retorna apenas um token de confirmação de uso único e não mexe no registro. Esta entrada está fora do roteamento automático da gata.",
   "entry.set_autostart.param.app_id": "ID do app a configurar",
   "entry.set_autostart.param.enabled": "True=ativar inicialização automática, False=desativar inicialização automática",
 
@@ -109,6 +109,8 @@
   "ui.tag.other": "Outro",
   "ui.tag.autostart": "Inicialização automática",
   "ui.confirm.delete": "Tem certeza de que deseja excluir「{name}」?",
+  "ui.confirm.autostart": "A inicialização automática exige sua confirmação pessoal.\n\nComando exato que será gravado no registro:\n{command}\n\nGravar? Cancelar não altera nada.",
+  "ui.info.autostart_cancelled": "Cancelado. Nada foi gravado para inicialização automática",
   "ui.loading": "⏳ Carregando...",
   "ui.loading.apps": "⏳ Carregando lista de apps...",
   "ui.loading.launch": "⏳ Abrindo...",
@@ -174,5 +176,7 @@
   "tutorial.tip.path": "Caminhos com aspas são suportados: cole diretamente, sem remover as aspas",
   "tutorial.tip.alias": "Defina vários aliases para melhorar o reconhecimento",
   "tutorial.tip.autostart": "Arquivos .exe podem ser configurados para inicialização automática",
-  "tutorial.btn.show": "📚 Ver Tutorial"
+  "tutorial.btn.show": "📚 Ver Tutorial",
+  "entry.set_autostart.param.confirmed": "O usuário confirmou na interface (deve ser true para ativar, junto com o token de uso único)",
+  "entry.set_autostart.param.confirmation_token": "Token de confirmação de uso único retornado pela chamada anterior (válido por 5 minutos, uso único)"
 }

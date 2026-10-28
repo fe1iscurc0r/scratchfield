@@ -35,13 +35,17 @@ class TestC3ThreeStepTask(unittest.TestCase):
     def tearDown(self):
         self.backend.shutdown()
 
-    def _setup_three_steps(self, delays=(0.0, 0.0, 0.0)):
+    def _setup_three_steps(self, delays=(0.0, 0.0, 0.0), spans=None):
+        """spans：可选，传入 list 则记录每个分支的 (起始, 结束) 时刻（用于并行性判据）。"""
         seen_threads: list[int] = []
 
         def make_handler(step_name: str, delay: float):
             def handler(payload: dict):
+                t0 = time.perf_counter()
                 time.sleep(delay)
                 seen_threads.append(threading.get_ident())
+                if spans is not None:
+                    spans.append((t0, time.perf_counter()))
                 return f"{step_name}:{payload['x']}"
 
             return handler
@@ -84,13 +88,33 @@ class TestC3ThreeStepTask(unittest.TestCase):
         self.assertEqual([r.split(":")[0] for r in result.results], ["文献调研", "实验执行", "数据分析"])
 
     def test_branches_run_in_parallel(self):
-        """3 分支各睡 0.2s：并行墙钟 < 串行 0.6s，且动用多个线程。"""
-        planner, seen_threads = self._setup_three_steps(delays=(0.2, 0.2, 0.2))
+        """3 分支各睡 0.5s：**执行区间必须重叠**（这才是并行的直接证据），且动用多个线程。
+
+        判据演进（两次踩坑记录，别再退回墙钟）：
+        · 初版：`elapsed < 0.55` 对 3×0.2s（串行下界 0.6s）——全量负载下实测 0.94s，**超过串行理论上界**，
+          纯属机器负载导致的假失败；
+        · 二版：sleep 拉到 0.5s、阈值 1.2s（串行下界 1.5s）——更重的负载下（全量 7m19s 那轮）仍假失败；
+        · 本版：**放弃墙钟**。直接看每个分支的 (起始, 结束) 区间是否有交叠——
+          串行执行时区间必然**两两不相交**，并行时必然重叠，这个判据**与机器负载无关**。
+        """
+        spans: list[tuple[float, float]] = []
+        planner, seen_threads = self._setup_three_steps(delays=(0.5, 0.5, 0.5), spans=spans)
         t0 = time.perf_counter()
         self.pe.run(planner, {"topic": "并行性"})
         elapsed = time.perf_counter() - t0
-        self.assertLess(elapsed, 0.55, f"分支疑似串行执行: {elapsed:.2f}s")
+
+        self.assertEqual(len(spans), 3, f"应记录 3 个分支的执行区间，实得 {len(spans)}")
         self.assertGreaterEqual(len(set(seen_threads)), 2, "未观察到多线程并行")
+
+        def overlap(a, b) -> float:
+            return min(a[1], b[1]) - max(a[0], b[0])
+
+        best = max(overlap(spans[i], spans[j])
+                   for i in range(len(spans)) for j in range(i + 1, len(spans)))
+        # 串行时每个区间互不相交 → best ≤ 0；并行（各睡 0.5s）时重叠应远大于 0.1s。
+        self.assertGreater(
+            best, 0.1,
+            f"分支执行区间无重叠（best={best:.3f}s）→ 实为串行；spans={spans}，墙钟={elapsed:.2f}s")
 
 
 class TestC3FanOutErrorHandling(unittest.TestCase):

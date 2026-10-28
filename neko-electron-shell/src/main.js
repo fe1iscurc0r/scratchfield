@@ -3578,7 +3578,8 @@ function createLoadingWindow() {
     icon: getIcon(),
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: false
+      // 加载窗没有 preload，隔离与否对页面无影响 —— 收紧为 true，去掉一处无谓豁免。
+      contextIsolation: true
     }
   });
 

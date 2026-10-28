@@ -19,9 +19,12 @@ import asyncio
 import difflib
 import hashlib
 import re
+import shutil
 import time
+import unicodedata
 from contextlib import suppress
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -86,15 +89,15 @@ def _source_history_path(*, memory_dir: str | Path | None = None) -> Path:
     return _resolve_memory_dir(memory_dir) / _SOURCE_HISTORY_FILENAME
 
 
-def _source_hash(url: str = '', fallback_title: str = '') -> str:
+def _source_hash(url: str = "", fallback_title: str = "") -> str:
     """Return a stable URL hash, falling back to a normalized title."""
-    norm = (url or '').strip().lower().rstrip('/')
+    norm = (url or "").strip().lower().rstrip("/")
     if norm:
-        return hashlib.sha256(norm.encode('utf-8')).hexdigest()
-    title_norm = re.sub(r'\s+', ' ', (fallback_title or '').strip().lower())
+        return hashlib.sha256(norm.encode("utf-8")).hexdigest()
+    title_norm = re.sub(r"\s+", " ", (fallback_title or "").strip().lower())
     if title_norm:
-        return hashlib.sha256(('t::' + title_norm).encode('utf-8')).hexdigest()
-    return ''
+        return hashlib.sha256(("t::" + title_norm).encode("utf-8")).hexdigest()
+    return ""
 
 
 def _half_life_for(kind: str) -> float:
@@ -197,7 +200,7 @@ async def _ensure_source_history_loaded(
             # 否则旧根的历史会去压新根的候选。
             _source_history_authoritative = False
             return False
-        entries = data.get('entries') if isinstance(data, dict) else None
+        entries = data.get("entries") if isinstance(data, dict) else None
         if isinstance(entries, dict):
             now = time.time()
             damaged = 0
@@ -205,10 +208,10 @@ async def _ensure_source_history_loaded(
                 if not isinstance(entry, dict):
                     continue
                 try:
-                    age = now - float(entry.get('ts', 0.0) or 0.0)
+                    age = now - float(entry.get("ts", 0.0) or 0.0)
                     probability = _source_skip_probability(
                         age,
-                        _half_life_for(entry.get('kind', 'web')),
+                        _half_life_for(entry.get("kind", "web")),
                     )
                 except (ValueError, TypeError, OverflowError):
                     # 逐条跳过而不是整份作废：ts 是字符串抛 ValueError、kind 不可 hash
@@ -267,7 +270,7 @@ async def _record_source_used(
     *,
     url: str,
     kind: str,
-    title: str = '',
+    title: str = "",
     memory_dir: str | Path | None = None,
 ) -> None:
     """Update, prune and persist one consumed source record."""
@@ -332,15 +335,15 @@ async def _record_source_used(
         _source_history[source_hash] = {
             "ts": time.time(),
             "kind": kind,
-            "title": (title or '')[:80],
+            "title": (title or "")[:80],
         }
         now = time.time()
         forgotten = [
             existing_hash
             for existing_hash, entry in _source_history.items()
             if _source_skip_probability(
-                now - float(entry.get('ts', 0.0) or 0.0),
-                _half_life_for(entry.get('kind', 'web')),
+                now - float(entry.get("ts", 0.0) or 0.0),
+                _half_life_for(entry.get("kind", "web")),
             )
             < PROACTIVE_SOURCE_FORGET_P
         ]
@@ -378,8 +381,9 @@ _proactive_chat_history: dict[str, deque] = {}
 # {lanlan_name: {source_tag: deque([(timestamp, material_key), ...], maxlen=N)}}
 # 素材推送类 channel（MUSIC/MEME）豁免台词级复读判定，改按"素材本身"去重：
 # MUSIC 看曲目（title|artist），MEME 看搜索关键词。本轮素材与近期不雷同就放行；
-# 雷同才回落到台词判定。进程内、重启清零——短期复读保护，与 _proactive_chat_
-# history / _mini_game_invite_state 同样是内存态即可。
+# 雷同才回落到台词判定（MEME 素材新鲜时仍拦逐字复读，见
+# ANTI_REPEAT_VERBATIM_GUARD_SOURCE_TAGS）。进程内、重启清零——短期复读保护，
+# 与 _proactive_chat_history / _mini_game_invite_state 同样是内存态即可。
 _proactive_material_history: dict[str, dict[str, deque]] = {}
 
 
@@ -420,6 +424,20 @@ _proactive_chat_totals_lock = asyncio.Lock()
 _proactive_chat_totals_loaded = False
 _proactive_chat_totals_loaded_path: Path | None = None
 
+# 三态加载（WO-272 / P0-19）。原来「读失败」和「加载成功且为空」是同一个状态，
+# 于是 `_increment → _persist` 会拿**只有新增量的内存**去做全量覆盖写：一次 JSON
+# 损坏就把用户全部历史累计计数截断成 1，且不可恢复。现在分开记：
+#   unloaded —— 还没读过
+#   missing  —— FileNotFoundError，合法空起（现状语义不变，下次写会建文件）
+#   loaded   —— 读到了
+#   failed   —— 读失败。禁止落盘（见 _persist_totals_unlocked），并暴露给健康检查。
+_proactive_chat_totals_load_state = "unloaded"
+# 被 blocked 期间累计的增量。文件恢复可读时叠加回磁盘基线，避免「恢复即丢账」。
+_proactive_chat_totals_pending_delta: dict[str, int] = {}
+_proactive_chat_totals_pending_ever_delivered: set[str] = set()
+_proactive_chat_totals_read_failures = 0
+_proactive_chat_totals_write_refusals = 0
+
 
 _RECENT_CHAT_MAX_AGE_SECONDS = 3600  # 1小时内的搭话记录
 
@@ -433,7 +451,7 @@ def _recent_proactive_chat_entries(lanlan_name: str) -> tuple[tuple, ...]:
     return tuple(history) if history else ()
 
 
-def _format_recent_proactive_chats(lanlan_name: str, lang: str = 'zh') -> str:
+def _format_recent_proactive_chats(lanlan_name: str, lang: str = "zh") -> str:
     """
     Format recent proactive-chat records into a text block injectable into the prompt (with relative time and source channel).
     Logic:
@@ -446,12 +464,16 @@ def _format_recent_proactive_chats(lanlan_name: str, lang: str = 'zh') -> str:
     if not history:
         return ""
     now = time.time()
-    recent = [entry for entry in history if now - entry[0] < _RECENT_CHAT_MAX_AGE_SECONDS]
+    recent = [
+        entry for entry in history if now - entry[0] < _RECENT_CHAT_MAX_AGE_SECONDS
+    ]
     if not recent:
         return ""
 
-    tl = RECENT_PROACTIVE_TIME_LABELS.get(lang, RECENT_PROACTIVE_TIME_LABELS['en'])
-    cl = RECENT_PROACTIVE_CHANNEL_LABELS.get(lang, RECENT_PROACTIVE_CHANNEL_LABELS['en'])
+    tl = RECENT_PROACTIVE_TIME_LABELS.get(lang, RECENT_PROACTIVE_TIME_LABELS["en"])
+    cl = RECENT_PROACTIVE_CHANNEL_LABELS.get(
+        lang, RECENT_PROACTIVE_CHANNEL_LABELS["en"]
+    )
 
     def _rel(ts):
         """
@@ -466,17 +488,17 @@ def _format_recent_proactive_chats(lanlan_name: str, lang: str = 'zh') -> str:
             return tl[0]
         m = d // 60
         if m < 60:
-            return tl['m'].format(m)
-        return tl['h'].format(m // 60)
+            return tl["m"].format(m)
+        return tl["h"].format(m // 60)
 
     header = _loc(RECENT_PROACTIVE_CHATS_HEADER, lang)
     footer = _loc(RECENT_PROACTIVE_CHATS_FOOTER, lang)
     lines = []
     for entry in recent:
         ts, msg = entry[0], entry[1]
-        ch = entry[2] if len(entry) > 2 else ''
+        ch = entry[2] if len(entry) > 2 else ""
         # 过滤掉 vision 通道的记录，避免 AI 引用已过期的屏幕内容产生幻觉
-        if ch == 'vision':
+        if ch == "vision":
             continue
         tag = _rel(ts)
         if ch:
@@ -529,7 +551,7 @@ def _record_reminiscence_usage(lanlan_name: str) -> None:
     _reminiscence_usage_history[lanlan_name].append(time.time())
 
 
-def _record_proactive_chat(lanlan_name: str, message: str, channel: str = ''):
+def _record_proactive_chat(lanlan_name: str, message: str, channel: str = ""):
     """
     Record one successful proactive chat (with its source channel).
     Logic:
@@ -554,6 +576,7 @@ def _record_proactive_chat(lanlan_name: str, message: str, channel: str = ''):
     # proactive_fired 时刻与用户消息活动 timestamp 关联粗估；精确配对另行设计。
     try:
         from utils.instrument import counter as _instr_counter
+
         _instr_counter("proactive_fired", channel=(str(channel) or "default")[:24])
     except Exception:
         # 埋点失败不能影响主动搭话投递
@@ -563,7 +586,7 @@ def _record_proactive_chat(lanlan_name: str, message: str, channel: str = ''):
 def _normalize_material_key(raw: str) -> str:
     """Normalize a material identity string for exact-match dedup (lowercase + collapse whitespace)."""
     s = (raw or "").strip().lower()
-    return re.sub(r'\s+', ' ', s)
+    return re.sub(r"\s+", " ", s)
 
 
 def _proactive_material_key(
@@ -580,12 +603,12 @@ def _proactive_material_key(
 
     Empty/unknown → "" (caller treats as non-repeat, i.e. always exempt).
     """
-    if source_tag == 'MUSIC' and selected_music_link:
-        title = (selected_music_link.get('title') or '').strip()
-        artist = (selected_music_link.get('artist') or '').strip()
+    if source_tag == "MUSIC" and selected_music_link:
+        title = (selected_music_link.get("title") or "").strip()
+        artist = (selected_music_link.get("artist") or "").strip()
         return _normalize_material_key(f"{title}|{artist}") if (title or artist) else ""
-    if source_tag == 'MEME' and meme_content:
-        return _normalize_material_key(meme_content.get('keyword') or '')
+    if source_tag == "MEME" and meme_content:
+        return _normalize_material_key(meme_content.get("keyword") or "")
     return ""
 
 
@@ -600,10 +623,7 @@ def _is_recent_proactive_material(lanlan_name: str, source_tag: str, key: str) -
     if not bucket:
         return False
     now = time.time()
-    return any(
-        k == key and now - ts < _RECENT_CHAT_MAX_AGE_SECONDS
-        for ts, k in bucket
-    )
+    return any(k == key and now - ts < _RECENT_CHAT_MAX_AGE_SECONDS for ts, k in bucket)
 
 
 def _record_proactive_material(lanlan_name: str, source_tag: str, key: str) -> None:
@@ -667,62 +687,108 @@ def _proactive_feed_rejected_for_takeover(
     )
 
 
-def _proactive_chat_totals_path(
-    *, memory_dir: str | Path | None = None
-) -> Path:
+def _proactive_chat_totals_path(*, memory_dir: str | Path | None = None) -> Path:
     return _resolve_memory_dir(memory_dir) / _PROACTIVE_CHAT_TOTALS_FILENAME
 
 
 async def _ensure_proactive_chat_totals_loaded(
     *, memory_dir: str | Path | None = None
-) -> None:
+) -> bool:
     """Lazy-load the persisted cumulative counters + ever_delivered. Idempotent. File reads go to the thread pool.
 
     schema: {"version": 2,
              "totals": {<lanlan_name>: <int>, ...},
              "ever_delivered": {<lanlan_name>: true, ...}}
 
-    A missing file / corrupted JSON is not fatal — start from empty, and the next
-    increment writes a fresh file. The old schema v1 has no ever_delivered field,
-    so it loads as an empty dict — after upgrading, the first proactive chat will
-    "force-first re-deliver once" for existing users (at most once, because
-    ever_delivered is set True and persisted immediately after delivery); this is
-    a one-off v1→v2 migration cost and needs no dedicated migration script."""
+    Returns False **only** on a read failure (`failed` 态); True on `loaded` and on
+    `missing`. 返回值的唯一用途是挡住落盘 —— 见 `_persist_totals_unlocked`。
+
+    A missing file is not fatal — start from empty, and the next increment writes a
+    fresh file. A **corrupted/unreadable** file no longer counts as "loaded and
+    empty": that conflation is what truncated the whole history down to 1.
+
+    The old schema v1 has no ever_delivered field, so it loads as an empty dict —
+    after upgrading, the first proactive chat will "force-first re-deliver once" for
+    existing users (at most once, because ever_delivered is set True and persisted
+    immediately after delivery); this is a one-off v1→v2 migration cost and needs no
+    dedicated migration script."""
     global _proactive_chat_totals_loaded, _proactive_chat_totals_loaded_path
+    global _proactive_chat_totals_load_state, _proactive_chat_totals_read_failures
     path = _proactive_chat_totals_path(memory_dir=memory_dir)
-    if (
-        _proactive_chat_totals_loaded
-        and _proactive_chat_totals_loaded_path == path
-    ):
-        return
+    if _proactive_chat_totals_loaded and _proactive_chat_totals_loaded_path == path:
+        return True
     async with _proactive_chat_totals_lock:
-        if (
-            _proactive_chat_totals_loaded
-            and _proactive_chat_totals_loaded_path == path
-        ):
-            return
-        _proactive_chat_totals.clear()
-        _invite_ever_delivered.clear()
+        if _proactive_chat_totals_loaded and _proactive_chat_totals_loaded_path == path:
+            return True
+        found = True
+        totals_new: dict[str, int] = {}
+        ever_new: dict[str, bool] = {}
         try:
             data = await asyncio.to_thread(read_json, path)
-            totals = data.get('totals') if isinstance(data, dict) else None
+            totals = data.get("totals") if isinstance(data, dict) else None
             if isinstance(totals, dict):
                 for k, v in totals.items():
                     if isinstance(k, str) and isinstance(v, (int, float)):
-                        _proactive_chat_totals[k] = int(v)
-            ever = data.get('ever_delivered') if isinstance(data, dict) else None
+                        totals_new[k] = int(v)
+            ever = data.get("ever_delivered") if isinstance(data, dict) else None
             if isinstance(ever, dict):
                 for k, v in ever.items():
                     if isinstance(k, str) and bool(v):
-                        _invite_ever_delivered[k] = True
+                        ever_new[k] = True
         except FileNotFoundError:
             # 首次启动 / cleanup 后没文件——按全空起步，下次 increment 会创建。
             # 不是异常，不打 warning。
-            pass
+            found = False
+            _proactive_chat_totals_load_state = "missing"
         except Exception as exc:
-            logger.warning("proactive_chat_totals load failed: %s", exc)
+            _proactive_chat_totals_read_failures += 1
+            if _should_log_repeated_failure(_proactive_chat_totals_read_failures):
+                logger.warning(
+                    "%s 读取失败（连续第 %d 次）%s: %s —— 记为 failed，落盘已被挡住；"
+                    "此时若继续写就会用只有新增量的内存截断历史累计计数",
+                    _PROACTIVE_CHAT_TOTALS_FILENAME,
+                    _proactive_chat_totals_read_failures,
+                    type(exc).__name__,
+                    exc,
+                )
+            # 内存原样保留（照 _source_history_* 的约定：先解析进局部变量，只有读成功
+            # 才换掉全局）。在这里清空会让「读失败 + 内存空」变成下一次覆盖写的原料。
+            # loaded 置 False 挡住开头的早退：文件修好后下一次调用就会真的重读。
+            # 不能在这里置 loaded=True（那就是本条 P0 的原 bug）。
+            _proactive_chat_totals_loaded = False
+            _proactive_chat_totals_loaded_path = path
+            _proactive_chat_totals_load_state = "failed"
+            return False
+        _proactive_chat_totals.clear()
+        _proactive_chat_totals.update(totals_new)
+        _invite_ever_delivered.clear()
+        _invite_ever_delivered.update(ever_new)
+        # 恢复可读：把被挡住期间的增量叠回磁盘基线，别让「恢复」变成又一次丢账。
+        # 账本只在补写真的成功时才清空——写失败就继续挂着，下次加载再并一次
+        # （挂着的语义是「发生过但磁盘上没有」，重复并入不会重复计数）。
+        had_pending = bool(
+            _proactive_chat_totals_pending_delta
+            or _proactive_chat_totals_pending_ever_delivered
+        )
+        if _proactive_chat_totals_pending_delta:
+            for k, v in _proactive_chat_totals_pending_delta.items():
+                _proactive_chat_totals[k] = int(_proactive_chat_totals.get(k, 0)) + int(v)
+            logger.info(
+                "%s 恢复可读，补回被挡住的增量 %s",
+                _PROACTIVE_CHAT_TOTALS_FILENAME,
+                dict(_proactive_chat_totals_pending_delta),
+            )
+        if _proactive_chat_totals_pending_ever_delivered:
+            for k in _proactive_chat_totals_pending_ever_delivered:
+                _invite_ever_delivered[k] = True
         _proactive_chat_totals_loaded = True
         _proactive_chat_totals_loaded_path = path
+        _proactive_chat_totals_read_failures = 0
+        _proactive_chat_totals_load_state = "loaded" if found else "missing"
+        if had_pending and await _persist_totals_unlocked(memory_dir=memory_dir):
+            _proactive_chat_totals_pending_delta.clear()
+            _proactive_chat_totals_pending_ever_delivered.clear()
+        return True
 
 
 def _get_proactive_chat_total(lanlan_name: str) -> int:
@@ -740,17 +806,74 @@ def _was_invite_ever_delivered(lanlan_name: str) -> bool:
     return bool(_invite_ever_delivered.get(lanlan_name, False))
 
 
-async def _persist_totals_unlocked(
-    *, memory_dir: str | Path | None = None
-) -> None:
-    """Persist totals + ever_delivered to disk. The caller must hold _proactive_chat_totals_lock."""
+def _proactive_chat_totals_backup_path(path: Path) -> Path:
+    return path.with_name(path.name + ".bak")
+
+
+def _backup_totals_file(path: Path) -> None:
+    """Copy the current file to ``*.bak`` right before a full-overwrite write (keeps 1)."""
     try:
+        if not path.exists():
+            return
+        shutil.copyfile(path, _proactive_chat_totals_backup_path(path))
+    except OSError as exc:
+        # 备份失败不挡写：拿不到 .bak 只是少一次人工恢复的机会，
+        # 因为备份而挡住写则会让计数从此再也不落盘——那是更坏的结果。
+        logger.warning(
+            "%s 备份失败（仍继续写）: %s: %s",
+            _PROACTIVE_CHAT_TOTALS_FILENAME,
+            type(exc).__name__,
+            exc,
+        )
+
+
+def proactive_chat_totals_load_state() -> dict:
+    """Health snapshot of the cumulative-counter store (WO-272 / P0-19).
+
+    ``state`` is ``unloaded`` / ``missing`` / ``loaded`` / ``failed``. Only
+    ``failed`` means "counters are being kept in memory but NOT written to disk" —
+    that is the case the caller-facing health check must surface, because the app
+    otherwise looks like it is keeping books while nothing lands on disk.
+    """
+    return {
+        "state": _proactive_chat_totals_load_state,
+        "loaded": bool(_proactive_chat_totals_loaded),
+        "path": str(_proactive_chat_totals_path()),
+        "read_failures": _proactive_chat_totals_read_failures,
+        "write_refusals": _proactive_chat_totals_write_refusals,
+        "pending_delta": dict(_proactive_chat_totals_pending_delta),
+    }
+
+
+async def _persist_totals_unlocked(*, memory_dir: str | Path | None = None) -> bool:
+    """Persist totals + ever_delivered to disk. The caller must hold _proactive_chat_totals_lock.
+
+    Returns whether the write actually happened. ``False`` means the caller's change
+    is only in memory and has been recorded in ``_proactive_chat_totals_pending_delta``
+    for the next successful load to replay.
+    """
+    global _proactive_chat_totals_write_refusals
+    if _proactive_chat_totals_load_state not in ("loaded", "missing"):
+        # unloaded = 还没读过（有人跳过 _ensure 直接写）；failed = 盘上那份读不出来。
+        # 两种情况下内存里的值都不代表磁盘，此时的全量覆盖写就是 P0-19 的截断本体。
+        _proactive_chat_totals_write_refusals += 1
+        if _should_log_repeated_failure(_proactive_chat_totals_write_refusals):
+            logger.warning(
+                "%s 拒绝落盘（连续第 %d 次，当前加载态=%s）：内存值不代表磁盘值，"
+                "此时的全量覆盖写会把历史累计计数截断到只剩本次增量",
+                _PROACTIVE_CHAT_TOTALS_FILENAME,
+                _proactive_chat_totals_write_refusals,
+                _proactive_chat_totals_load_state,
+            )
+        return False
+    try:
+        await asyncio.to_thread(_backup_totals_file, _proactive_chat_totals_path(memory_dir=memory_dir))
         await atomic_write_json_async(
             _proactive_chat_totals_path(memory_dir=memory_dir),
             {
-                'version': _PROACTIVE_CHAT_TOTALS_SCHEMA_VERSION,
-                'totals': dict(_proactive_chat_totals),
-                'ever_delivered': dict(_invite_ever_delivered),
+                "version": _PROACTIVE_CHAT_TOTALS_SCHEMA_VERSION,
+                "totals": dict(_proactive_chat_totals),
+                "ever_delivered": dict(_invite_ever_delivered),
             },
             indent=2,
             ensure_ascii=False,
@@ -760,6 +883,8 @@ async def _persist_totals_unlocked(
             "proactive_chat_totals persist failed (in-memory still up-to-date): %s",
             exc,
         )
+        return False
+    return True
 
 
 async def _increment_proactive_chat_total(
@@ -770,12 +895,20 @@ async def _increment_proactive_chat_total(
     Serialization is guaranteed by ``_proactive_chat_totals_lock``: concurrent
     proactive_chat calls each await a serial update, so no increment is lost.
     Persistence failures are not raised to the caller — the counter is
-    best-effort; losing one +1 is not fatal, but the log line is kept."""
+    best-effort; losing one +1 is not fatal, but the log line is kept.
+
+    「best-effort」只到写成功为止：写被挡住（读失败未恢复）时这一笔会记进
+    ``_proactive_chat_totals_pending_delta``，等文件恢复可读时叠回磁盘基线。"""
     await _ensure_proactive_chat_totals_loaded(memory_dir=memory_dir)
     async with _proactive_chat_totals_lock:
         new_value = _proactive_chat_totals.get(lanlan_name, 0) + 1
         _proactive_chat_totals[lanlan_name] = new_value
-        await _persist_totals_unlocked(memory_dir=memory_dir)
+        _proactive_chat_totals_pending_delta[lanlan_name] = (
+            _proactive_chat_totals_pending_delta.get(lanlan_name, 0) + 1
+        )
+        if await _persist_totals_unlocked(memory_dir=memory_dir):
+            # 这份文件已经代表全部内存值，重放账本清空
+            _proactive_chat_totals_pending_delta.clear()
     return new_value
 
 
@@ -798,7 +931,9 @@ async def _mark_invite_ever_delivered(
         if _invite_ever_delivered.get(lanlan_name):
             return
         _invite_ever_delivered[lanlan_name] = True
-        await _persist_totals_unlocked(memory_dir=memory_dir)
+        _proactive_chat_totals_pending_ever_delivered.add(lanlan_name)
+        if await _persist_totals_unlocked(memory_dir=memory_dir):
+            _proactive_chat_totals_pending_ever_delivered.clear()
 
 
 async def _record_invite_delivery_persistent(
@@ -818,7 +953,13 @@ async def _record_invite_delivery_persistent(
         new_value = _proactive_chat_totals.get(lanlan_name, 0) + 1
         _proactive_chat_totals[lanlan_name] = new_value
         _invite_ever_delivered[lanlan_name] = True
-        await _persist_totals_unlocked(memory_dir=memory_dir)
+        _proactive_chat_totals_pending_delta[lanlan_name] = (
+            _proactive_chat_totals_pending_delta.get(lanlan_name, 0) + 1
+        )
+        _proactive_chat_totals_pending_ever_delivered.add(lanlan_name)
+        if await _persist_totals_unlocked(memory_dir=memory_dir):
+            _proactive_chat_totals_pending_delta.clear()
+            _proactive_chat_totals_pending_ever_delivered.clear()
     return new_value
 
 
@@ -841,7 +982,7 @@ def _clear_channel_from_proactive_history(lanlan_name: str, channel: str) -> int
     cleared = 0
     for entry in history:
         if len(entry) >= 3 and entry[2] == channel:
-            rewritten.append((entry[0], entry[1], ''))
+            rewritten.append((entry[0], entry[1], ""))
             cleared += 1
         else:
             rewritten.append(entry)
@@ -860,24 +1001,42 @@ def _normalize_text_for_similarity(text: str) -> str:
     Only light normalization, to avoid false kills from over-cleaning.
     """
     text = (text or "").strip().lower()
-    return re.sub(r'\s+', ' ', text)
+    return re.sub(r"\s+", " ", text)
 
 
-def _is_similar_to_recent_proactive_chat(lanlan_name: str, message: str) -> tuple[bool, float]:
-    """
-    Check whether message is highly similar to recent proactive chats (high threshold against false kills).
-    Returns (is_duplicate, best_score).
+@dataclass(frozen=True, slots=True)
+class ProactiveSimilarityMatch:
+    """Detailed evidence for the recent-proactive literal similarity guard."""
+
+    is_duplicate: bool = False
+    best_score: float = 0.0
+    matched_text: str = ""
+    common_fragment: str = ""
+
+
+def _find_similar_recent_proactive_chat(
+    lanlan_name: str,
+    message: str,
+) -> ProactiveSimilarityMatch:
+    """Return the best recent literal-similarity match and bounded evidence.
+
+    The existing compatibility wrapper below intentionally keeps returning the
+    historical ``(bool, score)`` tuple.  Runtime observability needs the matched
+    text only long enough to derive a privacy-bounded repeat fragment; callers
+    must not persist ``matched_text`` itself.
     """
     history = _proactive_chat_history.get(lanlan_name)
     if not history or not message.strip():
-        return False, 0.0
+        return ProactiveSimilarityMatch()
 
     now = time.time()
     current = _normalize_text_for_similarity(message)
     if not current:
-        return False, 0.0
+        return ProactiveSimilarityMatch()
 
-    best = 0.0
+    best_score = 0.0
+    best_text = ""
+    best_fragment = ""
     for entry in history:
         ts, old_msg = entry[0], entry[1]
         if now - ts >= _RECENT_CHAT_MAX_AGE_SECONDS:
@@ -885,9 +1044,88 @@ def _is_similar_to_recent_proactive_chat(lanlan_name: str, message: str) -> tupl
         old_norm = _normalize_text_for_similarity(old_msg)
         if not old_norm:
             continue
-        score = difflib.SequenceMatcher(None, current, old_norm).ratio()
-        if score > best:
-            best = score
-        if score >= _PROACTIVE_SIMILARITY_THRESHOLD:
-            return True, score
-    return False, best
+        matcher = difflib.SequenceMatcher(None, current, old_norm)
+        score = matcher.ratio()
+        if score <= best_score:
+            continue
+        blocks = matcher.get_matching_blocks()
+        longest = max(blocks, key=lambda block: block.size)
+        best_score = score
+        best_text = old_msg
+        best_fragment = current[longest.a : longest.a + longest.size].strip()
+
+    return ProactiveSimilarityMatch(
+        is_duplicate=best_score >= _PROACTIVE_SIMILARITY_THRESHOLD,
+        best_score=best_score,
+        matched_text=best_text,
+        common_fragment=best_fragment,
+    )
+
+
+# Emoji glue that is not category P/S/Z: variation selectors (Mn), the ZWJ that
+# joins sequences (Cf), the keycap mark (Me) and the tag characters that spell
+# subdivision flags (Cf, U+E0020..U+E007F). Listed explicitly rather than
+# dropping every Mn/Cf so accents and other real combining marks survive.
+_VERBATIM_EMOJI_GLUE = frozenset(
+    "\ufe0e\ufe0f\u200d\u20e3" + "".join(map(chr, range(0xE0020, 0xE0080)))
+)
+
+
+def _is_verbatim_content_char(ch: str) -> bool:
+    return (
+        not ch.isspace()
+        and ch not in _VERBATIM_EMOJI_GLUE
+        and unicodedata.category(ch)[0] not in "PSZ"
+    )
+
+
+def _verbatim_key(text: str) -> str:
+    """Reduce *text* to its words: drop whitespace/punctuation/symbols/emoji, NFKC, lowercase."""
+    # Filter on the ORIGINAL categories first: NFKC expands compatibility
+    # symbols into letters (™ -> "TM", ℡ -> "TEL", ㈱ -> 株), which would make
+    # a trailing symbol count as content. Filter again afterwards because NFKC
+    # can also emit new separators (½ -> "1⁄2", NBSP -> space).
+    content = "".join(filter(_is_verbatim_content_char, text or ""))
+    normalized = unicodedata.normalize("NFKC", content).lower()
+    return "".join(filter(_is_verbatim_content_char, normalized))
+
+
+def _find_verbatim_recent_proactive_chat(
+    lanlan_name: str,
+    message: str,
+) -> ProactiveSimilarityMatch:
+    """Match only a recent proactive chat that says exactly the same words.
+
+    Stricter than the similarity guard on purpose: channels that push fresh
+    material (see ``ANTI_REPEAT_VERBATIM_GUARD_SOURCE_TAGS``) may reuse a similar
+    caption, and only a pure repeat that differs in punctuation, spacing or
+    emoji at most counts as a duplicate.
+    """
+    current = _verbatim_key(message)
+    history = _proactive_chat_history.get(lanlan_name)
+    if not current or not history:
+        return ProactiveSimilarityMatch()
+    now = time.time()
+    for entry in reversed(history):
+        ts, old_msg = entry[0], entry[1]
+        if now - ts >= _RECENT_CHAT_MAX_AGE_SECONDS:
+            continue
+        if _verbatim_key(old_msg) == current:
+            return ProactiveSimilarityMatch(
+                is_duplicate=True,
+                best_score=1.0,
+                matched_text=old_msg,
+                common_fragment=_normalize_text_for_similarity(message),
+            )
+    return ProactiveSimilarityMatch()
+
+
+def _is_similar_to_recent_proactive_chat(
+    lanlan_name: str, message: str
+) -> tuple[bool, float]:
+    """
+    Check whether message is highly similar to recent proactive chats (high threshold against false kills).
+    Returns (is_duplicate, best_score).
+    """
+    match = _find_similar_recent_proactive_chat(lanlan_name, message)
+    return match.is_duplicate, match.best_score

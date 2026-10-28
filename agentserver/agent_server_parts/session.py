@@ -1,8 +1,14 @@
 """agent_server_parts.session —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import Modules, logger  # noqa: F401
+from .common import (  # noqa: F401  244d：原星号导入改为显式（F405）
+    Modules,
+    asyncio,
+    datetime,
+    emit_local_telemetry,
+    logger,
+)
+
 
 def _track_travel_task(session_id: str, task: asyncio.Task) -> None:
     Modules.travel_tasks[session_id] = task
@@ -94,7 +100,6 @@ async def _run_travel_session(session_id: str, *, resumed: bool = False):
         TravelStatus,
         analyze_history,
         append_progress_event,
-        build_forum_post_payload,
         build_quota_warning_prompt,
         build_social_prompt,
         build_travel_prompt,
@@ -573,8 +578,6 @@ async def _run_travel_session(session_id: str, *, resumed: bool = False):
             f"[旅行] 完成: {session_id}, 发现={len(session.discoveries)}, 社交={len(session.social_interactions)}"
         )
 
-        # 论坛功能已下线（apiserver.routes.forum 模块不再提供），post_to_forum 静默忽略
-
         # 完整版报告回传给用户/通道
         if session.deliver_full_report:
             try:
@@ -651,7 +654,6 @@ async def _run_travel_session(session_id: str, *, resumed: bool = False):
                 "credits_used": session.credits_used,
                 "elapsed_minutes": session.elapsed_minutes,
                 "unique_sources": session.unique_sources,
-                "forum_post_status": session.forum_post_status,
                 "full_report_delivery_status": session.full_report_delivery_status,
                 "notification_delivery_statuses": session.notification_delivery_statuses,
             },

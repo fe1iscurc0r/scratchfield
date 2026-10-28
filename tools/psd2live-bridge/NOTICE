@@ -1,0 +1,27 @@
+psd2live-bridge · 许可声明
+==========================
+
+本目录（`tools/psd2live-bridge/`）只**引用**上游 `tsunehimatoi/psd2live` 的 MIT 许可段：
+
+    format-model     中立绑定 IR
+    format-compile   导出框架
+    runtime/         Rust 运行时
+
+上游其余部分为 **GPL-3.0**（应用本身、引擎 `umamo`、Cubism 与 PSD 导出目标），
+本仓：
+
+    * 不包含其源码；
+    * 不链接其目标文件；
+    * 不随包分发；
+    * 不代为下载或构建。
+
+若将来需要引入 GPL-3.0 段，必须先评估与本仓许可的兼容性，另开单处理，
+不得在本目录内就地引入。
+
+上游许可依据（2026-10-20 只读核实）：
+
+    README 许可表  —— GPL-3.0 / MIT 分段说明
+    THIRD_PARTY_NOTICES.md  —— Umamo / Stretchy Studio(MIT) / MCP Kotlin SDK / 解压 crate
+    licenses/  —— CubismSdkForJava-5-r.5、CubismSdkForNative-5-r.5、JNA-5.18.0、MHR.txt
+
+本工具的脚本 `cli.sh` 一律 dry-run，不执行上游构建。

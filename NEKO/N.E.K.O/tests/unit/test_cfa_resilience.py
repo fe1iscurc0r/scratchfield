@@ -14,6 +14,7 @@ import json
 import shutil
 import pytest
 import logging
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 # Add project root to path
@@ -268,34 +269,55 @@ class TestConfigManagerCFA:
 class TestDocumentsDirectoryFallback:
     """Tests for the actual _get_documents_directory fallback logic."""
 
-    def test_appdata_in_candidates(self):
-        """AppData/Local should be in the candidate list on Windows (or when simulated)."""
+    def test_appdata_in_candidates(self, tmp_path, monkeypatch, real_root_resolution):
+        """`LOCALAPPDATA` 必须真的进候选表，且 `_get_documents_directory()` 返回**可用**目录。
+
+        ⚠️ 原版是假断言：`patch.dict` 刚塞进 `LOCALAPPDATA`，紧接着断言它等于塞进去的值 —— 恒真，
+        且 `_get_documents_directory()` **一次都没被调用**（原注释自认 "We can't fully run ..."）。
+
+        本版两条**真断言**：
+        ① 候选表确实从环境变量取到了该路径（测原意）；
+        ② 解析结果是一个**真实存在且可写**的目录（测可用性）。
+        注：`conftest.py` 默认把根解析**整段 stub 掉**（返回隔离根），所以必须显式请求
+        `real_root_resolution` fixture 把真实实现还回来——否则本用例测的永远是 stub，仍属假绿。
+        """
         from utils.config_manager import ConfigManager
 
-        with patch('sys.platform', 'win32'):
-            with patch.dict(os.environ, {'LOCALAPPDATA': 'C:\\Users\\Test\\AppData\\Local'}):
-                # We can't easily test the full _get_documents_directory without
-                # affecting the singleton, but we can verify the logic by
-                # checking the code path through a fresh instance
-                cm = ConfigManager.__new__(ConfigManager)
-                cm._verbose = False
+        cm = ConfigManager.__new__(ConfigManager)
+        cm._verbose = False
 
-                # Mock winreg to avoid registry access
-                with patch('utils.config_manager.winreg', create=True) as mock_winreg:
-                    mock_winreg.OpenKey = MagicMock(side_effect=Exception("no registry"))
-                    mock_winreg.QueryValueEx = MagicMock(side_effect=Exception("no registry"))
-                    mock_winreg.HKEY_CURRENT_USER = 0
-                    # Patch sys.platform inside the module
-                    with patch('utils.config_manager.sys') as mock_sys:
-                        mock_sys.platform = 'win32'
-                        mock_sys.executable = sys.executable
-                        mock_sys.stderr = sys.stderr
-                        mock_sys.frozen = False
-                        mock_sys.path = sys.path
-                        # We can't fully run _get_documents_directory in test
-                        # because it touches real filesystem, but we can verify
-                        # the LOCALAPPDATA env var is read
-                        assert os.environ.get('LOCALAPPDATA') == 'C:\\Users\\Test\\AppData\\Local'
+        if sys.platform == "win32":
+            root = tmp_path / "AppData" / "Local"
+            monkeypatch.setenv("LOCALAPPDATA", str(root))
+            cands = [str(p) for p in cm._get_standard_data_directory_candidates()]
+            assert str(root) in cands, f"候选表未包含 LOCALAPPDATA：{cands}"
+        else:
+            root = tmp_path / "xdg"
+            monkeypatch.setenv("XDG_DATA_HOME", str(root))
+            cands = [str(p) for p in cm._get_standard_data_directory_candidates()]
+            assert str(root) in cands, f"候选表未包含 XDG_DATA_HOME：{cands}"
+
+        got = cm._get_documents_directory()
+        assert got is not None, "_get_documents_directory() 不应返回 None"
+        assert Path(got).exists(), f"返回的目录 {got} 应真实存在"
+        assert os.access(str(got), os.W_OK), f"返回的目录 {got} 应可写"
+
+    def test_appdata_missing_dir_is_created(self, tmp_path, monkeypatch, real_root_resolution):
+        """环境变量指向**不存在**的深路径时，函数仍要给出一个存在且可写的目录（真断言）。"""
+        from utils.config_manager import ConfigManager
+
+        cm = ConfigManager.__new__(ConfigManager)
+        cm._verbose = False
+        deep = tmp_path / "deep" / "nested" / "data"
+        assert not deep.exists()
+        if sys.platform == "win32":
+            monkeypatch.setenv("LOCALAPPDATA", str(deep))
+        else:
+            monkeypatch.setenv("XDG_DATA_HOME", str(deep))
+
+        got = cm._get_documents_directory()
+        assert Path(got).exists(), f"解析出的目录 {got} 应存在（不存在就该被创建或回退到可用目录）"
+        assert os.access(str(got), os.W_OK)
 
     def test_first_readable_recorded(self, tmp_path):
         """_get_documents_directory should record the first readable candidate."""

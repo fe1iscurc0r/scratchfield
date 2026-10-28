@@ -22,9 +22,13 @@ anti-replay + rate limiting.
 
 Deployment:
     pip install -r requirements.txt
-    python server.py --port 8099 --admin-token YOUR_TOKEN
 
-    # or Docker
+    # TELEMETRY_HMAC_SECRET is mandatory — the server exits (code 2) without it.
+    # Generate: python -c "import secrets; print(secrets.token_hex(32))"
+    # The client must carry the same value (see utils/token_tracker/reporting.py).
+    TELEMETRY_HMAC_SECRET=... python server.py --port 8099 --admin-token YOUR_TOKEN
+
+    # or Docker (reads .env; see .env.example)
     docker-compose up -d
 
 Capacity: 20k DAU × 3 processes × 6 req/h × 8h ≈ 2.88M req/day ≈ 33 req/s peak
@@ -48,14 +52,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from models import TelemetrySubmission, SubmitResponse, model_to_dict, model_to_json, model_from_json
-from security import verify_signature, verify_timestamp, RateLimiter, DEFAULT_HMAC_SECRET
+from security import (
+    HMACSecretNotConfigured,
+    RateLimiter,
+    load_hmac_secret,
+    verify_signature,
+    verify_timestamp,
+)
 from storage import TelemetryStorage, normalize_steam_id, normalize_device_hw
 
 # ---------------------------------------------------------------------------
 # 配置
 # ---------------------------------------------------------------------------
 
-HMAC_SECRET = os.getenv("TELEMETRY_HMAC_SECRET", DEFAULT_HMAC_SECRET)
 DB_PATH = os.getenv("TELEMETRY_DB_PATH", "./data/telemetry.db")
 ADMIN_TOKEN = os.getenv("TELEMETRY_ADMIN_TOKEN", "")
 MAX_BODY_SIZE = 512 * 1024  # 512 KB（线路上的字节上限，gzip 后通常 ≤50KB）
@@ -69,6 +78,14 @@ MAX_DECOMPRESSED_SIZE = 2 * 1024 * 1024
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("telemetry")
+
+# ★ 启动期 fail-fast（P0-17）：没有 HMAC 密钥就拒绝启动，且不建库、不绑端口。
+#   只说变量名，永不回显值。
+try:
+    HMAC_SECRET = load_hmac_secret()
+except HMACSecretNotConfigured as exc:
+    logger.critical("%s - refusing to start", exc)
+    raise SystemExit(2)
 
 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 storage = TelemetryStorage(DB_PATH)

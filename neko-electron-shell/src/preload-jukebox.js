@@ -9,12 +9,23 @@
  * - 暗色模式 + 外部链接
  */
 
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, contextBridge } = require('electron');
 const { JUKEBOX_CHANNELS, WINDOW_CONTROL_CHANNELS } = require('./ipc-channels');
 const { setupDarkMode, setupElectronShell, setupNativeDrag } = require('./preload-common');
 
+// contextIsolation:true 时 window.X = … 只写进 isolated world，页面读不到；
+// 走 contextBridge 才能在保持隔离的同时保留原有页面 API（形状不变，只是不再是同一对象引用）。
+// 与 preload-common.js 里 setupDarkMode/setupElectronShell 用的是同一套双模写法。
+function exposeToPage(name, value) {
+  if (process.contextIsolated && contextBridge && typeof contextBridge.exposeInMainWorld === 'function') {
+    contextBridge.exposeInMainWorld(name, value);
+    return;
+  }
+  window[name] = value;
+}
+
 // ===== 独立模式标记 =====
-window.__NEKO_JUKEBOX_STANDALONE__ = true;
+exposeToPage('__NEKO_JUKEBOX_STANDALONE__', true);
 
 // ===== 共享功能 =====
 setupDarkMode();
@@ -22,6 +33,7 @@ setupElectronShell();
 
 // ===== 窗口拖拽 =====
 // 标题左侧使用原生拖拽；按钮区域不放在父级 drag 热区内，避免 Chromium 命中测试抖动。
+// setupNativeDrag 只注入 CSS/DOM 监听，隔离世界同样可用。
 setupNativeDrag(
   ['.jukebox-header-left, .jukebox-header-left *'],
   ['.jukebox-content', '.jukebox-controls-row', '.jukebox-notice',
@@ -31,20 +43,20 @@ setupNativeDrag(
 );
 
 // ===== 窗口控制 API =====
-window.nekoJukeboxWindow = {
+exposeToPage('nekoJukeboxWindow', {
   getBounds: () => ipcRenderer.invoke(WINDOW_CONTROL_CHANNELS.GET_BOUNDS),
   getWorkArea: () => ipcRenderer.invoke(WINDOW_CONTROL_CHANNELS.GET_WORKAREA),
   setPosition: (x, y) => ipcRenderer.send(WINDOW_CONTROL_CHANNELS.SET_POSITION, { x, y }),
   setSize: (w, h) => ipcRenderer.send(WINDOW_CONTROL_CHANNELS.SET_SIZE, { w, h }),
   setBounds: (x, y, w, h) => ipcRenderer.send(WINDOW_CONTROL_CHANNELS.SET_BOUNDS, { x, y, w, h }),
   hide: () => ipcRenderer.send(WINDOW_CONTROL_CHANNELS.HIDE),
-};
+});
 
 // ===== Jukebox Bridge：VMD 动画 + 窗口拖拽（供 jukebox-standalone.js 使用） =====
 // 独立窗口无法直接访问 Pet 窗口的 mmdManager，通过 IPC 将高级命令发送到 Pet 窗口执行。
 // 同时把窗口拖拽/尺寸 API 一并挂在这里。拖拽走主进程接管，缩放仍由
 // jukebox-standalone.js 通过 RAF 合并 setBounds 更新，避免引入额外 resize 接管路径。
-window.nekoJukeboxBridge = {
+exposeToPage('nekoJukeboxBridge', {
   // ---- VMD 动画 ----
   /**
    * 播放 VMD 动画
@@ -86,7 +98,7 @@ window.nekoJukeboxBridge = {
   // Jukebox 非透明窗口，shrink: false —— 不需要 Pet 的 shrink trick
   dragStart: (sx, sy) => ipcRenderer.send(WINDOW_CONTROL_CHANNELS.DRAG_START, { shrink: false, sx, sy }),
   dragStop: (sx, sy) => ipcRenderer.send(WINDOW_CONTROL_CHANNELS.DRAG_STOP, { sx, sy }),
-};
+});
 
 // ===== 关闭行为：隐藏窗口而非销毁 =====
 // Jukebox 关闭时通知主进程（由 window-manager 拦截 close 事件实现 hide）

@@ -1,0 +1,689 @@
+{
+  "ok": true,
+  "tool": "evolve_run",
+  "data": {
+    "config": {
+      "space": "rfi_mitigation",
+      "generations": 4,
+      "batch": 6,
+      "proposal": "rules",
+      "seed": 20261016,
+      "signal_band_hz": 100000.0,
+      "max_notches": 12,
+      "max_notch_band_fraction": 0.5,
+      "time_budget_s": 180.0
+    },
+    "space": {
+      "task": "窄带干扰抑制（RFI mitigation）参数演化",
+      "target": "mcpserver.rf_brain.rfi_mitigation::mitigate_rfi",
+      "editable": [
+        {
+          "name": "prominence_db",
+          "kind": "float",
+          "unit": "dB",
+          "domain": [
+            8.0,
+            10.0,
+            12.0,
+            15.0,
+            20.0,
+            25.0,
+            30.0
+          ],
+          "default": 20.0,
+          "why": "谱峰要多显著才判为干扰 —— 直接决定「漏检 vs 误检」的取舍",
+          "affects": "检测级联的上游：定得太低会把噪声峰当干扰（灾难），太高会漏掉弱干扰"
+        },
+        {
+          "name": "notch_bw_hz",
+          "kind": "float_or_none",
+          "unit": "Hz",
+          "domain": [
+            null,
+            200.0,
+            500.0,
+            1000.0,
+            3000.0,
+            5000.0
+          ],
+          "default": null,
+          "why": "陷波带宽 —— 决定「抑制干净度 vs 带内损伤」的取舍",
+          "affects": "每个干扰频点的陷波器 Q；越宽越能容忍干扰频漂，但越会咬到邻近的有用谱"
+        },
+        {
+          "name": "adaptive",
+          "kind": "bool",
+          "unit": "",
+          "domain": [
+            null,
+            null
+          ],
+          "default": false,
+          "why": "用自适应（LMS）替代固定陷波 —— 能跟踪干扰的幅度/相位慢漂移",
+          "affects": "陷波环节的实现路径；代价是**逐样本循环**，算力/时延显著高于 biquad"
+        },
+        {
+          "name": "mu",
+          "kind": "float",
+          "unit": "",
+          "domain": [
+            0.002,
+            0.005,
+            0.01,
+            0.02,
+            0.05,
+            0.08
+          ],
+          "default": 0.01,
+          "why": "LMS 步长 —— 收敛速度与稳态误差的取舍",
+          "affects": "仅 adaptive=True 时生效；过大不收敛（**有硬性稳定上界**，见 constraints.py）"
+        }
+      ],
+      "frozen": [
+        "detect_rfi_narrowband（检测算法：FFT 谱峰 + 显著度阈值）",
+        "notch_filter / notch_biquad（固定陷波拓扑：2 阶 Butterworth 带阻）",
+        "adaptive_notch（自适应拓扑：LMS 单频对消）",
+        "滤波链顺序（逐个频点串行陷波）"
+      ]
+    },
+    "baseline": {
+      "params": {
+        "prominence_db": 20.0,
+        "notch_bw_hz": null,
+        "adaptive": false,
+        "mu": 0.01
+      },
+      "score": {
+        "mean_db": 6.7658,
+        "min_db": 3.3958,
+        "per_scenario": {
+          "three_strong_tones": 11.5748,
+          "one_strong_two_weak": 5.3269,
+          "interferer_inside_band": 3.3958
+        },
+        "wall_s": 0.0914,
+        "snr_before_db": {
+          "three_strong_tones": -3.7152,
+          "one_strong_two_weak": -1.4757,
+          "interferer_inside_band": -2.8553
+        }
+      }
+    },
+    "best": {
+      "params": {
+        "prominence_db": 30.0,
+        "notch_bw_hz": 5000.0,
+        "adaptive": false,
+        "mu": 0.02
+      },
+      "provenance": "rules",
+      "label": "grid[0]",
+      "generation": 1,
+      "rejected": false,
+      "reject_stage": "",
+      "violations": [],
+      "score": {
+        "mean_db": 16.4679,
+        "min_db": 12.9993,
+        "per_scenario": {
+          "three_strong_tones": 19.5325,
+          "one_strong_two_weak": 16.8718,
+          "interferer_inside_band": 12.9993
+        },
+        "wall_s": 0.006,
+        "snr_before_db": {
+          "three_strong_tones": -3.7152,
+          "one_strong_two_weak": -1.4757,
+          "interferer_inside_band": -2.8553
+        }
+      }
+    },
+    "history": [
+      {
+        "params": {
+          "prominence_db": 20.0,
+          "notch_bw_hz": null,
+          "adaptive": false,
+          "mu": 0.01
+        },
+        "provenance": "seed",
+        "label": "classical-default",
+        "generation": 0,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 6.7658,
+          "min_db": 3.3958,
+          "per_scenario": {
+            "three_strong_tones": 11.5748,
+            "one_strong_two_weak": 5.3269,
+            "interferer_inside_band": 3.3958
+          },
+          "wall_s": 0.0914,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 30.0,
+          "notch_bw_hz": 5000.0,
+          "adaptive": false,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "grid[0]",
+        "generation": 1,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 16.4679,
+          "min_db": 12.9993,
+          "per_scenario": {
+            "three_strong_tones": 19.5325,
+            "one_strong_two_weak": 16.8718,
+            "interferer_inside_band": 12.9993
+          },
+          "wall_s": 0.006,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 25.0,
+          "notch_bw_hz": 200.0,
+          "adaptive": false,
+          "mu": 0.005
+        },
+        "provenance": "rules",
+        "label": "grid[1]",
+        "generation": 1,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 5.382,
+          "min_db": 5.2297,
+          "per_scenario": {
+            "three_strong_tones": 5.4576,
+            "one_strong_two_weak": 5.2297,
+            "interferer_inside_band": 5.4587
+          },
+          "wall_s": 0.0067,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 20.0,
+          "notch_bw_hz": 5000.0,
+          "adaptive": true,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "grid[2]",
+        "generation": 1,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 3.7346,
+          "min_db": 0.6233,
+          "per_scenario": {
+            "three_strong_tones": 9.5713,
+            "one_strong_two_weak": 1.0092,
+            "interferer_inside_band": 0.6233
+          },
+          "wall_s": 0.1405,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 15.0,
+          "notch_bw_hz": null,
+          "adaptive": false,
+          "mu": 0.01
+        },
+        "provenance": "rules",
+        "label": "grid[3]",
+        "generation": 1,
+        "rejected": true,
+        "reject_stage": "B",
+        "violations": [
+          {
+            "code": "TOO_MANY_NOTCHES",
+            "message": "检出 141 个干扰频点，超过上限 12",
+            "rationale": "该量级必然是噪声峰误检：窄带干扰在 1 MHz 带宽内的占用率不可能这么高；且每多一个频点就要多跑一遍陷波，算力随时延线性增长",
+            "source": "本仓 rf_brain/rfi_statistic.StatisticalRFIDetector 的误报率验收口径（≤5%）＋ 检出数与算力成正比的结构事实",
+            "severity": "reject"
+          },
+          {
+            "code": "TOTAL_NOTCH_BAND_TOO_WIDE",
+            "message": "总陷波带宽 141000 Hz = 信号带（100000 Hz）的 141%，超过上限 50%",
+            "rationale": "陷波器不是理想方格：总带宽占掉半个信号带时，带内有用信号被一并抑制",
+            "source": "带阻滤波器过渡带与实际响应的工程常识（2 阶 Butterworth 的 -3dB 带宽定义）",
+            "severity": "reject"
+          }
+        ],
+        "score": null
+      },
+      {
+        "params": {
+          "prominence_db": 12.0,
+          "notch_bw_hz": 1000.0,
+          "adaptive": false,
+          "mu": 0.005
+        },
+        "provenance": "rules",
+        "label": "grid[4]",
+        "generation": 1,
+        "rejected": true,
+        "reject_stage": "B",
+        "violations": [
+          {
+            "code": "TOO_MANY_NOTCHES",
+            "message": "检出 145 个干扰频点，超过上限 12",
+            "rationale": "该量级必然是噪声峰误检：窄带干扰在 1 MHz 带宽内的占用率不可能这么高；且每多一个频点就要多跑一遍陷波，算力随时延线性增长",
+            "source": "本仓 rf_brain/rfi_statistic.StatisticalRFIDetector 的误报率验收口径（≤5%）＋ 检出数与算力成正比的结构事实",
+            "severity": "reject"
+          },
+          {
+            "code": "TOTAL_NOTCH_BAND_TOO_WIDE",
+            "message": "总陷波带宽 145000 Hz = 信号带（100000 Hz）的 145%，超过上限 50%",
+            "rationale": "陷波器不是理想方格：总带宽占掉半个信号带时，带内有用信号被一并抑制",
+            "source": "带阻滤波器过渡带与实际响应的工程常识（2 阶 Butterworth 的 -3dB 带宽定义）",
+            "severity": "reject"
+          }
+        ],
+        "score": null
+      },
+      {
+        "params": {
+          "prominence_db": 15.0,
+          "notch_bw_hz": 1000.0,
+          "adaptive": false,
+          "mu": 0.08
+        },
+        "provenance": "rules",
+        "label": "grid[5]",
+        "generation": 1,
+        "rejected": true,
+        "reject_stage": "B",
+        "violations": [
+          {
+            "code": "TOO_MANY_NOTCHES",
+            "message": "检出 141 个干扰频点，超过上限 12",
+            "rationale": "该量级必然是噪声峰误检：窄带干扰在 1 MHz 带宽内的占用率不可能这么高；且每多一个频点就要多跑一遍陷波，算力随时延线性增长",
+            "source": "本仓 rf_brain/rfi_statistic.StatisticalRFIDetector 的误报率验收口径（≤5%）＋ 检出数与算力成正比的结构事实",
+            "severity": "reject"
+          },
+          {
+            "code": "TOTAL_NOTCH_BAND_TOO_WIDE",
+            "message": "总陷波带宽 141000 Hz = 信号带（100000 Hz）的 141%，超过上限 50%",
+            "rationale": "陷波器不是理想方格：总带宽占掉半个信号带时，带内有用信号被一并抑制",
+            "source": "带阻滤波器过渡带与实际响应的工程常识（2 阶 Butterworth 的 -3dB 带宽定义）",
+            "severity": "reject"
+          }
+        ],
+        "score": null
+      },
+      {
+        "params": {
+          "prominence_db": 30.0,
+          "notch_bw_hz": 5000.0,
+          "adaptive": true,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "perturb(adaptive=True)",
+        "generation": 2,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 16.4651,
+          "min_db": 12.2917,
+          "per_scenario": {
+            "three_strong_tones": 19.9037,
+            "one_strong_two_weak": 17.2001,
+            "interferer_inside_band": 12.2917
+          },
+          "wall_s": 0.0097,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 30.0,
+          "notch_bw_hz": 500.0,
+          "adaptive": false,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "perturb(notch_bw_hz=500.0)",
+        "generation": 2,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 9.0642,
+          "min_db": 8.842,
+          "per_scenario": {
+            "three_strong_tones": 9.3193,
+            "one_strong_two_weak": 8.842,
+            "interferer_inside_band": 9.0314
+          },
+          "wall_s": 0.0061,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 12.0,
+          "notch_bw_hz": 5000.0,
+          "adaptive": false,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "perturb(prominence_db=12.0)",
+        "generation": 3,
+        "rejected": true,
+        "reject_stage": "B",
+        "violations": [
+          {
+            "code": "TOO_MANY_NOTCHES",
+            "message": "检出 145 个干扰频点，超过上限 12",
+            "rationale": "该量级必然是噪声峰误检：窄带干扰在 1 MHz 带宽内的占用率不可能这么高；且每多一个频点就要多跑一遍陷波，算力随时延线性增长",
+            "source": "本仓 rf_brain/rfi_statistic.StatisticalRFIDetector 的误报率验收口径（≤5%）＋ 检出数与算力成正比的结构事实",
+            "severity": "reject"
+          },
+          {
+            "code": "TOTAL_NOTCH_BAND_TOO_WIDE",
+            "message": "总陷波带宽 725000 Hz = 信号带（100000 Hz）的 725%，超过上限 50%",
+            "rationale": "陷波器不是理想方格：总带宽占掉半个信号带时，带内有用信号被一并抑制",
+            "source": "带阻滤波器过渡带与实际响应的工程常识（2 阶 Butterworth 的 -3dB 带宽定义）",
+            "severity": "reject"
+          }
+        ],
+        "score": null
+      },
+      {
+        "params": {
+          "prominence_db": 30.0,
+          "notch_bw_hz": null,
+          "adaptive": false,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "perturb(notch_bw_hz=None)",
+        "generation": 3,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 12.2172,
+          "min_db": 11.8885,
+          "per_scenario": {
+            "three_strong_tones": 12.7878,
+            "one_strong_two_weak": 11.9751,
+            "interferer_inside_band": 11.8885
+          },
+          "wall_s": 0.0062,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 20.0,
+          "notch_bw_hz": 5000.0,
+          "adaptive": false,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "perturb(prominence_db=20.0)",
+        "generation": 3,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 4.5349,
+          "min_db": 1.3835,
+          "per_scenario": {
+            "three_strong_tones": 10.4662,
+            "one_strong_two_weak": 1.3835,
+            "interferer_inside_band": 1.7548
+          },
+          "wall_s": 0.0838,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 30.0,
+          "notch_bw_hz": 5000.0,
+          "adaptive": false,
+          "mu": 0.005
+        },
+        "provenance": "rules",
+        "label": "perturb(mu=0.005)",
+        "generation": 3,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 16.4679,
+          "min_db": 12.9993,
+          "per_scenario": {
+            "three_strong_tones": 19.5325,
+            "one_strong_two_weak": 16.8718,
+            "interferer_inside_band": 12.9993
+          },
+          "wall_s": 0.0061,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 30.0,
+          "notch_bw_hz": 200.0,
+          "adaptive": false,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "perturb(notch_bw_hz=200.0)",
+        "generation": 4,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 5.3574,
+          "min_db": 5.156,
+          "per_scenario": {
+            "three_strong_tones": 5.4576,
+            "one_strong_two_weak": 5.156,
+            "interferer_inside_band": 5.4587
+          },
+          "wall_s": 0.0074,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 30.0,
+          "notch_bw_hz": 3000.0,
+          "adaptive": false,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "perturb(notch_bw_hz=3000.0)",
+        "generation": 4,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 15.8482,
+          "min_db": 13.8275,
+          "per_scenario": {
+            "three_strong_tones": 17.8956,
+            "one_strong_two_weak": 15.8216,
+            "interferer_inside_band": 13.8275
+          },
+          "wall_s": 0.0059,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 8.0,
+          "notch_bw_hz": 5000.0,
+          "adaptive": false,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "perturb(prominence_db=8.0)",
+        "generation": 4,
+        "rejected": true,
+        "reject_stage": "B",
+        "violations": [
+          {
+            "code": "TOO_MANY_NOTCHES",
+            "message": "检出 161 个干扰频点，超过上限 12",
+            "rationale": "该量级必然是噪声峰误检：窄带干扰在 1 MHz 带宽内的占用率不可能这么高；且每多一个频点就要多跑一遍陷波，算力随时延线性增长",
+            "source": "本仓 rf_brain/rfi_statistic.StatisticalRFIDetector 的误报率验收口径（≤5%）＋ 检出数与算力成正比的结构事实",
+            "severity": "reject"
+          },
+          {
+            "code": "TOTAL_NOTCH_BAND_TOO_WIDE",
+            "message": "总陷波带宽 805000 Hz = 信号带（100000 Hz）的 805%，超过上限 50%",
+            "rationale": "陷波器不是理想方格：总带宽占掉半个信号带时，带内有用信号被一并抑制",
+            "source": "带阻滤波器过渡带与实际响应的工程常识（2 阶 Butterworth 的 -3dB 带宽定义）",
+            "severity": "reject"
+          }
+        ],
+        "score": null
+      },
+      {
+        "params": {
+          "prominence_db": 30.0,
+          "notch_bw_hz": 1000.0,
+          "adaptive": false,
+          "mu": 0.02
+        },
+        "provenance": "rules",
+        "label": "perturb(notch_bw_hz=1000.0)",
+        "generation": 4,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 12.2172,
+          "min_db": 11.8885,
+          "per_scenario": {
+            "three_strong_tones": 12.7878,
+            "one_strong_two_weak": 11.9751,
+            "interferer_inside_band": 11.8885
+          },
+          "wall_s": 0.006,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      },
+      {
+        "params": {
+          "prominence_db": 30.0,
+          "notch_bw_hz": 5000.0,
+          "adaptive": false,
+          "mu": 0.08
+        },
+        "provenance": "rules",
+        "label": "perturb(mu=0.08)",
+        "generation": 4,
+        "rejected": false,
+        "reject_stage": "",
+        "violations": [],
+        "score": {
+          "mean_db": 16.4679,
+          "min_db": 12.9993,
+          "per_scenario": {
+            "three_strong_tones": 19.5325,
+            "one_strong_two_weak": 16.8718,
+            "interferer_inside_band": 12.9993
+          },
+          "wall_s": 0.0062,
+          "snr_before_db": {
+            "three_strong_tones": -3.7152,
+            "one_strong_two_weak": -1.4757,
+            "interferer_inside_band": -2.8553
+          }
+        }
+      }
+    ],
+    "gate_stats": {
+      "proposed": 17,
+      "rejected_stage_A": 0,
+      "rejected_stage_B": 5,
+      "scored": 12,
+      "saved_notch_ops": 3002368,
+      "generated": 4,
+      "unique_candidates": 18,
+      "reject_rate": 0.2941
+    },
+    "proposal_mode": "rules",
+    "notes": [
+      "gen1: 第一遍：离散网格前 6 点（共 504 点，顺序按 seed 打乱）",
+      "gen2: 以 grid[0] 为父代做邻域扰动",
+      "gen3: 以 grid[0] 为父代做邻域扰动",
+      "gen4: 以 grid[0] 为父代做邻域扰动"
+    ],
+    "wall_s": 0.3861
+  }
+}

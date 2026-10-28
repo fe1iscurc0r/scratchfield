@@ -9,13 +9,20 @@ from plugin.server.routes.runs import router as runs_router
 from plugin.server.routes.messages import router as messages_router
 from plugin.server.routes.metrics import router as metrics_router
 from plugin.server.routes.config import router as config_router
+from plugin.server.routes.documents import router as documents_router
 from plugin.server.routes.logs import router as logs_router
+from plugin.server.routes.media import router as media_router
 from plugin.server.routes.frontend import router as frontend_router
 from plugin.server.routes.websocket import router as websocket_router
 from plugin.server.routes.plugin_ui import router as plugin_ui_router
 from plugin.server.routes.plugin_cli import router as plugin_cli_router
 from plugin.server.routes.llm_tools import router as llm_tools_router
 from plugin.server.routes.market_bridge import router as market_bridge_router
+from plugin.server.routes.knowledge_bridge import router as knowledge_bridge_router
+from plugin.server.routes.knowledge_market import router as knowledge_market_router
+from plugin.server.routes.model_config import router as model_config_router
+from plugin.server.routes.model_gateway import router as model_gateway_router
+from plugin.server.routes.model_usage import router as model_usage_router
 
 __all__ = [
     'health_router',
@@ -24,11 +31,18 @@ __all__ = [
     'messages_router',
     'metrics_router',
     'config_router',
+    'model_config_router',
+    'model_gateway_router',
+    'model_usage_router',
+    'documents_router',
     'logs_router',
+    'media_router',
     'frontend_router',
     'websocket_router',
     'plugin_ui_router',
     'plugin_cli_router',
     'llm_tools_router',
     'market_bridge_router',
+    'knowledge_bridge_router',
+    'knowledge_market_router',
 ]

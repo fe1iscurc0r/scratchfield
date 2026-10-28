@@ -44,7 +44,9 @@ import httpx
 from utils.frontend_utils import replace_blank, is_only_punctuation
 from utils.internal_http_client import get_internal_http_client
 from utils.language_utils import is_supported_language_code
+from utils.llm_tool_leak_filter import strip_tool_call_leaks
 from utils.logger_config import get_module_logger
+from main_logic import memory_settle_retry as _settle_retry
 from main_logic.agent_event_bus import publish_analyze_request_reliably
 
 # Setup logger for this module
@@ -142,6 +144,30 @@ def normalize_text(text):  # 对文本进行基本预处理
     if is_only_punctuation(text):
         return ""
     return text
+
+
+# The time stamp ``run_sync_connector`` starts every reply buffer with
+# (``strftime('[%Y%m%d %a %H:%M] ')``; the weekday may be localized).
+_REPLY_STAMP_RE = re.compile(r"\[\d{8} [^\]\s]+ \d{2}:\d{2}\] ")
+
+
+def normalize_assistant_text(text, tool_names=None):
+    """``normalize_text`` for a reply, with any tool call it spoke as text cut.
+
+    A model that stops calling a tool natively writes the call into its reply
+    (``asynccall:name{...}``, ``name(param=...)``). Stored, that line is shown
+    to every later session as an example to copy, so it is cut before memory
+    sees it. ``tool_names`` are the registered tools, which also lets a bare
+    ``name(param=...)`` count. A reply that was nothing but such a call comes
+    back empty rather than as its bare time stamp.
+    """
+    stamp = _REPLY_STAMP_RE.match(text)
+    head = stamp.group(0) if stamp else ""
+    body = text[len(head):]
+    stripped = strip_tool_call_leaks(body, tool_names=tool_names)
+    if stripped != body and not normalize_text(stripped):
+        return ""
+    return normalize_text(head + stripped)
 
 
 # Mirror schema + detection now lives in main_logic.mirror_meta;
@@ -779,6 +805,58 @@ async def _complete_session_end_memory_barrier(message: dict, lanlan_name: str) 
             completion.set_result(None)
 
 
+async def _defer_failed_settlement(
+    lanlan_name: str,
+    *,
+    endpoint: str,
+    payload: list[dict],
+    language: str | None,
+    render_language: str | None,
+    origin: str,
+    connector_key: str,
+    on_settled,
+) -> None:
+    """把一段没结算成功的对话交给待重试队列（内存 + 角色目录 sidecar 各一份）。
+
+    调用方在这之后**不能**清本地历史：载荷在队列里有一份副本，但连接器自己那份也要
+    留到补投成功，否则进程在补投前死掉时两边都可能没有。入队本身失败也只是让下一次
+    会话结束重发这段，不会丢。
+    """
+    try:
+        queue = await _settle_retry.queue_for(lanlan_name)
+        await queue.enqueue(
+            endpoint=endpoint,
+            payload=payload,
+            language=language,
+            render_language=render_language,
+            origin=origin,
+            connector_key=connector_key,
+            on_settled=on_settled,
+        )
+    except Exception as exc:
+        logger.error(
+            "[%s] %s 条对话交给待重试队列失败: %s: %s —— 本地历史保留，下一次会话结束重发",
+            lanlan_name,
+            len(payload),
+            type(exc).__name__,
+            exc,
+        )
+
+
+def _notify_exhausted_settlements(lanlan_name: str, status_callback) -> None:
+    """打满重试次数的段落必须在 UI 侧露出来，不能只留在日志里（P0-18 验收项）。"""
+    snapshot = _settle_retry.peek(lanlan_name)
+    exhausted = int(snapshot.get("exhausted") or 0)
+    if exhausted <= 0 or not callable(status_callback):
+        return
+    try:
+        status_callback(
+            f"⚠️ 有 {exhausted} 条记忆未结算（已自动重试 {_settle_retry.MAX_ATTEMPTS} 次）"
+        )
+    except Exception:
+        pass
+
+
 async def run_sync_connector(
     message_queue: asyncio.Queue,
     lanlan_name,
@@ -788,6 +866,7 @@ async def run_sync_connector(
     user_language_provider=None,
     render_language_provider=None,
     monitor_auth_token: str | None = MONITOR_TOKEN or None,
+    tool_names_provider=None,
 ):
     """Async-native sync connector, running on the caller's main event loop.
 
@@ -815,6 +894,9 @@ async def run_sync_connector(
         monitor_auth_token: Monitor bearer token, defaulting to the configured
             ``MONITOR_TOKEN``. When set it is sent as an Authorization header on
             Monitor sync WebSocket connections.
+        tool_names_provider: optional callable returning the session's registered
+            tool names, used to cut tool calls a reply spoke as text
+            (``normalize_assistant_text``) before it is stored.
     """
     chat_history: list = []
     default_config = {'bullet': True, 'monitor': True}
@@ -841,6 +923,15 @@ async def run_sync_connector(
             logger.debug("[%s] render language provider failed: %s", lanlan_name, exc)
             return None
         return selected if is_supported_language_code(selected) else None
+
+    def _normalized_reply(text: str) -> str:
+        tool_names = None
+        if callable(tool_names_provider):
+            try:
+                tool_names = tool_names_provider()
+            except Exception as exc:
+                logger.debug("[%s] tool names provider failed: %s", lanlan_name, exc)
+        return normalize_assistant_text(text, tool_names)
 
     def _current_memory_languages() -> tuple[str | None, str | None]:
         """Snapshot mutually exclusive durable and render-only memory hints."""
@@ -916,6 +1007,29 @@ async def run_sync_connector(
         MEMORY_CACHE_SCOPE_AVATAR: False,
         MEMORY_CACHE_SCOPE_TURN_END: False,
     }
+
+    # WO-272 / P0-18：结算失败的载荷由这条后台线按指数退避补投，连接器退出时一并取消。
+    connector_key = uuid.uuid4().hex
+
+    def _advance_settled_tail(settled: list) -> None:
+        """补投成功后推进本地未同步尾部。
+
+        清理与 ``last_synced_index`` 归零必须同一步完成：中途把索引归零而历史还在，
+        等于把已经结算过的段落重新当成未结算，下一次会话结束会再投一遍。
+        """
+        nonlocal last_synced_index
+        if not settled or chat_history[last_synced_index : last_synced_index + len(settled)] != settled:
+            # 本地缓冲已经不是这段（新会话已经接着写 / 已被清），不动任何状态
+            return
+        last_synced_index = min(last_synced_index + len(settled), len(chat_history))
+        if last_synced_index >= len(chat_history):
+            chat_history.clear()
+            last_synced_index = 0
+
+    settle_retry_task = asyncio.create_task(
+        _settle_retry.run_retry_loop(lanlan_name, _post_memory_server),
+        name=f"MemorySettleRetry-{lanlan_name}",
+    )
 
     try:
         while True:
@@ -1047,7 +1161,7 @@ async def run_sync_connector(
                                 
                                 # 再处理未完成的输出缓存（如果有）
                                 current_turn = 'user'
-                                text_output_cache = normalize_text(text_output_cache)
+                                text_output_cache = _normalized_reply(text_output_cache)
                                 if len(text_output_cache) > 0:
                                     chat_history.append(
                                             {'role': 'assistant', 'content': [{'type': 'text', 'text': text_output_cache}]})
@@ -1072,6 +1186,7 @@ async def run_sync_connector(
                                 _memory_language, _memory_render_language = (
                                     _current_memory_languages()
                                 )
+                                _renew_succeeded = False
                                 try:
                                     ok, err_detail, _ = await _post_memory_server(
                                         _renew_endpoint,
@@ -1081,6 +1196,7 @@ async def run_sync_connector(
                                         language=_memory_language,
                                         render_language=_memory_render_language,
                                     )
+                                    _renew_succeeded = bool(ok)
                                     if not ok:
                                         logger.error(f"[{lanlan_name}] 热重置记忆处理失败 ({_renew_endpoint}): {err_detail}")
                                         if status_callback:
@@ -1097,8 +1213,32 @@ async def run_sync_connector(
                                         logger.exception(f"[{lanlan_name}] 调用 /{_renew_endpoint} API 失败: {type(e).__name__}: {e}")
                                 except Exception as e:
                                     logger.exception(f"[{lanlan_name}] 调用 /{_renew_endpoint} API 失败: {type(e).__name__}: {e}")
-                                chat_history.clear()
-                                last_synced_index = 0
+                                # 热重置和会话结束是同一个缺陷的两个入口：以前不管成没成功
+                                # 都往下走 clear。P0-18 的修法是失败就把载荷交给重试队列。
+                                if _renew_succeeded:
+                                    if _renew_payload:
+                                        try:
+                                            _queue = await _settle_retry.queue_for(lanlan_name)
+                                            await _queue.drop_covered(_renew_payload)
+                                        except Exception as e:
+                                            logger.debug(
+                                                f"[{lanlan_name}] 清理被本次热重置覆盖的待重试条目失败（不影响本段）: {e}"
+                                            )
+                                    chat_history.clear()
+                                    last_synced_index = 0
+                                else:
+                                    if _renew_payload:
+                                        await _defer_failed_settlement(
+                                            lanlan_name,
+                                            endpoint=_renew_endpoint,
+                                            payload=_renew_payload,
+                                            language=_memory_language,
+                                            render_language=_memory_render_language,
+                                            origin="renew",
+                                            connector_key=connector_key,
+                                            on_settled=_advance_settled_tail,
+                                        )
+                                    _notify_exhausted_settlements(lanlan_name, status_callback)
 
                             if message["data"] in ('turn end', 'turn end agent_callback'): # lanlan的消息结束了
                                 is_agent_callback_turn_end = (message["data"] == 'turn end agent_callback')
@@ -1145,7 +1285,7 @@ async def run_sync_connector(
                                     logger.debug("[%s] mirror turn end skipped for ordinary memory/analyzer", lanlan_name)
                                     continue
                                 current_turn = 'user'
-                                text_output_cache = normalize_text(text_output_cache)
+                                text_output_cache = _normalized_reply(text_output_cache)
                                 if len(text_output_cache) > 0:
                                     chat_history.append(
                                         {'role': 'assistant', 'content': [{'type': 'text', 'text': text_output_cache}]})
@@ -1362,7 +1502,7 @@ async def run_sync_connector(
                                 
                                 # 再处理未完成的输出缓存（如果有）
                                 current_turn = 'user'
-                                text_output_cache = normalize_text(text_output_cache)
+                                text_output_cache = _normalized_reply(text_output_cache)
                                 if len(text_output_cache) > 0:
                                     chat_history.append(
                                         {'role': 'assistant', 'content': [{'type': 'text', 'text': text_output_cache}]})
@@ -1437,6 +1577,12 @@ async def run_sync_connector(
                                 else:
                                     _settle_endpoint = "process" if remaining else "settle"
                                 _settle_payload = remaining if remaining else []
+                                # 没有要发的东西（或正在关闭）时按原行为清；真正投出去的那
+                                # 次只有 ok 为 True 才算结算成功。P0-18 的本体就是这条：
+                                # 以前失败也只 warning，然后照样 clear，那段对话就没了。
+                                _settle_succeeded = _settle_endpoint is None or shutdown_event.is_set()
+                                _memory_language = None
+                                _memory_render_language = None
                                 if _settle_endpoint is not None and not shutdown_event.is_set():
                                     _memory_language, _memory_render_language = (
                                         _current_memory_languages()
@@ -1454,6 +1600,7 @@ async def run_sync_connector(
                                             language=_memory_language,
                                             render_language=_memory_render_language,
                                         )
+                                        _settle_succeeded = bool(ok)
                                         if not ok:
                                             logger.warning(f"[{lanlan_name}] session end 记忆结算失败 ({_settle_endpoint}): {err_detail}")
                                             if status_callback:
@@ -1464,14 +1611,43 @@ async def run_sync_connector(
                                         else:
                                             logger.info(f"[{lanlan_name}] session end 记忆结算完成（{_settle_endpoint}），{len(_settle_payload)} 条消息")
                                     except Exception as e:
+                                        _settle_succeeded = False
                                         logger.warning(f"[{lanlan_name}] session end 记忆结算失败 ({_settle_endpoint}): {e}")
                                         if status_callback:
                                             try:
                                                 status_callback(f"⚠️ 记忆结算异常: {type(e).__name__}")
                                             except Exception:
                                                 pass
-                                chat_history.clear()
-                                last_synced_index = 0
+                                if _settle_succeeded:
+                                    if _settle_payload:
+                                        # 这次投递已经把队列里作为它前缀的旧段落一并覆盖了，
+                                        # 摘掉它们，免得同一段被 memory_server 记两遍。
+                                        try:
+                                            _queue = await _settle_retry.queue_for(lanlan_name)
+                                            await _queue.drop_covered(_settle_payload)
+                                        except Exception as e:
+                                            logger.debug(
+                                                f"[{lanlan_name}] 清理被本次结算覆盖的待重试条目失败（不影响本段）: {e}"
+                                            )
+                                    chat_history.clear()
+                                    last_synced_index = 0
+                                else:
+                                    if _settle_payload:
+                                        await _defer_failed_settlement(
+                                            lanlan_name,
+                                            endpoint=_settle_endpoint or "process",
+                                            payload=_settle_payload,
+                                            language=_memory_language,
+                                            render_language=_memory_render_language,
+                                            origin="session_end",
+                                            connector_key=connector_key,
+                                            on_settled=_advance_settled_tail,
+                                        )
+                                    else:
+                                        # 空载荷的 /settle 失败只是收尾摘要没做成，消息本身
+                                        # 早已在 turn end 的 /cache 里落过；没有东西要保。
+                                        logger.warning(f"[{lanlan_name}] session end 收尾 /settle 失败，无增量需要保留重试")
+                                    _notify_exhausted_settlements(lanlan_name, status_callback)
                         except Exception as e:
                             logger.error(f"[{lanlan_name}] System message error: {e}", exc_info=True)
                 except Exception as e:
@@ -1524,7 +1700,17 @@ async def run_sync_connector(
             if s.reader is not None:
                 s.reader.cancel()
 
+        settle_retry_task.cancel()
+        try:
+            _queue = await _settle_retry.queue_for(lanlan_name)
+            _queue.unregister_callback(connector_key)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug(f"[{lanlan_name}] 待重试队列回调注销失败: {e}")
+
         bg_tasks = [t for s in slots for t in (s.maintainer, s.reader) if t is not None]
+        bg_tasks.append(settle_retry_task)
         if bg_tasks:
             await asyncio.gather(*bg_tasks, return_exceptions=True)
 

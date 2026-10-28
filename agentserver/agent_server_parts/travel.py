@@ -1,10 +1,10 @@
 """agent_server_parts.travel —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import Modules  # noqa: F401
+from .common import Any, HTTPException, Modules  # noqa: F401  244d：原星号导入改为显式（F405）
 from .lifecycle import app  # noqa: F401
 from .session import _interrupt_travel_sessions, _spawn_travel_session  # noqa: F401
+
 
 @app.post("/travel/execute")
 async def travel_execute(payload: dict[str, Any]):

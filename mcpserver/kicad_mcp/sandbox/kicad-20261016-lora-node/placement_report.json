@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "tool": "placement_report",
+  "data": {
+    "footprint_count": 5,
+    "outside_board": [],
+    "on_back_layer": [],
+    "unplaced": [],
+    "board_size_mm": [
+      40.0,
+      28.0
+    ]
+  }
+}

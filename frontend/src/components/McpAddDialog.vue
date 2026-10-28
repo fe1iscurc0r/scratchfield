@@ -43,6 +43,8 @@ const props = withDefaults(defineProps<{
   fixedAgentId?: string
   title?: string
   hubEnabled?: boolean
+  /** A5：已有 MCP 列表，用于判重（父组件传 mcpServices）。 */
+  existing?: Array<{ name: string, config?: Record<string, any> }>
   cacheItems?: Array<{ name: string, displayName?: string, description?: string, config?: Record<string, any> }>
 }>(), {
   hubEnabled: false,
@@ -125,6 +127,155 @@ watch(() => props.visible, (visible) => {
   errorMsg.value = ''
 })
 
+// ── A2/A3：粘贴即识别 + 就地校验 ─────────────────────────────────────────────
+// 逻辑与 tools/mcp_add_parse.test.mjs 完全一致（12 用例已通过 node 验证）
+interface ParsedMcpConfig {
+  ok: boolean
+  config?: Record<string, any>
+  name?: string
+  transport?: 'stdio' | 'http' | 'sse'
+  errors: string[]
+}
+
+function validateMcpConfig(data: any, suggestedName?: string): ParsedMcpConfig {
+  const errors: string[] = []
+  if (!data || typeof data !== 'object' || Array.isArray(data))
+    return { ok: false, errors: ['配置必须是 JSON 对象'] }
+  const type = String(data.type || data.transport || '').toLowerCase()
+  const hasCommand = typeof data.command === 'string' && data.command.trim().length > 0
+  const hasUrl = typeof data.url === 'string' && data.url.trim().length > 0
+  let transport: 'stdio' | 'http' | 'sse' = 'stdio'
+  if (type === 'http' || type === 'streamable-http')
+    transport = 'http'
+  else if (type === 'sse')
+    transport = 'sse'
+  else if (!hasCommand && hasUrl)
+    transport = 'http'
+  if (transport === 'stdio' && !hasCommand)
+    errors.push('stdio 类型必须提供 command')
+  if (transport !== 'stdio' && !hasUrl)
+    errors.push(`${transport} 类型必须提供 url`)
+  if (transport !== 'stdio' && hasUrl && !/^https?:\/\//i.test(String(data.url)))
+    errors.push('url 必须 http(s) 开头')
+  if (Array.isArray(data.args) && data.args.some((a: any) => typeof a !== 'string'))
+    errors.push('args 必须是字符串数组')
+  return { ok: errors.length === 0, config: errors.length ? undefined : data, name: suggestedName, transport, errors }
+}
+
+/** 解析用户粘贴的配置：支持裸配置，也支持 {"mcpServers":{...}} 外壳（A3）。 */
+function parseMcpConfigPayload(raw: string): ParsedMcpConfig {
+  const text = (raw || '').trim()
+  if (!text)
+    return { ok: false, errors: ['请输入 JSON 配置'] }
+  let data: any
+  try {
+    data = JSON.parse(text)
+  }
+  catch {
+    return { ok: false, errors: ['JSON 格式无效（检查引号/逗号）'] }
+  }
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const servers = data.mcpServers
+    if (servers && typeof servers === 'object' && !data.command && !data.url) {
+      const entries = Object.entries(servers)
+      if (entries.length === 0)
+        return { ok: false, errors: ['mcpServers 为空'] }
+      const [key, cfg] = entries[0] as [string, any]
+      return validateMcpConfig(cfg, key) // 剥壳 + 用第一个 key 作建议名
+    }
+  }
+  return validateMcpConfig(data)
+}
+
+const customParse = computed<ParsedMcpConfig>(() =>
+  importMode.value === 'custom' ? parseMcpConfigPayload(jsonText.value) : { ok: true, errors: [] })
+
+/** A5：判重 —— 同名，或同 command+args，或同 url（编辑态豁免自身）。 */
+const duplicateOf = computed<string>(() => {
+  if (importMode.value !== 'custom' || !customParse.value.ok)
+    return ''
+  const cfg = customParse.value.config || {}
+  const norm = (c: Record<string, any>) => {
+    const cmd = String(c.command || '').trim()
+    const args = Array.isArray(c.args) ? c.args.map((x: any) => String(x)).join('\u0000') : ''
+    const url = String(c.url || '').trim().toLowerCase().replace(/\/+$/, '')
+    return { cmdKey: cmd ? `${cmd}\u0000${args}` : '', urlKey: url }
+  }
+  const mine = norm(cfg)
+  const myName = name.value.trim().toLowerCase()
+  const selfName = (props.editData?.name || '').trim().toLowerCase()
+  for (const item of (props.existing || [])) {
+    const itemName = String(item.name || '').trim().toLowerCase()
+    if (selfName && itemName === selfName)
+      continue // 编辑自己，跳过
+    if (itemName && itemName === myName)
+      return `名称「${item.name}」已被占用`
+    const other = norm(item.config || {})
+    if (mine.cmdKey && mine.cmdKey === other.cmdKey)
+      return `同命令配置已存在：「${item.name}」`
+    if (mine.urlKey && mine.urlKey === other.urlKey)
+      return `同地址的 MCP 已存在：「${item.name}」`
+  }
+  return ''
+})
+
+/** 有内容但校验不通过时的首条错误（供内联提示）。 */
+const customJsonError = computed(() =>
+  (importMode.value === 'custom' && jsonText.value.trim()) ? (customParse.value.errors[0] || '') : '')
+
+// ── A6：疑似密钥提示（不掩抑数据本身，只在导入前提醒"这些值会写进本地配置"）──────
+// 逻辑与 tools/mcp_add_secret.test.mjs 一致（8 用例已通过 node 验证）
+const SECRET_KEY_RE = /token|secret|password|passwd|api[-_]?key|authorization|credential|private[-_]?key/i
+
+function findSecretKeys(cfg: Record<string, any> | undefined): string[] {
+  const hits: string[] = []
+  const scan = (obj: any, prefix: string) => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj))
+      return
+    for (const [k, v] of Object.entries(obj)) {
+      const path = prefix ? `${prefix}.${k}` : k
+      if (SECRET_KEY_RE.test(k))
+        hits.push(path)
+      else if (v && typeof v === 'object' && !Array.isArray(v))
+        scan(v, path)
+    }
+  }
+  if (cfg && typeof cfg === 'object') {
+    scan(cfg.env || {}, 'env')
+    scan(cfg.headers || {}, 'headers')
+    if (Array.isArray(cfg.args)) {
+      (cfg.args as any[]).forEach((a, i) => {
+        if (typeof a === 'string' && SECRET_KEY_RE.test(a))
+          hits.push(`args[${i}]`)
+      })
+    }
+  }
+  return hits
+}
+
+/** 仅在 custom 且配置合法时统计，避免边打字边闪警告。 */
+const secretKeys = computed<string[]>(() =>
+  (importMode.value === 'custom' && customParse.value.ok)
+    ? findSecretKeys(customParse.value.config)
+    : [])
+
+/** 粘贴后等 v-model 落地再解析；顺带自动填入配置里的名字（A3）。 */
+function onJsonPaste() {
+  setTimeout(applyPastedConfig, 0)
+}
+
+function applyPastedConfig() {
+  const parsed = parseMcpConfigPayload(jsonText.value)
+  if (parsed.ok && parsed.config) {
+    if (!name.value.trim() && parsed.name)
+      name.value = parsed.name
+    errorMsg.value = ''
+  }
+  else if (parsed.errors.length) {
+    errorMsg.value = parsed.errors[0]
+  }
+}
+
 function handleConfirm() {
   if (importMode.value === 'cache') {
     const selected = cachedMcpOptions.value.find(item => item.value === cachedMcpKey.value)?.item
@@ -163,22 +314,25 @@ function handleConfirm() {
     errorMsg.value = '专有 MCP 必须绑定一个干员'
     return
   }
-  try {
-    const config = JSON.parse(jsonText.value)
-    emit('confirm', {
-      mode: 'custom',
-      name: name.value.trim(),
-      displayName: displayName.value.trim() || name.value.trim(),
-      description: description.value.trim(),
-      config,
-      scope: scope.value,
-      agentId: scope.value === 'private' ? selectedAgentId.value : undefined,
-    })
-    errorMsg.value = ''
+  const parsed = customParse.value
+  if (!parsed.ok || !parsed.config) {
+    errorMsg.value = parsed.errors[0] || 'JSON 配置无效'
+    return
   }
-  catch {
-    errorMsg.value = 'JSON 格式无效'
+  if (duplicateOf.value) {
+    errorMsg.value = duplicateOf.value
+    return
   }
+  emit('confirm', {
+    mode: 'custom',
+    name: name.value.trim(),
+    displayName: displayName.value.trim() || name.value.trim(),
+    description: description.value.trim(),
+    config: parsed.config,
+    scope: scope.value,
+    agentId: scope.value === 'private' ? selectedAgentId.value : undefined,
+  })
+  errorMsg.value = ''
 }
 
 function handleCancel() {
@@ -339,7 +493,18 @@ function handleCancel() {
                 rows="8"
                 placeholder="{\n  &quot;command&quot;: &quot;npx&quot;,\n  &quot;args&quot;: [&quot;-y&quot;, &quot;@mcp/server&quot;],\n  &quot;type&quot;: &quot;stdio&quot;\n}"
                 class="dialog-input resize-none font-mono text-xs!"
+                @paste="onJsonPaste"
+                @blur="applyPastedConfig"
               />
+              <p v-if="customJsonError" class="dialog-error">
+                {{ customJsonError }}
+              </p>
+              <p v-if="duplicateOf" class="dialog-error">
+                ⚠️ {{ duplicateOf }}
+              </p>
+              <p v-if="secretKeys.length" class="dialog-error">
+                ⚠️ 检测到 {{ secretKeys.length }} 处疑似密钥（{{ secretKeys.slice(0, 3).join('、') }}{{ secretKeys.length > 3 ? '…' : '' }}），将写入本地配置，请确认来源可信
+              </p>
             </template>
 
             <div v-if="errorMsg" class="dialog-error">

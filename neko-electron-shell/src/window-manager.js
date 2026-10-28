@@ -380,7 +380,7 @@ function createPetWindow(url, options = {}) {
     webPreferences: {
       preload: preloadPath,
       sandbox: false,
-      contextIsolation: false,
+      contextIsolation: false, // preload-pet.js 直写 14 处 window.* 且无 contextBridge，页面按全局读取；迁隔离要和 preload 一起改
       nodeIntegration: false,
       enableRemoteModule: false,
       webSecurity: true,
@@ -485,7 +485,7 @@ function createChatWindow(baseUrl, options = {}) {
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
-      contextIsolation: false, // Chat 窗口保留：preload 需替换页面 window.WebSocket 代理（架构约束）
+      contextIsolation: true, // WO-278 装配：WS 走 preload 桥（window.nekoWebSocket）+ ws-adapter，不再替换页面构造器
       webSecurity: true,
       sandbox: false, // preload-chat.js require 相对模块（ipc-channels/preload-common），不能开 sandbox
       zoomFactor: 1.0,
@@ -1069,9 +1069,12 @@ function createJukeboxWindow(baseUrl, options = {}) {
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
-      contextIsolation: false,
-      sandbox: false,
-      webSecurity: false,
+      // P0-11：点歌台窗口的 preload 面很小（nekoJukeboxWindow / nekoJukeboxBridge 两个纯函数
+      // 对象 + 一个独立模式标记），已全部改成 preload-common 那套双模暴露，因此这里开隔离：
+      // 页面 XSS 不再能直接改写/借用 preload 所在世界的对象去摸 IPC。
+      contextIsolation: true,
+      sandbox: false, // preload-jukebox.js require 相对模块（ipc-channels / preload-common），不能开 sandbox
+      webSecurity: false, // 点歌台会从 allowlist 外部 https 源取素材（music_ui.js isSafeUrl），同源策略关掉是现行依赖，翻它需运行期验证
       zoomFactor: 1.0,
       backgroundThrottling: false, // 置顶子窗口不应被后台节流
     },
@@ -1112,6 +1115,11 @@ function createJukeboxWindow(baseUrl, options = {}) {
     // 安全性：jukebox（transparent: false）+ manager（transparent: false）都是非透明
     // 窗口，owner-child 不会触发 Pet 那种 transparent panel 的 DWM 白屏问题。
     const isJukeboxManager = details.url.includes('jukebox/manager');
+    // webSecurity:false 是给「自家后端页面」用的特权（历史原因，见 P0-10/P0-11 施工记录），
+    // 不该跟着 window.open 一路发给任意 URL：一个被诱导打开的外部页面只要跨域读
+    // http://localhost:48911/api/... 就能把本机聊天历史/配置捞走。
+    // 因此这里按「确认与父窗口同源且是 http(s)」才沿用 false，其余一律保持默认强隔离。
+    const childIsSameOriginLocal = shouldAttachSameOriginChildPreload(jukeboxWindow, details.url);
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
@@ -1132,9 +1140,10 @@ function createJukeboxWindow(baseUrl, options = {}) {
         } : {}),
         webPreferences: {
           sandbox: false,
-          contextIsolation: false,
+          // manager 子窗口复用 preload-jukebox.js，它已经是双模暴露，隔离照主窗一起开。
+          contextIsolation: true,
           nodeIntegration: false,
-          webSecurity: false,
+          webSecurity: !childIsSameOriginLocal,
           // manager 需要 preload 提供 window.nekoJukeboxWindow 做窗口拖动的 IPC 桥接；
           // setWindowOpenHandler 的 webPreferences 是整体替换而非合并，不会从父窗口继承 preload。
           ...(isJukeboxManager ? { preload: preloadPath } : {}),
@@ -1247,6 +1256,9 @@ function createToastWindow(baseUrl, options = {}) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
+      // P0-10 遗留：沿用基线值，本次未翻。未在运行期验证过默认同源策略下 Toast 素材是否全部同源，
+      // 所以宁可保留旧行为也不做无法自证的改动；已记入 docs/WO-270-p0-frontend-electron.md §2 的
+      // 待验证清单，白名单计数由 tests/window-hardening.contract.test.js 钉死，禁止新增豁免。
       webSecurity: false,
       zoomFactor: 1.0,
       backgroundThrottling: false,
@@ -1688,15 +1700,21 @@ function installReactChatChildWindowHandlers(win, { isPackaged = false, log = co
     const normalFramedOptions = normalFramed
       ? getWorkAreaWindowInitialBounds(screen, win)
       : {};
+    const childIsSameOriginLocal = shouldAttachSameOriginChildPreload(win, details.url);
     const childWebPreferences = {
       nodeIntegration: false,
-      contextIsolation: false,
+      // WO-278 批 2：preload-child.js 早已是双模写法（隔离时走 contextBridge.exposeInMainWorld，
+      // 否则才写 window.nekoWindowControl），本行注释已过期。开隔离后走的是 bridge 分支。
+      contextIsolation: true,
       sandbox: false,
-      webSecurity: false,
+      // 同上：webSecurity:false 只发给确认同源的本地页面。about:blank 占位（mini-game 先开
+      // 空窗再注入真实 URL）与任意外部 URL 一律保持默认强隔离——注入之后窗口配置不会重算，
+      // 所以宁可从一开始就关死。
+      webSecurity: !childIsSameOriginLocal,
       zoomFactor: 1.0,
       backgroundThrottling: false,
     };
-    if (shouldAttachSameOriginChildPreload(win, details.url)) {
+    if (childIsSameOriginLocal) {
       childWebPreferences.preload = getPreloadPath('preload-child', isPackaged);
     }
     return {
@@ -1894,8 +1912,12 @@ function createReactChatWindow(baseUrl, options = {}) {
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
-      contextIsolation: false, // preload 注入的全局 stub 必须对页面 JS 可见
+      contextIsolation: true, // WO-278 P1-c：WS 走 preload 桥（nekoWebSocket）+ ws-adapter，不再替换页面构造器
       sandbox: false,
+      // P0-10 遗留：沿用基线值，本次未翻。页面 origin 取决于 appConfig.apiBaseUrl（用户可配成远程
+      // 地址，见 main.js 默认配置），默认同源策略会不会打断聊天侧跨源取素材要靠 Electron 运行期
+      // 验证，本机工具只能驱动 Chrome/Edge、驱动不了这些原生窗口 → 记入
+      // docs/WO-270-p0-frontend-electron.md §2 待验证清单，不许新增豁免。
       webSecurity: false,
       zoomFactor: 1.0,
       backgroundThrottling: false, // 焦点在 Pet 窗口时 Chat 不应被节流
@@ -2379,8 +2401,12 @@ function createFullChatWindow(baseUrl, options = {}) {
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
-      contextIsolation: false, // preload 注入的全局 stub 必须对页面 JS 可见
+      contextIsolation: true, // WO-278 P1-c：WS 走 preload 桥（nekoWebSocket）+ ws-adapter，不再替换页面构造器
       sandbox: false,
+      // P0-10 遗留：沿用基线值，本次未翻。页面 origin 取决于 appConfig.apiBaseUrl（用户可配成远程
+      // 地址，见 main.js 默认配置），默认同源策略会不会打断聊天侧跨源取素材要靠 Electron 运行期
+      // 验证，本机工具只能驱动 Chrome/Edge、驱动不了这些原生窗口 → 记入
+      // docs/WO-270-p0-frontend-electron.md §2 待验证清单，不许新增豁免。
       webSecurity: false,
       zoomFactor: 1.0,
       backgroundThrottling: false,
@@ -2726,7 +2752,12 @@ function setReactChatSelfMinimizedBallTemporarilyHidden(hidden) {
 // 独立球窗口的硬编码 HTML/CSS。原 #1595 之前用于「compact 态模型旁悬浮入口」（已废），
 // 现在用于「minimized 态毛线球折叠后的独立球」—— preload-compact-chat-ball.js 在
 // button 上接 pointer 事件实现可拖 + 点击恢复。
-function buildCompactChatBallDataUrl(baseUrl, skipAppear) {
+// main → preload 的「跳过出现动画」开关。走 webPreferences.additionalArguments，
+// 而不是让页面内联脚本写 `window.__nekoSkipAppear` 再由 preload 跨世界读 ——
+// 后者是这扇窗长期开不了 contextIsolation 的唯一原因。
+const NEKO_SKIP_APPEAR_ARG = '--neko-skip-appear';
+
+function buildCompactChatBallDataUrl(baseUrl) {
   let bounceSpriteUrl = '/static/assets/neko-idle/chat-minimized-yarn-ball-window-bounce-1x.png';
   let bounceSpriteUrl2x = '/static/assets/neko-idle/chat-minimized-yarn-ball-window-bounce-2x.png';
   let appearSpriteUrl = '/static/assets/neko-idle/chat-minimized-yarn-ball-window-appear-1x.png';
@@ -2828,7 +2859,6 @@ button.neko-ball-appearing {
 </head>
 <body>
 <button type="button" data-compact-chat-ball aria-label="最小化聊天框"></button>
-${skipAppear ? '<script>window.__nekoSkipAppear=true</script>' : ''}
 </body>
 </html>`;
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
@@ -2853,6 +2883,7 @@ function showCompactChatBallWindow(baseUrl, bounds, options = {}) {
   }
 
   const creating = !compactChatBallWindow || compactChatBallWindow.isDestroyed();
+  const skipAppear = compatRecreate && isWindowsCompatibilityModeActive();
   if (!compactChatBallWindow || compactChatBallWindow.isDestroyed()) {
     compactChatBallWindow = new BrowserWindow({
       x: windowBounds.x,
@@ -2884,9 +2915,13 @@ function showCompactChatBallWindow(baseUrl, bounds, options = {}) {
       webPreferences: {
         preload: getPreloadPath('preload-compact-chat-ball', isPackaged),
         nodeIntegration: false,
-        contextIsolation: false,
+        // P0-11 批 1（WO-278）：这扇窗过去唯一开不了隔离的原因是「preload 要读页面内联脚本写的
+        // window.__nekoSkipAppear」。现已改成 main 通过 additionalArguments 传参（preload 读
+        // process.argv），页面与 preload 不再共享全局 ⇒ 可以开隔离了。
+        additionalArguments: skipAppear ? [NEKO_SKIP_APPEAR_ARG] : [],
+        contextIsolation: true,
         sandbox: false,
-        webSecurity: false,
+        webSecurity: false, // 页面是 data: URL（origin=null），素材要从 baseUrl 的 /static/ 取，同源策略会直接拦掉
         zoomFactor: 1.0,
         backgroundThrottling: false,
       },
@@ -2899,7 +2934,7 @@ function showCompactChatBallWindow(baseUrl, bounds, options = {}) {
         compactChatBallWindow = null;
       }
     });
-    compactChatBallWindow.loadURL(buildCompactChatBallDataUrl(baseUrl, compatRecreate && isWindowsCompatibilityModeActive()));
+    compactChatBallWindow.loadURL(buildCompactChatBallDataUrl(baseUrl));
     log('[WindowManager] Compact Chat Ball created:', JSON.stringify({
       platform: process.platform,
       winId: compactChatBallWindow.id,

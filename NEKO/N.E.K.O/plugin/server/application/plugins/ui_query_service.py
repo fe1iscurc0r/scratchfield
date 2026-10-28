@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -326,6 +327,38 @@ def _build_static_compat_surface(plugin_id: str, plugin_meta: Mapping[str, objec
     ).model_dump(exclude_none=True)
 
 
+def _legacy_static_panel_enabled(plugin_meta: Mapping[str, object]) -> bool:
+    plugin_ui = _get_plugin_ui_config_from_meta(plugin_meta)
+    if not isinstance(plugin_ui, Mapping):
+        return True
+    return _to_bool(plugin_ui.get("expose_legacy_static_panel"), default=True)
+
+
+def _static_ui_action_target(plugin_id: str, plugin_meta: Mapping[str, object]) -> str | None:
+    static_ui_config = _get_static_ui_config_from_meta(plugin_meta)
+    if static_ui_config is not None:
+        static_dir = _resolve_static_dir(static_ui_config)
+        if static_dir is not None and (static_dir / "index.html").exists():
+            return f"/plugin/{plugin_id}/ui/"
+
+    static_surface = next(
+        (
+            surface
+            for surface in _build_manifest_surfaces(plugin_id, plugin_meta)
+            if surface.get("mode") == "static"
+            and surface.get("kind") == "panel"
+            and surface.get("available") is not False
+            and isinstance(surface.get("ui_path") or surface.get("url"), str)
+            and str(surface.get("ui_path") or surface.get("url")).strip()
+        ),
+        None,
+    )
+    if static_surface is not None:
+        return str(static_surface.get("ui_path") or static_surface.get("url")).strip()
+
+    return None
+
+
 def _build_surfaces_sync(
     plugin_id: str,
     plugin_meta: Mapping[str, object],
@@ -337,7 +370,11 @@ def _build_surfaces_sync(
     for surface in surfaces:
         surface_warnings = surface.pop("_warnings", None)
         warnings.extend(normalize_warnings(surface_warnings))
-    static_surface = _build_static_compat_surface(plugin_id, plugin_meta)
+    static_surface = (
+        _build_static_compat_surface(plugin_id, plugin_meta)
+        if _legacy_static_panel_enabled(plugin_meta)
+        else None
+    )
     # An unavailable or ``auto`` main panel cannot replace static/index.html:
     # the former has no usable entry and the latter has no frontend renderer.
     # Keep the compatibility surface in those cases so legacy UI remains
@@ -1303,6 +1340,17 @@ def _build_plugin_list_actions_from_meta(
             actions.append(normalized)
             seen_ids.add(action_id)
 
+    if "open_ui" not in seen_ids:
+        target = _static_ui_action_target(plugin_id, plugin_meta)
+        if target is not None:
+            actions.append({
+                "id": "open_ui",
+                "kind": "ui",
+                "target": target,
+                "open_in": "new_tab",
+            })
+            seen_ids.add("open_ui")
+
     _add_surface_route_actions(actions, seen_ids, plugin_id=plugin_id, plugin_meta=plugin_meta)
 
     return actions
@@ -1530,6 +1578,15 @@ class PluginUiQueryService:
                                 for item in context_actions
                                 if isinstance(item, Mapping)
                             ]
+                        # provider 缺失 / 抛错 / 超时不再让整次查询失败（否则连
+                        # actions 都拿不到），但诊断信息必须照旧落到 warning 上。
+                        context_error = ui_context_result.get("context_error")
+                        if context_error:
+                            warnings.append(PluginUiWarning(
+                                path=f"plugin.ui.{kind}.{surface_id}.context",
+                                code="ui_context_failed",
+                                message=f"Failed to load UI context '{context_id}': {context_error}",
+                            ).model_dump())
                 except Exception as exc:
                     warnings.append(PluginUiWarning(
                         path=f"plugin.ui.{kind}.{surface_id}.context",
@@ -1585,6 +1642,7 @@ class PluginUiQueryService:
         kind: str = "panel",
         surface_id: str = "main",
         locale: str | None = None,
+        _card_context: dict[str, object] | None = None,
     ) -> dict[str, object]:
         try:
             plugin_meta = await asyncio.to_thread(_get_plugin_meta_sync, plugin_id)
@@ -1596,30 +1654,33 @@ class PluginUiQueryService:
                     details={"plugin_id": plugin_id},
                 )
 
-            surfaces, _warnings = _build_surfaces_sync(plugin_id, plugin_meta)
-            surface = _find_surface(surfaces, kind=kind, surface_id=surface_id)
-            if surface is None:
-                logger.warning(
-                    "Hosted UI action rejected: plugin_id={}, surface={}:{}, action_id={}, reason=surface_not_found",
-                    plugin_id, kind, surface_id, action_id,
-                )
-                raise ServerDomainError(
-                    code="PLUGIN_UI_SURFACE_NOT_FOUND",
-                    message=f"UI surface '{kind}:{surface_id}' not found",
-                    status_code=404,
-                    details={"plugin_id": plugin_id, "kind": kind, "surface_id": surface_id},
-                )
-            if not _surface_allows_action_call(surface):
-                logger.warning(
-                    "Hosted UI action rejected: plugin_id={}, surface={}:{}, action_id={}, reason=missing_action_permission",
-                    plugin_id, kind, surface_id, action_id,
-                )
-                raise ServerDomainError(
-                    code="PLUGIN_UI_ACTION_FORBIDDEN",
-                    message=f"UI surface '{kind}:{surface_id}' is not allowed to call plugin actions",
-                    status_code=403,
-                    details={"plugin_id": plugin_id, "kind": kind, "surface_id": surface_id, "action_id": action_id},
-                )
+            if _card_context is not None:
+                surface = {"id": "__chat_card__", "context": "__chat_card__"}
+            else:
+                surfaces, _warnings = _build_surfaces_sync(plugin_id, plugin_meta)
+                surface = _find_surface(surfaces, kind=kind, surface_id=surface_id)
+                if surface is None:
+                    logger.warning(
+                        "Hosted UI action rejected: plugin_id={}, surface={}:{}, action_id={}, reason=surface_not_found",
+                        plugin_id, kind, surface_id, action_id,
+                    )
+                    raise ServerDomainError(
+                        code="PLUGIN_UI_SURFACE_NOT_FOUND",
+                        message=f"UI surface '{kind}:{surface_id}' not found",
+                        status_code=404,
+                        details={"plugin_id": plugin_id, "kind": kind, "surface_id": surface_id},
+                    )
+                if not _surface_allows_action_call(surface):
+                    logger.warning(
+                        "Hosted UI action rejected: plugin_id={}, surface={}:{}, action_id={}, reason=missing_action_permission",
+                        plugin_id, kind, surface_id, action_id,
+                    )
+                    raise ServerDomainError(
+                        code="PLUGIN_UI_ACTION_FORBIDDEN",
+                        message=f"UI surface '{kind}:{surface_id}' is not allowed to call plugin actions",
+                        status_code=403,
+                        details={"plugin_id": plugin_id, "kind": kind, "surface_id": surface_id, "action_id": action_id},
+                    )
 
             entry_ids = _entry_ids_from_meta(plugin_meta)
             if not entry_ids:
@@ -1695,11 +1756,37 @@ class PluginUiQueryService:
                     plugin_id,
                     resolved_action_id,
                 )
-                result = await host.trigger(
-                    resolved_action_id,
-                    dict(args or {}),
-                    timeout=entry_timeout,
+                trigger_args = dict(args or {})
+                raw_context = trigger_args.get("_ctx")
+                trigger_context = (
+                    dict(raw_context) if isinstance(raw_context, Mapping) else {}
                 )
+                hosted_run_id = uuid.uuid4().hex
+                if _card_context is not None:
+                    trigger_context = dict(_card_context)
+                trigger_context["run_id"] = hosted_run_id
+                trigger_args["_ctx"] = trigger_context
+                try:
+                    result = await host.trigger(
+                        resolved_action_id,
+                        trigger_args,
+                        timeout=entry_timeout,
+                    )
+                except asyncio.CancelledError:
+                    cancel_run = getattr(host, "cancel_run", None)
+                    if callable(cancel_run):
+                        try:
+                            await cancel_run(hosted_run_id)
+                        except Exception as cancel_error:
+                            logger.warning(
+                                "Hosted UI action cancellation propagation failed: "
+                                "plugin_id={}, action_id={}, err_type={}, err={}",
+                                plugin_id,
+                                resolved_action_id,
+                                type(cancel_error).__name__,
+                                str(cancel_error),
+                            )
+                    raise
             except PluginExecutionError as exc:
                 message = exc.error if isinstance(exc.error, str) and exc.error else str(exc)
                 logger.warning(
@@ -1848,7 +1935,11 @@ class PluginUiQueryService:
                 "has_ui": has_ui,
                 "explicitly_registered": explicitly_registered,
                 "ui_path": f"/plugin/{plugin_id}/ui/" if has_ui else None,
-                "static_dir": str(static_dir) if static_dir is not None else None,
+                "static_dir": (
+                    str(static_dir) if static_dir is not None
+                    and plugin_meta.get("source") != "development"
+                    and not plugin_meta.get("development_ref") else None
+                ),
                 "static_files": static_files[:50],
                 "static_files_count": len(static_files),
             }

@@ -22,9 +22,13 @@ HMAC signature + timestamp anti-replay + rate limiting + batch idempotency.
 
 Deployment:
     pip install -r requirements.txt
-    python server.py --port 8100 --admin-token YOUR_TOKEN
 
-    # or Docker
+    # SURVEY_HMAC_SECRET is mandatory — the server exits (code 2) without it.
+    # Generate: python -c "import secrets; print(secrets.token_hex(32))"
+    # The client must carry the same value (see utils/survey_client.py).
+    SURVEY_HMAC_SECRET=... python server.py --port 8100 --admin-token YOUR_TOKEN
+
+    # or Docker (reads .env; see .env.example)
     docker-compose up -d
 """
 from __future__ import annotations
@@ -46,14 +50,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from models import SurveySubmission, SubmitResponse, model_from_json
-from security import verify_signature, verify_timestamp, RateLimiter, DEFAULT_HMAC_SECRET
+from security import (
+    HMACSecretNotConfigured,
+    RateLimiter,
+    load_hmac_secret,
+    verify_signature,
+    verify_timestamp,
+)
 from storage import SurveyStorage
 
 # ---------------------------------------------------------------------------
 # 配置
 # ---------------------------------------------------------------------------
 
-HMAC_SECRET = os.getenv("SURVEY_HMAC_SECRET", DEFAULT_HMAC_SECRET)
 DB_PATH = os.getenv("SURVEY_DB_PATH", "./data/survey.db")
 ADMIN_TOKEN = os.getenv("SURVEY_ADMIN_TOKEN", "")
 MAX_BODY_SIZE = 256 * 1024            # 线路字节上限（gzip 后通常 ≤10KB）
@@ -65,6 +74,14 @@ MAX_DECOMPRESSED_SIZE = 1024 * 1024   # 解压上限，挡 zip bomb
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("survey")
+
+# ★ 启动期 fail-fast（P0-17）：没有 HMAC 密钥就拒绝启动，且不建库、不绑端口。
+#   只说变量名，永不回显值。
+try:
+    HMAC_SECRET = load_hmac_secret()
+except HMACSecretNotConfigured as exc:
+    logger.critical("%s - refusing to start", exc)
+    raise SystemExit(2)
 
 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 storage = SurveyStorage(DB_PATH)

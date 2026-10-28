@@ -505,12 +505,16 @@ class VecDBClient:
             logger.error(f"向量搜索失败: {e}")
             return []
     
-    def search_by_keyword(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+    def search_by_keyword(self, query: str, top_k: int = 5,
+                          tag_filter: list[str] = None) -> list[dict[str, Any]]:
         """基于关键词搜索（BM25）
 
         Args:
             query: 查询关键词
             top_k: 返回前 K 个结果
+            tag_filter: 可选标签过滤（工单 237 任务二，供 filter_theme 复用）。
+                给定时仅保留 documents.tags 与过滤器有交集的命中；
+                默认 None，行为与旧版完全一致。
 
         Returns:
             搜索结果列表
@@ -519,20 +523,30 @@ class VecDBClient:
             # FTS5 查询串先消毒（移除布尔操作符/通配符/引号并截断），
             # 防止 MATCH 语法注入；统一 db 锁保护并发读
             safe_query = _sanitize_fts_query(query)
+            # 有 tag 过滤时多取候选，Python 侧按 tags 交集筛掉，再截到 top_k
+            fetch_limit = top_k * 8 if tag_filter else top_k
+            tag_set = set(tag_filter) if tag_filter else None
             with self._db_lock:
                 # 使用 FTS5 进行全文搜索
                 cursor = self._conn.execute('''
-                    SELECT c.id, c.doc_id, c.content, d.title, rank
+                    SELECT c.id, c.doc_id, c.content, d.title, d.tags, rank
                     FROM chunks_fts fts
                     JOIN chunks c ON fts.id = c.id
                     JOIN documents d ON c.doc_id = d.id
                     WHERE chunks_fts MATCH ?
                     ORDER BY rank
                     LIMIT ?
-                ''', (safe_query, top_k))
+                ''', (safe_query, fetch_limit))
 
                 results = []
                 for row in cursor.fetchall():
+                    if tag_set is not None:
+                        try:
+                            row_tags = json.loads(row['tags']) if row['tags'] else []
+                        except Exception:
+                            row_tags = []
+                        if not (tag_set & set(row_tags)):
+                            continue
                     results.append({
                         'chunk_id': row['id'],
                         'doc_id': row['doc_id'],
@@ -541,6 +555,8 @@ class VecDBClient:
                         'score': 1.0 / (1.0 + row['rank']) if row['rank'] > 0 else 1.0,
                         'search_type': 'keyword',
                     })
+                    if len(results) >= top_k:
+                        break
 
             return results
 

@@ -64,13 +64,12 @@ function notificationStatusLabel(status: string) {
     {{ session.summary }}
   </div>
 
+  <!-- 投递状态：原先还有一行「论坛精华帖」——论坛下线后后端不再产生 forum_post_status
+       （该字段恒为 null），故整块删除，避免留一个永不渲染的分支。 -->
   <div
-    v-if="session.forumPostStatus || session.fullReportDeliveryStatus || Object.keys(props.session.notificationDeliveryStatuses || {}).length"
+    v-if="session.fullReportDeliveryStatus || Object.keys(props.session.notificationDeliveryStatuses || {}).length"
     class="grid grid-cols-1 gap-2 text-[11px] text-white/45 bg-white/2 rounded-lg p-3"
   >
-    <div v-if="session.forumPostStatus">
-      论坛精华帖：{{ session.forumPostStatus }}<span v-if="session.forumPostId">（{{ session.forumPostId }}）</span>
-    </div>
     <div v-if="session.fullReportDeliveryStatus">
       完整报告回传：{{ session.fullReportDeliveryStatus }}
     </div>

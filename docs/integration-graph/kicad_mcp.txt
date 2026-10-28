@@ -1,0 +1,134 @@
+kicad_mcp 依赖图（工单245）
+生成日期：2026-10-16 ｜ 基线：main 5e18abf79cd6（工单244k 合并点）
+口径：实线 = 代码级依赖/注册关系；虚线 = 仅口径/题材对齐，不 import、不改其接口
+
+================================================================================
+1. 注册与路由链（本单**未修改**任何既有文件）
+================================================================================
+
+  mcpserver/mcp_registry.py::scan_and_register_mcp_agents("mcpserver")
+        │  glob("**/agent-manifest.json")            ← 自动发现，无需登记表
+        ▼
+  mcpserver/kicad_mcp/agent-manifest.json
+        │  entryPoint = {module: "mcpserver.kicad_mcp.server", class: "KicadBridge"}
+        │  classification.tier = "read-only"（不写文件/不起子进程/不联网）
+        ▼
+  mcpserver/kicad_mcp/server.py::KicadBridge
+        │  async def handle_handoff(task) -> str          （MCP agent 契约）
+        ▼
+  mcpserver/mcp_manager.py::MCPManager.unified_call(service_name, tool_call)
+        │  ① _auth_blocked  ② _agent_governance_block（工单241，默认旁路）
+        │  ③ 熔断 allow    ④ ensure_hot 冷表转热（工单240/241 的懒注册）
+        ▼
+  KicadBridge.handle_handoff  →  {board_summary | routing_stats | unrouted_nets |
+                                  schematic_summary | cross_check | placement_report |
+                                  fab_precheck | fabrication_summary |
+                                  upstream_capabilities | doctor | list_tools}
+
+  ⇒ 结论：新模块**零侵入**接入（本单未改 mcp_manager.py / mcp_registry.py / 任何既有文件）。
+
+================================================================================
+2. 模块内部依赖（全部在包内，零第三方）
+================================================================================
+
+  mcpserver/kicad_mcp/
+        __init__.py ──►（惰性）server.py
+                          │
+        ┌──────────┬──────┴───────┬────────────┬──────────────┬────────────────┐
+        ▼          ▼              ▼            ▼              ▼                ▼
+    sexpr.py   board.py    schematic.py  design_check.py  fab_bridge.py  capability_map.py
+        ▲          │              │            │              │                │
+        └──────────┴──────────────┘            │              │                │
+          （board/schematic 都只经 sexpr 读写）  │              │                │
+                                               ▼              ▼                ▼
+                                        （对账两侧）    （用 board 的派生值）  （读夹具 JSON）
+                                                                              │
+                                                        tests/fixtures/upstream_capabilities.json
+                                                        （机械抽取自上游 registry.ts，MIT）
+
+  **真值源是 sexpr.py**：所有解析都走它，没有任何模块自己再写一份 tokenizer。
+  **算法只在所属模块里**：`board.py` 只算板子的量、`fab_bridge.py` 只做阈值比对、
+  `design_check.py` 只做差集 —— 三者都不重复解析。
+
+  依赖方向**单向无环**：sexpr → {board, schematic} → {design_check, fab_bridge}；server 在顶层编排。
+  （对照：本仓 `mcpserver/rf_brain/rlnc` 与 `mcpserver/esp32/rlnc` 是镜像关系；本模块**不**做镜像。）
+
+================================================================================
+3. 数据流（一次 cross_check 的完整路径）
+================================================================================
+
+  .kicad_sch ──read_text──► sexpr.parse_one ──► Schematic.parse ──┐
+                                                                  ├─► design_check.cross_check ─► JSON
+  .kicad_pcb ──read_text──► sexpr.parse_one ──► Board.parse ──────┘          │
+                                                                             └─ 四类差集：
+                                                                                only_in_schematic /
+                                                                                only_on_board /
+                                                                                value_mismatches /
+                                                                                footprint_mismatches
+
+  ⇒ 全程只读：无写入、无临时文件、无子进程、无网络。
+
+================================================================================
+4. 外部依赖（**刻意为零**）
+================================================================================
+
+  运行时：
+    第三方 pip 包        = 无（标准库：argparse/asyncio/dataclasses/json/logging/math/pathlib/typing）
+    外部二进制           = 无（**不需要 KiCAD**；只有要用上游 KiCAD-MCP-Server 才需要）
+    外部服务             = 无
+    工作区/环境变量      = 无（不落盘，故不需要 TOOLKNIT_WORKSPACE_ROOT 之类的配置）
+
+  上游对照（本项目**不引入**）：
+    kicad-python（IPC，要本机装 KiCAD）/ sexpdata / kicad-skip /
+    Pillow / pymupdf / cairosvg / requests / colorlog / pydantic / python-dotenv
+
+  唯一随本模块入库的上游产物：
+    tests/fixtures/upstream_capabilities.json（工具目录，机械抽取，MIT，出处写在文件内）
+    tests/fixtures/canonical_schematic.kicad_sch（上游真实 KiCAD 产物，MIT，用于证明解析器吃真输出）
+
+================================================================================
+5. 参数/题材对齐（虚线，无代码耦合）
+================================================================================
+
+  kicad_mcp ························► docs/archive/SPEC-历史版本/
+                                      archived-2026-10-08-SPEC-20-v1.5-PCB-Board1-操作记录.md
+     夹具做成同题材的 4 层 LoRa 节点板（ESP32-S3 + Ra-01/SX1278 + 电池座），
+     便于把那份操作记录里的数字拿来对账；本模块不改其任何内容。
+
+  kicad_mcp ························► apiserver/routes/eda_ingest.py（工单217 的嘉立创 EDA 接收端）
+     两个**不同 EDA**（KiCAD vs 嘉立创 EasyEDA），但共享「PCB 数据结构化」需求：
+     eda_ingest 收的是嘉立创侧导出，本模块读的是 KiCAD 原生文件；制造前预检是二者共同的下游。
+
+  kicad_mcp ························► mcpserver/esp32/（243）· mcpserver/rf_workflow/（242）
+     同属「漏斗 2.0 轻量猎手」系列：那两单在**空中接口**侧（PHY/分簇/RLNC），本单在**硬件设计**侧。
+
+================================================================================
+6. 工单声明路径的落点（偏差记录）
+================================================================================
+
+  ⚠️ 工单245 §4 的「耦合点」原文列的是 `mcpserver/ / coupled/ / core/`，而 `core/` **全树 0 命中**
+     （242/243/244 已连续证过）—— 该行由工单240 的生成器模板产出，已于**工单244j 修正**
+     （模板与现存草稿统一改为 `mcpserver/ / agentserver/ / apiserver/ / coupled/`）。
+
+  ✅ 本单落点：mcpserver/kicad_mcp/（本仓 mcpserver/ 子模块一律下划线命名）
+  ✅ 补上的历史缺口：docs/integration-graph/rf_workflow.txt §6 曾记
+     「❌ mcpserver/kicad-mcp/ 0 命中」——本单正是补它（改为下划线形态）。
+  ❌ core/          仍不存在（不在本单范围）
+  ❌ mcpserver/kicad-mcp/  仍未存在（连字符目录在 Python 里不可 import，故不用）
+
+================================================================================
+7. 产物依赖（入库什么 / 不入库什么）
+================================================================================
+
+  入库：
+    mcpserver/kicad_mcp/*.py            实现（含真值源 sexpr.py）
+    mcpserver/kicad_mcp/agent-manifest.json
+    mcpserver/kicad_mcp/README.md       能力面 + **真实性边界**（哪张夹具是真产物、哪张是手写）
+    mcpserver/kicad_mcp/requirements.txt 零依赖声明（空清单 + 为什么）
+    mcpserver/kicad_mcp/tests/fixtures/ 4 份夹具（2 份来自上游 MIT，2 份本仓手写）
+    mcpserver/kicad_mcp/sandbox/kicad-20261016-lora-node/  8 份**真实 CLI 输出**（可复跑）
+    tests/test_kicad_mcp.py             54 用例（真值源/语义/契约三层）
+
+  不入库：
+    任何 .kicad_pcb/.kicad_sch 的**写入产物**（本模块只读，不产出）
+    Gerber/钻孔/坐标文件（需要 KiCAD，本机未装 —— 明确不做）

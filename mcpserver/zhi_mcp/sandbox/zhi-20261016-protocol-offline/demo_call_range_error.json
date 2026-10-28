@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "tool": "demo_call_tool",
+  "data": {
+    "error": {
+      "code": -32602,
+      "message": "volume 越界: 999（须 0..100）"
+    },
+    "device_calls": [
+      [
+        "self.audio_speaker.set_volume",
+        {
+          "volume": 999
+        }
+      ]
+    ],
+    "note": "设备报错被如实抛出（未吞成 ok=false）"
+  }
+}

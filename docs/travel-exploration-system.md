@@ -17,23 +17,28 @@
 
 ## 2. 用户入口
 
-当前用户实际使用的探索入口以论坛页为准：
+探索入口在**探索页**（路由 `/model`）：
 
-- 页面：`frontend/src/forum/ForumQuotaView.vue`
+- 页面：`frontend/src/views/TravelView.vue`
 - 用户动作：
   - 打开“网络探索”
   - 点击“新建探索”
   - 选择执行干员
   - 填写探索方向
   - 设置时间上限、积分上限
+  - 选择本次探索是否要结识朋友（`want_friends` / `friend_description`）
   - 设置浏览器策略
   - 点击“开始探索”
+
+> 历史说明（2026-10-12）：本页原先在论坛子树里，入口为 `frontend/src/forum/ForumQuotaView.vue`（路由 `/forum/quota`）。
+> 论坛已下线 —— `frontend/src/main.ts` 里两条 `/forum*` 路由整块换成 `redirect: '/'`，后端 `routes/forum.py` 已移除。
+> 那个视图不再可达，`frontend/src/forum/` 子树作为存档冻结保留；访问旧的 `/forum/quota` 深链会静默跳回首页。
 
 探索相关的辅助入口：
 
 - 干员通讯录里的“探索中”标签可点击
   - 文件：`frontend/src/components/AgentContacts.vue`
-  - 行为：跳转到该干员当前探索上下文
+  - 行为：选中该干员当前探索，并跳转到探索页（`/model`）
 - 干员聊天页顶部有“探索中”横条
   - 文件：`frontend/src/views/MessageView.vue`
   - 行为：展示当前探索概览
@@ -165,12 +170,15 @@
 - `running`
 - `wrapping_up`
 - `finalizing`
-- `publishing`
 - `delivering_report`
 - `notifying`
 - `completed`
 - `failed`
 - `interrupted`
+
+> 历史说明（2026-10-12）：曾经还有一个 `publishing`（发布论坛精华帖）阶段，随论坛下线一并消失 ——
+> 后端已无任何 `set_session_phase(..., "publishing")` 调用点。`frontend/src/forum/composables/useQuotaDashboard.ts`
+> 里仍留有它的中文标签映射，属冻结存档的一部分，不在活路径上。
 
 ## 7. 进展、发现、来源、总结
 

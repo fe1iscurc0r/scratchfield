@@ -1,0 +1,151 @@
+{
+  "name": "kicad_mcp",
+  "displayName": "KiCAD PCB/原理图 离线读取核（工单245）",
+  "version": "0.1.0",
+  "description": "把上游 mixelpixx/KiCAD-MCP-Server（MIT，2728★）那条「AI 辅助 PCB 设计」的路，在本仓可验证的前提下接进来：不依赖 KiCAD 安装、不依赖任何第三方包，只用纯 Python 读 KiCAD 的文本文件（.kicad_pcb / .kicad_sch），给出 板子结构统计 / 原理图-PCB 对账 / 嘉立创制造前预检 / 上游能力地图。写板、Gerber、真 DRC 一律不做（要 KiCAD 运行时）。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.kicad_mcp.server",
+    "class": "KicadBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "board_summary",
+        "description": "`.kicad_pcb` 概览：层栈/铜层数/板框尺寸/元件与焊盘数/网络数/走线统计/过孔统计/未布线网络数。纯离线解析，**不需要装 KiCAD**。坐标按 KiCAD 6+ 的 mm 口径；version < 20210000 的旧文件返回体带 legacy_coords_warning。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "board_path": {"type": "string", "description": ".kicad_pcb 文件路径"}
+          },
+          "required": ["board_path"]
+        }
+      },
+      {
+        "command": "routing_stats",
+        "description": "走线统计：总数 / 总长(mm) / 按层明细 / **最小线宽** / 线宽直方图。判断布线进度与工艺下限用。",
+        "parameters": {
+          "type": "object",
+          "properties": {"board_path": {"type": "string"}},
+          "required": ["board_path"]
+        }
+      },
+      {
+        "command": "unrouted_nets",
+        "description": "有焊盘但**没有任何走线/过孔**的网络清单 —— 布局布线进度的直接指标。",
+        "parameters": {
+          "type": "object",
+          "properties": {"board_path": {"type": "string"}},
+          "required": ["board_path"]
+        }
+      },
+      {
+        "command": "schematic_summary",
+        "description": "`.kicad_sch` 概览：**放置的器件**（引用号/值/封装属性/位置）+ 库符号数 + 标签计数 + 层次页 + 未指定封装的器件。注意只有带 lib_id 的 symbol 才是放置器件，lib_symbols 里的是库定义。",
+        "parameters": {
+          "type": "object",
+          "properties": {"sch_path": {"type": "string", "description": ".kicad_sch 文件路径"}},
+          "required": ["sch_path"]
+        }
+      },
+      {
+        "command": "cross_check",
+        "description": "原理图 ↔ PCB 交叉对账：只在原理图 / 只在 PCB / 值不一致 / 封装不一致。AI 改板前必须先确认两侧对齐，否则自动化在错误前提上干活。封装名默认只比 `Lib:Name` 的 Name 部分（库前缀在不同机器上会不同）。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sch_path": {"type": "string"},
+            "board_path": {"type": "string"}
+          },
+          "required": ["sch_path", "board_path"]
+        }
+      },
+      {
+        "command": "placement_report",
+        "description": "布局快照：器件总数 / 落在板框外的 / 在底层的 / 未定位的。",
+        "parameters": {
+          "type": "object",
+          "properties": {"board_path": {"type": "string"}},
+          "required": ["board_path"]
+        }
+      },
+      {
+        "command": "fab_precheck",
+        "description": "嘉立创（JLCPCB）制造前预检：由板子推出工艺下限（最小线宽/最小过孔孔径/最小环宽/最小通孔焊盘孔径/层数/单板尺寸/板厚），与 rule set 比对给出 pass/warn/fail 与逐条 violation。⚠️ 默认阈值为**本仓保守预设**，不是官方规格抓取（返回体 ruleset.source 会说明）；要对接真实工艺请用 rules 注入当期货期参数。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "board_path": {"type": "string"},
+            "rules": {
+              "type": "object",
+              "description": "可选。按当期货期覆盖阈值：min_trace_mm / min_via_drill_mm / min_via_ring_mm / min_pad_drill_mm / max_layers / max_board_mm / allowed_thickness_mm / name"
+            }
+          },
+          "required": ["board_path"]
+        }
+      },
+      {
+        "command": "fabrication_summary",
+        "description": "下单摘要：尺寸/铜层数/板厚/最小线宽/最小孔径/器件数/走线数/过孔数/未布线网络 —— 人工下单时直接抄的字段。",
+        "parameters": {
+          "type": "object",
+          "properties": {"board_path": {"type": "string"}},
+          "required": ["board_path"]
+        }
+      },
+      {
+        "command": "upstream_capabilities",
+        "description": "上游 KiCAD-MCP-Server 的能力地图（17 类别 / 184 个已索引工具，MIT，机械抽取自其 src/tools/registry.ts）。给 query 复刻上游 searchTools 检索（含「整类命中」与 20 条上限）；给 category 列该类别全部工具；都不给返回统计与出处。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {"type": "string", "description": "关键词（工具名/类别名/类别描述）"},
+            "category": {"type": "string", "description": "类别名，如 board / routing / export"}
+          }
+        }
+      },
+      {
+        "command": "doctor",
+        "description": "能力与**边界**自述：能做什么、做不了什么（写板/Gerber/真 DRC/自动布线），以及本模块与上游的关系。零依赖即可回答。",
+        "parameters": {"type": "object", "properties": {}}
+      },
+      {
+        "command": "list_tools",
+        "description": "自述白名单（只暴露本 PoC 的 11 个工具，避免 LM 工具选择混乱）。",
+        "parameters": {"type": "object", "properties": {}}
+      }
+    ]
+  },
+  "runtime": {
+    "workspace_hint": "本模块**不写任何文件**：全部工具都是只读解析，输入即路径、输出即 JSON。故不需要工作区配置，也不产生日志文件（诊断走 stdlib logging）。",
+    "license_note": "上游 mixelpixx/KiCAD-MCP-Server 为 **MIT**（非 GPL/AGPL）。本仓**不 vendor** 其代码：只机械抽取了它的工具目录（src/tools/registry.ts 的 toolCategories + directToolNames）作为夹具 mcpserver/kicad_mcp/tests/fixtures/upstream_capabilities.json，出处与许可写在夹具里。解析器 sexpr.py 为**自研**（上游用 sexpdata + kicad-skip；本模块零第三方依赖）。注意上游作者已另起 Konnect（Rust，**AGPL-3.0**）—— 那是**另一个**项目，本模块不涉。",
+    "risk_note": "tier 取 read-only：不写文件、不起子进程、不联网。唯一的外部输入是用户给的 .kicad_pcb/.kicad_sch 路径；解析器对上万行的 S-expression 用递归下降，对超深嵌套（>Python 递归上限）会抛 RecursionError 而不是崩溃进程 —— 由 handle_handoff 兜住转成 error JSON。",
+    "deps_note": "零第三方依赖（只用标准库 re/json/math/dataclasses/pathlib）。上游 requirements.txt 里的 kicad-python / sexpdata / kicad-skip / Pillow / pymupdf / cairosvg / requests 本模块**一个都不需要**。"
+  },
+  "classification": {
+    "families": ["instrument"],
+    "domains": ["mechat"],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge"
+    }
+  },
+  "requires": {
+    "env_optional": [],
+    "external_binaries": [],
+    "external_services": [],
+    "optional_system": [
+      "KiCAD（**不需要**——本模块纯文本解析；只有要用上游 KiCAD-MCP-Server 的写板/Gerber 能力时才需要）"
+    ],
+    "optional_python": []
+  },
+  "capability_pairs": [
+    ["read", "pcb_board"],
+    ["read", "kicad_schematic"],
+    ["check", "design_consistency"],
+    ["check", "manufacturability"],
+    ["analyze", "routing_progress"],
+    ["search", "upstream_capabilities"]
+  ]
+}

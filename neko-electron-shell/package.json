@@ -4,6 +4,9 @@
   "version": "0.8.3",
   "description": "Project N.E.K.O. - AI-native metaverse",
   "main": "src/main.js",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\""
+  },
   "author": "Project N.E.K.O.",
   "license": "MIT",
   "overrides": {

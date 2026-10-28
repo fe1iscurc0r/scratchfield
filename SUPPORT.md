@@ -8,8 +8,8 @@
 |------|------|
 | [GitHub Issues](https://github.com/fe1iscurc0r/scratchpad/issues) | Bug 报告、功能请求 |
 | [GitHub Discussions](https://github.com/fe1iscurc0r/scratchpad/discussions) | 使用问题、经验分享 |
-| GitHub Issues | https://github.com/fe1iscurc0r/scratchfield/issues |
-| 邮箱 | fe1iscurc0r@users.noreply.github.com |
+| QQ 群 | 1951864121（作者，非群号） |
+| 邮箱 | 1951864121@qq.com |
 
 ## Issue 提交前
 

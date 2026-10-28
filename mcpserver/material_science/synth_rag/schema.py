@@ -88,6 +88,43 @@ class Route:
         return route
 
 
+@dataclass
+class InspirationItem:
+    """灵感素材条目（工单 237，索引层）。
+
+    来源：`research/inspiration_pool_rag/2026-10-11` 的 RESCORE-V3 高分入选集
+    （composite ≥ 70），落点 `corpus/inspiration_pool_2026-10-11/<theme>/index.json`。
+    meta.note 明确标注「灵感素材 - 非工单库」。
+
+    ⚠️ 诚实标注（工单 237 §1/§6）：`target` 句是 GLM **从 abstract 联想**出来的应用
+    场景，**不是论文真实研究方向**（biomass 前 5 篇实测 4/5 不符）。本类只做索引承载，
+    检索给候选、agent 拿 abstract 自查，**不做真伪判定**（留工单 238）。
+    """
+    pid: str
+    target: str = ""
+    abstract: str = ""
+    arxiv_url: str = ""
+    composite: float = 0.0
+    match: str = ""
+    theme: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any], theme: str = "") -> "InspirationItem":
+        """从 index.json 的一条 item 还原；theme 缺省时回填传入值。"""
+        return cls(
+            pid=str(d.get("pid") or ""),
+            target=str(d.get("target") or ""),
+            abstract=str(d.get("abstract") or ""),
+            arxiv_url=str(d.get("arxiv_url") or ""),
+            composite=float(d.get("composite") or 0.0),
+            match=str(d.get("match") or ""),
+            theme=theme or str(d.get("theme") or ""),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 # SQLite DDL：外键 ON DELETE CASCADE，删除路线时子表联动清空
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS routes (

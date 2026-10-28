@@ -48,7 +48,10 @@ function openTravelContext(agentId: string) {
   const session = viewTravelForAgent(agentId)
   if (!session)
     return
-  router.push('/forum/quota')
+  // 探索页原在 /forum/quota，随论坛下线被改成 redirect:'/'（点了会静默跳回首页）；
+  // 活入口是 /model 的 TravelView，它与原页都从同一个 useTravel().travelSession
+  // 取选中会话，故上面 viewTravelForAgent() 设好的选中依然生效。
+  router.push('/model')
 }
 
 function handleContextMenu(e: MouseEvent, agent: { id: string, name: string, builtin?: boolean }) {

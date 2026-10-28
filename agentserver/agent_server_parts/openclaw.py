@@ -1,10 +1,22 @@
 """agent_server_parts.openclaw —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import Modules, logger  # noqa: F401
+from .common import (  # noqa: F401  244d：原星号导入改为显式（F405）
+    Any,
+    HTTPException,
+    Modules,
+    asyncio,
+    config,
+    get_embedded_runtime,
+    logger,
+)
 from .lifecycle import _start_gateway_if_port_free, app  # noqa: F401
 from .search import _local_search_proxy  # noqa: F401
+from system.net_boundary import explicit_opt_in as _explicit_opt_in
+
+# 安装类动作的第二道门：边界令牌只证明「你是谁」，不证明「现在该不该往本机装代码」。
+INSTALL_ENV = "NEKO_ALLOW_INSTALL"
+
 
 @app.post("/openclaw/send")
 async def openclaw_send_message(payload: dict[str, Any]):
@@ -407,6 +419,11 @@ async def openclaw_install(payload: dict[str, Any] = None):
     Returns:
         安装结果
     """
+    if not _explicit_opt_in(INSTALL_ENV):
+        raise HTTPException(
+            403,
+            f"安装接口默认关闭：需由运维在启动环境显式设置 {INSTALL_ENV}=1（边界令牌不等于安装授权）",
+        )
     try:
         from agentserver.openclaw import InstallMethod, get_openclaw_installer
 

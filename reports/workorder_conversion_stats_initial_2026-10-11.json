@@ -1,0 +1,692 @@
+{
+  "period": "all",
+  "generated_at": "2026-10-14T03:13:55Z",
+  "include_v1": false,
+  "overview": {
+    "issued": 178,
+    "merged": 37,
+    "rate": 20.8,
+    "commits_total": 194,
+    "v1_issued": 131,
+    "v2_issued": 47
+  },
+  "by_month": {
+    "2026-10": {
+      "issued": 55,
+      "merged": 29
+    },
+    "2026-09": {
+      "issued": 84,
+      "merged": 8
+    },
+    "2026-08": {
+      "issued": 39,
+      "merged": 0
+    }
+  },
+  "by_theme": {
+    "biomass": {
+      "issued": 3,
+      "merged": 2
+    },
+    "sdr": {
+      "issued": 4,
+      "merged": 0
+    },
+    "agent": {
+      "issued": 0,
+      "merged": 0
+    },
+    "esp32": {
+      "issued": 0,
+      "merged": 0
+    },
+    "pcb": {
+      "issued": 2,
+      "merged": 2
+    },
+    "other": {
+      "issued": 169,
+      "merged": 33
+    }
+  },
+  "top": [
+    {
+      "number": 204,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 14,
+      "issued_date": "2026-10-06",
+      "title": "style(frontend): 清零工单204 任务三遗留的 CI 等价 lint 债（369 → 0） (#308)"
+    },
+    {
+      "number": 190,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 6,
+      "issued_date": "2026-10-02",
+      "title": "refactor(frontend): 卷190-B5 MindView 2197 行 → 壳 278 + 渲染引擎 + 2 composables + 3 …"
+    },
+    {
+      "number": 191,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 4,
+      "issued_date": "2026-10-02",
+      "title": "perf(apiserver): 卷191-B3 启动自检摘要行 [boot]"
+    },
+    {
+      "number": 205,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 3,
+      "issued_date": "2026-10-07",
+      "title": "feat(audit): 任务级工具调用链摘要模块（工单205 任务一） (#207)"
+    },
+    {
+      "number": 209,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 3,
+      "issued_date": "2026-10-08",
+      "title": "refactor(frontend): mind renderer.ts 1863→382（−79%）≤500 达标（工单209 二批） (#225)"
+    }
+  ],
+  "issues": [
+    {
+      "number": 190,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 6,
+      "issued_date": "2026-10-02",
+      "issued_at": 1790920246,
+      "prs": [
+        135
+      ],
+      "title": "refactor(frontend): 卷190-B5 MindView 2197 行 → 壳 278 + 渲染引擎 + 2 composables + 3 子组件"
+    },
+    {
+      "number": 191,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 4,
+      "issued_date": "2026-10-02",
+      "issued_at": 1790920246,
+      "prs": [],
+      "title": "perf(apiserver): 卷191-B3 启动自检摘要行 [boot]"
+    },
+    {
+      "number": 192,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 2,
+      "issued_date": "2026-10-02",
+      "issued_at": 1790920246,
+      "prs": [
+        135
+      ],
+      "title": "feat(卷189/190/192): 工具链三层优化 + 巨石拆分(后端双雄) + 数据库勘察与版本机制 (#135)"
+    },
+    {
+      "number": 194,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-02",
+      "issued_at": 1790947925,
+      "prs": [],
+      "title": "docs(workorders): 卷194 Sentinel-Link v2——二进制TLV帧+边缘聚合事件驱动+TDMA时隙化+mesh_layer加密复用；187标已被取代归档；空口↓85%/…"
+    },
+    {
+      "number": 195,
+      "era": "v2",
+      "theme": "sdr",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-03",
+      "issued_at": 1791042734,
+      "prs": [],
+      "title": "工单195: LoRaCanary Board1 大夏龙雀通信模块组上板(WF24+CT12+10C02S)"
+    },
+    {
+      "number": 196,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-03",
+      "issued_at": 1791043790,
+      "prs": [],
+      "title": "工单196: 天选7本地串口MCP部署(serial-mcp-server, Rust/MIT)"
+    },
+    {
+      "number": 197,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-03",
+      "issued_at": 1791046098,
+      "prs": [],
+      "title": "工单197: 磁盘治理自动化+孤岛豁免; 工单198: dependabot清账三期(NEKO 140条分层)"
+    },
+    {
+      "number": 198,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-03",
+      "issued_at": 1791046098,
+      "prs": [],
+      "title": "工单197: 磁盘治理自动化+孤岛豁免; 工单198: dependabot清账三期(NEKO 140条分层)"
+    },
+    {
+      "number": 199,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-04",
+      "issued_at": 1791101831,
+      "prs": [],
+      "title": "工单199: #2881兑现准备(脱敏示例+Adapter骨架+GNS-01规划)"
+    },
+    {
+      "number": 200,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-05",
+      "issued_at": 1791173816,
+      "prs": [],
+      "title": "工单200: 陆墨v5.2.4首发修复(版本号+产物名ASCII+发布门面+重打tag)"
+    },
+    {
+      "number": 201,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-05",
+      "issued_at": 1791182416,
+      "prs": [],
+      "title": "工单201: NEKO组件化进包(B方案)+插件市场分级收尾"
+    },
+    {
+      "number": 202,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 2,
+      "issued_date": "2026-10-06",
+      "issued_at": 1791259268,
+      "prs": [
+        161,
+        162
+      ],
+      "title": "feat(neko): agent 状态→表情 接通两条链路（工单202 任务四接线） (#162)"
+    },
+    {
+      "number": 203,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 2,
+      "issued_date": "2026-10-06",
+      "issued_at": 1791280263,
+      "prs": [
+        184,
+        202
+      ],
+      "title": "feat(glyco): 糖链信息学工具组（工单203 任务二） (#202)"
+    },
+    {
+      "number": 204,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 14,
+      "issued_date": "2026-10-06",
+      "issued_at": 1791288314,
+      "prs": [
+        198,
+        208,
+        302,
+        303,
+        304,
+        305,
+        306,
+        307,
+        308
+      ],
+      "title": "style(frontend): 清零工单204 任务三遗留的 CI 等价 lint 债（369 → 0） (#308)"
+    },
+    {
+      "number": 205,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 3,
+      "issued_date": "2026-10-07",
+      "issued_at": 1791357114,
+      "prs": [
+        205,
+        206,
+        207
+      ],
+      "title": "feat(audit): 任务级工具调用链摘要模块（工单205 任务一） (#207)"
+    },
+    {
+      "number": 206,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-07",
+      "issued_at": 1791414472,
+      "prs": [],
+      "title": "docs: 工单206——论文日报2026-10-08积压清账批三方向授粉落地"
+    },
+    {
+      "number": 207,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791421705,
+      "prs": [],
+      "title": "docs: 工单207——10-08批第二单，树通道三方向授粉落地"
+    },
+    {
+      "number": 208,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791428041,
+      "prs": [],
+      "title": "docs: 工单208——扫货管线接入AI编码计划信号+GLM到期降级预案"
+    },
+    {
+      "number": 209,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 3,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791428367,
+      "prs": [
+        210,
+        211,
+        225
+      ],
+      "title": "refactor(frontend): mind renderer.ts 1863→382（−79%）≤500 达标（工单209 二批） (#225)"
+    },
+    {
+      "number": 210,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791428754,
+      "prs": [
+        212
+      ],
+      "title": "feat(llm-ops): GLM 到期影响审计 + provider 切换器 + NEKO 依赖盘存（工单210） (#212)"
+    },
+    {
+      "number": 211,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 2,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791428754,
+      "prs": [
+        213,
+        223
+      ],
+      "title": "chore(deps): 安全债第二批 —— 锁文件对齐升级（工单211） (#223)"
+    },
+    {
+      "number": 212,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791428754,
+      "prs": [
+        214
+      ],
+      "title": "chore(docs): SPEC 库存清理 —— SPEC-INDEX + 归档结构（工单212） (#214)"
+    },
+    {
+      "number": 213,
+      "era": "v2",
+      "theme": "biomass",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791428754,
+      "prs": [
+        215
+      ],
+      "title": "feat(material): 材料线盘点 + 本科实验数据快通道 + 补206任务三 LOO 模板（工单213） (#215)"
+    },
+    {
+      "number": 214,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791431131,
+      "prs": [
+        216
+      ],
+      "title": "docs(research): 记忆层第二梯队调研 + 三方互通预研（工单214） (#216)"
+    },
+    {
+      "number": 215,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 2,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791432037,
+      "prs": [
+        217
+      ],
+      "title": "docs(research): ROS/机器人协议生态融合调研——四卡齐（工单215） (#217)"
+    },
+    {
+      "number": 216,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791432387,
+      "prs": [
+        218
+      ],
+      "title": "docs(audit): 跨领域协议兼容审计——六线矩阵（工单216） (#218)"
+    },
+    {
+      "number": 217,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 2,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791432576,
+      "prs": [
+        219,
+        229
+      ],
+      "title": "feat(knowledge): 知识检索型 OpenAI 兼容端点（工单217-A） (#229)"
+    },
+    {
+      "number": 218,
+      "era": "v2",
+      "theme": "pcb",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791432708,
+      "prs": [
+        220
+      ],
+      "title": "docs(research): EDA 插件 agent 可驱动性矩阵 + pro-api 适配面盘点（工单218） (#220)"
+    },
+    {
+      "number": 219,
+      "era": "v2",
+      "theme": "pcb",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791432837,
+      "prs": [
+        221
+      ],
+      "title": "feat(skills): EDA-AI 全流程 skill 补全——两件扩到七件 + 八环矩阵（工单219） (#221)"
+    },
+    {
+      "number": 220,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 2,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791432960,
+      "prs": [
+        222,
+        224
+      ],
+      "title": "chore(repo): carpet 运行时产物移出 git 跟踪（工单220） (#224)"
+    },
+    {
+      "number": 221,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791433087,
+      "prs": [
+        222
+      ],
+      "title": "perf+audit: 冷启动基线（pandas 懒加载 −668ms）+ 架构四线 + 防呆六场景（工单220/221） (#222)"
+    },
+    {
+      "number": 222,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-08",
+      "issued_at": 1791433210,
+      "prs": [
+        209
+      ],
+      "title": "feat(concurrency): config 读写锁 + 单写入口 + 52 处单例统一 DCL（工单222） (#209)"
+    },
+    {
+      "number": 223,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-09",
+      "issued_at": 1791511437,
+      "prs": [
+        226
+      ],
+      "title": "docs(pollination): 授粉四线并进（工单223） (#226)"
+    },
+    {
+      "number": 224,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-09",
+      "issued_at": 1791525757,
+      "prs": [
+        230
+      ],
+      "title": "fix(ci): conftest find_spec 容错（工单224） (#230)"
+    },
+    {
+      "number": 225,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-09",
+      "issued_at": 1791531671,
+      "prs": [
+        231
+      ],
+      "title": "fix(ci): v5.2.7 发版拦路三病修复（工单225） (#231)"
+    },
+    {
+      "number": 226,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-09",
+      "issued_at": 1791546759,
+      "prs": [
+        232
+      ],
+      "title": "fix(ci): v5.2.8 闸门修复（病三真身）+ 授粉三线（工单226） (#232)"
+    },
+    {
+      "number": 227,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-09",
+      "issued_at": 1791558117,
+      "prs": [
+        233
+      ],
+      "title": "feat(w227): 授粉设计稿落地三 PoC（工单227） (#233)"
+    },
+    {
+      "number": 228,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888554,
+      "prs": [
+        324
+      ],
+      "title": "feat(w228): 峰谷 health 探针 + dependabot 主版本预审 SOP + anthropic 1.x 兼容层 PoC (#324)"
+    },
+    {
+      "number": 229,
+      "era": "v2",
+      "theme": "other",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888760,
+      "prs": [
+        325
+      ],
+      "title": "feat(w229): 废弃别名 deepseek-chat→deepseek-flash 清扫 + peak_switch 测试/文档 + 模型 ID 兼容矩阵 (#325)"
+    },
+    {
+      "number": 237,
+      "era": "v2",
+      "theme": "biomass",
+      "merged": true,
+      "commits": 1,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888554,
+      "prs": [
+        327
+      ],
+      "title": "feat(w237): 灵感素材库接入 RAG（biomass/sdr 双线索引层 + 人工索引页） (#327)"
+    },
+    {
+      "number": 238,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888554,
+      "prs": [],
+      "title": ""
+    },
+    {
+      "number": 239,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888554,
+      "prs": [],
+      "title": ""
+    },
+    {
+      "number": 240,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888554,
+      "prs": [],
+      "title": ""
+    },
+    {
+      "number": 241,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888554,
+      "prs": [],
+      "title": ""
+    },
+    {
+      "number": 242,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888554,
+      "prs": [],
+      "title": ""
+    },
+    {
+      "number": 243,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888554,
+      "prs": [],
+      "title": ""
+    },
+    {
+      "number": 244,
+      "era": "v2",
+      "theme": "other",
+      "merged": false,
+      "commits": 0,
+      "issued_date": "2026-10-13",
+      "issued_at": 1791888735,
+      "prs": [],
+      "title": ""
+    }
+  ]
+}

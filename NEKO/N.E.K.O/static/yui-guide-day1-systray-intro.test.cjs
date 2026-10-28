@@ -90,7 +90,7 @@ test('Day1 system tray intro modal combines the tray location and menu guidance'
   assert.match(universalManagerSource, /tutorial\.systray\.menu\.desc/);
   assert.match(universalManagerSource, /tutorial\.systray\.resetPosition/);
   assert.match(universalManagerSource, /tutorial\.systray\.openChat/);
-  assert.match(universalManagerSource, /tutorial\.systray\.hotkey/);
+  assert.match(universalManagerSource, /tutorial\.systray\.settings/);
   assert.match(universalManagerSource, /tutorial\.systray\.exit/);
   assert.match(universalManagerSource, /\/static\/assets\/tutorial\/systray\/stray_intro\.png/);
   assert.doesNotMatch(universalManagerSource, /neko菜单面板/);
@@ -141,7 +141,19 @@ test('Day1 system tray intro modal combines the tray location and menu guidance'
   assert.equal(zhCn.tutorial.systray.location.alt, '系统托盘位置示意图');
   assert.equal(zhCn.tutorial.systray.menu.title, '📋 托盘菜单');
   assert.equal(zhCn.tutorial.systray.resetPosition, '重置角色位置');
-  assert.match(i18nBootstrapSource, /LOCALE_VERSION = '2026-08-05-voice-identity-a11y'/);
+  // 这条断言真正要保的是：day1 systray 教程文案落地时 locale 缓存键跟着递增过，
+  // 老客户端不会拿旧语言包把新 key 渲染成字面量。原来的写法把当时的版本串钉死，
+  // 于是每一次与 systray 无关的递增都要顺手来改这一行（#2882 就被迫改过一次），
+  // 和 tests/unit/test_window_pin_static_contracts.py 里记下的那次同款腐烂。
+  // 版本串固定是 YYYY-MM-DD- 前缀，比日期前缀即可表达“不早于本文案落地的那次递增”。
+  const localeVersionMatch = i18nBootstrapSource.match(/LOCALE_VERSION = '([^']+)'/);
+  assert.ok(localeVersionMatch, 'i18n-i18next.js 必须声明 LOCALE_VERSION');
+  const localeVersion = localeVersionMatch[1];
+  assert.match(localeVersion, /^\d{4}-\d{2}-\d{2}-/, `LOCALE_VERSION 需带日期前缀: ${localeVersion}`);
+  assert.ok(
+    localeVersion.slice(0, 10) >= '2026-07-06',
+    `LOCALE_VERSION 早于 day1 systray 文案落地的 2026-07-06-day1-systray-intro-i18n: ${localeVersion}`
+  );
 
   for (const [code, source] of Object.entries(localeSources)) {
     const locale = JSON.parse(source);
@@ -149,5 +161,81 @@ test('Day1 system tray intro modal combines the tray location and menu guidance'
     assert.ok(locale.tutorial.systray.location.desc.trim(), `${code} systray location desc should not be empty`);
     assert.doesNotMatch(locale.tutorial.systray.location.desc, /right-click|clic derecho|右クリック|오른쪽 버튼|botão direito|правой кнопкой|鼠标右击|滑鼠右鍵/i);
     assert.doesNotMatch(locale.tutorial.systray.location.desc, /menu panel|panel del menú|メニューパネル|메뉴 패널|painel do menu|панель меню|菜单面板|選單面板/i);
+  }
+});
+
+
+test('Day1 intro renders the matching platform image and localized guidance', () => {
+  const method = getMethodBlock(universalManagerSource, 'showDay1SystrayIntroModal');
+  for (const [code, source] of Object.entries(localeSources)) {
+    const locale = JSON.parse(source);
+    for (const platform of ['macos', 'windows']) {
+      const overlay = {
+        setAttribute() {}, addEventListener() {},
+        querySelectorAll() { return []; }, querySelector() { return null; }
+      };
+      const document = {
+        createElement() { return overlay; },
+        body: { appendChild() {}, classList: { add() {} } }
+      };
+      const window = { homeTutorialPlatformCapabilities: { detectPlatform: () => platform } };
+      const manager = new Function('window', 'document', `return ({${method}});`)(window, document);
+      manager.shouldShowDay1SystrayIntro = () => true;
+      manager.closeDay1SystrayIntroModal = () => {};
+      manager.safeEscapeHtml = value => value;
+      manager.t = key => {
+        const value = key.split('.').reduce((current, part) => current && current[part], locale);
+        assert.equal(typeof value, 'string', `${code}: missing ${key}`);
+        return value;
+      };
+      manager.showDay1SystrayIntroModal({ reason: 'complete' }, { day: 1 });
+      const expected = platform === 'macos' ? locale.tutorial.systray.macos : locale.tutorial.systray;
+      assert.ok(overlay.innerHTML.includes(expected.location.desc));
+      assert.ok(overlay.innerHTML.includes(expected.menu.desc));
+      assert.ok(overlay.innerHTML.includes(locale.tutorial.systray.settings));
+      const image = platform === 'macos' ? 'macos_intro.png' : 'stray_intro.png';
+      assert.ok(overlay.innerHTML.includes(`/static/assets/tutorial/systray/${image}`));
+      assert.ok(fs.existsSync(path.join(repoRoot, 'static/assets/tutorial/systray', image)));
+      if (platform === 'macos') {
+        assert.ok(!overlay.innerHTML.includes(locale.tutorial.systray.location.desc));
+        assert.ok(!overlay.innerHTML.includes('stray_intro.png'));
+      }
+    }
+  }
+});
+
+test('Day1 intro keeps platform guidance correct when translations are unavailable', () => {
+  const method = getMethodBlock(universalManagerSource, 'showDay1SystrayIntroModal');
+  const locale = JSON.parse(zhCnLocaleSource);
+  for (const platform of ['macos', 'windows']) {
+    const overlay = {
+      setAttribute() {}, addEventListener() {},
+      querySelectorAll() { return []; }, querySelector() { return null; }
+    };
+    const document = {
+      createElement() { return overlay; },
+      body: { appendChild() {}, classList: { add() {} } }
+    };
+    const window = { homeTutorialPlatformCapabilities: { detectPlatform: () => platform } };
+    const manager = new Function('window', 'document', `return ({${method}});`)(window, document);
+    manager.shouldShowDay1SystrayIntro = () => true;
+    manager.closeDay1SystrayIntroModal = () => {};
+    manager.safeEscapeHtml = value => value;
+    manager.t = (key, fallback) => fallback;
+    manager.showDay1SystrayIntroModal({ reason: 'complete' }, { day: 1 });
+    const expected = platform === 'macos' ? locale.tutorial.systray.macos : locale.tutorial.systray;
+    for (const value of Object.values(expected.location)) {
+      assert.ok(overlay.innerHTML.includes(value));
+    }
+    assert.ok(overlay.innerHTML.includes(expected.exitDesc));
+    assert.ok(overlay.innerHTML.includes(expected.menu.desc));
+    assert.ok(overlay.innerHTML.includes(locale.tutorial.systray.settings));
+    const image = platform === 'macos' ? 'macos_intro.png' : 'stray_intro.png';
+    assert.ok(overlay.innerHTML.includes(`/static/assets/tutorial/systray/${image}`));
+    assert.ok(fs.existsSync(path.join(repoRoot, 'static/assets/tutorial/systray', image)));
+    if (platform === 'macos') {
+      assert.ok(!overlay.innerHTML.includes(locale.tutorial.systray.location.desc));
+      assert.ok(!overlay.innerHTML.includes('stray_intro.png'));
+    }
   }
 });

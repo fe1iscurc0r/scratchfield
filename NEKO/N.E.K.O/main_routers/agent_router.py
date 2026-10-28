@@ -35,7 +35,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
 from utils.logger_config import get_module_logger
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 import httpx
 from .pages_router import _static_assets_ctx
@@ -43,8 +43,92 @@ from .shared_state import get_session_manager, get_config_manager, get_templates
 from config import TOOL_SERVER_PORT, USER_PLUGIN_BASE
 from main_logic.agent_event_bus import publish_session_event
 from main_logic.activity.system_signals import is_remote_backend_deployment
+from utils.desktop_capture import native_wayland_capture_available
+from utils.host_origin_guard import is_http_browser_origin_allowed
+from utils.net_boundary import (
+    UNSAFE_METHODS,
+    authorize_request,
+    extract_token,
+    remote_exposure_in_effect,
+    token_matches,
+)
 
-router = APIRouter(prefix="/api/agent", tags=["agent"])
+# 端点自己会在远程部署下短路的路径（与 ``_remote_backend_block()`` 的调用点一一对应，
+# 由 tests/unit/test_net_boundary_policy.py 的 TestClient 用例钉住：删掉任一处短路，
+# 那条用例就会从 501 变回 401 而变红）。``/internal/analyze_request`` 刻意不在这里。
+_REMOTE_SHORT_CIRCUIT_PATHS = frozenset(
+    {"/api/agent/flags", "/api/agent/command", "/api/agent/admin/control"}
+)
+_REMOTE_SHORT_CIRCUIT_TASK_PREFIX = "/api/agent/tasks/"
+_REMOTE_SHORT_CIRCUIT_TASK_SUFFIX = "/cancel"
+
+
+def _route_is_disabled_by_deployment(request: Request) -> bool:
+    """这个变更请求是否已经由部署模式整体拒绝（边界不必再抢答）。"""
+
+    if _remote_backend_block() is None:
+        return False
+    path = str(request.url.path or "")
+    if path in _REMOTE_SHORT_CIRCUIT_PATHS:
+        return True
+    return path.startswith(_REMOTE_SHORT_CIRCUIT_TASK_PREFIX) and path.endswith(
+        _REMOTE_SHORT_CIRCUIT_TASK_SUFFIX
+    )
+
+
+async def agent_mutation_boundary(request: Request) -> None:
+    """/api/agent/* 的变更类请求要有可信来源（WO-267 / P0-6）。
+
+    两道判定，各挡一类攻击：
+
+    1. ``is_http_browser_origin_allowed`` —— 浏览器发的 ``Origin`` 必须同源或落在
+       ``NEKO_TRUSTED_ORIGINS``；非浏览器客户端不发 Origin，放行。这一条挡住
+       「外部网页跨源 POST 打开 computer_use 并投递 agent 命令」：CORS 只管读响应，
+       拦不住这类写请求，而 ``HostOriginGuardMiddleware`` 对 HTTP 只校验 Host，
+       Origin 只对 WebSocket 校验。
+    2. ``authorize_request`` —— 非回环来源、或服务已绑到非回环地址时，必须有
+       有效的 ``NEKO_AUTH_TOKEN``。
+
+    为什么不用「CSRF 双提交一次性令牌」：前端约 15 处 agent fetch 目前都不带
+    ``X-CSRF-Token``（issue #1023 因此把这轮推迟了）。同源判定不需要动前端，
+    今天就能把跨源 POST 这条路堵死；令牌面留给真正的跨机访问。
+
+    ``GET`` 只在服务被绑到非回环地址时也要令牌：绑了通配地址之后 ``/api/agent/*``
+    的能力清单本身就在往外漏，届时「只拦写」不再是足够的判据。
+
+    例外一条：远程部署（``NEKO_ACTIVITY_TRACKER_REMOTE``）下 ``_remote_backend_block()``
+    已经把那几个端点整个关掉，并约定回 501 + 点名环境变量的信封（issue #1023 与
+    ``system_router`` 的 ``/api/screenshot`` 对齐的运维契约，前端按它统一显示
+    「agent unavailable on remote backend」）。边界在这种组合下**让路**给端点：结果同样是
+    拒绝，只是不把那条可 grep 的告警换成 401。没实现远程短路的 ``/internal/analyze_request``
+    不在让路名单里，变更请求照旧过边界。
+    """
+
+    unsafe = str(request.method or "").upper() in UNSAFE_METHODS
+    if not unsafe and not remote_exposure_in_effect():
+        return
+    if unsafe and _route_is_disabled_by_deployment(request):
+        return
+    candidate = extract_token(request.headers)
+    # 带对令牌的客户端已经是运维显式授权的（局域网 UI 属于这一类）；无令牌的
+    # 跨源浏览器写请求在这里被拒——CORS 只管读响应，拦不住这类 POST。
+    if unsafe and not token_matches(candidate) and not is_http_browser_origin_allowed(request.scope):
+        raise HTTPException(403, "跨源变更请求被拒：Origin 不属于本机或可信来源")
+    client_host = request.client.host if request.client else ""
+    allowed, detail = authorize_request(
+        client_host=client_host,
+        method=request.method,
+        candidate_token=extract_token(request.headers),
+    )
+    if not allowed:
+        raise HTTPException(401, detail)
+
+
+router = APIRouter(
+    prefix="/api/agent",
+    tags=["agent"],
+    dependencies=[Depends(agent_mutation_boundary)],
+)
 logger = get_module_logger(__name__, "Main")
 TOOL_SERVER_BASE = f"http://127.0.0.1:{TOOL_SERVER_PORT}"
 _HTTP_CLIENT: httpx.AsyncClient | None = None
@@ -70,7 +154,6 @@ _AGENT_OFF_FLAGS = {
     "user_plugin_enabled": False,
     "openclaw_enabled": False,
     "openclaw_ready": False,
-    "openfang_enabled": False,
 }
 
 
@@ -283,8 +366,6 @@ async def update_agent_flags(request: Request):
                 forward_payload['user_plugin_enabled'] = bool(flags['user_plugin_enabled'])
             if 'openclaw_enabled' in flags:
                 forward_payload['openclaw_enabled'] = bool(flags['openclaw_enabled'])
-            if 'openfang_enabled' in flags:
-                forward_payload['openfang_enabled'] = bool(flags['openfang_enabled'])
             if forward_payload:
                 client = _get_http_client()
                 r = await client.post(f"{TOOL_SERVER_BASE}/agent/flags", json=forward_payload, timeout=0.7)
@@ -298,7 +379,6 @@ async def update_agent_flags(request: Request):
                 'browser_use_enabled': False,
                 'user_plugin_enabled': False,
                 'openclaw_enabled': False,
-                'openfang_enabled': False,
             })
             return JSONResponse({"success": False, "error": f"tool_server forward failed: {e}"}, status_code=502)
         return {"success": True, "is_free_version": _config_manager.is_agent_free()}
@@ -331,6 +411,15 @@ async def get_agent_state():
         return r.json()
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=502)
+
+
+@router.get('/computer-use/native-capture-available')
+async def get_computer_use_native_capture_available():
+    """Let a local Wayland UI fall back when screen sharing cannot start."""
+    blocked = _remote_backend_block()
+    if blocked is not None:
+        return blocked
+    return {"success": True, "available": native_wayland_capture_available()}
 
 
 @router.post('/command')
@@ -370,11 +459,10 @@ async def post_agent_command(request: Request):
                     "user_plugin_enabled": False,
                     "openclaw_enabled": False,
                     "openclaw_ready": False,
-                    "openfang_enabled": False,
                 })
         elif mgr and command == "set_flag":
             key = data.get("key")
-            if key in {"computer_use_enabled", "browser_use_enabled", "user_plugin_enabled", "openclaw_enabled", "openfang_enabled"}:
+            if key in {"computer_use_enabled", "browser_use_enabled", "user_plugin_enabled", "openclaw_enabled"}:
                 flag_update = {key: bool(data.get("value"))}
                 if key == "openclaw_enabled":
                     flag_update["openclaw_ready"] = False
@@ -473,6 +561,8 @@ async def redirect_plugin_dashboard(request: Request):
     else:
         user_plugin_base = await _resolve_user_plugin_base()
         target_url = f"{user_plugin_base}/ui"
+    if request.query_params.get("page") == "model-api":
+        target_url += "/model-api"
     query_params: dict[str, str] = {}
     if "v" in request.query_params:
         v = request.query_params["v"].strip()
@@ -490,7 +580,7 @@ async def redirect_plugin_dashboard(request: Request):
 @router.get('/openclaw/guide', response_class=HTMLResponse)
 async def openclaw_guide_page(request: Request):
     templates = get_templates()
-    return templates.TemplateResponse("templates/openclaw_guide.html", {
+    return templates.TemplateResponse(request, "templates/openclaw_guide.html", {
         "request": request,
         **_static_assets_ctx(),
     })

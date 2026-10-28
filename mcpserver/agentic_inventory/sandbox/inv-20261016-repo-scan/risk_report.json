@@ -1,0 +1,69 @@
+{
+  "ok": true,
+  "tool": "risk_report",
+  "data": {
+    "flagged_row_count": 8,
+    "flag_counts": {
+      "cleartext_endpoint": 3,
+      "remote_fetch_exec": 2,
+      "secret_var_name_in_docs": 5,
+      "unpinned_dependency": 1
+    },
+    "tokens": {
+      "cleartext_endpoint": "远程端点走明文 http://（凭证与内容可被旁路读取）",
+      "remote_fetch_exec": "经 npx/uvx/bunx/pnpx 启动 ⇒ 每次拉起都从远端取代码执行",
+      "secret_var_name_in_docs": "文档/依赖声明里出现**密钥形状的变量名**（比上游的 plaintext_secret 弱一档：本模块**不读值**，故无法断言值是否真在盘上）",
+      "unpinned_dependency": "上一条且版本未钉（@latest 或省略版本）⇒ 供应链可变"
+    },
+    "rows": [
+      {
+        "type": "mcp_agent",
+        "name": "code_review",
+        "path": "mcpserver/adapters/code_review/agent-manifest.json",
+        "risk_flags": "secret_var_name_in_docs"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "paper_miner_adapter",
+        "path": "mcpserver/adapters/paper_miner_adapter/agent-manifest.json",
+        "risk_flags": "cleartext_endpoint"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agent_governance",
+        "path": "mcpserver/agent_governance/agent-manifest.json",
+        "risk_flags": "secret_var_name_in_docs"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "agentic_inventory",
+        "path": "mcpserver/agentic_inventory/agent-manifest.json",
+        "risk_flags": "cleartext_endpoint,remote_fetch_exec,secret_var_name_in_docs"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "firecrawl_adapter",
+        "path": "mcpserver/firecrawl_adapter/agent-manifest.json",
+        "risk_flags": "cleartext_endpoint"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "rf_evolve",
+        "path": "mcpserver/rf_evolve/agent-manifest.json",
+        "risk_flags": "secret_var_name_in_docs"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "rf_workflow",
+        "path": "mcpserver/rf_workflow/agent-manifest.json",
+        "risk_flags": "secret_var_name_in_docs"
+      },
+      {
+        "type": "mcp_agent",
+        "name": "toolknit_mcp",
+        "path": "mcpserver/toolknit_mcp/agent-manifest.json",
+        "risk_flags": "remote_fetch_exec,unpinned_dependency"
+      }
+    ]
+  }
+}

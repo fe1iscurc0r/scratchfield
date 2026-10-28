@@ -1,9 +1,18 @@
 """agent_server_parts.agents —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
-from .common import Modules, logger  # noqa: F401
+from .common import (  # noqa: F401  244d：原星号导入改为显式（F405）
+    Any,
+    HTTPException,
+    Modules,
+    config,
+    emit_local_telemetry,
+    get_openclaw_client,
+    logger,
+    set_openclaw_config,
+)
 from .lifecycle import app  # noqa: F401
+
 
 async def _process_openclaw_task(instruction: str, session_id: str | None = None) -> dict[str, Any]:
     """通过 OpenClaw 执行任务"""

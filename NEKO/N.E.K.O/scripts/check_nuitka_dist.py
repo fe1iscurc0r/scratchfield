@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import sys
+import tomllib
 from pathlib import Path
 
 
@@ -62,6 +63,17 @@ _REQUIRED_ASSETS: tuple[tuple[str, str | None], ...] = (
     # 只编 .py 不带；守该目录里至少有一份 locale json，否则非默认语言用户的角色种子回退错语言。
     ("config/characters", "*.json"),
     ("static", None),
+    # Vendored MMD libraries must ship with their upstream license notices.
+    ("static/libs", "three-mmd.module.js"),
+    ("static/libs", "three-mmd-physics-ammo.module.js"),
+    ("static/libs", "THIRD_PARTY_NOTICES.md"),
+    ("static/libs/licenses", "THREE-MMD-LICENSE.txt"),
+    ("static/libs/licenses", "BABYLON-MMD-LICENSE.txt"),
+    # 串门传输页按 transport 懒加载的 vendor SDK（固定版本、随包分发、不从 CDN 拉）及其许可证。
+    ("static/libs", "trtc.js"),
+    ("static/libs", "livekit-client.umd.js"),
+    ("static/libs/licenses", "TRTC.LICENSE"),
+    ("static/libs/licenses", "LIVEKIT.LICENSE"),
     # 内置 Live2D 模型：源码打包在 assets/<name>.tar.gz，build_frontend 解到 static/<name>/。
     # 默认角色用 yui-lolita，加载失败的兜底与教程也指向它；yui-origin 仍随包发。
     # 只查 model3.json 挡不住半截解包——moc3 与纹理是加载硬依赖，一并断言。
@@ -109,6 +121,30 @@ _REQUIRED_ASSETS: tuple[tuple[str, str | None], ...] = (
 # 整体被 ``--include-data-dir`` 包了空壳的情况。
 _PLUGIN_TOML_REQUIRED_PARENT = "plugin/plugins"
 
+# These plugins are distributed exclusively through the plugin marketplace.
+# Shipping one here would recreate a read-only built-in copy that conflicts
+# with market installation and upgrades using the same plugin ID.
+_MARKETPLACE_ONLY_PLUGIN_IDS = frozenset(
+    {"neko_warthunder", "study_companion", "galgame_plugin"}
+)
+
+
+def _plugin_manifest_id(manifest_path: Path) -> str | None:
+    try:
+        with manifest_path.open("rb") as file_obj:
+            manifest = tomllib.load(file_obj)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+    plugin = manifest.get("plugin")
+    if not isinstance(plugin, dict):
+        return None
+    plugin_id = plugin.get("id")
+    if not isinstance(plugin_id, str):
+        return None
+    normalized = plugin_id.strip()
+    return normalized or None
+
 
 def _check_asset(dist_root: Path, rel: str, must_contain: str | None) -> str | None:
     p = dist_root / rel
@@ -151,7 +187,17 @@ def _check_plugin_tomls(dist_root: Path) -> list[str]:
     for sub in plugin_subdirs:
         if sub.name.startswith("_"):
             continue
-        if not (sub / "plugin.toml").is_file():
+        manifest_path = sub / "plugin.toml"
+        manifest_id = _plugin_manifest_id(manifest_path)
+        if (
+            sub.name in _MARKETPLACE_ONLY_PLUGIN_IDS
+            or manifest_id in _MARKETPLACE_ONLY_PLUGIN_IDS
+        ):
+            issues.append(
+                f"marketplace-only plugin bundled: {sub.relative_to(dist_root).as_posix()}"
+            )
+            continue
+        if not manifest_path.is_file():
             issues.append(f"plugin missing plugin.toml: {sub.relative_to(dist_root).as_posix()}")
     return issues
 

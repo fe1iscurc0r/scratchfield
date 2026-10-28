@@ -1,0 +1,108 @@
+{
+  "name": "zhi_mcp",
+  "displayName": "小智 MCP 协议层（xiaozhi-esp32 后台侧 · 离线可跑）",
+  "version": "0.1.0",
+  "description": "把上游 78/xiaozhi-esp32（MIT，31.2k★）的 MCP 协议在本仓做成**后台 API 侧**的实现：信封 {session_id,type,payload} + JSON-RPC 2.0 的 initialize / tools/list（自动翻页）/ tools/call，配合内存假设备**离线跑通全链路**（含分页与错误路径）。传输抽象成 send/recv 由调用方注入，因此协议层不绑定任何 websocket/MQTT 库、也不需要真硬件即可回归。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.zhi_mcp.server",
+    "class": "ZhiMcpBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "protocol_spec",
+        "description": "协议自述：信封形态 / 三个方法（initialize、tools/list、tools/call）的入参与返回 / 设备通知规则 / 角色分工（设备=服务器、后台=客户端）/ self.* 工具命名空间 / 真值源与它自述的保留意见。",
+        "parameters": {"type": "object", "properties": {}}
+      },
+      {
+        "command": "demo_handshake",
+        "description": "用**内存假设备**跑完整握手：hello → initialize → tools/list（按 nextCursor **自动翻页**）。page_size>0 时强制多页以验证翻页逻辑。全程离线、无硬件、无网络。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "page_size": {"type": "integer", "description": "假设备每页返回几个工具（0=不分页），默认 2"}
+          }
+        }
+      },
+      {
+        "command": "demo_call_tool",
+        "description": "用内存假设备跑一次 tools/call。成功返回 content 文本块与 isError；失败**如实抛错**（如 -32601 未知工具、-32602 参数越界），不吞成 ok=false。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "tool_name": {"type": "string", "description": "默认 self.audio_speaker.set_volume"},
+            "arguments": {"type": "string", "description": "参数 JSON 字符串，默认 {\"volume\": 42}"},
+            "page_size": {"type": "integer", "description": "握手时的分页大小，默认 0"}
+          }
+        }
+      },
+      {
+        "command": "build_envelope",
+        "description": "构造一条真实可用的信封（给对接真设备用）：入参 session_id/method/params(JSON 串)/req_id，返回 wire dict 与紧凑 JSON 文本。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "session_id": {"type": "string"},
+            "method": {"type": "string", "description": "initialize / tools/list / tools/call"},
+            "params": {"type": "string", "description": "参数 JSON 字符串，可空"},
+            "req_id": {"type": "integer", "description": "请求 id，默认 1"}
+          },
+          "required": ["session_id", "method"]
+        }
+      },
+      {
+        "command": "parse_message",
+        "description": "解析一条收到的信封 JSON：判定 kind（request/response/notification/unknown）、列出 unknown 之外的额外字段、给出可读摘要。未知字段**原样保留**（不因多字段拒收）。",
+        "parameters": {
+          "type": "object",
+          "properties": {"raw_json": {"type": "string", "description": "信封 JSON 字符串"}},
+          "required": ["raw_json"]
+        }
+      },
+      {
+        "command": "doctor",
+        "description": "能力与**边界**自述：不实现 WebSocket/MQTT、不驱动真设备、不把设备返回的文本猜成类型、不做云端 MCP 那一路；以及与 mcpserver/esp32(243) 的划界。",
+        "parameters": {"type": "object", "properties": {}}
+      },
+      {
+        "command": "list_tools",
+        "description": "自述白名单。",
+        "parameters": {"type": "object", "properties": {}}
+      }
+    ]
+  },
+  "runtime": {
+    "workspace_hint": "**不写任何文件**：全部工具是纯内存的编解码与离线演示，输入即参数、输出即 JSON。",
+    "license_note": "上游 78/xiaozhi-esp32 = **MIT**。本仓**不 vendor** 其代码：只按其 `docs/mcp-protocol_zh.md` 的**文档描述**实现后台侧协议，并在 README 注明该文档**自述由 AI 辅助生成、要求以代码为准**（故本实现对未知字段原样透传，避免「校验太严反而丢消息」）。",
+    "risk_note": "tier 取 read-only：不写文件、不起子进程、不联网、不碰硬件。内存假设备是同进程的测试替身，**不会**发起任何真实连接。",
+    "deps_note": "零第三方依赖（只用标准库）。刻意**不引入** websocket/MQTT 库 —— 传输抽象成 send/recv 由调用方注入，这样协议层在无硬件、无网络的机器上也能完整回归。"
+  },
+  "classification": {
+    "families": ["instrument"],
+    "domains": ["mechat"],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge"
+    }
+  },
+  "requires": {
+    "env_optional": [],
+    "external_binaries": [],
+    "external_services": [
+      "（真机联调时才需要）与 ESP32 设备的 WebSocket/MQTT 连接 —— 本模块不建立连接，由调用方注入传输"
+    ],
+    "optional_system": [
+      "ESP32 硬件（**不需要**：离线演示用内存假设备；有真机时换 transport 实现即可）"
+    ],
+    "optional_python": []
+  },
+  "capability_pairs": [
+    ["encode", "mcp_envelope"],
+    ["decode", "mcp_jsonrpc"],
+    ["control", "esp32_device_tools"],
+    ["list", "device_tool_catalog"],
+    ["check", "protocol_conformance"]
+  ]
+}

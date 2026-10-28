@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -367,3 +368,108 @@ def reset_graph_memory(db_path: str | Path | None = None) -> None:
             m.close()
         except Exception:
             pass
+
+
+def cluster_corrosion_loops(
+    nodes: list[dict],
+    features_categorical: list[str],
+    features_numerical: list[str],
+    max_loops: int = 8,
+    inertia_tol: float = 0.15,
+) -> dict[str, list]:
+    """按 categorical 分组后，对数值特征做 KMeans，返回 {loop_label: [node_ids]}。
+
+    工单 262 任务 A。算法要点（与授粉报告骨架的差异已按工单改正）：
+
+    * **肘部法**：`KMeans.inertia_` 是 float（簇内平方和），不能像报告骨架那样取
+      ``max()``；正确做法是看相邻 k 的 inertia *相对下降率*，小于 ``inertia_tol`` 即停。
+    * **k 上限取 ``n // 2``**：保证每簇至少 2 个样本，否则参数完全相同的两个节点
+      会被 KMeans 任意劈成两簇（对腐蚀回路没有物理意义）。
+    * 组内样本数 ``< 2`` → 整组直接作为一个 loop，不进 KMeans。
+    * 节点缺 ``attrs`` 或数值特征为 ``None`` → 跳过（``logging.warning`` 一行，不抛异常），
+      跳过的条数记在模块级日志里，不进返回值。
+    * ``n_init="auto"`` + ``random_state=42`` 固定，结果可复现。
+    * 单簇 label 用 ``"-".join(map(str, keys))``（与报告里 ``corrosion_loop`` 子图命名一致）；
+      拆成多簇时追加 ``-{i}`` 后缀以保持唯一。
+
+    Args:
+        nodes: ``[{"id": ..., "attrs": {<cat>: v, <num>: float, ...}}, ...]``
+        features_categorical: 分组用字段名
+        features_numerical: 聚类用字段名
+        max_loops: 单组最多簇数（同时受 ``n // 2`` 约束）
+        inertia_tol: 肘部法停止阈值（相对下降率）
+
+    Raises:
+        ImportError: 缺 scikit-learn 时给出可读提示，而不是裸 traceback。
+    """
+    try:
+        import numpy as np
+        from sklearn.cluster import KMeans
+    except ImportError as exc:  # 延迟 import：不把 sklearn 变成模块级硬依赖
+        raise ImportError("需要 scikit-learn：pip install scikit-learn") from exc
+
+    groups: dict[tuple, list[dict]] = {}
+    skipped = 0
+    for node in nodes:
+        attrs = node.get("attrs") or {}
+        if not attrs:
+            logging.warning("cluster_corrosion_loops: 节点 %s 缺 attrs，跳过", node.get("id"))
+            skipped += 1
+            continue
+        values = [attrs.get(name) for name in features_numerical]
+        if any(v is None for v in values):
+            logging.warning(
+                "cluster_corrosion_loops: 节点 %s 数值特征不全（%s），跳过",
+                node.get("id"),
+                ", ".join(f"{k}={attrs.get(k)}" for k in features_numerical),
+            )
+            skipped += 1
+            continue
+        key = tuple(attrs.get(name) for name in features_categorical)
+        groups.setdefault(key, []).append({"id": node.get("id"), "values": values})
+
+    result: dict[str, list] = {}
+    for key, members in groups.items():
+        label = "-".join(map(str, key))
+        n = len(members)
+
+        if n < 2:  # 单样本组：KMeans(n_clusters=1) 无意义，直接成组
+            result[label] = [m["id"] for m in members]
+            continue
+
+        matrix = np.asarray([m["values"] for m in members], dtype=float)
+        k_cap = max(1, min(max_loops, n // 2))
+        labels = None
+        prev_inertia = None
+        for k in range(1, k_cap + 1):
+            # 判停放在 fit 之前：惯性已（近似）为 0 时再加簇没有意义，
+            # 也避免 sklearn 抛 ConvergenceWarning
+            if prev_inertia is not None:
+                if prev_inertia <= 1e-12:
+                    break
+            model = KMeans(n_clusters=k, n_init="auto", random_state=42).fit(matrix)
+            inertia = float(model.inertia_)
+            if prev_inertia is not None and prev_inertia > 0:
+                drop = (prev_inertia - inertia) / prev_inertia
+                if drop < inertia_tol:
+                    break
+            labels = model.labels_
+            prev_inertia = inertia
+
+        if labels is None:  # 理论上不可达（k_cap >= 1 必有结果）
+            labels = np.zeros(n, dtype=int)
+
+        buckets: dict[int, list] = {}
+        for idx, lab in enumerate(labels):
+            buckets.setdefault(int(lab), []).append(members[idx]["id"])
+
+        if len(buckets) == 1:
+            result[label] = next(iter(buckets.values()))
+        else:
+            for bi, ids in sorted(buckets.items()):
+                result[f"{label}-{bi}"] = ids
+
+    if skipped:
+        logging.warning("cluster_corrosion_loops: 共跳过 %d 个节点（缺 attrs 或数值特征为 None）", skipped)
+
+    return result

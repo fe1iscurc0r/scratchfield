@@ -1,9 +1,9 @@
 """agent_server_parts.health —— 自 agentserver/agent_server.py 拆出（工单204 任务一，纯移动）。"""
 from __future__ import annotations
 
-from .common import *  # noqa: F401,F403
 from .common import Modules, _now_iso, logger  # noqa: F401
 from .lifecycle import app  # noqa: F401
+
 
 @app.get("/health")
 async def health_check():

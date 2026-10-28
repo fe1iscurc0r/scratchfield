@@ -283,8 +283,8 @@ export class SpectrumTraceRenderer {
         this.NOISE_FLOOR_MAX_FRAMES,
         Math.floor(this.NOISE_FLOOR_MAX_BYTES / (bins * 4)),
       ))
-      // 注意：不能用 .fill(new Float32Array(bins))——fill 会让所有槽位共享同一数组
-      // eslint-disable-next-line e18e/prefer-array-fill -- TypedArray 填充必须用映射回调，fill 会共享引用
+      // 注意：不能用 .fill(new Float32Array(bins))——fill 会让所有槽位共享同一数组，
+      // 必须用映射回调逐个建数组。
       const win = Array.from({ length: this.noiseFloorWindowSize }, () => new Float32Array(bins))
       for (const slot of win)
         slot.set(data)

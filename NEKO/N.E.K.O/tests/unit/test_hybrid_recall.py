@@ -22,6 +22,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from memory.hybrid_recall import (
@@ -286,6 +287,135 @@ class TestHybridRecallE2E(unittest.IsolatedAsyncioTestCase):
         ids = [r["id"] for r in res["results"]]
         self.assertIn("good", ids)
         self.assertNotIn("bad", ids)
+
+    async def test_disputed_reflection_drops_out_of_recall(self):
+        """A net-negative reflection must not survive into recall results."""
+        # ⚠️ 用**真实落盘 schema** 的行，不是手工塞 score 的合成行。
+        # reflections.json 里根本没有 ``score`` 键（evidence 是 reinforcement /
+        # disputation 两个累加器，score 一律读时折算）。上面那条
+        # ``test_hard_filter_drops_negative_score`` 塞了 score 所以一直绿，但它
+        # 证明不了生产行为——真实数据上 ``score is None``，那道过滤整条空转，
+        # 被用户反驳到负分的反思照样被召回、原文注入 context，跟 system prompt
+        # 里的 ban 指令正面打架。这条按真实形状钉住。
+        now_iso = datetime.now().isoformat()
+        reflections = [
+            {
+                "id": "disputed", "text": "博士最喜欢的游戏是 The Witness",
+                "status": "confirmed",
+                "reinforcement": 0.0, "disputation": 2.0,
+                "disp_last_signal_at": now_iso,
+            },
+        ]
+        res = await self._run("博士 游戏", [], reflections)
+        self.assertNotIn("disputed", [r["id"] for r in res["results"]])
+
+    async def test_ignored_reflection_is_not_treated_as_disputed(self):
+        """⚠️ Silence is not objection: a merely-ignored row must stay recallable."""
+        # ``evidence_score`` 转负不止一条路。用户对 surfaced 反思**沉默**时，
+        # post_turn 按 'ignored' 记 reinforcement += -0.2；AI 一次抛 7 条、用户
+        # 当轮没接话，这 7 条就全成了 rein=-0.2 / disp=0 的负分行。按净分一刀切
+        # 会把它们当场从召回里抹掉（对抗审查实测存量里 17.8% 的活跃 reflection
+        # 属于这一类），而两周后用户主动问"我上个月在忙什么"，那批正是该被召回
+        # 的东西。判据必须带上 disputation>0，才等于 _hard_filter 那句
+        # "user has been disputing this more than confirming it"。
+        now_iso = datetime.now().isoformat()
+        reflections = [{
+            "id": "ignored_only", "text": "博士最喜欢的游戏是 The Witness",
+            "status": "confirmed",
+            "reinforcement": -0.2, "disputation": 0.0,
+            "rein_last_signal_at": now_iso,
+        }]
+        res = await self._run("博士 游戏", [], reflections)
+        self.assertIn("ignored_only", [r["id"] for r in res["results"]])
+
+    async def test_reinforced_reflection_survives_recall(self):
+        """Control: same missing score key, net-positive evidence, still recalled."""
+        # 少了这条，上面那条用"把所有 reflection 都过滤掉"也能通过。
+        now_iso = datetime.now().isoformat()
+        reflections = [
+            {
+                "id": "reinforced", "text": "博士最喜欢的游戏是 The Witness",
+                "status": "confirmed",
+                "reinforcement": 2.0, "disputation": 0.0,
+                "rein_last_signal_at": now_iso,
+            },
+        ]
+        res = await self._run("博士 游戏", [], reflections)
+        self.assertIn("reinforced", [r["id"] for r in res["results"]])
+
+    async def test_evidence_free_reflection_still_recalled(self):
+        """A row with no evidence fields at all (net 0) must not be dropped."""
+        # 钉住"只多丢负分行"这条单调性：改动之前 score=None 放行，改动之后
+        # 算出 0.0 仍然放行。
+        reflections = [
+            {"id": "plain", "text": "博士最喜欢的游戏是 The Witness",
+             "status": "confirmed"},
+        ]
+        res = await self._run("博士 游戏", [], reflections)
+        self.assertIn("plain", [r["id"] for r in res["results"]])
+
+    async def test_fact_rows_are_not_evidence_scored(self):
+        """The fact tier is outside the evidence system and must stay untouched."""
+        # facts.json 没有 reinforcement / disputation 字段，也没有写入方给它们
+        # 派信号；给 fact 盖一个恒 0 的 score 是噪音，而 ``evidence_score`` 对
+        # ``protected`` 行返回 +inf —— 那个语义该由将来真加字段的那次改动显式
+        # 决定，不该从这里顺手泛化过去。
+        facts = [{"id": "f_protected", "text": "博士养了只猫", "protected": True}]
+        tagged = _tag_tier(facts, "fact")
+        self.assertNotIn("score", tagged[0])
+        # 且 protected fact 不会被 hard_filter 当 persona 丢掉之外的理由影响：
+        # 这里只断言没有被本次改动加上 score 键。
+
+    async def test_stale_score_key_is_recomputed_not_kept(self):
+        """A stale on-row score snapshot must be overwritten by the live value."""
+        # 手工编辑 / 历史迁移可能留下 score 键，那个值不带衰减、算不准；唯一
+        # 权威是按当前时间现算。写成 setdefault 的话这条会红。
+        now_iso = datetime.now().isoformat()
+        rows = [{
+            "id": "stale", "text": "...", "status": "confirmed",
+            "score": 99.0,  # 陈旧快照
+            "reinforcement": 0.0, "disputation": 3.0,
+            "disp_last_signal_at": now_iso,
+        }]
+        tagged = _tag_tier(rows, "reflection")
+        self.assertLess(tagged[0]["score"], 0.0)
+
+    async def test_tagging_only_ever_drops_rows_never_resurrects_one(self):
+        """``_tag_tier`` must be monotone against a bare ``_hard_filter``."""
+        # ⚠️ 这条钉的是**方向**。``disputation <= 0`` 那支一度写的是
+        # ``d.pop('score', None)``，理由是"回落到不按分过滤，与改动前一致"——
+        # 但改动前 _tag_tier 根本不碰这个键，所以"一致"要求的是不碰而不是删：
+        # 盘上带着陈旧 ``score: -5.0`` 的行原样会被 _hard_filter 丢掉，pop 之后
+        # 反而活了下来，与那句单调性注释正相反。
+        # 只断言 stale_neg 被丢是不够的（把 pop 换成任何别的写法都能过），
+        # 用集合包含关系直接编码"只减不增"。
+        from memory.recall import MemoryRecallReranker
+
+        def _rows():
+            return [
+                {"id": "stale_neg", "text": "陈旧负分", "status": "confirmed",
+                 "score": -5.0},
+                {"id": "silent", "text": "用户没接话", "status": "confirmed",
+                 "reinforcement": -0.2, "disputation": 0.0},
+                {"id": "disputed", "text": "被反驳过", "status": "confirmed",
+                 "reinforcement": 0.0, "disputation": 3.0,
+                 "disp_last_signal_at": datetime.now().isoformat()},
+            ]
+
+        baseline = {
+            r["id"] for r in MemoryRecallReranker._hard_filter(_rows())
+        }
+        tagged = {
+            r["id"] for r in MemoryRecallReranker._hard_filter(
+                _tag_tier(_rows(), "reflection")
+            )
+        }
+        # 前提：裸过滤本来就丢 stale_neg（否则这条测不到任何东西）
+        self.assertNotIn("stale_neg", baseline)
+        self.assertLessEqual(tagged, baseline)
+        # 而"沉默"那类（rein 负、disp=0）必须仍然活着 —— 单调性不能靠一刀切
+        # 多杀来满足，那会把实测 17.8% 的活跃 reflection 一起抹掉。
+        self.assertIn("silent", tagged)
 
     async def test_hard_filter_drops_suppressed(self):
         facts = [
@@ -1226,6 +1356,482 @@ class TestPoolCacheLRU(unittest.IsolatedAsyncioTestCase):
             for _ in range(5):
                 await _aload_archive_facts(store, "solo")
             self.assertEqual(list(_POOL_CACHE), [path])
+
+
+class TestVectorDecodeCache(unittest.IsolatedAsyncioTestCase):
+    """``_VEC_CACHE`` — decode once per (doc, model, text, embedding bytes).
+
+    The cache exists because the decode loop dominated the cosine path
+    (~49ms of ~54ms at 5000 rows) while pool rows were already cached; these
+    tests pin the three content fingerprints that a hit must re-validate and
+    the fall-through-to-full-validation semantics on any mismatch.
+    """
+
+    MODEL_ID = "local-text-retrieval-v1-4d-int8"
+
+    async def asyncSetUp(self):
+        from memory.hybrid_recall import _invalidate_pool_cache
+
+        _invalidate_pool_cache()
+        self.addCleanup(_invalidate_pool_cache)
+
+    def _service(self, qvec):
+        import numpy as np
+
+        service = MagicMock()
+        service.is_available = MagicMock(return_value=True)
+        service.model_id = MagicMock(return_value=self.MODEL_ID)
+        service.embed_batch = AsyncMock(return_value=[np.asarray(qvec, dtype=np.float32)])
+        return service
+
+    def _doc(self, doc_id, text, vec):
+        import numpy as np
+
+        from memory._embeddings.schema import stamp_embedding_fields
+
+        entry = {"id": doc_id, "text": text}
+        stamp_embedding_fields(entry, np.asarray(vec, dtype=np.float32), text, self.MODEL_ID)
+        return entry
+
+    async def test_second_query_decodes_nothing_and_scores_identically(self):
+        import numpy as np
+
+        import memory.embeddings as emb
+        from memory.hybrid_recall import _cosine_rank
+
+        pool = [
+            self._doc("a", "博士喜欢猫", [1.0, 0.0, 0.0, 0.0]),
+            self._doc("b", "博士喜欢狗", [0.0, 1.0, 0.0, 0.0]),
+            self._doc("c", "今天下雨了", [0.0, 0.0, 1.0, 0.0]),
+        ]
+        qvec = [1.0, 0.0, 0.0, 0.0]
+
+        real_decode = emb._decode_vector_fp16
+        calls = []
+
+        def counting_decode(encoded):
+            calls.append(encoded)
+            return real_decode(encoded)
+
+        service = self._service(qvec)
+        with patch.object(emb, "_decode_vector_fp16", counting_decode), \
+             patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            first = await _cosine_rank("博士", pool)
+            self.assertEqual(len(calls), 3)  # cold: one decode per candidate
+
+            calls.clear()
+            second = await _cosine_rank("博士", pool)
+            self.assertEqual(len(calls), 0)  # steady state: pure cache hits
+
+        self.assertEqual(
+            [(d["id"], round(s, 6)) for d, s in first],
+            [(d["id"], round(s, 6)) for d, s in second],
+        )
+
+    async def test_text_edit_invalidates_cached_vector(self):
+        """Text is one of the fingerprints: after an edit (without re-embed)
+        the row must be skipped again, same as uncached validation."""
+        import memory.embeddings as emb
+        from memory.hybrid_recall import _cosine_rank
+
+        doc = self._doc("a", "博士喜欢猫", [1.0, 0.0, 0.0, 0.0])
+        service = self._service([1.0, 0.0, 0.0, 0.0])
+
+        with patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            scored = await _cosine_rank("博士", [dict(doc)])
+            self.assertEqual([d["id"] for d, _ in scored], ["a"])
+
+            edited = dict(doc)
+            edited["text"] = "博士改了文本但没重嵌"
+            scored = await _cosine_rank("博士", [edited])
+        self.assertEqual(scored, [])  # sha(text) mismatch → validation rejects
+
+    async def test_reembedded_row_serves_the_new_vector(self):
+        """Embedding bytes are a fingerprint too: a repair/re-embed that keeps
+        id+text+model must not be served the stale cached vector."""
+        import numpy as np
+
+        import memory.embeddings as emb
+        from memory._embeddings.schema import stamp_embedding_fields
+        from memory.hybrid_recall import _cosine_rank
+
+        near = self._doc("near", "博士喜欢猫", [1.0, 0.0, 0.0, 0.0])
+        far = self._doc("far", "博士喜欢狗", [0.0, 0.0, 0.0, 1.0])
+        pool = [near, far]
+        service = self._service([1.0, 0.0, 0.0, 0.0])
+
+        with patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            scored = await _cosine_rank("博士", pool)
+            self.assertEqual([d["id"] for d, _ in scored][0], "near")
+
+            # Re-embed `near` with a vector pointing away from the query.
+            stamp_embedding_fields(
+                near, np.array([-1.0, 0.0, 0.0, 0.0], dtype=np.float32),
+                near["text"], self.MODEL_ID,
+            )
+            scored = await _cosine_rank("博士", pool)
+        # New bytes → cache miss → re-validated → new vector used.
+        self.assertEqual([d["id"] for d, _ in scored][0], "far")
+
+    async def test_model_switch_invalidates_cached_vector(self):
+        """model_id is a fingerprint: swapping the embedding space must not
+        serve vectors decoded for the old model."""
+        import memory.embeddings as emb
+        from memory.hybrid_recall import _cosine_rank
+
+        doc = self._doc("a", "博士喜欢猫", [1.0, 0.0, 0.0, 0.0])
+
+        with patch.object(
+            emb, "get_embedding_service", MagicMock(return_value=self._service([1.0, 0.0, 0.0, 0.0])),
+        ):
+            scored = await _cosine_rank("博士", [doc])
+            self.assertEqual(len(scored), 1)
+
+            other = self._service([1.0, 0.0, 0.0, 0.0])
+            other.model_id = MagicMock(return_value="other-model-4d-int8")
+            with patch.object(emb, "get_embedding_service", MagicMock(return_value=other)):
+                scored = await _cosine_rank("博士", [doc])
+        # model_id mismatch → decode_valid path also rejects → skipped.
+        self.assertEqual(scored, [])
+
+    async def test_non_string_or_missing_id_bypasses_cache(self):
+        """Malformed ids (missing / non-str) must not crash the cache probe —
+        they simply never cache and always take the validation path."""
+        import memory.embeddings as emb
+        from memory.hybrid_recall import _VEC_CACHE, _cosine_rank
+
+        no_id = self._doc("tmp", "博士喜欢猫", [1.0, 0.0, 0.0, 0.0])
+        del no_id["id"]
+        bad_id = self._doc("tmp2", "博士喜欢狗", [1.0, 0.0, 0.0, 0.0])
+        bad_id["id"] = ["not", "hashable"]
+
+        service = self._service([1.0, 0.0, 0.0, 0.0])
+        with patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            scored = await _cosine_rank("博士", [no_id, bad_id])
+            self.assertEqual(len(scored), 2)
+            scored = await _cosine_rank("博士", [no_id, bad_id])
+            self.assertEqual(len(scored), 2)
+        self.assertEqual(len(_VEC_CACHE), 0)
+
+    async def test_colliding_ids_across_pools_cannot_cross_contaminate(self):
+        """Fact ids are ``fact_{timestamp}_{content_hash[:8]}`` — two characters
+        created in the same second with identical fact text can mint the SAME
+        id. The cache must never let one pool's vector leak into the other's
+        score: fingerprints (text sha + embedding bytes) gate every hit, so a
+        collision with different content is a miss, and a collision with
+        identical content carries an identical vector — harmless either way."""
+        import numpy as np
+
+        import memory.embeddings as emb
+        from memory.hybrid_recall import _cosine_rank
+
+        # Same id, same text, but DIFFERENT embedding bytes: e.g. character B
+        # re-embedded the same fact with a repaired vector.
+        a = self._doc("fact_20260101120000_deadbeef", "同一条文本", [1.0, 0.0, 0.0, 0.0])
+        b = self._doc("fact_20260101120000_deadbeef", "同一条文本", [0.0, 1.0, 0.0, 0.0])
+        service = self._service([1.0, 0.0, 0.0, 0.0])
+
+        with patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            scored_a = await _cosine_rank("查询", [a])
+            # b alone: same id as a's cache entry but different bytes → must
+            # NOT be served a's vector (which would score 1.0).
+            scored_b = await _cosine_rank("查询", [b])
+
+        self.assertEqual(round(scored_a[0][1], 6), 1.0)
+        self.assertEqual(round(scored_b[0][1], 6), 0.0)
+
+    async def test_corrupted_row_stamps_invalidate_cached_vector(self):
+        """Row-local stamps are part of the verdict: a reloaded row carrying
+        the same id / text / embedding bytes but a mismatched or missing
+        ``embedding_model_id`` / ``embedding_text_sha256`` stamp must be
+        skipped — exactly what the uncached validator would do."""
+        import memory.embeddings as emb
+        from memory.hybrid_recall import _cosine_rank
+
+        doc = self._doc("a", "博士喜欢猫", [1.0, 0.0, 0.0, 0.0])
+        service = self._service([1.0, 0.0, 0.0, 0.0])
+
+        with patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            scored = await _cosine_rank("博士", [doc])
+            self.assertEqual(len(scored), 1)  # valid row → cached
+
+            bad_model_stamp = dict(doc)
+            bad_model_stamp["embedding_model_id"] = "someone-elses-model-4d-int8"
+            self.assertEqual(await _cosine_rank("博士", [bad_model_stamp]), [])
+
+            bad_text_stamp = dict(doc)
+            bad_text_stamp["embedding_text_sha256"] = "0" * 64
+            self.assertEqual(await _cosine_rank("博士", [bad_text_stamp]), [])
+
+            missing_stamps = dict(doc)
+            del missing_stamps["embedding_model_id"]
+            del missing_stamps["embedding_text_sha256"]
+            self.assertEqual(await _cosine_rank("博士", [missing_stamps]), [])
+
+    # ---- admission / bounding -------------------------------------
+
+    def _fill_one(self, doc):
+        """Admit one doc through a fresh scan; return its charged byte cost."""
+        import memory.hybrid_recall as hr
+
+        hr._invalidate_vec_cache()
+        vec, _ = hr._cached_doc_vector(doc, doc["text"], self.MODEL_ID, hr._ScanState())
+        self.assertIsNotNone(vec)
+        cost = hr._VEC_CACHE_BYTES
+        hr._invalidate_vec_cache()
+        return cost
+
+    async def test_oversized_pool_keeps_a_stable_prefix_instead_of_thrashing(self):
+        """A pool larger than the cap must settle, not self-destruct.
+
+        A plain LRU under full sequential scans is degenerate: every scan
+        evicts the tail the previous scan just admitted, so iteration always
+        arrives to a miss and the hit rate is zero while every miss still pays
+        admission. The scan guard forbids a scan from evicting rows it touched
+        this round, so the cache freezes on the prefix that fits and the
+        remainder misses forever — degraded but stable.
+
+        Pinned as decode counts: with a 2-entry budget over 3 valid rows,
+        steady state must be exactly ONE decode per query (the row that never
+        fits), not three (thrashing, and not the whole-pool bypass this
+        replaces).
+
+        The pool also carries rows the validator must reject, because "runs
+        degraded" must not become "runs unvalidated" (CodeRabbit nitpick). A
+        pool of only-valid rows would pass this test even if the over-budget
+        path skipped fingerprint checks entirely.
+        """
+        import memory.embeddings as emb
+        import memory.hybrid_recall as hr
+
+        pool = [
+            self._doc("p%d" % i, "第%d条记忆" % i, [1.0, float(i), 0.0, 0.0])
+            for i in range(3)
+        ]
+        # Rows are the same shape, so one row's cost sizes the whole budget.
+        budget = self._fill_one(pool[0]) * 2
+
+        bad_text_stamp = self._doc("bad_text", "戳记失效的记忆", [1.0, 0.0, 0.0, 0.0])
+        bad_text_stamp["embedding_text_sha256"] = "0" * 64
+        bad_model_stamp = self._doc("bad_model", "模型失配的记忆", [1.0, 0.0, 0.0, 0.0])
+        bad_model_stamp["embedding_model_id"] = "someone-elses-model-4d-int8"
+        pool += [bad_text_stamp, bad_model_stamp]
+
+        real_decode = emb._decode_vector_fp16
+        calls = []
+
+        def counting_decode(encoded):
+            calls.append(encoded)
+            return real_decode(encoded)
+
+        service = self._service([1.0, 0.0, 0.0, 0.0])
+        with patch("memory.hybrid_recall.HYBRID_RECALL_VEC_CACHE_MAX_BYTES", budget), \
+             patch.object(emb, "_decode_vector_fp16", counting_decode), \
+             patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            first = await hr._cosine_rank("记忆", pool)
+            self.assertEqual(len(calls), 3)          # cold: every *valid* row decodes
+            self.assertEqual(list(hr._VEC_CACHE), ["p0", "p1"])
+
+            calls.clear()
+            second = await hr._cosine_rank("记忆", pool)
+            self.assertEqual(len(calls), 1)          # only the row that never fits
+            self.assertEqual(list(hr._VEC_CACHE), ["p0", "p1"])
+
+            calls.clear()
+            third = await hr._cosine_rank("记忆", pool)
+            self.assertEqual(len(calls), 1)          # stable, not drifting
+            self.assertEqual(list(hr._VEC_CACHE), ["p0", "p1"])
+
+        # Rejected rows stay rejected on every round — and never consume the
+        # budget that the surviving prefix depends on.
+        for scored in (first, second, third):
+            self.assertEqual({d["id"] for d, _ in scored}, {"p0", "p1", "p2"})
+
+        # And the degraded mode must not change a single score.
+        self.assertEqual(
+            [(d["id"], round(s, 6)) for d, s in first],
+            [(d["id"], round(s, 6)) for d, s in second],
+        )
+        self.assertEqual(
+            [(d["id"], round(s, 6)) for d, s in first],
+            [(d["id"], round(s, 6)) for d, s in third],
+        )
+
+    async def test_cache_is_byte_capped_and_evicts_lru_first(self):
+        """The cap is charged in bytes, and the ledger tracks eviction.
+
+        Entry count is the wrong unit: an entry pins the row's embedding and
+        text strings alongside the fp32 vector, so a count cap under-states
+        resident bytes by roughly 2x at 512d and more at 768d.
+        """
+        import memory.hybrid_recall as hr
+
+        docs = [
+            self._doc("d0", "文本零", [1.0, 0.0, 0.0, 0.0]),
+            self._doc("d1", "文本一", [0.0, 1.0, 0.0, 0.0]),
+            self._doc("d2", "文本二", [1.0, 1.0, 0.0, 0.0]),
+        ]
+        unit = self._fill_one(docs[0])
+        # A charged entry must account for the strings it pins, not just the
+        # vector — that is the whole point of switching the cap to bytes.
+        self.assertGreater(unit, len(docs[0]["embedding"]))
+
+        with patch("memory.hybrid_recall.HYBRID_RECALL_VEC_CACHE_MAX_BYTES", unit * 2):
+            # Each doc gets its own scan, so the scan guard never applies and
+            # ordinary LRU eviction is what we are pinning here.
+            for d in docs:
+                vec, _ = hr._cached_doc_vector(d, d["text"], self.MODEL_ID, hr._ScanState())
+                self.assertIsNotNone(vec)
+            self.assertEqual(list(hr._VEC_CACHE), ["d1", "d2"])
+            self.assertEqual(hr._VEC_CACHE_BYTES, unit * 2)
+
+            # A hit refreshes recency: touching d1 protects it from the
+            # eviction that d0's re-insert then inflicts on d2 instead.
+            hr._cached_doc_vector(docs[1], docs[1]["text"], self.MODEL_ID, hr._ScanState())
+            self.assertEqual(list(hr._VEC_CACHE), ["d2", "d1"])
+            hr._cached_doc_vector(docs[0], docs[0]["text"], self.MODEL_ID, hr._ScanState())
+            self.assertEqual(list(hr._VEC_CACHE), ["d1", "d0"])
+            # Ledger stays exact across evictions — a leak here would silently
+            # shrink the effective cache toward zero over a long process.
+            self.assertEqual(hr._VEC_CACHE_BYTES, unit * 2)
+
+        hr._invalidate_vec_cache()
+        self.assertEqual(hr._VEC_CACHE_BYTES, 0)
+
+    async def test_reinsert_replaces_its_own_charge(self):
+        """Re-admitting an id must swap its charge, not stack a second one.
+
+        A row that gets edited or re-embedded misses, decodes, and lands back
+        under the same id. If the ledger only ever added, every rewrite would
+        leak the old entry's bytes and the effective cache would shrink toward
+        zero over a long-lived process — invisible except as recall latency
+        creeping back up.
+        """
+        import memory.hybrid_recall as hr
+
+        doc = self._doc("d0", "文本零", [1.0, 0.0, 0.0, 0.0])
+        unit = self._fill_one(doc)
+        hr._cached_doc_vector(doc, doc["text"], self.MODEL_ID, hr._ScanState())
+        self.assertEqual(hr._VEC_CACHE_BYTES, unit)
+
+        # Same id, rewritten text + re-embedded vector: a miss that re-admits.
+        # Longer text on purpose, so a stacked ledger cannot coincide with the
+        # correct one.
+        rewritten = self._doc("d0", "文本零已经被改写过了", [0.0, 1.0, 0.0, 0.0])
+        hr._cached_doc_vector(
+            rewritten, rewritten["text"], self.MODEL_ID, hr._ScanState(),
+        )
+        self.assertEqual(list(hr._VEC_CACHE), ["d0"])
+        self.assertEqual(hr._VEC_CACHE_BYTES, hr._VEC_CACHE["d0"][6])
+        self.assertNotEqual(hr._VEC_CACHE_BYTES, unit)  # the charge really moved
+
+        hr._invalidate_vec_cache()
+
+    # ---- hit-path cost ---------------------------------------------
+
+    async def test_steady_state_hit_rehashes_nothing(self):
+        """A hit must not recompute ``sha256(text)``.
+
+        The hit condition re-establishes ``stamp == sha256(text)`` from the
+        delta instead: the same ``text`` *object* (str is immutable, so the
+        same bytes) plus an unchanged row stamp. Re-hashing the whole pool
+        every query to re-derive a fact settled at admission was ~4ms/query at
+        5000 rows — the same waste as the re-decoding this cache removes.
+        """
+        import memory._embeddings.schema as schema
+        import memory.embeddings as emb
+        import memory.hybrid_recall as hr
+
+        pool = [
+            self._doc("a", "博士喜欢猫", [1.0, 0.0, 0.0, 0.0]),
+            self._doc("b", "博士喜欢狗", [0.0, 1.0, 0.0, 0.0]),
+        ]
+        real_hash = schema.embedding_text_sha256
+        hashed = []
+
+        def counting_hash(text):
+            hashed.append(text)
+            return real_hash(text)
+
+        service = self._service([1.0, 0.0, 0.0, 0.0])
+        with patch.object(emb, "_embedding_text_sha256", counting_hash), \
+             patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            await hr._cosine_rank("博士", pool)
+            self.assertEqual(len(hashed), 2)  # cold: validator hashes each row
+
+            hashed.clear()
+            await hr._cosine_rank("博士", pool)
+            self.assertEqual(hashed, [])      # steady state: no hashing at all
+
+    async def test_reloaded_text_object_falls_back_to_full_validation(self):
+        """Identity on ``text`` is a fast path, never a verdict.
+
+        A pool reload hands back an equal-but-distinct ``str``; that must miss
+        and re-run the full validator rather than be served from cache, and the
+        score must come out the same either way.
+        """
+        import memory.embeddings as emb
+        import memory.hybrid_recall as hr
+
+        doc = self._doc("a", "博士喜欢猫", [1.0, 0.0, 0.0, 0.0])
+        real_decode = emb._decode_vector_fp16
+        calls = []
+
+        def counting_decode(encoded):
+            calls.append(encoded)
+            return real_decode(encoded)
+
+        service = self._service([1.0, 0.0, 0.0, 0.0])
+        with patch.object(emb, "_decode_vector_fp16", counting_decode), \
+             patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            first = await hr._cosine_rank("博士", [doc])
+            calls.clear()
+
+            # Same characters, fresh object — exactly what json.load produces.
+            reloaded = dict(doc)
+            reloaded["text"] = "".join(list(doc["text"]))
+            self.assertIsNot(reloaded["text"], doc["text"])
+            self.assertEqual(reloaded["text"], doc["text"])
+            second = await hr._cosine_rank("博士", [reloaded])
+            self.assertEqual(len(calls), 1)  # missed → revalidated, not trusted
+
+        self.assertEqual(round(first[0][1], 6), round(second[0][1], 6))
+
+    async def test_cached_norm_matches_recomputed_norm(self):
+        """Norms ride along with the vector; scores must not drift because of it."""
+        import numpy as np
+
+        import memory.embeddings as emb
+        import memory.hybrid_recall as hr
+
+        pool = [
+            self._doc("a", "博士喜欢猫", [0.3, 0.7, 0.1, 0.9]),
+            self._doc("b", "博士喜欢狗", [0.8, 0.2, 0.6, 0.4]),
+            self._doc("c", "今天下雨了", [0.5, 0.5, 0.5, 0.5]),
+        ]
+        qvec = [0.2, 0.9, 0.3, 0.1]
+        service = self._service(qvec)
+        with patch.object(emb, "get_embedding_service", MagicMock(return_value=service)):
+            cold = await hr._cosine_rank("博士", pool)
+            warm = await hr._cosine_rank("博士", pool)
+
+        qarr = np.asarray(qvec, dtype=np.float32)
+        qnorm = float(np.linalg.norm(qarr))
+        expected = {}
+        for doc in pool:
+            cvec = emb.decode_valid_cached_embedding(doc, doc["text"], self.MODEL_ID)
+            carr = np.asarray(cvec, dtype=np.float32)
+            expected[doc["id"]] = float(
+                np.dot(qarr, carr) / (qnorm * float(np.linalg.norm(carr)))
+            )
+
+        for scored in (cold, warm):
+            for doc, score in scored:
+                self.assertAlmostEqual(score, expected[doc["id"]], places=6)
+        self.assertEqual(
+            [(d["id"], round(s, 6)) for d, s in cold],
+            [(d["id"], round(s, 6)) for d, s in warm],
+        )
 
 
 if __name__ == "__main__":

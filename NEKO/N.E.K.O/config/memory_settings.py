@@ -327,6 +327,19 @@ SPEAKER_TRUST_CHANNEL_MAX_LEN = 16
 # 是人工稀有操作，409 是可接受的失败模式；读时截断不是。
 IDENTITY_MAX_ACCOUNTS_PER_ENTITY_PER_PLATFORM = 8
 
+# 按 platform 收紧上面的上限：{platform: (上限, 原因)}。只在比通用上限更紧时生效，
+# 超限 409 的报错带上这里的原因，所以每条都要写清自己为什么收紧。
+# neko_visit（串门，即 VISIT_MEMORY_PLATFORM）= 1：同一个 entity 下有两个串门
+# account，串门清除就会扇出到另一个 account；串门客户端还没接上 target_epochs，
+# 扇出目标没有持久墓碑，迟到的旧写入会把已清除的记忆写回。接上之前不许关联。
+IDENTITY_MAX_ACCOUNTS_PER_ENTITY_BY_PLATFORM = {
+    "neko_visit": (
+        1,
+        "串门清除还没接上 target_epochs，关联后的扇出目标没有持久墓碑，"
+        "见 issue #3405",
+    ),
+}
+
 
 def _assert_activity_bonus_reachable() -> None:
     """Startup assertion: the activity count cap must be able to reach MAX_BONUS.
@@ -634,22 +647,26 @@ MEMORY_LIVENESS_MAX_ATTEMPTS = 5
 - 5 跟 `MEMORY_RECHECK_MAX_ATTEMPTS` 同口径——按 40s 一轮算 3 分钟级窗口，
   跨过偶发 transient failure 够用；再多就属于真正 poison。"""
 
-MEMORY_REVIEW_OUTPUT_MAX_TOKENS = 8192
-"""历史审阅单独的 max_completion_tokens。
+MEMORY_THINKING_OUTPUT_MAX_TOKENS = 8192
+"""记忆系统里有意开思考的调用共用的输出额度。
 
-审阅显式 ``extra_body=None``，不套用工厂为 Qwen 准备的 ``enable_thinking: false``，
-推理 token 和 ``corrected_dialogue`` JSON 共用这一额度。共享护栏
-``LLM_OUTPUT_GUARD_MAX_TOKENS``（4096）会被默认开思考的纠错模型在 JSON
-写完前打满。8192 给思考链留头寸。
+适用：历史审阅、Stage-2 信号检测、refine、persona correction / 外部融合、
+reflection 合成 / 反驳判定 / promote 合并。这些调用不套用工厂的关思考
+extra_body（走原生思考，或 ``config.providers.memory_thinking_extra_body`` 给的
+压档形式），推理 token 和 JSON 正文共用这一额度。共享护栏
+``LLM_OUTPUT_GUARD_MAX_TOKENS``（4096）会被默认开思考的模型在 JSON 写完前打满
+（#3319：qwen3.8-flash 的信号检测精确顶格 4096、正文为空）。8192 给思考链留头寸；
+光抬额度不够，信号检测和审阅的提示词另带思考长度限制。
 
 不抬全局护栏：``max_completion_tokens`` 超过模型自身输出上限时，不少兼容端点
-会在请求时直接 400。摘要、去重、persona 等短 JSON 仍用 4096。"""
+会在请求时直接 400。所以 ``memory.thinking_llm`` 遇到这种 400 会退回 4096 重发
+一次。摘要、去重、recheck 等不开思考的短 JSON 仍用 4096。"""
 
 MEMORY_REVIEW_OUTPUT_EXHAUSTION_MAX_ATTEMPTS = 3
 """历史审阅因输出 token 耗尽而暂停前的连续失败次数。
 
 - 只统计 provider 明确返回 ``length`` / ``max_tokens``，或空正文且输出 token
-  已触及 ``MEMORY_REVIEW_OUTPUT_MAX_TOKENS`` 的调用；网络、429、普通 JSON 错误仍走
+  已触及本次实际请求额度的调用；网络、429、普通 JSON 错误仍走
   ``MEMORY_LIVENESS_MAX_ATTEMPTS`` 的通用 fingerprint 退避。
 - 达到 3 次后按角色暂停 review。新增消息不会解禁；只有当前 review 上下文 token
   数严格低于失败期间的最小值（通常由 recent compression 造成）才清零恢复。"""

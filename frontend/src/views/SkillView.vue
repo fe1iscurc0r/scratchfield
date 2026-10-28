@@ -1,20 +1,12 @@
 <script setup lang="ts">
-import type { McpService, SkillCatalogItem } from '@/api/core'
-import { Dialog } from 'primevue'
-import { computed, ref } from 'vue'
-import API from '@/api/core'
+import { ref } from 'vue'
 import BoxContainer from '@/components/BoxContainer.vue'
-import EmptyState from '@/components/EmptyState.vue'
-import SkeletonCard from '@/components/SkeletonCard.vue'
 import SkillHelpDialog from '@/views/skill/SkillHelpDialog.vue'
 import SkillMcpSection from '@/views/skill/SkillMcpSection.vue'
 import SkillSection from '@/views/skill/SkillSection.vue'
-import { feedback } from '@/utils/feedback'
-
 
 const helpVisible = ref(false)
 const activeLibraryTab = ref<'mcp' | 'skill'>('mcp')
-
 </script>
 
 <template>
@@ -61,11 +53,10 @@ const activeLibraryTab = ref<'mcp' | 'skill'>('mcp')
         </div>
       </section>
 
-    <SkillMcpSection v-if="activeLibraryTab === 'mcp'" />
+      <SkillMcpSection v-if="activeLibraryTab === 'mcp'" />
 
       <SkillSection v-else />
     </div>
-
 
     <SkillHelpDialog v-model:visible="helpVisible" />
   </BoxContainer>
@@ -196,8 +187,6 @@ const activeLibraryTab = ref<'mcp' | 'skill'>('mcp')
   background: rgba(212, 175, 55, 0.08);
   color: rgba(248, 222, 159, 0.96);
 }
-
-
 
 .add-btn {
   display: flex;

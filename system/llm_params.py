@@ -106,7 +106,7 @@ def build_model_name(
         provider: 提供商名称，默认从 config 读取
 
     Returns:
-        LiteLLM 格式的模型名，如 "openai/deepseek-chat"
+        LiteLLM 格式的模型名，如 "openai/deepseek-flash"
     """
     if should_use_gateway():
         return f"openai/{model}"

@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from .cards import ChatCard, PluginView, create_card, create_view
 from .bus_context import SdkBusContext, ensure_sdk_bus_context
 from .finish import (
     build_finish_envelope,
@@ -17,10 +18,17 @@ from .finish import (
     normalize_structured_data,
 )
 from .result_contract import contract_from_meta, validate_reply_payload
-from .types import LoggerLike, Metadata, PluginContextProtocol, PushMessageResult
+from .types import (
+    LoggerLike,
+    Metadata,
+    PluginContextProtocol,
+    PluginModelsProtocol,
+    ReplyTailProtocol,
+    PushMessageResult,
+)
 
 _UNSET = object()
-_SDK_CONTEXT_ATTR_NAMES = ("plugin_id", "metadata", "logger", "config_path", "bus")
+_SDK_CONTEXT_ATTR_NAMES = ("plugin_id", "metadata", "logger", "config_path", "bus", "images", "models")
 _SDK_CONTEXT_METHOD_NAMES = (
     "get_own_config",
     "get_own_base_config",
@@ -40,6 +48,10 @@ _SDK_CONTEXT_METHOD_NAMES = (
     "export_push",
     "finish",
     "push_message",
+    "create_card",
+    "get_card",
+    "create_view",
+    "get_view",
     "update_status",
 )
 
@@ -102,6 +114,8 @@ class SdkContext:
     def __init__(self, host_ctx: object):
         self._host_ctx = cast(_HostContextProtocol, host_ctx)
         self._bus_ctx: SdkBusContext | None | object = _UNSET
+        self._models_ctx: PluginModelsProtocol | None = None
+        self._reply_tail_ctx: ReplyTailProtocol | None = None
 
     @staticmethod
     def _normalize_export_metadata(
@@ -216,6 +230,32 @@ class SdkContext:
             return cast(SdkBusContext | None, cached)
         self._bus_ctx = ensure_sdk_bus_context(getattr(self._host_ctx, "bus", None), host_ctx=self._host_ctx)
         return cast(SdkBusContext | None, self._bus_ctx)
+
+    @property
+    def images(self) -> object:
+        return getattr(self._host_ctx, "images")
+
+    @property
+    def models(self) -> PluginModelsProtocol:
+        models = getattr(self._host_ctx, "models", None)
+        if models is not None:
+            return cast(PluginModelsProtocol, models)
+        # Older hosts and test contexts have no gateway credentials. Keep
+        # their existing facade compatible and report unavailable on use.
+        if self._models_ctx is None:
+            from .models import PluginModels
+
+            self._models_ctx = PluginModels(self._host_ctx)
+        return self._models_ctx
+
+    @property
+    def reply_tail(self) -> ReplyTailProtocol:
+        """Optional original-reply images; requires a v1 host-issued context."""
+        if self._reply_tail_ctx is None:
+            from .reply_tail import ReplyTailClient
+
+            self._reply_tail_ctx = ReplyTailClient(self._host_ctx)
+        return self._reply_tail_ctx
 
     async def get_own_config(self, timeout: float = 5.0) -> object:
         return await self._host_ctx.get_own_config(timeout=timeout)
@@ -472,6 +512,33 @@ class SdkContext:
             delivery=delivery,
             reply=reply,
         )
+
+    async def create_card(self, *, html: str, summary: str, css: str = "",
+                          actions: dict[str, Any] | None = None,
+                          target_lanlan: str | None = None) -> ChatCard:
+        """Create an online chat card. The handle keeps the original recipient."""
+        target = target_lanlan or getattr(self._host_ctx, "current_lanlan", None)
+        return await create_card(self, html=html, summary=summary, css=css,
+                                 actions=actions, target_lanlan=target)
+
+    def get_card(self, card_id: str, *, target_lanlan: str | None = None) -> ChatCard:
+        """Recover a handle in a UI action using _ctx['card_id']; no network read."""
+        target = target_lanlan or getattr(self._host_ctx, "current_lanlan", None)
+        return ChatCard(self, card_id, target)
+
+    async def create_view(self, *, title: str, html: str, css: str = "",
+                          actions: dict[str, Any] | None = None,
+                          summary: str | None = None,
+                          target_lanlan: str | None = None) -> PluginView:
+        """Create online AgentHUD content, bound to its original character."""
+        target = target_lanlan or getattr(self._host_ctx, "current_lanlan", None)
+        return await create_view(self, title=title, html=html, css=css,
+                                 actions=actions, summary=summary, target_lanlan=target)
+
+    def get_view(self, view_id: str, *, target_lanlan: str | None = None) -> PluginView:
+        """Recover an AgentHUD view using _ctx['view_id']; no network read."""
+        target = target_lanlan or getattr(self._host_ctx, "current_lanlan", None)
+        return PluginView(self, view_id, target)
 
     def update_status(self, status: dict[str, object]) -> None:
         self._host_ctx.update_status(status)

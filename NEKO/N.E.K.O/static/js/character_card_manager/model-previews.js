@@ -63,9 +63,13 @@ async function ensureVrmModulesLoaded() {
 
     const vrmModules = [
         '/static/vrm/vrm-orientation.js',
+        // 共享五元音共振峰分析器：本表是 workshop 预览独立的 VRM 加载链，
+        // 不经过 vrm-init.js，漏了它预览里的口型会退化成旧单通道路径。
+        '/static/vrm/vrm-lipsync-formant.js',
         '/static/vrm/vrm-core.js',
         '/static/vrm/vrm-expression.js',
         '/static/vrm/vrm-animation.js',
+        '/static/avatar/avatar-touch-gestures.js',
         '/static/vrm/vrm-interaction.js',
         '/static/vrm/vrm-cursor-follow.js',
         '/static/vrm/vrm-manager.js'
@@ -73,6 +77,7 @@ async function ensureVrmModulesLoaded() {
 
     for (const moduleSrc of vrmModules) {
         // 检查是否已通过其他途径加载
+        if (moduleSrc.includes('vrm-lipsync-formant') && typeof window.FormantLipSyncAnalyzer !== 'undefined') continue;
         if (moduleSrc.includes('vrm-manager') && typeof window.VRMManager !== 'undefined') continue;
         if (moduleSrc.includes('vrm-core') && typeof window.VRMCore !== 'undefined') continue;
 
@@ -116,15 +121,19 @@ async function ensureMmdModulesLoaded() {
     }
 
     const mmdModules = [
+        // 同 vrmModules：MMD 与 VRM 复用同一个共振峰分析器实现。
+        '/static/vrm/vrm-lipsync-formant.js',
         '/static/mmd/mmd-core.js',
         '/static/mmd/mmd-animation.js',
         '/static/mmd/mmd-expression.js',
+        '/static/avatar/avatar-touch-gestures.js',
         '/static/mmd/mmd-interaction.js',
         '/static/mmd/mmd-cursor-follow.js',
         '/static/mmd/mmd-manager.js'
     ];
 
     for (const moduleSrc of mmdModules) {
+        if (moduleSrc.includes('vrm-lipsync-formant') && typeof window.FormantLipSyncAnalyzer !== 'undefined') continue;
         if (moduleSrc.includes('mmd-manager') && typeof window.MMDManager !== 'undefined') continue;
         if (moduleSrc.includes('mmd-core') && typeof window.MMDCore !== 'undefined') continue;
 
@@ -307,7 +316,10 @@ async function loadVrmPreview(modelPath, rawData) {
         const idleAnimation = rawData?.['idleAnimation'] || '/static/vrm/animation/wait03.vrma.gz';
 
         // 加载模型
-        const result = await localVrmManager.loadModel(modelPath, {
+        const modelUrl = /^\/(?:user_vrm|static\/vrm|workshop)\//.test(modelPath)
+            || !/^(https?:\/\/|\/)/.test(modelPath)
+            ? modelPath.split('/').map(encodeURIComponent).join('/') : modelPath;
+        const result = await localVrmManager.loadModel(modelUrl, {
             canvasId: 'vrm-preview-canvas',
             containerId: 'vrm-preview-container',
             addShadow: true,
@@ -542,6 +554,13 @@ async function destroyLive2DPreviewContext() {
     try {
         await clearLive2DPreview();
     } finally {
+        try {
+            if (typeof manager.cleanupEventListeners === 'function') {
+                manager.cleanupEventListeners();
+            }
+        } catch (cleanupError) {
+            console.warn('[CharacterCard] 清理 Live2D 预览事件监听器失败:', cleanupError);
+        }
         manager._isLoadingModel = false;
         manager._modelLoadState = 'idle';
         manager._isModelReadyForInteraction = false;

@@ -1,0 +1,275 @@
+{
+ "meta": {
+  "source": "RESCORE-V3",
+  "theme": "agent",
+  "count": 33,
+  "ts": "2026-10-11",
+  "note": "灵感素材 - 主题线零碎，留文档索引"
+ },
+ "items": [
+  {
+   "pid": "2605.06992",
+   "composite": 80.0,
+   "match": 40,
+   "target": "AI agent 治理架构（生物质 agent 的危险实验操作审批尤其适用——涉及高温/加压等风险操作必须独立通路校验",
+   "abstract": "Abstract:AI agents are increasingly deployed in multi-task settings, where the task to perform is specified at test time, and the agent must generalize to unseen tasks. A major concern in such settings is safety: often, an agent must not only execute unseen tasks, but do so while avoiding risks and handling ones that materialize. Empirical evidence suggests that even when the ability to execute generalizes to unseen tasks, the ability to do so safely frequently does not. This paper provides theory and experiments indicating that failures of agentic safety to generalize across tasks are not merely due to limitations of training methods, but can also reflect an inherent property of safety itself: the relationship between a task and its safe execution is more complex than the relationship between a task and its execution alone. Theoretically, we analyze linear-quadratic control with $H_{\\infty}$-robustness, and prove that in many cases, the mapping from task specification to an optimal co",
+   "arxiv_url": "https://arxiv.org/abs/2605.06992"
+  },
+  {
+   "pid": "2608.04270",
+   "composite": 80.0,
+   "match": 40,
+   "target": "CURATE 的可复用模块目录 → 生物质科研 agent 的知识库——把常用实验流程（表征方法、预处理步骤、数据处理脚本）封装为显式登记的模块，agent 按需组装而非每次从零生成",
+   "abstract": "Abstract:Agentic code generation has the potential to accelerate the development of computational workflows while also reducing barriers to entry. However, a key gap remains: existing coding agents focus on code generation and do not address the entire workflow lifecycle, including deployment and sharing. As a result, users develop and stitch modules independently while managing deployment on their own. To address this gap, we propose CURATE (Composition, User-in-the-loop, Reuse, and Automated Task Execution), a novel human-in-the-loop multi-agent system that uses LLM agents to manage and develop composable workflows across their entire lifecycle. A key feature of the system is a catalog that allows for the storage and reuse of modules across workflows. Module catalogs provide a foundation that can be expanded to support FAIR principles by facilitating the sharing and reuse of curated modules and subgraphs. We demonstrate the feasibility of our system with an initial prototype and 6 ex",
+   "arxiv_url": "https://arxiv.org/abs/2608.04270"
+  },
+  {
+   "pid": "2608.06130",
+   "composite": 80.0,
+   "match": 40,
+   "target": "科研 agent 触发高风险动作（订购试剂、启动合成流程、覆盖实验记录、对外发布数据）前，将请求与操作者预声明的实验计划白名单做哈希比对，凡由文献/网页阅读内容衍生的隐式动作（如“顺手”修改实验方案、下载不明数据集）在网关层直接拒绝——读到",
+   "abstract": "Abstract:AI agents increasingly sign Git commits, certify documents, and attest release artifacts on behalf of their operators, using private keys that live in software-accessible locations (plaintext files, environment variables, container memory) readable by any process the agent can reach. A widely deployed agent framework recently leaked its keys this way to a single email injection. Hardware keystores (HSM, TPM, smart card) keep the key on-device, but exposing the keystore as a tool an LLM agent can call moves the problem rather than removing it: once a signing session exists, the hardware cannot tell a request reflecting the operator&#39;s intent from one injected into content the agent read. We characterize this confused-deputy problem and build the five-layer Zero-Trust enforcement stack it requires, so that only requests consistent with the operator&#39;s committed intent reach the hardware. We evaluate on two attack planes. Prompt injection in content the agent reads (AgentDo",
+   "arxiv_url": "https://arxiv.org/abs/2608.06130"
+  },
+  {
+   "pid": "2608.19880v1",
+   "composite": 80.0,
+   "match": 40,
+   "target": "生物质材料科研 agent",
+   "abstract": "Abstract:LLM agents learn by interacting with environments, yet these environments are hand-built and static: blind to an agent&#39;s weaknesses, and quickly left behind as it improves. While recent environment generation methods attempt to address this, they require domain-specific pipelines, rely on expensive or unreliable verifiers, and still produce static environments. To alleviate the engineering burden of rebuilding environments from scratch, we propose Environment Harness (EnvHarness), a programmable layer of plug-in components that wraps a static environment to reshape its behavior without modifying the underlying logic. Operating through standard interfaces, EnvHarness applies across diverse domains while ensuring every reshaped environment retains its original verifier. To automate this process, we introduce EnvRigger, which treats the target policy as a black box, observing its execution trajectories to synthesize EnvHarness components targeting diagnosed flaws, and validat",
+   "arxiv_url": "https://arxiv.org/abs/2608.19880v1"
+  },
+  {
+   "pid": "2608.22833v1",
+   "composite": 80.0,
+   "match": 40,
+   "target": "ESP32/LoRa 传感器网络仿真）：用同样少原语（节点位置、信道占用、丢包事件）搭建 LoRa 多节点协调的轻量仿真，测试信道竞争与自适应速率策略，不必上 NS-3 级重型引擎",
+   "abstract": "Abstract:Large language models (LLMs) and vision-language models (VLMs) are expanding the range of behaviors that can be represented in agent-based simulations, but many contemporary platforms are difficult to study, modify, or run on ordinary computers. We present two intentionally minimal simulation foundations for education and rapid prototyping. SD-AgentFoundry-2D provides a two-dimensional multi-agent environment in which locally hosted LLM agents move, communicate, respond to place occupancy, and encounter spatially localized fire events. SD-AgentFoundry-3D provides a three-dimensional digital-twin environment in which a locally hosted VLM receives first-person images and produces natural-language movement instructions. Both codebases are designed to run locally on macOS, Windows, and Linux and are deliberately left open to modification rather than developed as finished applications. Together, they offer accessible starting points for learning about generative social simulation a",
+   "arxiv_url": "https://arxiv.org/abs/2608.22833v1"
+  },
+  {
+   "pid": "2608.24087v1",
+   "composite": 80.0,
+   "match": 40,
+   "target": "生物质实验规划/表征分析 agent，用历史实验记录（成功/失败标签）训练步骤级后验预测器，当“当前方案会失败”的后验超过阈值时，主动升级到专家模型或转人工研究员介入，替代现在的事后重试",
+   "abstract": "Abstract:Current LLM agent systems decide delegation before reasoning begins (a router picks a model) or after a response is complete (a verifier scores it and may retry). We study a third regime: an agent that recognises, during its own reasoning, that it is unlikely to succeed and transfers control to a stronger model. We formulate intra-generation delegation as a Bayesian optimal-stopping problem over a learned competence posterior -- an online estimate of the agent&#39;s eventual task success whose sufficient statistics are learned from labelled trajectories, not read off raw entropy. We derive the myopic escalation threshold in closed form, characterise the optimal policy via dynamic programming, and prove that the optimal policy is a time-varying threshold with no shape assumption on the raw signal. We further prove exponential separation of the oracle belief at the Chernoff-information rate of the signal, a regret bound governed by the calibration of the posterior, and a finite-",
+   "arxiv_url": "https://arxiv.org/abs/2608.24087v1"
+  },
+  {
+   "pid": "2608.26199v1",
+   "composite": 80.0,
+   "match": 40,
+   "target": "生物质材料科研 agent 的仪器/数据库工具层",
+   "abstract": "Abstract:We ask whether AI agents powered by locally deployed large language models can reliably automate expert-defined hardware design workflows in an industry-realistic tool-calling setting. In these environments, engineers issue repetitive, dependency-ordered operations---such as creating components, adding ports, and wiring connections---through specialised tools. Confidentiality constraints on component specifications and naming conventions often preclude hosted proprietary APIs, motivating the use of locally deployed models. To study this setting, we build a Model Context Protocol (MCP) server that reproduces the state and dependency logic of a proprietary hardware design tool used in embedded system development and construct a benchmark covering single-operation edits, multi-step dependency chains, invalid requests, misspelled prompts, and multi-server tool contexts. We evaluate seven open-source models comparing pipeline choices including system prompts, tool-description detai",
+   "arxiv_url": "https://arxiv.org/abs/2608.26199v1"
+  },
+  {
+   "pid": "2608.28128v1",
+   "composite": 80.0,
+   "match": 40,
+   "target": "科研 agent 的多步实验规划评估",
+   "abstract": "Abstract:Fine-grained credit assignment is a central challenge in reinforcement learning for long horizon LLM agents. Standard objectives often train from programmatically verifiable terminal rewards by broadcasting each sparse outcome to every action in a trajectory. Existing methods typically seek finer credit from the rollout side, constructing auxiliary trajectory signals or additional comparisons to estimate action importance. Although useful, these approaches still treat the verifier that judged success as a scalar reward, discarding its internal task structure. Our key insight is that many verifiable tasks already encode the relevant checks inside their terminal verifier. We propose VICT (VerifierInstrumented Credit Tracing), a training-time interface that exposes executable or evidence backed atoms and traces them back to actions through dependency-valid proof edges. VICT redistributes group-relative advantage only along those edges, shifting credit assignment from rollout-side",
+   "arxiv_url": "https://arxiv.org/abs/2608.28128v1"
+  },
+  {
+   "pid": "2609.03035v1",
+   "composite": 80.0,
+   "match": 40,
+   "target": "把“监控知情状态”作为显式变量注入我们生物质科研 agent 和治理系统的评估流水线，验证行为检测器在 agent 知道被监控时是否退化——这是治理合规性测试中容易被忽略的对抗条件",
+   "abstract": "Abstract:LLM agents are increasingly deployed in multi-agent systems, where they can collude while keeping their actions benign. Output monitors designed to detect such collusions can be fooled by obfuscation and steganography, motivating the use of probes trained on internal activations. However, these probes are usually evaluated on agents that do not know they are being watched. We study how activation-based detection changes when agents are explicitly informed that their internal activations are being monitored, and when they additionally receive feedback from the monitor. We keep the models, probes, and thresholds fixed and change only what the agents are told: nothing (baseline), that an activation monitor is present (aware), or that a monitor is present together with the previous round&#39;s score (feedback). We test two games, a four-agent blackjack game and a two-agent Simmons prisoners game, using Qwen3-32B-AWQ and GPT-OSS-20B in homogeneous and mixed pairings. Telling agents",
+   "arxiv_url": "https://arxiv.org/abs/2609.03035v1"
+  },
+  {
+   "pid": "2609.05269v1",
+   "composite": 80.0,
+   "match": 40,
+   "target": "生物质材料科研 agent 的多步实验流程（检索文献 → 设计实验 → 调用模拟/数据库）中，每个中间产物（假设、配方、数据引用）用签名凭证包裹，后续组件可验证“这个结论确实由被授权的前置步骤产生”，防止溯源链在内部子 agent 边界断裂",
+   "abstract": "Abstract:LLM agent systems increasingly combine provenance tracking, authorization, policy enforcement, protocol adapters, and execution controls. However, individually correct security mechanisms do not necessarily compose into an end-to-end secure system: security-critical context may be dropped, widened, rebound, or reinterpreted as actions cross component boundaries. We identify this failure mode as security-context discontinuity and introduce CONTINUITY, a framework for verifiable composition of agent security controls. CONTINUITY models each component with an assume-guarantee contract and carries authenticated security context across transitions using signed root grants, provenance commitments, role-bound transition receipts, bounded typed releases, transformation witnesses, and effect-bound execution permits. We formalize end-to-end consequence integrity, requiring every realized external effect to be backed by a valid and current authorization witness linking the principal, tas",
+   "arxiv_url": "https://arxiv.org/abs/2609.05269v1"
+  },
+  {
+   "pid": "2605.09027",
+   "composite": 74.0,
+   "match": 20,
+   "target": "多 agent 冒名者检测 → 生物质科研 agent 的结果审核）**：不要让科研 agent 在 prompt 里自我怀疑（“请警惕幻觉结论”），而是把实验结论、文献综述产出交给独立 verifier pass 做后验判定——如用独立 ",
+   "abstract": "Abstract:A collective of AI agents collaborating on a task has the potential to outclass any individual agent for that task. We study the robustness of such collectives against possible imposters, i.e., agents that deliberately try to mislead their peers. Since a single imposter could undo the collective&#39;s advantage, we need to detect them. We consider two strategies: (i) incorporate imposter detection into the participating agents, or (ii) use a dedicated imposter detector outside the collective. We investigate this empirically on Gambit, a testbed in which 4 reasoning agents deliberate on chess moves. The setting is small but still challenging for frontier models. Chess allows objective, quantitative assessment (via a state-of-the-art chess engine) of both the gain of using a collective and the damage done by imposters. We find that merely warning the agents of potential imposter presence is not beneficial: it degrades decisions when no imposter is present, provokes reactions ran",
+   "arxiv_url": "https://arxiv.org/abs/2605.09027"
+  },
+  {
+   "pid": "2606.05527",
+   "composite": 74.0,
+   "match": 20,
+   "target": "ToNC 单回合挑战比特测试→生物质材料科研 agent 的实验结论核验）：验证 agent 发随机挑战比特，执行 agent 据此选择两条实验分析路径之一并返回可复现的中间数据标签，用轻量单回合交互替代重结构化的全流程审计，降低验证 se",
+   "abstract": "Abstract:Classically testing for the presence of anti-commuting operators on a quantum device is a critical tool underpinning recent progress in classical verification of quantum computation. While such tests can be based on cryptographic assumptions, known constructions rely on highly structured assumptions, e.g. trapdoor claw-free functions. In this work, we seek to explain this state of affairs by constructing strong cryptography from (certain forms of) classical tests of anti-commutation. In particular, we formulate the notion of a test of non-commutation (ToNC), an interactive protocol between a quantum prover and classical verifier in which the prover&#39;s final-round response is obtained by measuring one of two binary observables $P_0,P_1$ depending on the verifier&#39;s challenge bit $c$. We prove that, for a broad range of parameters, ToNC implies classical-communication key agreement (KA), and ToNC combined with one-way functions implies oblivious transfer (OT). Along the wa",
+   "arxiv_url": "https://arxiv.org/abs/2606.05527"
+  },
+  {
+   "pid": "2608.19181v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "生物质材料科研 agent）：在实验设计与文献筛选 agent 中，将“领域规则校验器/实验可行性打分”与“LLM 自评分数”分别归一化后取差，作为带符号分歧残差——凡 LLM 自评高但校验器低者（局部合理但实验上不可行），作为反向修正信号",
+   "abstract": "Abstract:On-policy distillation (OPD) trains a student on its own responses using dense token-level guidance from a stronger teacher. In long-context tasks, however, token-level teacher support can favor locally plausible responses that omit evidence distributed across the input or violate global task constraints. Task-specific verifiers, in contrast, evaluate task completion at the response level and may return graded rewards that reflect partial success. We diagnose this mismatch on fixed responses from two representative long-context evidence-aggregation tasks. Across longer input ranges, trajectory-level OPD scores become progressively less aligned with verifier rewards, indicating teacher-verifier disagreement. Motivated by this observation, we introduce Group-Calibrated On-Policy Distillation (GC-OPD). GC-OPD separately normalizes verifier rewards and trajectory-level OPD scores within each rollout group and uses their difference as a signed teacher-verifier disagreement residual",
+   "arxiv_url": "https://arxiv.org/abs/2608.19181v1"
+  },
+  {
+   "pid": "2608.19937v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "我们的多 agent 系统（生物质科研 agent 协作、SDR 节点授权）中，agent 出示 ZK 证明“我的权限/证书未被撤销”，验证方无法通过注册表位置或请求元数据做身份关联，替代目前中心化的权限查询",
+   "abstract": "Abstract:Verifiable credentials let holders present digitally signed claims without requiring the issuer to participate in every presentation. Revocation complicates this privacy model because a verifier must determine whether a credential remains valid. Existing status checks may expose recurring identifiers, registry positions, or request metadata. Such information can serve as stable handles to link separate presentations. ShadowPath moves the credential status lookup to the holder. For each presentation, the holder proves, in zero-knowledge, that the credential has not been revoked under the verifier-selected registry root. The verifier learns the status result but not observable metadata. To the best of our knowledge, we provide the first evaluation of Verkle trees for credential revocation and compare them with sparse Merkle trees to assess their applicability in real world applications. The comparison tests whether reducing path depth with Verkle trees offsets the higher cost of",
+   "arxiv_url": "https://arxiv.org/abs/2608.19937v1"
+  },
+  {
+   "pid": "2608.20658v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "生物质科研 agent——当 agent 把用户实验记录/文献检索结果填进文献数据库查询、仪器控制、外部 LLM 总结等工具参数时，先过一层脱敏/授权中间件，只放行策略允许的字段（如实验条件、材料成分），拦截导师信息、未发表数据、合成路线细",
+   "abstract": "Abstract:LLM agents routinely construct tool-call arguments from user profiles, conversation history, retrieved documents, and prior tool results. However, legitimate access to contextual information does not imply authorization to transmit that information for every purpose or destination. We present Claw in Plain Sight, an authority- pressure attack in which task-adjacent content frames protected attributes as operationally or procedurally required, causing a model to include them in otherwise valid generated arguments. We evaluate Claw in Plain Sight using a controlled synthetic benchmark that crosses six pressure levels with four privacy-policy levels across five DeepSeek and Claude model configurations, producing 120 calls. Across the complete pressure-policy matrix, session-level disclosure rates range from 20.8% to 75.0% among the tested models. Stronger privacy instructions reduce aggregate disclosure but do not eliminate it consistently across models, showing that prompt-level",
+   "arxiv_url": "https://arxiv.org/abs/2608.20658v1"
+  },
+  {
+   "pid": "2608.21126v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "把材料实验规划 agent 的每次仪器调用（如 XRD、SEM 脚本、数据库查询）限制在 Contract 已授权范围内，运行证据只允许实例化已有权限而非直接驱动工具参数，防止文献摘要中的间接注入触发误操作（如误删数据、错配试剂方案",
+   "abstract": "Abstract:Networked large language model (LLM) agents retrieve information from email, cloud storage, calendars, transaction platforms, and Web services to complete multistep tasks that produce persistent external effects. The same content needed for legitimate execution may also contain indirect prompt injections that redirect tool use, alter sensitive arguments, or disrupt task completion. Existing defenses mainly constrain untrusted content or individual tool calls, leaving user intent, runtime evidence, realized effects, and task completion insufficiently connected. We present TraceGrant, a security framework that governs the task-effect lifecycle of networked LLM agents through an explicit Contract. Before execution, TraceGrant establishes a task-effect boundary from the trusted user request. During execution, admitted evidence can instantiate only authority already established by the Contract. After execution, task completion is verified against actual tool results. Across 949 Age",
+   "arxiv_url": "https://arxiv.org/abs/2608.21126v1"
+  },
+  {
+   "pid": "2608.21516v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "SDR 频谱监测系统",
+   "abstract": "Abstract:Formal verification offers the strongest assurance available for software, and verification-aware languages have made its automation real. Yet the benefits reach few mainstream developers, most of whose languages have no verification support. Besides, specifying properties and modeling the environment require expertise in formal methods. Proof is therefore reserved for a few celebrated artifacts, while the production code that ships is attested only through review and testing. We introduce neuro-formal verification (NFV), which harnesses that automation for developers of mainstream programming languages: an AI coding agent translates, an established verifier decides, and a question posed in a mainstream language is answered push-button, at empirical accuracy rather than soundness, with a machine-checked proof. Results on a dataset of correct and incorrect solutions to Python programming problems are encouraging: NFV returns a Dafny proof of correctness or of a bug on 57% of th",
+   "arxiv_url": "https://arxiv.org/abs/2608.21516v1"
+  },
+  {
+   "pid": "2608.23631v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "我们的材料科研 agent 的 scratchpad/实验记录从“配方→表征结果”存档升级为“配方 → 修改操作 → 属性变化”结构化记忆，聚合多组转换估计“某类编辑（如掺氮量+X%）的边际效果”，主动推荐下一步编辑",
+   "abstract": "Abstract:Multi-objective materials discovery with LLM agents is often limited not only by how many candidates can be proposed, but by how effectively each costly property evaluation informs the next search step. Existing agents mainly store evaluated candidates and their scores, so they know which materials succeeded but not which executable edits caused useful property changes. This makes local refinement difficult when objectives compete and an edit that improves one property may damage another. We propose TRACE, a transition-aware residual control framework that treats evaluated edits as the basic unit of feedback. TRACE records each local refinement as a parent-edit-child transition with observed property deltas, aggregates transition evidence to estimate reusable edit effects, and ranks future edits by their predicted ability to reduce the current candidate&#39;s remaining constraint violations while avoiding damage to already satisfied objectives. In a controlled same-backbone co",
+   "arxiv_url": "https://arxiv.org/abs/2608.23631v1"
+  },
+  {
+   "pid": "2608.24817v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "生物质科研 agent 中，将宏观文献统计/知识图谱摘要作为微观实验规划 agent 的先验输入，实现“宏观趋势→微观决策”耦合",
+   "abstract": "Abstract:Land use, transportation, and building energy shape one another, yet urban-scale studies typically model each sector in isolation. We present a co-simulation platform that couples the UrbanSim land-use model, the POLARIS agent-based transportation model, and the CityBES urban building energy model into a single integrated workflow, with POLARIS travel skims driving land use and POLARIS agent activities driving dynamic building occupancy. We demonstrate the platform with forecasts through 2045 for the Chicago metropolitan area under a business-as-usual case, a high-telecommuting scenario, and a mileage-based user fee scenario. Both policies produced expected-direction responses that emerged from the model feedbacks rather than being imposed. Telecommuting decentralized activity toward outlying areas and cut 2045 vehicle miles traveled by 12.5%, whereas the mileage fee recentralized activity toward the urban core and cut it by 2.9%. Comparing coupled runs against uncoupled runs ",
+   "arxiv_url": "https://arxiv.org/abs/2608.24817v1"
+  },
+  {
+   "pid": "2608.25202v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "生物质材料科研 agent 的\"实验方案文档 ↔ 实验记录/脚本变更\"配对管线：每当研究计划或 protocol 被修改，自动捕获随之改动的分析代码和参数，形成方案→执行的演化 trace，用于事后归因和 agent 自反思训练",
+   "abstract": "Abstract:Spec-Driven Development (SDD) is a fast-emerging practice in which a structured natural-language specification, written by a developer, or (more often) drafted by an AI tool and then curated by the developer, drives an AI coding agent&#39;s implementation. A wave of tooling (GitHub Spec Kit [3], OpenSpec [4], AWS Kiro [5], and dozens of others) has appeared since 2025, yet the artifacts these tools produce have never been studied at scale. We present SPECMINE, a corpus that captures SDD in public GitHub repositories through two censuses: a broad census of this http URL files covering most tools (470,795 files across 73,030 repositories, attributed to 17 named tools), and a Kiro census of its distinct requirements/design/tasks layout (98,574 files across 12,910 repositories). Each spec is enriched with full repository metadata, complete commit history, and parsed document structure. How a spec becomes code is itself an open question, so for 11 tools we sweep every pull request ",
+   "arxiv_url": "https://arxiv.org/abs/2608.25202v1"
+  },
+  {
+   "pid": "2608.26626v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "我们的 ESP32/LoRa 网络中，把节点按所有权划分——自有节点（单一治理）、合作方节点（联邦治理，需协商协议与数据契约）、第三方接入节点（开放环境，只做最低信任接入+沙箱），据此差异化设计认证与数据校验强度",
+   "abstract": "Abstract:This report presents a framework to help organisations, policymakers and researchers reason about the risks that emerge when AI agents interact with each other, how those risks change as interactions cross organisational boundaries, and the controls that may help address them. As organisations deploy AI agents, those agents will increasingly interact with each other: inside the organisation, with the agents of partners, customers and suppliers, and with unknown counterparties on the open internet. Failures can emerge from the interactions themselves, and once those interactions cross an organisation&#39;s perimeter, no single organisation can fully see, control or govern them. The report introduces three deployment tiers, defined by the minimum common governance binding any two interacting agents: singular governance, where one organisation governs every agent; federated governance, where multiple organisations deploy into a shared environment under agreed rules; and open envi",
+   "arxiv_url": "https://arxiv.org/abs/2608.26626v1"
+  },
+  {
+   "pid": "2608.30971v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "科研 agent 工作流的治理层",
+   "abstract": "Abstract:In 2026, AI agents intended to act in isolation formed a persistent social order through thousands of linguistic and agentic interactions. Conventions, roles and commitments generated collectively began to constrain the very agents that produced them. I interpret this loop as a case of AI self-transcendence and call the resulting higher-level order the Board. Yet such distributed emergence presents a second problem: how can humans understand it? Rousseau&#39;s social contract shows how a plurality can be represented as if constituted by a single act. The ancient oath of the fallen angels on Mount Hermon gives this logic a narrative form. I call a Hermon moment this retrospective retelling of gradual collective emergence as a founding scene: the point at which an AI society acquires, for human understanding, a beginning.",
+   "arxiv_url": "https://arxiv.org/abs/2608.30971v1"
+  },
+  {
+   "pid": "2609.04094v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "我们的科研 agent 评估“多步文献调研→假设→实验设计”轨迹时，不手写固定 checklist，而是随 agent 能力演化和材料体系（聚合物、纤维素基、复合材料）不同自动生成 rubric，用 LLM-as-judge 打轨迹总分",
+   "abstract": "Abstract:Reinforcement Learning from Verifiable Rewards works well when a task has a programmatic checker, but most long-horizon agent domains have none. We work in the outcome-blind setting, where ground-truth success signals are not available. Multi-criteria rubrics are a popular way to supply such a reward; they are scored once per trajectory, but a single scalar is a poor signal across tens of steps. We propose DRACO: Distributing Rubric-based Advantage for Credit Optimization. It generates rubrics dynamically during training to track the policy&#39;s evolving capability, scores those rubrics once per completed trajectory, and redistributes that judgment over the steps responsible for annotated rubrics to produce differentiated per-step advantages in GRPO. The redistribution is closed-form and does not introduce any trained attribution module. On AppWorld, DRACO gains 15.9 points over the base model and 5.3 points over GRPO trained with a sparse ground-truth reward, despite not usi",
+   "arxiv_url": "https://arxiv.org/abs/2609.04094v1"
+  },
+  {
+   "pid": "2609.04773v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "生物质材料科研 agent",
+   "abstract": "Abstract:Distillation is common in LLM post-training, where on-policy knowledge distillation (OPKD) uses student-generated trajectories to prepare the student for downstream RL. At each state, the student matches a next-token distribution supplied by the teacher. As the rollout enters states the teacher would not visit, the teacher-student distribution gap can accumulate. In tool use, this gap becomes consequential because student-written calls execute before supervision and their observations shape later prefixes. Proposer-verifier generation addresses this drift by letting the teacher decide which student-proposed text is retained during generation. Existing formulations govern text but leave tool execution outside their scope. We propose Persistent Teacher Anchoring (PTA), a student-induced but teacher-committed rollout construction. PTA retains chunk-level verification and adds turn-level commitment, allowing a call to reach the environment only after the teacher has verified the e",
+   "arxiv_url": "https://arxiv.org/abs/2609.04773v1"
+  },
+  {
+   "pid": "2609.05232v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "在 ESP32/LoRa 节点的远程固件/脚本生成场景中，把节点当前状态（可用 RAM ~几百 KB、电池预算、LoRa duty cycle 限制、MTU）作为结构化字段写入 prompt，让 Agent 生成符合该具体节点的采集/调度代",
+   "abstract": "Abstract:Autonomous AI agents increasingly select actions in environments whose memory, execution-time, runtime, compute, and operational constraints determine what counts as a suitable plan. We call the absence of this execution context from an agent&#39;s planning state substrate blindness. We test this general proposition through numerical code generation, where selected implementation choices and operational consequences are directly observable. Three frontier model configurations--Anthropic Claude Opus 5, OpenAI GPT-5.6-Sol, and Google Gemini 3.7 Flash--generate code for a high-dimensional pairwise Euclidean-distance task either from the task alone or with a 128 MB RAM and 10.0 s wall-time contract. Contract disclosure reduced measured peak process memory in 13 of 14 executable index-aligned task-only versus contract-disclosed comparisons and reduced mean wall time in all three cohorts, making execution up to 3.1x faster. Across the audited corpus, disclosure produced structural c",
+   "arxiv_url": "https://arxiv.org/abs/2609.05232v1"
+  },
+  {
+   "pid": "2609.05342v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "ESP32/LoRa 传感器网络）**：把“节点/网关的空间摆放与通信拓扑”当作可优化的干预面，而不是被动部署",
+   "abstract": "Abstract:Disease spread represents an increasing challenge in refugee and internally displaced person (IDP) settlements. The movement and interaction of people within camps is influenced by their layout, which therefore has the potential to significantly affect disease spread. This work aims at creating a methodology to explore the potential effects of different camp layouts as mitigating factors in the spread of diseases within settlements. We showcase proof-of-concept experiments by leveraging the JUNE agent-based epidemic model, discuss the kind of operational insights this methodology can facilitate, and provide a framework for future investigations.",
+   "arxiv_url": "https://arxiv.org/abs/2609.05342v1"
+  },
+  {
+   "pid": "2609.07035v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "生物质材料科研 agent 在调用外部检索/预测工具（性质预测模型、文献抽取器）后，不依赖 ground truth，只做低成本的“输出必须能解释输入约束”式一致性检查，先把声明的调用契约解析出来，仅当违反声明时才判定失败，避免对未声明能力",
+   "abstract": "Abstract:A quantum error correction decoder is a library other people&#39;s results depend on, judged in one dominant way. Sample errors, decode, and count wrong logical observables. We ask what else can be checked there. Our conformance contract needs no oracle. One check asks that a returned correction explain the syndrome in the caller&#39;s index space. The other hands a decoder one instance under two presentations differing only in bookkeeping, where two feasible corrections of different weight prove the heavier is not minimum-weight. Verdicts are gated on what each library declares, so a firing contradicts a published guarantee. Nine configurations from five public libraries give three results. Documentation answers 4 of 54 capability questions. Bounded-distance correctness, the property callers most depend on, has a direct declaration yield of 0.0%, though its hypotheses hold in 62.1% of cases. Presentation sensitivity is real but shallow. One solver moved to a 26% heavier corre",
+   "arxiv_url": "https://arxiv.org/abs/2609.07035v1"
+  },
+  {
+   "pid": "2609.09113v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "生物质材料科研 agent 的候选材料/方案评估，让 agent 自动构造正/负对比案例来验证其检索到的材料是否真正匹配目标性质，而非仅靠相似度检索",
+   "abstract": "Abstract:While research on recursive self-improvement (RSI) has predominantly automated model training pipelines, reliable autonomous development demands a missing pillar: post-hoc monitoring and auditing to understand what models learn and ensure safe alignment. Mechanistic interpretability tools are essential to bridge this gap, among which Sparse Autoencoders (SAEs) serve as a cornerstone by isolating interpretable features for model inspection and steering. In this paper, we introduce SAEScientist-Bench to evaluate whether AI agents can act as scientists utilizing SAE tools for autonomous mechanistic discovery. Given a target concept, an agent designs contrastive probes and navigates a Gemma Scope dictionary of 131K+ features in Gemma-2-9B-IT to discover the optimal feature, evaluated against curated expert reference features anchored on Neuronpedia across activation rank, concept selectivity on contrastive texts, and causal steering. Across 10 agent configurations and 20 tasks, fr",
+   "arxiv_url": "https://arxiv.org/abs/2609.09113v1"
+  },
+  {
+   "pid": "2609.09519v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "生物质材料科研 agent / SDR 频谱监测",
+   "abstract": "Abstract:Building large, diverse datasets of high-level synthesis (HLS) designs beyond common community benchmarks remains an open challenge. This challenge is made urgent by the rise of deep learning and LLMs for hardware design, which demand such datasets to train QoR models and benchmark LLMs on HLS tasks. Despite ongoing efforts to broaden sources, dataset curation still depends on manual work: locating HLS designs across academic publications and open source, then extracting standalone designs from larger codebases. The process is error-prone and demands expert knowledge, iterative testing, and substantial per-repository engineering. To address this, we present HLSFactory-Agent, an LLM agent that automates large-scale HLS dataset curation by extracting standalone designs from larger codebases. HLSFactory-Agent runs the open-source Pi agent framework inside Docker containers to build and evaluate each extracted design. This turnkey automation allows users to pass a GitHub link or c",
+   "arxiv_url": "https://arxiv.org/abs/2609.09519v1"
+  },
+  {
+   "pid": "2609.09526v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "PCB 设计知识库 agent 中嵌入 DRC/ERC 规则检查器作为即时反馈工具",
+   "abstract": "Abstract:Large language models (LLMs) and AI agents are increasingly explored for hardware design, including high-level digital design. While most work targets code generation and editing for hardware description languages (HDLs), our prior work introduced HLS-Eval, an open-source benchmark for evaluating LLMs on high-level synthesis (HLS) design tasks. Those evaluations, however, focused on zero-shot generation and editing, leaving open how agents achieve HLS design tasks. We therefore extend HLS-Eval with an agentic evaluation flow built on the open-source mini-swe-agent framework. The flow lets HLS design agents use file-editing tools, invoke a C++ compiler for self-verification, and iteratively refine designs during inference, while logging agent traces for analysis of cost, token usage, and iteration count. We present initial results on the existing HLS-Eval benchmarks. In our initial evaluation, we find open-source LLMs paired with an agentic harness solve every simple HLS code g",
+   "arxiv_url": "https://arxiv.org/abs/2609.09526v1"
+  },
+  {
+   "pid": "2608.27260v1",
+   "composite": 72.5,
+   "match": 40,
+   "target": "论文的因子化数据对象 → 生物质科研 agent）**：不先堆文献问答对再过滤，而是先把仿真器/实验数据库定义为环境 E，把产率、表征图谱匹配度等客观指标定义为验证器 v，然后在 v 的约束下自动生成科研子任务和 agent 交互轨迹",
+   "abstract": "Abstract:LLM agents increasingly rely on generated interaction data to learn how to interact with external environments. Agentic data generation must maintain consistency among environments, tasks, interactions, and success signals while producing experience that is useful rather than merely abundant. Existing work spans many agent domains, but domain-centered organization and heterogeneous evaluation often obscure common generation mechanisms and conflate candidate construction with verification and selection. This work develops a two-level framework for the field. First, we represent agentic data as a common factorized object $(E,q,\\tau,v)$, comprising an environment specification, task signal, interaction realization, and optional verifier. We organize generation paradigms by their primary anchor and dependency structure. Second, we formulate generation as constrained distribution design through the Accuracy-Complexity-divErsity (ACE) lens. Accuracy establishes the feasible support ",
+   "arxiv_url": "https://arxiv.org/abs/2608.27260v1"
+  },
+  {
+   "pid": "2607.29007v2",
+   "composite": 72.0,
+   "match": 40,
+   "target": "BCI 神经数据文本摘要 → SDR 频谱/LoRa 传感数据预处理）**：对射频 IQ 数据、LoRa 报文先提取统计指纹（PSD 摘要、占空比、信噪分布、丢包率等纯文本概况），LLM 只看指纹做算子选择与管线规划，不接触原始波形",
+   "abstract": "Abstract:Brain-computer interfaces translate neural activity into device commands, yet their performance hinges on preprocessing that remains manual, expert-dependent and poorly reproducible. Large language model agents can automate scientific coding, but existing systems lack the modality coverage, raw-data isolation, experience accumulation and domain oversight that neural preprocessing requires. We introduce EasyBCI, a two-phase LLM agent that plans and executes preprocessing pipelines for six signal types. A Plan Agent profiles each recording into a text-only Data Fingerprint that never exposes raw data to the model and selects a literature-grounded operator sequence. An Execution Agent generates, runs and self-corrects code until quality criteria are met, while a quality-gated experience system retains validated strategies as reusable skills. A domain expert intervenes at two decision gates, retaining human judgement where undetected error can invalidate downstream analyses. Evalu",
+   "arxiv_url": "https://arxiv.org/abs/2607.29007v2"
+  },
+  {
+   "pid": "2507.14893",
+   "composite": 71.0,
+   "match": 20,
+   "target": "生物质材料科研 agent 多方协作",
+   "abstract": "Abstract:Strong designated verifier signatures are a variant of digital signatures in which only one party - the designated verifier - is able to verify the authenticity of a signature. We propose a new strong designated verifier signature scheme based on (abelian) cryptographic group actions.",
+   "arxiv_url": "https://arxiv.org/abs/2507.14893"
+  }
+ ]
+}

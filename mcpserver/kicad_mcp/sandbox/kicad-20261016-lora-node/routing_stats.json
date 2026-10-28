@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "tool": "routing_stats",
+  "data": {
+    "track_count": 13,
+    "total_length_mm": 89.1515,
+    "min_width_mm": 0.15,
+    "by_layer": {
+      "F.Cu": {
+        "tracks": 10,
+        "length_mm": 70.599,
+        "min_width_mm": 0.15
+      },
+      "In2.Cu": {
+        "tracks": 1,
+        "length_mm": 6.0,
+        "min_width_mm": 0.3
+      },
+      "B.Cu": {
+        "tracks": 2,
+        "length_mm": 12.5525,
+        "min_width_mm": 0.35
+      }
+    },
+    "width_histogram": {
+      "0.15": 1,
+      "0.25": 5,
+      "0.3": 3,
+      "0.35": 1,
+      "0.4": 2,
+      "0.5": 1
+    }
+  }
+}

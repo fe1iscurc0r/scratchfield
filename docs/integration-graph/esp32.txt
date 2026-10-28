@@ -1,0 +1,156 @@
+esp32 依赖图（工单243 任务一/二/三）
+生成日期：2026-10-14 ｜ 基线：本单 PR 的 head（fork 自 main fd27e34124，工单242 台账补记合并点）
+口径：实线 = 代码级 import 关系；虚线 = 仅"口径对齐/复用"，不 import、不改其接口
+本单**未修改任何既有文件**（18 文件全新增）
+
+================================================================================
+1. 注册链 —— 本单**刻意不注册** MCP agent（如实说明）
+================================================================================
+
+  mcpserver/mcp_registry.py::scan_and_register_mcp_agents("mcpserver")
+        │  glob("**/agent-manifest.json")
+        ▼
+  mcpserver/esp32/agent-manifest.json        ◄── **不存在**（本单未创建）
+
+  ⇒ 本单交付的是「库 + CLI」，不是 MCP agent：
+        · 入口一：python -m mcpserver.esp32.dashboard --nodes 50 --failure 0.2
+        · 入口二：from mcpserver.esp32.cluster_sim import simulate, load_config
+    工单 §2 三项任务均未要求 MCP 暴露工具，故不建 manifest
+    （若后续要挂到 mcp_manager，需另立工单补 agent-manifest.json + server 类）。
+
+  ⇒ 结论：对 mcp_manager / mcp_registry / mcp_assembly / mcp/services **零侵入**。
+
+================================================================================
+2. 模块内部 import 图（在仓内 import，实测自 grep + sys.modules 探针）
+================================================================================
+
+  mcpserver/esp32/__init__.py           ◄── **无任何 import**（只有 docstring + __all__ 名单）
+        ⇒ import mcpserver.esp32 不会连带拉入子模块（这也是兼容层不沾 numpy 的前提之一）
+
+  ┌──────────────────────────── dashboard.py ─────────────────────────────┐
+  │  from .cluster_sim import (DEFAULT_RSSI_THRESHOLD_DBM,                │
+  │                            DEFAULT_TX_POWER_DBM, build_clusters,       │
+  │                            cluster_report, generate, normalize_config) │
+  │  from .cluster_sim.config import apply_failure                        │
+  │  from .rlnc import decode_full, encode_random      ◄── 兼容层          │
+  └───────────────────────────────────────────────────────────────────────┘
+        │
+        ├──────────────► cluster_sim/__init__.py  (对外出口)
+        │                     │  from .cluster   …  (Link, Cluster, build_clusters,
+        │                     │                     cluster_report, rssi_links,
+        │                     │                     bfs_hops, unstable_pairs)
+        │                     │  from .config    …  (DEFAULT_*, normalize_config,
+        │                     │                     load_config, simulate, apply_failure)
+        │                     │  from .node      …  (Node, rssi_dbm, path_loss_db, …)
+        │                     └  from .topology  …  (GRID, RANDOM, LORA_DEPLOYMENT,
+        │                                            Topology, generate)
+        │
+        └──────────────► rlnc/  (见 §3)
+
+  cluster_sim 内部依赖（**单向，无环**）：
+
+        node.py            （叶子：只依赖 dataclasses）
+              ▲   ▲   ▲
+              │   │   └────────────────────────────┐
+              │   └──────────────┐                 │
+        topology.py         cluster.py         config.py
+              ▲                                   │  import yaml（PyYAML，唯一第三方）
+              └───────────────────────────────────┘
+
+        · topology.py ──► node.py  （DEFAULT_FREQ_HZ / DEFAULT_PATH_LOSS_EXPONENT /
+                                     DEFAULT_TX_POWER_DBM / Node）
+        · cluster.py  ──► node.py  （同上；cluster 不 import config ⇒ 无环）
+        · config.py   ──► cluster.py, node.py, topology.py（编排三者）
+
+        ⇒ 频道参数（freq_hz / path_loss_exponent）挂在 Topology 而非 Node：
+          信道属性 ≠ 节点属性，避免每个节点各存一份信道口径。
+
+================================================================================
+3. RLNC 兼容层导入链（本单**唯一**跨包依赖；身份契约由测试守死）
+================================================================================
+
+  mcpserver/esp32/rlnc/__init__.py
+        │  from mcpserver.esp32.rlnc.decoder import RlncDecoder, decode_full
+        │  from mcpserver.esp32.rlnc.encoder import (EncodedBlock, RlncEncoder,
+        │                                            encode_random, redundancy_blocks)
+        │  from mcpserver.rf_brain.rlnc import *              ◄── 全量镜像真值源
+        │  from mcpserver.rf_brain.rlnc import __all__ as _REEXPORTED
+        ▼
+  mcpserver/rf_brain/rlnc/__init__.py        ◄── **真值源（唯一实现）**
+        │  只重导出 7 个模块，**不含** apc_mesh_routing（numpy 那支）
+        ├──► .galois       （GF(2^8) 0x11B，生成元 0x03；纯标准库）
+        ├──► .encoder      （系统式分层 RLNC；r = ⌊k×factor⌋）
+        ├──► .decoder      （增量 RREF 高斯消元）
+        ├──► .clustering   （链路可靠度三档 → 冗余率）
+        ├──► .reliability  （EWMAReliability + LossWindow）
+        ├──► .peer_state   （邻居可靠度表）
+        └──► .packetize    （4B 头 + 打包/拆包 + dcp payload 切片）
+
+  ✗ mcpserver/rf_brain/rlnc/apc_mesh_routing.py  ── import numpy ──► **不在上述链上**
+
+  实测（子进程 sys.modules 探针，repo 根为 cwd）：
+        import mcpserver.esp32.rlnc  ⇒  拉入 rf_brain 模块 9 个
+                                        （2 个包初始化 + 上述 7 个）
+                                        numpy 是否被拉入 = **False**
+                                        兼容层 __all__ 长度 = **30**（28 镜像 + 2 新增）
+
+  身份契约（防漂移，结构性而非约定）：
+        tests/test_rlnc.py::test_compat_layer_symbols_are_the_truth_source_objects
+              ── 14 个符号逐一断言 `esp.X is ref.X`（不是拷贝、不是重写）
+        tests/test_rlnc.py::test_compat_layer_mirrors_whole_all_and_adds_only_two
+              ── 断言 set(ref.__all__) ⊆ set(esp.__all__) 且新增恰好 2 个
+        tests/test_rlnc.py::test_compat_layer_import_chain_has_no_heavy_dependency
+              ── 静态解析 __init__ 的 `from .X import` 得镜像表，断言 apc_mesh_routing 缺席
+        tests/test_rlnc.py::test_importing_compat_layer_does_not_pull_numpy
+              ── 子进程实证（上表）
+        ⇒ 任何一边改数学，另一边立刻同步：**公式漂移结构性不可能**。
+
+================================================================================
+4. 运行期数据流（dashboard 一次 build_dashboard() 的全过程）
+================================================================================
+
+  normalize_config(cfg 或 DASHBOARD_BASELINE)
+        ▼
+  generate(topology, n, …)           ◄── cluster_sim/topology.py
+        ▼
+  apply_failure(nodes, rate, seed)   ◄── cluster_sim/config.py
+        ▼
+  cluster_report(nodes, threshold, max_hops, margin, …)
+        │   rssi_links ──► adjacency ──► bfs_hops ──► build_clusters
+        ▼
+  {clusters[]: {id, members, health, head, head_alive, size, alive_members, mean_hops, hops},
+   unstable_pairs[], stats{…, uncovered_alive}}         ◄── 覆盖性自检必须为空
+        ▼
+  取**活成员最多**的簇 → 中继槽位 min(A, n) → 取跳数最近的活成员
+        ▼
+  encode_random(source_blocks, factor=…)  ◄── esp32/rlnc（→ rf_brain/rlnc 真值源）
+        ▼
+  每块沿 h 跳生存率 s^h 抽样 → 收到的块
+        ▼
+  decode_full(blocks, k=…)  ⇄  与源块**逐字节比对**  ⇒ 满秩且一致 = 重建成功
+        ▼
+  dashboard.json（UTF-8 + LF，无时间戳 ⇒ 同参数同结果）
+
+  外部数据源：**无**。拓扑为程序生成（grid/random/lora_deployment，后者是合成样例）；
+  不使用 LoRaCanary 真实布点表（本仓无该表，见交付报告 §9 第 6 项）。
+
+================================================================================
+5. 与工单242 线的唯一接触点（口径对齐，非代码依赖）
+================================================================================
+
+  mcpserver/rf_workflow/lora_phy.py::FSPL_CONSTANT_DB = 147.55
+        ┄┄┄┄┄ 口径对齐（不 import、不改接口） ┄┄┄┄┄
+  mcpserver/esp32/cluster_sim/node.py::FSPL_CONSTANT_DB = 147.55
+
+  ⇒ 自由空间路损常数仓内**同源**，避免两套口径。
+    但 242 算的是「链路预算 / ToA / FFT 占用带宽」（RF 工程），
+    243 算的是「RSSI 可达图上的分簇与弹性」（网络层），两者**不互相 import**。
+
+================================================================================
+6. 禁区核对（工单 §3.5）
+================================================================================
+
+  mcp_assembly / mcp/services 路由健康检查   ── 未触碰（0 文件改动）
+  core/ 的 stdlib 强约束模块                 ── 未触碰（0 文件改动）
+  coupled/ 已结案桌宠项目                    ── 未触碰（0 文件改动）
+  .hermes/config.yaml 任何 LLM 路由          ── 未触碰（0 文件改动）

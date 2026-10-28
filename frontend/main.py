@@ -14,7 +14,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def start_server():
-    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+    # 绑 "" 等于绑所有网卡：这个壳只是给本机 webview 窗口喂 dist/ 静态文件
+    # （下面 url= 用的就是 localhost），局域网里任何人都能把它当文件浏览器读。
+    with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
         httpd.serve_forever()
 
 

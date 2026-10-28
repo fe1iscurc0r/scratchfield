@@ -1,0 +1,35 @@
+{
+ "meta": {
+  "source": "RESCORE-V3",
+  "theme": "esp32",
+  "count": 3,
+  "ts": "2026-10-11",
+  "note": "灵感素材 - 主题线零碎，留文档索引"
+ },
+ "items": [
+  {
+   "pid": "2608.04264",
+   "composite": 80.0,
+   "match": 40,
+   "target": "科研 agent 的“高层实验意图（假设/方案 DSL）↔ 实际执行脚本/仪器指令”双层级可观测架构，让 agent 能在同一调试会话中既检查实验计划层逻辑，又检查底层执行层（如 PCR 程序、光谱采集代码",
+   "abstract": "Abstract:Emfrp is a functional reactive programming (FRP) language designed for small-scale embedded systems. Time-varying values are the primary abstraction mechanism in FRP and enable concise descriptions of reactive behavior. In practice, however, Emfrp programs are compiled into C and combined with platform-dependent input/output components written in C or C++. Consequently, developers must debug the resulting mixed C/C++ program using conventional debuggers such as GDB, even though the application logic is written in Emfrp. This situation creates an abstraction gap between the source-level FRP program and the executable system. This paper presents a multi-mode debugging framework for Emfrp-based embedded applications. The framework supports debugging at the level of Emfrp abstractions while also allowing inspection of platform-specific C/C++ I/O code. Our approach uses a source code mapping technique that relates Emfrp constructs to corresponding locations in the compiled program.",
+   "arxiv_url": "https://arxiv.org/abs/2608.04264"
+  },
+  {
+   "pid": "2608.16120v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "科研 agent 的文献/实验探索策略",
+   "abstract": "Abstract:Largest Lyapunov exponents (LLEs) quantify exponential sensitivity, but data-driven estimates are often obtained from finite-precision trajectories. We show that increasing the length of a single reduced-precision chaotic record can eventually degrade a forecast-error LLE estimate. Using the logistic map at r=4, an ESP32 single-precision trajectory is reproduced bit-for-bit by NumPy float32. Across 10,000 random float32 initial conditions, every trajectory reaches an exact recurrence before iteration 7612. For one long float32 record, the estimated LLE changes from 0.6853 at N=15,000 to 0.1827 at N=20,000 and approximately zero at N=30,000 as exact train-test histories saturate. At N=100,000, the long float32 record gives 0.0016, whereas independently restarted length-100 trajectories give 0.6917; matched float64 controls remain near ln(2)=0.6931. The collapse is reproduced for 28 representative initial conditions, and its onset is strongly correlated with the recurrence scale",
+   "arxiv_url": "https://arxiv.org/abs/2608.16120v1"
+  },
+  {
+   "pid": "2609.01683v1",
+   "composite": 74.0,
+   "match": 20,
+   "target": "ESP32/LoRa 传感器网络上的环境感知模型在线校准",
+   "abstract": "Abstract:Vision models deployed on microcontrollers (MCUs) are quantized to integer-only arithmetic and run in inference-only runtimes that do not carry the machinery backpropagation needs: the standard tool for adapting a model to the distribution shift (sensor noise, blur, lighting) it meets in the field. Existing forward-only test-time adaptation (TTA) methods either run only on server- or edge-GPU-class models (not true microcontroller integer execution), or require the batch-normalization (BN) layers that integer deployment fuses away. We present a forward-only TTA method that operates on deployed, BN-folded, integer-only convolutional networks. The key observation is that fusing BN into the preceding convolution, a mandatory step for integer inference, destroys the statistics that normalization-based adaptation relies on. We restore adaptation by re-normalizing each folded convolution&#39;s per-channel output to its clean training statistics, using only forward-pass estimates. Th",
+   "arxiv_url": "https://arxiv.org/abs/2609.01683v1"
+  }
+ ]
+}

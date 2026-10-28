@@ -9,7 +9,7 @@
       "auto_start": false,
       "description": {
         "$i18n": "entry.add_app.description",
-        "default": "注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（支持 .exe、.lnk 快捷方式等），aliases 是可选的别名列表方便识别。"
+        "default": "注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（必须真实存在，支持 .exe、.lnk、.url、.bat/.cmd），aliases 是可选的别名列表方便识别。"
       },
       "event_key": "app_launcher.add_app",
       "event_type": "plugin_entry",
@@ -29,7 +29,7 @@
           "autostart": {
             "description": {
               "$i18n": "entry.add_app.param.autostart",
-              "default": "是否设置开机自启（可选，默认 false，仅支持 .exe 文件）"
+              "default": "是否申请开机自启（可选，默认 false，仅支持 .exe）。不会直接写注册表：返回一次性确认令牌，需主人在界面确认后由 set_autostart 落盘。"
             },
             "type": "boolean"
           },
@@ -490,7 +490,7 @@
       "auto_start": false,
       "description": {
         "$i18n": "entry.set_autostart.description",
-        "default": "为已注册的软件设置开机自启功能。通过修改 Windows 注册表实现，支持开启或关闭。猫娘可以通过此功能帮主人设置软件开机自动启动。"
+        "default": "为已注册的软件设置开机自启（Windows 注册表 HKCU\\...\\Run）。开启是跨重启的持久化写入，必须由主人显式确认：未确认时只返回一次性确认令牌，不改动注册表。此入口不对猫娘的自动路由开放。"
       },
       "event_key": "app_launcher.set_autostart",
       "event_type": "plugin_entry",
@@ -503,6 +503,20 @@
               "default": "要设置的软件 ID"
             },
             "type": "string"
+          },
+          "confirmation_token": {
+            "description": {
+              "$i18n": "entry.set_autostart.param.confirmation_token",
+              "default": "上一次调用返回的一次性确认令牌（5 分钟有效，用过即废）"
+            },
+            "type": "string"
+          },
+          "confirmed": {
+            "description": {
+              "$i18n": "entry.set_autostart.param.confirmed",
+              "default": "主人已在界面确认（开启自启时必须为 true，并带上一次性确认令牌）"
+            },
+            "type": "boolean"
           },
           "enabled": {
             "description": {
@@ -540,7 +554,9 @@
         ],
         "type": "object"
       },
-      "metadata": {},
+      "metadata": {
+        "agent_auto": false
+      },
       "model_validate": true,
       "name": {
         "$i18n": "entry.set_autostart.name",
@@ -653,7 +669,7 @@
       "auto_start": false,
       "description": {
         "$i18n": "entry.add_app.description",
-        "default": "注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（支持 .exe、.lnk 快捷方式等），aliases 是可选的别名列表方便识别。"
+        "default": "注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（必须真实存在，支持 .exe、.lnk、.url、.bat/.cmd），aliases 是可选的别名列表方便识别。"
       },
       "dynamic": false,
       "enabled": true,
@@ -675,7 +691,7 @@
           "autostart": {
             "description": {
               "$i18n": "entry.add_app.param.autostart",
-              "default": "是否设置开机自启（可选，默认 false，仅支持 .exe 文件）"
+              "default": "是否申请开机自启（可选，默认 false，仅支持 .exe）。不会直接写注册表：返回一次性确认令牌，需主人在界面确认后由 set_autostart 落盘。"
             },
             "type": "boolean"
           },
@@ -1204,7 +1220,7 @@
       "auto_start": false,
       "description": {
         "$i18n": "entry.set_autostart.description",
-        "default": "为已注册的软件设置开机自启功能。通过修改 Windows 注册表实现，支持开启或关闭。猫娘可以通过此功能帮主人设置软件开机自动启动。"
+        "default": "为已注册的软件设置开机自启（Windows 注册表 HKCU\\...\\Run）。开启是跨重启的持久化写入，必须由主人显式确认：未确认时只返回一次性确认令牌，不改动注册表。此入口不对猫娘的自动路由开放。"
       },
       "dynamic": false,
       "enabled": true,
@@ -1219,6 +1235,20 @@
               "default": "要设置的软件 ID"
             },
             "type": "string"
+          },
+          "confirmation_token": {
+            "description": {
+              "$i18n": "entry.set_autostart.param.confirmation_token",
+              "default": "上一次调用返回的一次性确认令牌（5 分钟有效，用过即废）"
+            },
+            "type": "string"
+          },
+          "confirmed": {
+            "description": {
+              "$i18n": "entry.set_autostart.param.confirmed",
+              "default": "主人已在界面确认（开启自启时必须为 true，并带上一次性确认令牌）"
+            },
+            "type": "boolean"
           },
           "enabled": {
             "description": {
@@ -1256,7 +1286,9 @@
         ],
         "type": "object"
       },
-      "metadata": {},
+      "metadata": {
+        "agent_auto": false
+      },
       "model_validate": true,
       "name": {
         "$i18n": "entry.set_autostart.name",
@@ -1416,7 +1448,7 @@
       "auto_start": false,
       "description": {
         "$i18n": "entry.add_app.description",
-        "default": "注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（支持 .exe、.lnk 快捷方式等），aliases 是可选的别名列表方便识别。"
+        "default": "注册一个新的软件到启动器。name 是软件显示名称，path 是完整路径（必须真实存在，支持 .exe、.lnk、.url、.bat/.cmd），aliases 是可选的别名列表方便识别。"
       },
       "dynamic": false,
       "enabled": true,
@@ -1438,7 +1470,7 @@
           "autostart": {
             "description": {
               "$i18n": "entry.add_app.param.autostart",
-              "default": "是否设置开机自启（可选，默认 false，仅支持 .exe 文件）"
+              "default": "是否申请开机自启（可选，默认 false，仅支持 .exe）。不会直接写注册表：返回一次性确认令牌，需主人在界面确认后由 set_autostart 落盘。"
             },
             "type": "boolean"
           },
@@ -1967,7 +1999,7 @@
       "auto_start": false,
       "description": {
         "$i18n": "entry.set_autostart.description",
-        "default": "为已注册的软件设置开机自启功能。通过修改 Windows 注册表实现，支持开启或关闭。猫娘可以通过此功能帮主人设置软件开机自动启动。"
+        "default": "为已注册的软件设置开机自启（Windows 注册表 HKCU\\...\\Run）。开启是跨重启的持久化写入，必须由主人显式确认：未确认时只返回一次性确认令牌，不改动注册表。此入口不对猫娘的自动路由开放。"
       },
       "dynamic": false,
       "enabled": true,
@@ -1982,6 +2014,20 @@
               "default": "要设置的软件 ID"
             },
             "type": "string"
+          },
+          "confirmation_token": {
+            "description": {
+              "$i18n": "entry.set_autostart.param.confirmation_token",
+              "default": "上一次调用返回的一次性确认令牌（5 分钟有效，用过即废）"
+            },
+            "type": "string"
+          },
+          "confirmed": {
+            "description": {
+              "$i18n": "entry.set_autostart.param.confirmed",
+              "default": "主人已在界面确认（开启自启时必须为 true，并带上一次性确认令牌）"
+            },
+            "type": "boolean"
           },
           "enabled": {
             "description": {
@@ -2019,7 +2065,9 @@
         ],
         "type": "object"
       },
-      "metadata": {},
+      "metadata": {
+        "agent_auto": false
+      },
       "model_validate": true,
       "name": {
         "$i18n": "entry.set_autostart.name",
@@ -2126,7 +2174,7 @@
   },
   "schema_version": 4,
   "sdk_version": "0.1.0",
-  "source_bytes": 208794,
+  "source_bytes": 234233,
   "source_files": [
     "README.md",
     "__init__.py",
@@ -2142,5 +2190,5 @@
     "plugin.toml",
     "static/index.html"
   ],
-  "source_sha256": "e971af51468aab864784e495ec2b9ce3ee1210322e61ebac2a24d1be0fcae24e"
+  "source_sha256": "af53fc24b82783087a82aa36108d91a818fa9b9c17e65dca3f22ab4700d970ca"
 }

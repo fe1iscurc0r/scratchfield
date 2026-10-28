@@ -1,0 +1,106 @@
+{
+  "name": "agentic_inventory",
+  "displayName": "agent 资产盘存与风险姿态（多信号置信度 + 指纹 + 注册表对账）",
+  "version": "0.1.0",
+  "description": "把本仓的 agent 资产盘成一张带置信度/证据/风险姿态/指纹的表。方法借自 karmine05/agentic-detector（MIT，Go 写的 osquery 扩展）的 ai_tools 表设计：多信号而非关键词（Name matching alone never creates a row）、置信度分级与 evidence 令牌、静态风险姿态（remote_fetch_exec / unpinned_dependency / cleartext_endpoint / secret_var_name_in_docs / injection_markers / hidden_unicode）、sha256 + launch_hash 指纹（可跨时间 diff 发现签名被改）。另加本仓特有的一项：注册表对账（entryPoint 能否静态落地、声明与派发表是否一致）。",
+  "author": "沈遥",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.agentic_inventory.server",
+    "class": "AgenticInventoryBridge"
+  },
+  "capabilities": {
+    "invocationCommands": [
+      {
+        "command": "inventory",
+        "description": "跑一次完整盘存，返回行 + 汇总（按类型/档位/风险令牌计数）。type_filter 只保留某类行。⚠️ 只读：不 import 被盘对象（用 AST 静态读）、不执行任何二进制、不建立任何连接。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "repo_root": {"type": "string", "description": "仓根，缺省为本仓"},
+            "type_filter": {"type": "string", "description": "mcp_agent / instruction_file / registry_gap"}
+          }
+        }
+      },
+      {
+        "command": "registry_gaps",
+        "description": "只出注册表对账缺口：entryPoint 静态不可解析 / 类确定没有 handle_handoff / 声明与派发表不一致。⚠️ 判不出的一律标 uncheckable、**不**算缺口（避免假阳性）。",
+        "parameters": {
+          "type": "object",
+          "properties": {"repo_root": {"type": "string"}}
+        }
+      },
+      {
+        "command": "risk_report",
+        "description": "只出带风险标记的行，并附每个令牌的解释。⚠️ secret_var_name_in_docs **只报变量名、绝不报值**（且只在键位取名，避免把值当名字）。",
+        "parameters": {
+          "type": "object",
+          "properties": {"repo_root": {"type": "string"}}
+        }
+      },
+      {
+        "command": "snapshot",
+        "description": "生成可 diff 的快照（键为 type:name → sha256/launch_hash/置信度/标记）。存下来即可跨时间比对。",
+        "parameters": {
+          "type": "object",
+          "properties": {"repo_root": {"type": "string"}}
+        }
+      },
+      {
+        "command": "diff",
+        "description": "两份快照相减：新增 / 消失 / 指纹变化 / **启动向量变化**（launch_hash 变了 = entryPoint 被改，rug-pull 候选）。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "before": {"type": "string", "description": "旧快照 JSON（snapshot 字段）"},
+            "after": {"type": "string", "description": "新快照 JSON"}
+          },
+          "required": ["before", "after"]
+        }
+      },
+      {
+        "command": "column_spec",
+        "description": "表结构自述：列 / 行类型 / 置信度档位 / 信号权重，以及**与上游的差异说明**（我们刻意去掉了 running/pid/port 及其原因）。",
+        "parameters": {"type": "object", "properties": {}}
+      },
+      {
+        "command": "doctor",
+        "description": "能力与**边界**自述：不做主机级扫描、不 import 被盘对象、不执行不连接、不报密钥的值；以及与 244g 守卫的划界。",
+        "parameters": {"type": "object", "properties": {}}
+      },
+      {
+        "command": "list_tools",
+        "description": "自述白名单。",
+        "parameters": {"type": "object", "properties": {}}
+      }
+    ]
+  },
+  "runtime": {
+    "workspace_hint": "**不写任何文件**：全部工具是只读扫描 + 内存内计算，输入即路径、输出即 JSON。快照要留存由调用方自己重定向。",
+    "license_note": "方法来源 karmine05/agentic-detector = **MIT**（Go 写的 osquery 扩展，13★）。本仓**不 vendor** 任何代码，只借鉴其表设计与两条方法论（多信号置信度；静态风险姿态 + detection-only），并在 README 写清差异。",
+    "risk_note": "tier 取 read-only：不写文件、不起子进程、不联网、不 import 被盘对象（用 AST 静态读，避免依赖与副作用）。⚠️ 风险扫描**只读文本**：不读任何配置的「值」，因此不会有「审计工具自己泄漏密钥」的问题。",
+    "deps_note": "零第三方依赖（只用标准库：ast/hashlib/json/pathlib/re 等）。"
+  },
+  "classification": {
+    "families": ["instrument"],
+    "domains": ["security"],
+    "tier": "read-only",
+    "origin": {
+      "kind": "bridge"
+    }
+  },
+  "requires": {
+    "env_optional": [],
+    "external_binaries": [],
+    "external_services": [],
+    "optional_system": [],
+    "optional_python": []
+  },
+  "capability_pairs": [
+    ["scan", "agent_assets"],
+    ["audit", "registry_consistency"],
+    ["detect", "supply_chain_risk"],
+    ["compare", "asset_snapshot_diff"],
+    ["list", "instruction_surfaces"]
+  ]
+}

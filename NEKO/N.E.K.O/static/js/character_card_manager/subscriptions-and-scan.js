@@ -37,6 +37,46 @@ function safeAuthorName(item) {
     return String(raw) || (window.t ? window.t('steam.unknownAuthor') : '未知作者');
 }
 
+const WORKSHOP_DEFAULT_ICON = '../static/icons/Steam_icon_logo.png';
+
+// 工坊条目的图片地址来自 Steam 元数据，属于外部不可信内容。
+// 只接受 https、回环 http 与「和页面同源」的地址（相对路径 /api/steam/proxy-image?... 走后者），
+// 其余协议（javascript: / data: / blob: / 协议相对 //attacker）一律回落默认图标。
+// 返回值仍是原始字符串（不改写成绝对 URL），转义交给调用点的 escapeHtml。
+function safeWorkshopImageUrl(rawUrl, fallback = WORKSHOP_DEFAULT_ICON) {
+    const candidate = String(rawUrl ?? '').trim();
+    if (!candidate) return fallback;
+    // URL 解析器会吞掉控制字符（java\tscript: 这类绕过），这里直接拒
+    if (/[\u0000-\u001f\u007f\u0080-\u009f]/.test(candidate)) return fallback;
+
+    let base, parsed;
+    try {
+        base = new URL(document.baseURI || window.location.href);
+        parsed = new URL(candidate, base.href);
+    } catch (_) {
+        return fallback;
+    }
+
+    if (parsed.protocol === 'https:') return candidate;
+
+    const loopbackHosts = ['localhost', '127.0.0.1', '::1', '[::1]'];
+    const isLoopback = parsed.protocol === 'http:' && loopbackHosts.includes(parsed.hostname);
+    const sameOrigin = parsed.protocol === base.protocol
+        && parsed.hostname === base.hostname
+        && parsed.port === base.port;
+
+    if (isLoopback || sameOrigin) return candidate;
+    return fallback;
+}
+
+// 下载进度只允许 0~100 的数字：既能挡 style 属性注入，也兼容后端把百分比传成字符串
+// （原写法在字符串上调 toFixed() 会抛 TypeError，整页卡片渲染中断）。
+function safeProgressWidth(percentage) {
+    const value = Number(percentage);
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    return value > 100 ? 100 : value;
+}
+
 // 加载订阅物品
 function loadSubscriptions() {
     const subscriptionsList = document.getElementById('subscriptions-list');
@@ -52,7 +92,7 @@ function loadSubscriptions() {
         })
         .then(data => {
             if (!data.success) {
-                subscriptionsList.innerHTML = `<div class="empty-state"><p>${window.t ? window.t('steam.fetchFailed') : 'Failed to fetch subscribed items'}: ${data.error || (window.t ? window.t('common.unknownError') : 'Unknown error')}</p></div>`;
+                subscriptionsList.innerHTML = `<div class="empty-state"><p>${window.t ? window.t('steam.fetchFailed') : 'Failed to fetch subscribed items'}: ${escapeHtml(data.error || (window.t ? window.t('common.unknownError') : 'Unknown error'))}</p></div>`;
                 // 如果有消息提示，显示给用户
                 if (data.message) {
                     showMessage(data.message, 'error');
@@ -104,7 +144,7 @@ function loadSubscriptions() {
         })
         .catch(error => {
             console.error('获取订阅物品失败:', error);
-            subscriptionsList.innerHTML = `<div class="empty-state"><p>${window.t ? window.t('steam.fetchFailed') : '获取订阅物品失败'}: ${error.message}</p></div>`;
+            subscriptionsList.innerHTML = `<div class="empty-state"><p>${window.t ? window.t('steam.fetchFailed') : '获取订阅物品失败'}: ${escapeHtml(error.message)}</p></div>`;
             showMessage(window.t ? window.t('steam.cannotConnectToServer') : '无法连接到服务器，请稍后重试', 'error');
         });
 }
@@ -112,6 +152,7 @@ function loadSubscriptions() {
 // 渲染当前页的订阅物品
 function renderSubscriptionsPage() {
     const subscriptionsList = document.getElementById('subscriptions-list');
+    bindWorkshopCardActions(subscriptionsList);
 
     if (allSubscriptions.length === 0) {
         subscriptionsList.innerHTML = `<div class="empty-state"><p>${window.t ? window.t('steam.noSubscriptions') : 'You haven\'t subscribed to any workshop items yet'}</p></div>`;
@@ -136,7 +177,7 @@ function renderSubscriptionsPage() {
             subscribedDate: item.timeAdded ? new Date(item.timeAdded * 1000).toLocaleDateString() : (window.t ? window.t('steam.unknownDate') : '未知日期'),
             lastUpdated: item.timeUpdated ? new Date(item.timeUpdated * 1000).toLocaleDateString() : (window.t ? window.t('steam.unknownDate') : '未知日期'),
             size: formatFileSize(item.fileSizeOnDisk || item.fileSize || 0),
-            previewUrl: encodeURI(item.previewUrl || item.previewImageUrl || '../static/icons/Steam_icon_logo.png'),
+            previewUrl: safeWorkshopImageUrl(item.previewUrl || item.previewImageUrl),
             state: item.state || {},
             // 添加安装路径信息
             installedFolder: item.installedFolder || '',
@@ -165,7 +206,7 @@ function renderSubscriptionsPage() {
         return `
             <div class="workshop-card">
                 <div class="card-header">
-                    <img src="${formattedItem.previewUrl}" alt="${formattedItem.name}" class="card-image" onerror="this.src='../static/icons/Steam_icon_logo.png'">
+                    <img src="${escapeHtml(formattedItem.previewUrl)}" alt="${formattedItem.name}" class="card-image" onerror="this.src='../static/icons/Steam_icon_logo.png'">
                     <div class="status-badge ${statusClass}">
                         <svg class="badge-bg" viewBox="-5 -5 115 115">
                             <path d="M6.104,38.038 C1.841,45.421 1.841,54.579 6.104,61.962 L18.785,83.923 C23.048,91.306 30.979,95.885 39.505,95.885 L64.865,95.885 C73.391,95.885 81.322,91.306 85.585,83.923 L98.266,61.962 C102.529,54.579 102.529,45.421 98.266,38.038 L85.585,16.077 C81.322,8.694 73.391,4.115 64.865,4.115 L39.505,4.115 C30.979,4.115 23.048,8.694 18.785,16.077 Z"
@@ -173,7 +214,7 @@ function renderSubscriptionsPage() {
                                   stroke="#dcf4ff"
                                   stroke-width="8" />
                         </svg>
-                        <div class="badge-text">${statusText}</div>
+                        <div class="badge-text">${escapeHtml(statusText)}</div>
                     </div>
                 </div>
                 <div class="card-content">
@@ -183,31 +224,55 @@ function renderSubscriptionsPage() {
                         <span>${window.t ? window.t('steam.author') : '作者:'} ${formattedItem.author}</span>
                     </div>
                     <div class="card-info-grid">
-                        <div class="card-info-item"><span class="info-label">${window.t ? window.t('steam.subscribed_date') : '订阅日期:'}</span> <span class="info-value">${formattedItem.subscribedDate}</span></div>
-                        <div class="card-info-item"><span class="info-label">${window.t ? window.t('steam.last_updated') : '上次更新:'}</span> <span class="info-value">${formattedItem.lastUpdated}</span></div>
-                        <div class="card-info-item"><span class="info-label">${window.t ? window.t('steam.size') : '大小:'}</span> <span class="info-value">${formattedItem.size}</span></div>
+                        <div class="card-info-item"><span class="info-label">${window.t ? window.t('steam.subscribed_date') : '订阅日期:'}</span> <span class="info-value">${escapeHtml(formattedItem.subscribedDate)}</span></div>
+                        <div class="card-info-item"><span class="info-label">${window.t ? window.t('steam.last_updated') : '上次更新:'}</span> <span class="info-value">${escapeHtml(formattedItem.lastUpdated)}</span></div>
+                        <div class="card-info-item"><span class="info-label">${window.t ? window.t('steam.size') : '大小:'}</span> <span class="info-value">${escapeHtml(formattedItem.size)}</span></div>
                     </div>
                     ${formattedItem.state && formattedItem.state.downloading && item.downloadProgress ?
                 `<div class="download-progress">
                             <div class="progress-bar">
-                                <div class="progress-fill" style="width: ${item.downloadProgress.percentage}%">
-                                    ${item.downloadProgress.percentage.toFixed(1)}%
+                                <div class="progress-fill" style="width: ${safeProgressWidth(item.downloadProgress.percentage)}%">
+                                    ${safeProgressWidth(item.downloadProgress.percentage).toFixed(1)}%
                                 </div>
                             </div>
                         </div>` : ''
             }
                     <div class="card-actions">
                         ${formattedItem.voiceReferenceAvailable ? `
-                        <button class="button button-primary" onclick="openWorkshopVoiceClone('${formattedItem.id}')" title="${formattedItem.voiceReferenceDisplayName || ''}" style="margin-bottom: 8px;">
+                        <button class="button button-primary" type="button" data-workshop-action="voice-clone" data-item-id="${escapeHtml(formattedItem.id)}" title="${formattedItem.voiceReferenceDisplayName || ''}" style="margin-bottom: 8px;">
                             ${window.t ? window.t('steam.openVoiceClone') : '在语音克隆页打开'}
                         </button>` : ''}
-                        <button class="button button-primary" data-item-id="${formattedItem.id}" data-item-name="${formattedItem.name}" onclick="addWorkshopCharacterCardFromSubscription(this)" style="margin-bottom: 8px;">${window.t ? window.t('steam.workshopAddCharacterCard') : '加入角色卡'}</button>
-                        <button class="button button-danger" data-item-id="${formattedItem.id}" data-item-name="${formattedItem.name}" onclick="unsubscribeItem(this.dataset.itemId, this.dataset.itemName)">${window.t ? window.t('steam.unsubscribe') : '取消订阅'}</button>
+                        <button class="button button-primary" type="button" data-workshop-action="add-card" data-item-id="${escapeHtml(formattedItem.id)}" data-item-name="${formattedItem.name}" style="margin-bottom: 8px;">${window.t ? window.t('steam.workshopAddCharacterCard') : '加入角色卡'}</button>
+                        <button class="button button-danger" type="button" data-workshop-action="unsubscribe" data-item-id="${escapeHtml(formattedItem.id)}" data-item-name="${formattedItem.name}">${window.t ? window.t('steam.unsubscribe') : '取消订阅'}</button>
                     </div>
                 </div>
             </div>
         `;
     }).join('');
+}
+
+// 卡片按钮走事件委托：工坊字段只留在 data-* 属性里，不再拼进 onclick 的 JS 代码。
+// 监听挂在容器上，innerHTML 每次重渲染都不需要重新绑定，也不会因为属性值破坏而失配。
+function bindWorkshopCardActions(subscriptionsList) {
+    if (!subscriptionsList || subscriptionsList.dataset.workshopActionBound === '1') return;
+    subscriptionsList.dataset.workshopActionBound = '1';
+
+    subscriptionsList.addEventListener('click', (event) => {
+        const target = event.target;
+        const button = target && typeof target.closest === 'function'
+            ? target.closest('button[data-workshop-action]')
+            : null;
+        if (!button || !subscriptionsList.contains(button)) return;
+
+        const { workshopAction, itemId, itemName } = button.dataset;
+        if (workshopAction === 'voice-clone') {
+            openWorkshopVoiceClone(itemId);
+        } else if (workshopAction === 'add-card') {
+            addWorkshopCharacterCardFromSubscription(button);
+        } else if (workshopAction === 'unsubscribe') {
+            unsubscribeItem(itemId, itemName);
+        }
+    });
 }
 
 function formatWorkshopCharacterNameList(names) {
@@ -506,7 +571,7 @@ function viewItemDetails(itemId) {
     showMessage(window.t ? window.t('steam.loadingItemDetailsById', { id: itemId }) : `正在加载物品ID: ${itemId} 的详细信息...`, 'success');
 
     // 调用后端API获取物品详情
-    fetch(`/api/steam/workshop/item/${itemId}`)
+    fetch(`/api/steam/workshop/item/${encodeURIComponent(itemId)}`)
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -522,13 +587,15 @@ function viewItemDetails(itemId) {
             const item = data.item;
             const formattedItem = {
                 id: item.publishedFileId.toString(),
-                name: item.title,
+                // 详情里 name 有一个 textContent 出口（modalTitle），所以存原文；
+                // 进 HTML 字符串的地方统一用下面的 nameHtml 转义。
+                name: String(item.title || `${window.t ? window.t('steam.unknownItem') : '未知物品'}_${String(item.publishedFileId)}`),
                 author: escapeHtml(safeAuthorName(item)),
                 rawAuthor: safeAuthorName(item),
                 subscribedDate: new Date(item.timeAdded * 1000).toLocaleDateString(),
                 lastUpdated: new Date(item.timeUpdated * 1000).toLocaleDateString(),
                 size: formatFileSize(item.fileSize),
-                previewUrl: item.previewUrl || item.previewImageUrl || '../static/icons/Steam_icon_logo.png',
+                previewUrl: safeWorkshopImageUrl(item.previewUrl || item.previewImageUrl),
                 description: escapeHtml(item.description || (window.t ? window.t('steam.noDescription') : '暂无描述')),
                 downloadCount: 'N/A',
                 rating: 'N/A',
@@ -550,13 +617,17 @@ function viewItemDetails(itemId) {
 
             // 获取作者头像（使用首字母作为占位符）
             const authorInitial = escapeHtml(String(formattedItem.rawAuthor).substring(0, 2).toUpperCase());
+            // 进 HTML 字符串的工坊字段一律在此转义：属性都是双引号包裹，
+            // escapeHtml 覆盖 " 后无法逃出属性；URL 的协议另由 safeWorkshopImageUrl 把关。
+            const nameHtml = escapeHtml(formattedItem.name);
+            const previewUrlHtml = escapeHtml(formattedItem.previewUrl);
 
             // 更新模态框内容
             document.getElementById('modalTitle').textContent = formattedItem.name;
 
             const detailContent = document.getElementById('itemDetailContent');
             detailContent.innerHTML = `
-            <img src="${formattedItem.previewUrl}" alt="${formattedItem.name}" class="item-preview-large" onerror="this.src='../static/icons/Steam_icon_logo.png'">
+            <img src="${previewUrlHtml}" alt="${nameHtml}" class="item-preview-large" onerror="this.src='${WORKSHOP_DEFAULT_ICON}'">
 
             <div class="item-info-grid">
                 <p class="item-info-item">
@@ -566,20 +637,20 @@ function viewItemDetails(itemId) {
                         <span>${formattedItem.author}</span>
                     </div>
                 </p>
-                <p class="item-info-item"><span class="item-info-label">${window.t ? window.t('steam.subscribed_date') : '订阅日期:'}</span> ${formattedItem.subscribedDate}</p>
-                <p class="item-info-item"><span class="item-info-label">${window.t ? window.t('steam.last_updated') : '上次更新:'}</span> ${formattedItem.lastUpdated}</p>
-                <p class="item-info-item"><span class="item-info-label">${window.t ? window.t('steam.size') : '大小:'}</span> ${formattedItem.size}</p>
+                <p class="item-info-item"><span class="item-info-label">${window.t ? window.t('steam.subscribed_date') : '订阅日期:'}</span> ${escapeHtml(formattedItem.subscribedDate)}</p>
+                <p class="item-info-item"><span class="item-info-label">${window.t ? window.t('steam.last_updated') : '上次更新:'}</span> ${escapeHtml(formattedItem.lastUpdated)}</p>
+                <p class="item-info-item"><span class="item-info-label">${window.t ? window.t('steam.size') : '大小:'}</span> ${escapeHtml(formattedItem.size)}</p>
                 <p class="item-info-item">
                     <span class="item-info-label">${window.t ? window.t('steam.status_label') : '状态:'}</span>
-                    <span class="status-badge ${statusClass}">${statusText}</span>
+                    <span class="status-badge ${statusClass}">${escapeHtml(statusText)}</span>
                 </p>
                 <p class="item-info-item"><span class="item-info-label">${window.t ? window.t('steam.download_count') : '下载次数:'}</span> ${formattedItem.downloadCount}</p>
                 ${formattedItem.state && formattedItem.state.downloading && item.downloadProgress ?
                     `<p class="item-info-item" style="grid-column: span 2;">
                         <div class="download-progress">
                             <div class="progress-bar">
-                                <div class="progress-fill" style="width: ${item.downloadProgress.percentage}%">
-                                    ${item.downloadProgress.percentage.toFixed(1)}%
+                                <div class="progress-fill" style="width: ${safeProgressWidth(item.downloadProgress.percentage)}%">
+                                    ${safeProgressWidth(item.downloadProgress.percentage).toFixed(1)}%
                                 </div>
                             </div>
                         </div>
@@ -591,7 +662,7 @@ function viewItemDetails(itemId) {
                 <h4>${window.t ? window.t('steam.tags') : '标签'}</h4>
                 <div class="tags-container">
                     ${formattedItem.tags.map(tag => `
-                        <div class="tag">${tag}</div>
+                        <div class="tag">${escapeHtml(tag)}</div>
                     `).join('')}
                 </div>
             </div>

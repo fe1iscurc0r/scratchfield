@@ -119,6 +119,31 @@
 
     // ======================== 虚拟引用（兼容 response_discarded 清理逻辑） ========================
 
+    // The renderer understands exactly these, and the React message schema
+    // validates against the same set — a block outside it is dropped by
+    // validation and takes its whole message with it.
+    var STRUCTURED_BLOCK_TYPES = ['text', 'image', 'link', 'status', 'buttons', 'html_card'];
+
+    function structuredBlocksFrom(list) {
+        // Shared by both structured entry points. Checking only that `type` is
+        // a string let '' and unknown values through, which routes the message
+        // down the structured branch — skipping ordinary text handling — to
+        // render nothing (CodeRabbit). Required fields are checked too, since a
+        // block that survives here but fails the schema costs the message.
+        if (!Array.isArray(list)) return [];
+        return list.filter(function (block) {
+            if (!block || typeof block !== 'object') return false;
+            if (STRUCTURED_BLOCK_TYPES.indexOf(block.type) === -1) return false;
+            if (block.type === 'image') {
+                return typeof block.url === 'string' && block.url.trim() !== '';
+            }
+            if (block.type === 'text') {
+                return typeof block.text === 'string';
+            }
+            return true;
+        }).map(function (block) { return Object.assign({}, block); });
+    }
+
     function createVirtualBubbleRef(messageId) {
         return {
             dataset: { reactChatMessageId: messageId },
@@ -359,8 +384,50 @@
     // ======================== createGeminiBubble（覆盖） ========================
 
     // ---- host 未就绪时的待重发队列 ----
+    // Per-source caps, not one shared 50.
+    //
+    // Assistant output and plugin/system posts queue here together while the
+    // React host mounts. Under a single cap, evicting the oldest let a burst
+    // of plugin pushes silently delete an assistant message that had been
+    // waiting -- output the user would simply never see (Codex P2).
+    //
+    // This is the same shape, and the same answer, as the staged-image quotas
+    // on the Python side: a shared budget has no correct eviction policy when
+    // the entries have different owners, so each source gets its own and can
+    // only ever drop its own oldest.
+    var _PENDING_HOST_ASSISTANT_MAX = 50;
+    var _PENDING_HOST_PLUGIN_MAX = 20;
+    var _PENDING_HOST_MESSAGES_MAX = _PENDING_HOST_ASSISTANT_MAX + _PENDING_HOST_PLUGIN_MAX;
     var _pendingHostMessages = [];
     var _pendingFlushTimer = null;
+
+    function _isPluginPendingMessage(message) {
+        return !!message && message.role === 'system';
+    }
+
+    function _queuePendingHostMessage(message) {
+        var isPlugin = _isPluginPendingMessage(message);
+        var cap = isPlugin ? _PENDING_HOST_PLUGIN_MAX : _PENDING_HOST_ASSISTANT_MAX;
+        var sameKind = 0;
+        for (var i = 0; i < _pendingHostMessages.length; i++) {
+            if (_isPluginPendingMessage(_pendingHostMessages[i]) === isPlugin) {
+                sameKind++;
+            }
+        }
+        // Trim this source's OWN oldest, never the other's. Order across the
+        // whole queue is preserved, so the flush still replays what survived
+        // in arrival order.
+        while (sameKind >= cap) {
+            for (var j = 0; j < _pendingHostMessages.length; j++) {
+                if (_isPluginPendingMessage(_pendingHostMessages[j]) === isPlugin) {
+                    _pendingHostMessages.splice(j, 1);
+                    break;
+                }
+            }
+            sameKind--;
+        }
+        _pendingHostMessages.push(message);
+    }
 
     function _tryFlushPendingHostMessages() {
         var host = getHost();
@@ -389,7 +456,13 @@
         var batch = _pendingHostMessages.splice(0);
         for (var i = 0; i < batch.length; i++) {
             if (appendHostMessageSafely(host, batch[i], 'flush_pending_host_message')) {
-                markAssistantVisibleResponseForAchievement();
+                // Only the assistant actually speaking counts toward the
+                // dialogue achievement. A plugin post queued before the host
+                // mounted would otherwise unlock it here, which the direct
+                // path already declines to do (Codex).
+                if (batch[i] && batch[i].role !== 'system') {
+                    markAssistantVisibleResponseForAchievement();
+                }
             }
         }
     }
@@ -404,7 +477,26 @@
         });
     }
 
+    // 队列里的消息还没进 host，host.updateMessage 够不到它们。turn end 会在
+    // host 挂载前就到（结构化 passthrough 的 blocks 一次性写完，后端紧接着
+    // 发 turn end），此时若不就地改写，flush 出来的就是一个永远转圈的气泡。
+    function _patchPendingHostMessage(messageId, patch) {
+        if (!messageId || _pendingHostMessages.length === 0) return false;
+        for (var i = 0; i < _pendingHostMessages.length; i++) {
+            var pending = _pendingHostMessages[i];
+            if (!pending || pending.id !== messageId) continue;
+            for (var key in patch) {
+                if (Object.prototype.hasOwnProperty.call(patch, key)) {
+                    pending[key] = patch[key];
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
     function _resetReactChatSwitchState() {
+        if (window.NekoPluginViews) window.NekoPluginViews.clear();
         _pendingHostMessages = [];
         if (_pendingFlushTimer) {
             clearInterval(_pendingFlushTimer);
@@ -460,7 +552,7 @@
         } else if (msg) {
             // host 尚未初始化，放入待重发队列而非静默丢弃
             console.warn('[ChatAdapter] host not ready, queuing message', msgId);
-            _pendingHostMessages.push(msg);
+            _queuePendingHostMessage(msg);
         }
 
         var ref = createVirtualBubbleRef(msgId);
@@ -539,6 +631,7 @@
                     }
                 }
             }
+            if (window.nekoReplyTail) window.nekoReplyTail.changed();
         }
     }
 
@@ -616,6 +709,7 @@
             } catch (_) {}
         }
         window._realisticGeminiQueue = [];
+        if (window.nekoReplyTail) window.nekoReplyTail.changed();
     }
 
     // ======================== appendMessage（覆盖核心） ========================
@@ -623,6 +717,7 @@
     function appendMessage(text, sender, isNewMessage, options) {
         if (typeof isNewMessage === 'undefined') isNewMessage = true;
         options = options || {};
+        var structuredResponseBlocks = structuredBlocksFrom(options.blocks);
 
         var host = getHost();
         var bubbleCountBefore = window.currentTurnGeminiBubbles ? window.currentTurnGeminiBubbles.length : 0;
@@ -698,6 +793,51 @@
                 window.updateSubtitleStreamingText(streamingText);
             }
             emitCompactCaptionUpdate(streamingText);
+        }
+
+        // Reached only by a gemini_response frame carrying `blocks`, which
+        // today is emitted solely by LLMSessionManager.passthrough_to_chat_bubble
+        // — a helper with no production caller (see main_logic/core/turn.py).
+        // Plugin chat pushes render through chat_blocks / appendReactChatBlocks
+        // as system messages instead, so this branch is test-only for now.
+        // It still participates in the normal assistant turn lifecycle, and the
+        // React host receives the already-structured blocks directly instead
+        // of forcing them through the text sentence/markdown pipeline.
+        if (sender === 'gemini' && structuredResponseBlocks.length > 0) {
+            var structuredMessageId = nextReactMessageId('assistant');
+            var structuredAuthor = getCurrentAssistantName();
+            var structuredMessage = {
+                id: structuredMessageId,
+                role: 'assistant',
+                author: structuredAuthor,
+                time: getCurrentTimeString(),
+                createdAt: Date.now(),
+                turnId: window._nekoAssistantTurnId
+                    ? String(window._nekoAssistantTurnId)
+                    : undefined,
+                avatarLabel: structuredAuthor
+                    ? String(structuredAuthor).trim().slice(0, 1).toUpperCase()
+                    : undefined,
+                avatarUrl: getAssistantAvatarUrl() || undefined,
+                blocks: structuredResponseBlocks,
+                status: 'streaming'
+            };
+            if (host && typeof host.appendMessage === 'function') {
+                _tryFlushPendingHostMessages();
+                if (!appendHostMessageSafely(host, structuredMessage, 'structured_passthrough')) {
+                    return false;
+                }
+                markAssistantVisibleResponseForAchievement();
+            } else {
+                console.warn('[ChatAdapter] host not ready, queuing structured passthrough', structuredMessageId);
+                _queuePendingHostMessage(structuredMessage);
+                _tryFlushPendingHostMessages();
+            }
+            var structuredRef = createVirtualBubbleRef(structuredMessageId);
+            window.currentGeminiMessage = structuredRef;
+            window.currentTurnGeminiBubbles = window.currentTurnGeminiBubbles || [];
+            window.currentTurnGeminiBubbles.push(structuredRef);
+            return true;
         }
 
         // ---------- gemini + realistic 模式 ----------
@@ -853,9 +993,14 @@
 
     function setReactMessageStatus(element, role, status) {
         var host = getHost();
-        if (!host || typeof host.updateMessage !== 'function') return;
         var messageId = element && element.dataset && element.dataset.reactChatMessageId;
         if (!messageId) return;
+        if (!host || typeof host.updateMessage !== 'function') {
+            // host 未挂载时消息还在待发队列里，就地改写；否则 turn end 的
+            // 状态更新会静默丢失（Codex P2）。
+            _patchPendingHostMessage(messageId, { status: status });
+            return;
+        }
         host.updateMessage(messageId, { status: status });
     }
 
@@ -896,6 +1041,101 @@
             blocks: blocks,
             status: payload.status ? String(payload.status) : 'sent'
         });
+    }
+
+    function appendReactHtmlCard(block) {
+        if (!block.cardId || !block.pluginId || !block.targetLanlan) return false;
+        var host = getHost();
+        var id = 'plugin-card-' + encodeURIComponent(block.pluginId) + ':' + encodeURIComponent(block.cardId);
+        var messages = host && typeof host.getState === 'function' ? host.getState().messages : [];
+        var existing = (messages || []).find(function (message) { return message.id === id; });
+        var pending = _pendingHostMessages.find(function (message) { return message.id === id; });
+        existing = existing || pending;
+        // An update cannot resurrect an evicted card or one from a previous chat.
+        if (block.operation === 'update' && !existing) return false;
+        var previous = existing && existing.blocks[0];
+        var card = Object.assign({ html: '', css: '', summary: '', actions: {} }, previous || {}, block);
+        delete card.operation;
+        var message = Object.assign({}, existing || {}, {
+            id: id, role: 'system', author: block.pluginId,
+            time: existing ? existing.time : getCurrentTimeString(),
+            createdAt: existing ? existing.createdAt : Date.now(),
+            blocks: [card], status: 'sent'
+        });
+        if (pending) {
+            Object.assign(pending, message);
+            _tryFlushPendingHostMessages();
+        } else if (existing && host && typeof host.updateMessage === 'function') {
+            host.updateMessage(id, { blocks: [card] });
+        } else if (host && typeof host.appendMessage === 'function') {
+            _tryFlushPendingHostMessages();
+            if (!appendHostMessageSafely(host, message, 'plugin_html_card')) return false;
+        } else {
+            _queuePendingHostMessage(message);
+            _tryFlushPendingHostMessages();
+        }
+        return true;
+    }
+
+    function appendReactChatBlocks(payload, tailPlacement) {
+        if (payload && payload.reply_tail && !tailPlacement) {
+            return !!(window.nekoReplyTail && window.nekoReplyTail.enqueue(payload));
+        }
+        var host = getHost();
+        var blocks = structuredBlocksFrom(payload && payload.blocks);
+        var cardHandled = false;
+        blocks = blocks.filter(function (block) {
+            if (block.type !== 'html_card') return true;
+            cardHandled = appendReactHtmlCard(block) || cardHandled;
+            return false;
+        });
+        if (blocks.length === 0) {
+            return cardHandled;
+        }
+        // SYSTEM, not assistant. Plugin content is neither the character
+        // speaking nor the user typing, and either identity is a claim the
+        // reader cannot check: an assistant bubble she has no memory of (blind
+        // never reaches the model), or a user bubble nobody wrote. A plugin may
+        // still phrase its text in her voice — the label says where it came
+        // from, it does not rewrite the words.
+        var meta = payload && payload.metadata ? payload.metadata : {};
+        var sourceName = typeof meta.source_name === 'string' ? meta.source_name.trim() : '';
+        var sourceKind = typeof meta.source === 'string' && meta.source ? meta.source : 'plugin';
+        var messageIdPrefix = payload.request_id
+            ? 'plugin-blocks-' + String(payload.request_id)
+            : 'plugin-blocks';
+        var message = {
+            id: nextReactMessageId(messageIdPrefix),
+            role: 'system',
+            // The schema requires a NON-EMPTY author, so neither undefined nor
+            // "" renders at all — the push would be dropped in validation.
+            // Fall back to the source kind (plugin / cu / browser / system),
+            // which the host always resolves, so every bubble carries a label
+            // rather than some carrying none.
+            author: sourceName || sourceKind,
+            time: getCurrentTimeString(),
+            createdAt: Date.now(),
+            blocks: blocks,
+            status: 'sent'
+        };
+        if (tailPlacement) {
+            message.id = tailPlacement.id;
+            message.sortKey = tailPlacement.sortKey;
+            message.createdAt = tailPlacement.createdAt;
+        }
+        if (host && typeof host.appendMessage === 'function') {
+            _tryFlushPendingHostMessages();
+            if (!appendHostMessageSafely(host, message, 'plugin_chat_blocks')) {
+                return false;
+            }
+            // Deliberately NOT markAssistantVisibleResponseForAchievement:
+            // the assistant did not respond, a plugin posted.
+        } else {
+            console.warn('[ChatAdapter] host not ready, queuing plugin chat blocks', message.id);
+            _queuePendingHostMessage(message);
+            _tryFlushPendingHostMessages();
+        }
+        return true;
     }
 
     // ======================== appendReactTopicHint（深话题预告气泡） ========================
@@ -942,6 +1182,66 @@
         host.removeMessage('topic-hint-' + tid);
     }
 
+    // ======================== 串门台词（visit_line / visit_line_delta） ========================
+
+    // 说话人 → 角色：对端（访客猫娘 / 对方亲人）一律 'tool'（OD-19，样式在 index.css）；
+    // 本侧猫娘是她自己（assistant），本侧亲人是用户自己（user）
+    function visitLineRole(speaker) {
+        if (!speaker || speaker.self !== true) return 'tool';
+        return speaker.kind === 'human' ? 'user' : 'assistant';
+    }
+
+    /**
+     * visit-chat.js 拼好一行台词后交到这里上屏（新建或原地更新同一条气泡）。
+     * spec: {messageId, speaker, author, avatarUrl, text, notice, replace}
+     * 台词块一律纯文本（§3.6.6）：不走 SmartTextBlock / ReactMarkdown，对端塞的
+     * Markdown 图片 / 链接原样显示、不加载、不可点。
+     */
+    function renderVisitLine(spec) {
+        var host = getHost();
+        if (!spec || !spec.messageId) return false;
+        var role = visitLineRole(spec.speaker);
+        var author = sanitizeDisplayName(spec.author) || (role === 'user' ? getCurrentUserName() : getCurrentAssistantName());
+        var blocks = [{ type: 'text', text: String(spec.text || ''), plain_text: true }];
+        if (spec.notice) {
+            blocks.push({ type: 'status', tone: 'info', text: String(spec.notice) });
+        }
+        var avatarUrl = role === 'assistant' ? getAssistantAvatarUrl() : (spec.avatarUrl || '');
+        var patch = {
+            role: role,
+            author: author,
+            avatarLabel: Array.from(author)[0] ? Array.from(author)[0].toUpperCase() : undefined,
+            avatarUrl: avatarUrl || undefined,
+            blocks: blocks,
+            status: 'sent'
+        };
+        // 串门台词按 (lp, side_rank) 落位：visit-chat 算好的排序键（没有就照常追加到末尾）
+        if (typeof spec.sortKey === 'number' && isFinite(spec.sortKey)) patch.sortKey = spec.sortKey;
+        var messages = host && typeof host.getState === 'function' ? (host.getState().messages || []) : [];
+        var exists = messages.some(function (message) { return message && message.id === spec.messageId; });
+        if (exists && host && typeof host.updateMessage === 'function') {
+            host.updateMessage(spec.messageId, patch);
+            return true;
+        }
+        var message = Object.assign({
+            id: spec.messageId,
+            time: getCurrentTimeString(),
+            createdAt: Date.now()
+        }, patch);
+        if (host && typeof host.appendMessage === 'function') {
+            _tryFlushPendingHostMessages();
+            return !!appendHostMessageSafely(host, message, 'visit_line');
+        }
+        var pending = _pendingHostMessages.find(function (m) { return m.id === spec.messageId; });
+        if (pending) {
+            Object.assign(pending, patch);
+        } else {
+            _queuePendingHostMessage(message);
+        }
+        _tryFlushPendingHostMessages();
+        return true;
+    }
+
     // ======================== refreshReactAssistantAvatars ========================
 
     function refreshReactAssistantAvatars() {
@@ -970,6 +1270,7 @@
     window._clearPendingHostMessagesByIds = _clearPendingHostMessagesByIds;
     window._resetReactChatSwitchState = _resetReactChatSwitchState;
     window.appendReactTopicHint = appendReactTopicHint;
+    window.appendReactChatBlocks = appendReactChatBlocks;
     window.removeReactTopicHint = removeReactTopicHint;
 
     // 覆盖 appChat 上的方法
@@ -978,16 +1279,18 @@
         window.appChat.createGeminiBubble = createGeminiBubble;
         window.appChat.processRealisticQueue = processRealisticQueue;
         window.appChat.appendReactUserMessage = appendReactUserMessage;
+        window.appChat.appendReactChatBlocks = appendReactChatBlocks;
         window.appChat.appendReactTopicHint = appendReactTopicHint;
         window.appChat.removeReactTopicHint = removeReactTopicHint;
         window.appChat.setReactMessageStatus = setReactMessageStatus;
+        window.appChat.renderVisitLine = renderVisitLine;
     }
 
     // 头像更新事件
+    window.addEventListener('chat-avatar-display-updated', refreshReactAssistantAvatars);
     window.addEventListener('chat-avatar-preview-updated', refreshReactAssistantAvatars);
     window.addEventListener('chat-avatar-preview-cleared', refreshReactAssistantAvatars);
     window.addEventListener('neko:tutorial-chat-identity-changed', refreshReactAssistantAvatars);
-
     // init() 的 chat-avatar-preview-updated 事件可能在本脚本或 reactChatWindowHost 就绪前触发，
     // 延迟到所有同步脚本加载完成后主动刷新一次
     setTimeout(refreshReactAssistantAvatars, 0);

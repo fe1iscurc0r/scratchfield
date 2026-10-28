@@ -19,7 +19,7 @@ Survey Server — security module
 Identical scheme to the telemetry server, but a **separate** HMAC secret so a
 leaked telemetry key can't forge survey submissions (and vice versa):
 
-1. HMAC-SHA256 signature verification (anti-tampering) — hard-coded secret
+1. HMAC-SHA256 signature verification (anti-tampering) — secret from env only
 2. Timestamp window verification (anti-replay)
 3. Per-device rate limiting (anti-abuse)
 """
@@ -33,19 +33,41 @@ from collections import defaultdict
 from threading import Lock
 
 # ---------------------------------------------------------------------------
-# ★ 与客户端 utils/survey_client.py 中的 _SURVEY_HMAC_SECRET 保持一致。
-# 这是防君子不防小人的软签名：密钥必然内嵌在分发的客户端里、无法对抗逆向，
-# 仅用于挡掉顺手的伪造与脏数据。因此保留与客户端匹配的硬编码默认值（开箱即用），
-# 同时允许运维用环境变量 NEKO_SURVEY_HMAC_SECRET 覆盖以轮换密钥。
-# 与 telemetry 的密钥故意不同：两条上报通道互不背书。
+# ★ 密钥只从环境读取，源码里不保留任何可用值。
+#   首选 SURVEY_HMAC_SECRET，兼容旧名 NEKO_SURVEY_HMAC_SECRET。
+# 与 telemetry 通道**故意不同**：两条上报通道互不背书。
+# 与 telemetry 同样的理由：软签名对抗不了逆向，但「源码自带一份可用密钥」会把
+# 一次仓库泄露放大成全量伪造能力，所以未配置时的正确行为是不启动。
 # ---------------------------------------------------------------------------
-DEFAULT_HMAC_SECRET = os.environ.get("NEKO_SURVEY_HMAC_SECRET") or "neko-survey-v1-7d2e9c4b8a1f60533e7a2b9c8d4f1e06"
+
+HMAC_SECRET_ENV_KEYS = ("SURVEY_HMAC_SECRET", "NEKO_SURVEY_HMAC_SECRET")
 
 
-def compute_signature(payload_json: str, timestamp: float, secret: str = DEFAULT_HMAC_SECRET) -> str:
+class HMACSecretNotConfigured(RuntimeError):
+    """No usable HMAC secret in the environment."""
+
+
+def load_hmac_secret() -> str:
+    """Read the HMAC secret from the environment.
+
+    Raises when unset. The message names only the variables — never a value.
+    """
+    for key in HMAC_SECRET_ENV_KEYS:
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    raise HMACSecretNotConfigured(
+        "HMAC secret is not configured: set " + " or ".join(HMAC_SECRET_ENV_KEYS)
+    )
+
+
+def _secret_or_env(secret: str | None) -> str:
+    return secret if secret else load_hmac_secret()
+
+
+def compute_signature(payload_json: str, timestamp: float, secret: str | None = None) -> str:
     """Compute HMAC-SHA256(secret, f"{timestamp}|{sha256(payload_json)}")."""
-    if not secret:
-        raise ValueError("HMAC secret is not configured (set NEKO_SURVEY_HMAC_SECRET)")
+    secret = _secret_or_env(secret)
     body_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
     message = f"{timestamp}|{body_hash}"
     return hmac.new(
@@ -59,12 +81,14 @@ def verify_signature(
     payload_json: str,
     timestamp: float,
     signature: str,
-    secret: str = DEFAULT_HMAC_SECRET,
+    secret: str | None = None,
 ) -> bool:
     """Verify the signature (constant-time comparison, guards against timing attacks)."""
-    # Refuse verification when no secret is configured — fail closed so a
-    # misconfigured deployment rejects unsigned traffic rather than accepting it.
-    if not secret:
+    # Fail closed when no secret is configured: a misconfigured deployment rejects
+    # unsigned traffic rather than accepting it.
+    try:
+        secret = _secret_or_env(secret)
+    except HMACSecretNotConfigured:
         return False
     # hmac.compare_digest raises TypeError on str containing non-ASCII; a forged
     # request with a non-ASCII signature would crash verify into a 500 instead of

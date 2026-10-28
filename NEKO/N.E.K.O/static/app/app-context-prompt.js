@@ -32,6 +32,12 @@
     let _shownWork = false;
     // 同一时刻只允许一个情境弹窗，避免两类信号叠出两个 modal。
     let _promptOpen = false;
+    // 情境弹窗可能已经进入 common_dialogs 的全局队列，甚至已经显示；小游戏
+    // opened 事件到达时需要能取消这一条，而不影响队列里的其它类型弹窗。
+    let _activeContext = '';
+    let _activePromptOverlay = null;
+    let _activePromptResolved = false;
+    let _cancelActivePrompt = false;
     // settings 还没决议就绪时收到的事件先按类别暂存，等 branch 决议后逐类重放。
     // 后端这条信号是「进入态」一次性推送、不会自动重发；GET 慢时若直接丢，
     // 本会话就再也看不到这次弹窗了。按类别存（而非单槽）避免决议前先后收到
@@ -120,8 +126,110 @@
         _persistAndReschedule();
     }
 
+    function _markShown(context) {
+        if (context === 'play') _shownPlay = true; else _shownWork = true;
+    }
+
+    function _dismissActiveContextPromptForGameRoute() {
+        // 内置小游戏不属于活动情境提示场景。丢掉尚未重放的信号，并把 play
+        // 记作已处理，避免游戏结束后把"检测到外部游戏"的过期提示补弹。
+        _pendingContexts.clear();
+        _shownPlay = true;
+        if (!_activeContext) return;
+        _markShown(_activeContext);
+
+        // 若 prompt 还排在 common_dialogs 队列中，onShown 会在真正显示的第一帧
+        // 立即 dismiss；若已经显示，则现在直接点击其遮罩，走配置里的 decline。
+        _cancelActivePrompt = true;
+        if (_activePromptOverlay && typeof _activePromptOverlay.click === 'function') {
+            _activePromptOverlay.click();
+        }
+    }
+
+    function _dismissActiveContextPromptForGoodbye() {
+        // 请她离开模式开启时，所有主动搭话已静默，弹窗无意义。
+        _pendingContexts.clear();
+        if (!_activeContext) return;
+        _markShown(_activeContext);
+
+        _cancelActivePrompt = true;
+        if (_activePromptOverlay && typeof _activePromptOverlay.click === 'function') {
+            _activePromptOverlay.click();
+        }
+    }
+
+    function _isGoodbyeActive() {
+        return !!(window.__nekoGoodbyeSilentState && window.__nekoGoodbyeSilentState.active);
+    }
+
+    // 教程抑制期间，十个主动搭话键保持用户真值、但功能整体暂停：此时弹
+    // modal 会压在导览/接管面上干扰交互。抑制期不弹、信号暂存，全部释放边
+    // （controller end / 头像层模型恢复完成 / click-guide / director
+    // fallback）后重放。
+    // 按来源引用计数跟踪抑制状态（detail.source 缺省视为单例来源）：
+    // 多源叠加时（如 fallback 环境下 director 与头像层各自派发），
+    // 某一来源先释放不得提前放开闸门——petal 过渡里头像层先于 director
+    // 释放，单布尔标志会让延迟的 modal 在仍在运行的导览上重放。
+    // 事件标志同时兜住 controller 缺失的环境：director fallback 只派发
+    // 事件、没有 isActive 可查（与 app-proactive 的
+    // _homeTutorialFeatureSuppressedByEvent 同一模式）。
+    const _tutorialSuppressionSources = new Set();
+
+    function _isHomeTutorialSuppressing() {
+        try {
+            if (_tutorialSuppressionSources.size > 0) return true;
+            if (window.isNekoClickGuideActive === true) return true;
+            const controller = window.NekoHomeTutorialFeatureController;
+            if (controller && typeof controller.isActive === 'function' && controller.isActive()) {
+                return true;
+            }
+            // 头像重载层单独抑制（feature controller begin 之前 / end 之后的
+            // 模型恢复窗口）同样不接受新改动。
+            const manager = window.universalTutorialManager;
+            const reloadController = manager ? manager._tutorialAvatarReloadController : null;
+            if (reloadController
+                && typeof reloadController.isProactiveRuntimeHeld === 'function'
+                && reloadController.isProactiveRuntimeHeld()) {
+                return true;
+            }
+            // 各抑制层的 active:false 事件可能早于 teardown 清 isInTutorial/
+            // isTutorialRunning 到达：最终交互锁未放时也不弹，等
+            // neko:home-tutorial-lock-changed(locked:false) 的二次重放。
+            return typeof window.isNekoHomeTutorialInteractionLocked === 'function'
+                && window.isNekoHomeTutorialInteractionLocked() === true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function _deferActiveContextPromptForTutorial() {
+        // 抑制开始时撤回尚未作答的弹窗并重新入队；已决定、只剩淡出的
+        // 弹窗仍算本会话已处理，不重新提问。
+        const context = _activeContext;
+        if (!context || _activePromptResolved) return;
+        if (context === 'play') _shownPlay = false;
+        else if (context === 'work') _shownWork = false;
+        _pendingContexts.add(context);
+        _cancelActivePrompt = true;
+        if (_activePromptOverlay && typeof _activePromptOverlay.click === 'function') {
+            _activePromptOverlay.click();
+        }
+    }
+
     async function handle(context) {
         if (context !== 'play' && context !== 'work') return;
+        if (S.gameRouteActive) {
+            _markShown(context);
+            _pendingContexts.delete(context);
+            return;
+        }
+        // 请她离开模式：所有主动搭话已静默，弹窗无意义
+        if (window.__nekoGoodbyeSilentState && window.__nekoGoodbyeSilentState.active) return;
+        // 教程抑制期间：暂存信号（不标已弹），收口后由 active:false 事件重放。
+        if (_isHomeTutorialSuppressing()) {
+            _pendingContexts.add(context);
+            return;
+        }
         // settings 还没合并就绪（branch 未决议，nekoTelemetryBranch 为 undefined）：暂存
         // 这次事件，等 neko:telemetry-branch-resolved 再重放。不能直接丢——后端一次性推送
         // 不会重发。GET 失败时 branch 永远 undefined、该事件也永不重放，等于 fail-closed
@@ -142,13 +250,17 @@
         if (context === 'work' && _shownWork) return;
         if (!_isActionable(context)) {
             // 没可改的也算这类「处理过」，本会话不再就同类打扰。
-            if (context === 'play') _shownPlay = true; else _shownWork = true;
+            _markShown(context);
             return;
         }
 
         // 先置去重 + 开窗标志：即便用户直接关掉弹窗，本会话也不再弹同类。
-        if (context === 'play') _shownPlay = true; else _shownWork = true;
+        _markShown(context);
         _promptOpen = true;
+        _activeContext = context;
+        _activePromptOverlay = null;
+        _activePromptResolved = false;
+        _cancelActivePrompt = false;
 
         const cfg = _buildConfig(context);
         try {
@@ -162,6 +274,21 @@
                     { value: 'decline', text: cfg.decline, variant: 'secondary' },
                     { value: 'accept', text: cfg.accept, variant: 'primary' },
                 ],
+                onShown: function (modal) {
+                    _activePromptOverlay = modal && modal.overlay ? modal.overlay : null;
+                    if (_cancelActivePrompt || S.gameRouteActive || _isGoodbyeActive()) {
+                        _cancelActivePrompt = true;
+                        if (_activePromptOverlay && typeof _activePromptOverlay.click === 'function') {
+                            _activePromptOverlay.click();
+                        }
+                    }
+                },
+                onResolve: function (_value, modal) {
+                    _activePromptResolved = true;
+                    if (modal && _activePromptOverlay === modal.overlay) {
+                        _activePromptOverlay = null;
+                    }
+                },
             });
             if (decision === 'accept') {
                 _apply(context);
@@ -170,6 +297,10 @@
             console.warn('[context-prompt] 弹窗失败:', e);
         } finally {
             _promptOpen = false;
+            _activeContext = '';
+            _activePromptOverlay = null;
+            _activePromptResolved = false;
+            _cancelActivePrompt = false;
             // 弹窗开着期间攒下的另一类 context，关窗后接着重放。
             _drainPending();
         }
@@ -200,6 +331,60 @@
     // settings 合并就绪后重放暂存的事件（app-settings.js 在拿到 telemetryBranch 后广播）。
     // 此时 window.nekoTelemetryBranch 已就绪、proactiveVisionChatEnabled 也已是合并后的值。
     window.addEventListener('neko:telemetry-branch-resolved', _drainPending);
+    window.addEventListener('neko-game-window-state-change', function (event) {
+        const detail = event && event.detail ? event.detail : {};
+        if (detail.action === 'opened') {
+            _dismissActiveContextPromptForGameRoute();
+        }
+    });
+    // 请她离开模式开启时，dismiss 正在显示或排队中的情境弹窗。
+    // tryAutoGoodbye() 先派发 live2d-goodbye-click 再确认 isGoodbyeActive()；
+    // 激活被拒时会恢复静默状态。延到微任务再检查，避免误杀。
+    window.addEventListener('live2d-goodbye-click', function () {
+        queueMicrotask(function () {
+            if (_isGoodbyeActive()) {
+                _dismissActiveContextPromptForGoodbye();
+            }
+        });
+    });
+    window.addEventListener('neko:auto-goodbye:state-change', function (event) {
+        if (_isGoodbyeActive()) {
+            _dismissActiveContextPromptForGoodbye();
+        }
+    });
+    // 教程抑制开始：撤回展示中的弹窗并重新入队；收口：重放暂存的信号。
+    // 按来源登记/注销：某来源的释放只在它是最后一个抑制源时才放开闸门。
+    window.addEventListener('neko:home-tutorial-features-suppressed', function (event) {
+        const detail = event && event.detail ? event.detail : {};
+        if (detail.active === true) {
+            _tutorialSuppressionSources.add(detail.source || 'default');
+            _deferActiveContextPromptForTutorial();
+        } else if (detail.active === false) {
+            _tutorialSuppressionSources.delete(detail.source || 'default');
+            if (_tutorialSuppressionSources.size === 0) {
+                _drainPending();
+            }
+        }
+    });
+    // click-guide（闸门检查的另一教程来源）走自己的事件面：激活时同样撤回
+    // 展示中的弹窗（modal 压在导览上会挡住它的交互），解除时重放暂存信号。
+    window.addEventListener('neko:click-guide-active', function (event) {
+        const detail = event && event.detail ? event.detail : {};
+        if (detail.active === true) {
+            _deferActiveContextPromptForTutorial();
+        } else if (detail.active === false) {
+            _drainPending();
+        }
+    });
+
+    // 最终交互锁解锁（teardown 清 isInTutorial/isTutorialRunning 时不经任何
+    // 抑制层事件）：闸门含交互锁检查，这里补最后一次重放。
+    window.addEventListener('neko:home-tutorial-lock-changed', function (event) {
+        const detail = event && event.detail ? event.detail : {};
+        if (detail.locked === false) {
+            _drainPending();
+        }
+    });
 
     window.appContextPrompt = { handle };
 })();

@@ -6,7 +6,7 @@
  * 刻意只做表格，不引图表库（工单要求）。
  */
 import type { ToolCircuitState, ToolStats } from '@/api/core'
-import { Button, Message, Select } from 'primevue'
+import { Accordion, Button, Message, Select } from 'primevue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import API from '@/api/core'
 import ConfigGroup from '@/components/ConfigGroup.vue'
@@ -37,7 +37,10 @@ function pct(v: number) {
   return `${(v * 100).toFixed(1)}%`
 }
 
-function fmtMs(v: number) {
+function fmtMs(v: number | null | undefined) {
+  // 后端聚合可能在无样本时给 null/undefined（例如刚启动、该工具还没被调用过），
+  // 直接 toFixed 会抛 TypeError 把整个设置页渲染打断（2026-10-20 实测）。
+  if (v === null || v === undefined || Number.isNaN(v)) return '—'
   return v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${v.toFixed(0)}ms`
 }
 
@@ -66,13 +69,16 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
+  if (timer)
+    clearInterval(timer)
 })
 </script>
 
 <template>
   <div class="tool-health">
-    <ConfigGroup value="tool-health" header="工具健康">
+    <!-- ⚠️ ConfigGroup 内部是 AccordionPanel，必须有 Accordion 父级，否则 isItemActive 读到 undefined ⇒ 设置页整体白屏（2026-10-20 实测） -->
+    <Accordion :value="['tool-health']" multiple>
+      <ConfigGroup value="tool-health" header="工具健康">
       <div class="toolbar">
         <Select
           v-model="windowKey"
@@ -109,7 +115,7 @@ onUnmounted(() => {
             <tr v-for="c in circuitRows" :key="c.tool">
               <td class="mono">{{ c.tool }}</td>
               <td>
-                <span :class="['badge', c.state === 'open' ? 'bad' : 'warn']">
+                <span class="badge" :class="[c.state === 'open' ? 'bad' : 'warn']">
                   {{ c.state }}
                 </span>
               </td>
@@ -139,12 +145,13 @@ onUnmounted(() => {
             <td>{{ r.calls }}</td>
             <td>{{ fmtMs(r.p50_ms) }}</td>
             <td>{{ fmtMs(r.p95_ms) }}</td>
-            <td :class="{ 'err': r.error_rate > 0.2 }">{{ pct(r.error_rate) }}</td>
+            <td :class="{ err: r.error_rate > 0.2 }">{{ pct(r.error_rate) }}</td>
             <td class="err">{{ r.last_error || '—' }}</td>
           </tr>
         </tbody>
       </table>
-    </ConfigGroup>
+      </ConfigGroup>
+    </Accordion>
   </div>
 </template>
 

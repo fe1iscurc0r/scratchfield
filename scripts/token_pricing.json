@@ -1,0 +1,12 @@
+{
+  "_unit": "USD_per_1M_tokens",
+  "_note": "由师傅填，沈遥不擅自定价。缺项时 token_ledger 的成本列一律为 null（不用 0 冒充）。",
+  "_example": {
+    "deepseek-flash": {
+      "input": 0.0,
+      "cache_read": 0.0,
+      "cache_write": 0.0,
+      "output": 0.0
+    }
+  }
+}

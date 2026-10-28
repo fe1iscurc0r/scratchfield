@@ -45,6 +45,21 @@ function installWindowFunctionBridge(name, bridge) {
 }
 
 /**
+ * 隔离态下面向页面的桥
+ *
+ * `installWindowFunctionBridge` 只能作用于 preload 自己的 JS 世界：contextIsolation:true 时
+ * 页面读不到。所以隔离窗里 toast / 设置同步改走「preload 暴露原语 + 页面侧 shim 接线」
+ * （页面文件：NEKO/N.E.K.O/static/app/electron-page-bridge.js）。
+ */
+function exposeIsolatedPageBridge(name, value) {
+  if (process.contextIsolated && contextBridge && typeof contextBridge.exposeInMainWorld === 'function') {
+    contextBridge.exposeInMainWorld(name, value);
+    return true;
+  }
+  return false;
+}
+
+/**
  * 安装暗色模式支持：window.nekoDarkMode API + toggle-dark-mode 监听
  */
 function setupDarkMode() {
@@ -373,7 +388,7 @@ function setupAutostartBridge() {
  * 安装 Toast 覆盖：将 showStatusToast 重定向到主进程全局 Toast 窗口
  */
 function setupToastOverride() {
-  installWindowFunctionBridge('showStatusToast', function(message, duration, options) {
+  const showStatusToast = function(message, duration, options) {
     var important = options && options.important;
     var i18nKey = options && options.i18nKey;
     ipcRenderer.send('neko:show-toast', {
@@ -382,15 +397,26 @@ function setupToastOverride() {
       important: !!important,
       i18nKey: i18nKey || '',
     });
-  });
+  };
+
+  // 隔离态：页面读不到 preload 世界，只能把原语交给页面侧 shim 去挂到页面 window
+  if (exposeIsolatedPageBridge('nekoPageToastBridge', { showStatusToast: showStatusToast })) return;
+
+  installWindowFunctionBridge('showStatusToast', showStatusToast);
 }
 
 /**
  * 卫星窗口禁用 Voice Preparing Toast（只应在 Pet 主窗口显示）
  */
 function suppressVoiceToast() {
-  installWindowFunctionBridge('showVoicePreparingToast', function() {});
-  installWindowFunctionBridge('hideVoicePreparingToast', function() {});
+  const noop = function() {};
+  if (exposeIsolatedPageBridge('nekoPageVoiceToastBridge', {
+    showVoicePreparingToast: noop,
+    hideVoicePreparingToast: noop,
+  })) return;
+
+  installWindowFunctionBridge('showVoicePreparingToast', noop);
+  installWindowFunctionBridge('hideVoicePreparingToast', noop);
 }
 
 /**
@@ -401,16 +427,22 @@ function suppressVoiceToast() {
 function setupVoiceToastOverride() {
   const { TOAST_CHANNELS } = require('./ipc-channels');
 
-  function installVoiceToastBridge() {
-    installWindowFunctionBridge('showVoicePreparingToast', function(message) {
+  const bridge = {
+    showVoicePreparingToast: function(message) {
       ipcRenderer.send(TOAST_CHANNELS.VOICE_PREPARING, { message: String(message || '') });
-    });
-    installWindowFunctionBridge('hideVoicePreparingToast', function() {
+    },
+    hideVoicePreparingToast: function() {
       ipcRenderer.send(TOAST_CHANNELS.VOICE_HIDE_PREPARING);
-    });
-    installWindowFunctionBridge('showReadyToSpeakToast', function() {
+    },
+    showReadyToSpeakToast: function() {
       ipcRenderer.send(TOAST_CHANNELS.VOICE_READY, { message: '' });
-    });
+    },
+  };
+
+  if (exposeIsolatedPageBridge('nekoPageVoiceToastBridge', bridge)) return;
+
+  function installVoiceToastBridge() {
+    Object.keys(bridge).forEach((name) => installWindowFunctionBridge(name, bridge[name]));
   }
 
   function refreshVoiceToastBridge() {
@@ -483,6 +515,40 @@ function setupSettingsSync(options) {
 
   // 不在 app-state.js defineProperty 绑定中、需要额外写 window.* 的 key
   var EXTRA_WINDOW_KEYS = ['textGuardMaxLength', 'subtitleEnabled', 'userLanguage', 'speakerVolume'];
+
+  // 隔离态：页面读不到 preload 世界里的 appState / saveNEKOSettings / subtitleBridge，
+  // 所以这里只暴露「收 / 发 / 请求」三个原语；hook saveNEKOSettings 与接收后的副作用
+  // 由 NEKO/N.E.K.O/static/app/electron-page-bridge.js 在页面世界执行。
+  if (process.contextIsolated && contextBridge && typeof contextBridge.exposeInMainWorld === 'function') {
+    var syncListeners = [];
+    ipcRenderer.on(SETTINGS_CHANNELS.SYNC, function(_event, snapshot) {
+      syncListeners.slice().forEach(function(fn) {
+        try {
+          fn(snapshot);
+        } catch (err) {
+          console.warn(TAG, '页面同步回调抛错:', err && err.message);
+        }
+      });
+    });
+    contextBridge.exposeInMainWorld('nekoPageSettingsSync', {
+      role: role,
+      keys: SYNCED_KEYS,
+      extraWindowKeys: EXTRA_WINDOW_KEYS,
+      onSync: function(cb) {
+        if (typeof cb === 'function') syncListeners.push(cb);
+      },
+      broadcast: function(snapshot) {
+        if (snapshot) ipcRenderer.send(SETTINGS_CHANNELS.SYNC, snapshot);
+      },
+      request: function() {
+        ipcRenderer.send(SETTINGS_CHANNELS.REQUEST);
+      },
+    });
+    if (role !== 'chat') {
+      console.warn(TAG, '隔离态只实现了 chat 角色（pet 窗口当前不开隔离）');
+    }
+    return;
+  }
 
   // 全局抑制标志：为 true 时 hook 不广播（防止接收期间副作用引发回路）
   var _suppressed = false;

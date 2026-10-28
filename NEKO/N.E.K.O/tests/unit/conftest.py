@@ -229,6 +229,10 @@ def _reset_external_route_registry_to_import_state() -> None:
     register_game = getattr(game_router, "_register_external_route_kind", None)
     if callable(register_game):
         register_game()
+    visit_runtime = sys.modules.get("main_routers.visit_router.runtime")
+    register_visit = getattr(visit_runtime, "register_visit_route_kind", None)
+    if callable(register_visit):
+        register_visit()
 
 
 @pytest.fixture(autouse=True)
@@ -240,7 +244,7 @@ def _restore_external_route_registry():
     left behind would keep hijacking input in later tests. Rather than
     restoring a snapshot, the registry is rebuilt from scratch before and
     after each test: cleared, then the production kinds whose modules are
-    already imported register again (today only the game router). Resetting
+    already imported register again (the game router and the visit runtime). Resetting
     on setup as well means a kind registered outside any test's own
     setup/teardown window (e.g. by a coroutine the shared nested event loop
     resumes late) cannot reach the next test either.
@@ -362,6 +366,25 @@ def _enable_theater_review_modules(request, monkeypatch):
         return {key: True for key in default_options() if key != 'review_delivery'}
 
     monkeypatch.setattr(workflow, "aload_theater_module_options", _all_on, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _stub_theater_narrative_proposals(request, monkeypatch):
+    """Isolate the new model component in existing orchestration unit tests.
+
+    Proposer tests exercise its real request adapter. Narrative workflow tests
+    override this empty proposal with their explicit event fixtures.
+    """
+
+    if (not _is_theater_test_module(request)
+            or request.node.path.name == "test_theater_numeric_v2_narrative_proposer.py"):
+        return
+    from services.theater import numeric_v2_workflow as workflow
+
+    async def _empty_proposal(self, **kwargs):
+        return []
+
+    monkeypatch.setattr(workflow.NumericV2NarrativeProposer, "propose", _empty_proposal)
 
 
 @pytest.fixture
