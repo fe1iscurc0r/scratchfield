@@ -32,6 +32,7 @@ const PAGE_BRIDGE = path.resolve(
 const IPC_CHANNELS = path.resolve(__dirname, '..', 'src', 'ipc-channels.js');
 
 const CH = require(IPC_CHANNELS).JUKEBOX_CHANNELS;
+const CHAT = require(IPC_CHANNELS).CHAT_ACTION_CHANNELS;
 
 /**
  * 造一个「隔离态的 pet 窗」并载入两端。
@@ -72,6 +73,7 @@ function bootPetIsolated(jukebox, opts = {}) {
     has() { return true; },
   });
   if (jukebox) win.Jukebox = jukebox;
+  if (opts.avatarPortrait) win.avatarPortrait = opts.avatarPortrait;
 
   const stub = (name) => new Proxy(function () {}, {
     get: (t, p) => (p === 'then' ? undefined
@@ -144,7 +146,7 @@ function bootPetIsolated(jukebox, opts = {}) {
   }
 
   return {
-    ctx, win, handlers, exposed,
+    ctx, win, handlers, exposed, sent,
     // 隔离态在 exposed（contextBridge），非隔离态在 window 上 —— 两种都要能取
     diag: () => (exposed.nekoPetDiagnostics || win.nekoPetDiagnostics).snapshot(),
     fire: (channel, payload) => handlers.get(channel)(null, payload),
@@ -291,4 +293,74 @@ test('非隔离模式：没有 Jukebox 时不抛错、不记 miss（miss 只属�
   const snap = diag();
   assert.strictEqual(snap.isolated, false, '快照要如实反映运行模式');
   assert.strictEqual(Object.keys(snap.misses || {}).length, 0, '非隔离不该产生 miss');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 截图域（P2-D）：头像捕获。两条分支都要验 —— 隔离态走桥、非隔离态直调。
+// 关键语义：能力缺失（error 文案）与捕获返回空（dataUrl:null）**不能混**，
+// 所以 helper 用 Promise / null 区分，而不是统一成 null。
+// ───────────────────────────────────────────────────────────────────────────
+
+function makeAvatarPortrait(result) {
+  const ap = { calls: [] };
+  ap.capture = function (opts) {
+    ap.calls.push([opts, this === ap]);
+    return Promise.resolve(result);
+  };
+  return ap;
+}
+
+/** 等异步 handler 跑完（handler 是 async IIFE，没有返回 promise） */
+const flush = () => new Promise((r) => setTimeout(r, 20));
+
+test('头像捕获（隔离态）：经桥调用页面 capture，参数与结果原样回传', async () => {
+  const ap = makeAvatarPortrait({ dataUrl: 'data:image/png;base64,AAA', modelType: 'mmd' });
+  const { fire, sent } = bootPetIsolated(null, { avatarPortrait: ap });
+  fire(CHAT.AVATAR_PREVIEW, undefined);
+  await flush();
+
+  assert.strictEqual(ap.calls.length, 1, '页面 capture 必须被调用一次');
+  const [opts, thisOk] = ap.calls[0];
+  assert.strictEqual(opts.width, 320);
+  assert.strictEqual(opts.includeDataUrl, true);
+  assert.strictEqual(thisOk, true, '闭包必须保住 this（裸传方法会丢）');
+
+  const out = sent.filter(([ch]) => ch === CHAT.AVATAR_PREVIEW_RESULT);
+  assert.strictEqual(out.length, 1);
+  // 注意：载荷对象是在 vm 里造的，跨 realm 的 deepStrictEqual 会因原型不同而失败，
+  // 所以这里分字段断言，而不是整对象比。
+  const payload = out[0][1][0];
+  assert.strictEqual(payload.dataUrl, 'data:image/png;base64,AAA');
+  assert.strictEqual(payload.modelType, 'mmd');
+});
+
+test('头像捕获（隔离态）：页面没有 avatarPortrait → 回「能力缺失」而不是空结果', async () => {
+  const { fire, sent } = bootPetIsolated(null);
+  fire(CHAT.AVATAR_PREVIEW, undefined);
+  await flush();
+  const out = sent.filter(([ch]) => ch === CHAT.AVATAR_PREVIEW_RESULT);
+  assert.strictEqual(out.length, 1);
+  assert.strictEqual(out[0][1][0].error, 'Avatar capture not available');
+  assert.strictEqual(out[0][1][0].dataUrl, undefined, '能力缺失不应带 dataUrl 字段');
+});
+
+test('头像捕获（非隔离态）：直调真对象，不经桥，this 仍正确', async () => {
+  const ap = makeAvatarPortrait({ dataUrl: 'data:image/png;base64,BBB' });
+  const { fire, sent } = bootPetIsolated(null, { isolated: false, avatarPortrait: ap });
+  fire(CHAT.AVATAR_PREVIEW, undefined);
+  await flush();
+
+  assert.strictEqual(ap.calls.length, 1);
+  assert.strictEqual(ap.calls[0][1], true);
+  const payload = sent.filter(([ch]) => ch === CHAT.AVATAR_PREVIEW_RESULT)[0][1][0];
+  assert.strictEqual(payload.dataUrl, 'data:image/png;base64,BBB');
+  assert.strictEqual(payload.modelType, 'live2d', 'modelType 缺省时回落 live2d（与迁移前一致）');
+});
+
+test('头像捕获（非隔离态）：没有实例 → 能力缺失文案', async () => {
+  const { fire, sent } = bootPetIsolated(null, { isolated: false });
+  fire(CHAT.AVATAR_PREVIEW, undefined);
+  await flush();
+  const out = sent.filter(([ch]) => ch === CHAT.AVATAR_PREVIEW_RESULT);
+  assert.strictEqual(out[0][1][0].error, 'Avatar capture not available');
 });

@@ -22,6 +22,8 @@
  *   - `window.X = ...` 赋值视为「preload 主动暴露给页面」，不是读取，豁免；
  *   - P2 剩余三个域（B 测量 / C 渲染控制 / D 视线）尚未迁移，
  *     其裸读处数如实登记在 RAW_READ_RATCHET 里，作为推进起点。
+ *   - 已迁移域登记在 MIGRATED_FALLBACK：残留只允许是 `process.contextIsolated`
+ *     回落那一处，且页面注册面必须真的注册了对应键（漏改一边 = 隔离态永久 undefined）。
  */
 
 'use strict';
@@ -47,8 +49,6 @@ const RAW_READ_RATCHET = {
   mmdManager: 43,
   vrmManager: 43,
   live2dManager: 35,
-  // ── P2 未排期（头像截图，3 处，均在 ipcRenderer.on 回调内）──
-  avatarPortrait: 3,
   // ── P1 已迁，这 5 处是**非隔离回落**（petDragHelpersBusy / petDragHelpersRestore）──
   DragHelpers: 5,
 };
@@ -65,6 +65,9 @@ const MIGRATED_FALLBACK = {
   // 域 E：点歌台（P2-E，2026-10-29）
   // petJukeboxPresent / ModelType / State / Has / Call 五处回落
   Jukebox: 6,
+  // 截图域：头像捕获（P2-D，2026-10-29）
+  // petAvatarPortraitCapture 一处回落
+  avatarPortrait: 1,
 };
 
 /** 各迁移域在页面注册面上必须存在的成员（键名 = pageApi 的参数）。 */
@@ -73,6 +76,7 @@ const REQUIRED_PAGE_KEYS = {
     'Jukebox.present', 'Jukebox.getModelType', 'Jukebox.state',
     'Jukebox.playVRMA', 'Jukebox.playVMD', 'Jukebox.stopVMD', 'Jukebox.togglePause',
   ],
+  avatarPortrait: ['avatarPortrait.capture'],
 };
 
 /** contextIsolation 不分离 DOM，这些照常可用，不计入。 */

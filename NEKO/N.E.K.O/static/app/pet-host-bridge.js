@@ -96,6 +96,13 @@
       if (!D || typeof D.restoreButtonPointerEvents !== 'function') return undefined;
       return D.restoreButtonPointerEvents;   // 返回函数本身，过桥成为可调用代理
     },
+    // ---- 截图域：头像捕获 ----
+    // avatarPortrait 是实例，裸传方法过桥会丢 this；闭包在页面世界内执行。
+    'avatarPortrait.capture': function () {
+      var A = window.avatarPortrait;
+      if (!A || typeof A.capture !== 'function') return undefined;
+      return function (options) { return A.capture(options); };
+    },
     // ---- 域 E：点歌台（Jukebox）----
     // 方法一律返回**闭包**而不是 `J.playVMD` 本身：裸传函数引用过桥后 this 会丢，
     // 闭包在页面世界内执行，this 仍指向 Jukebox。

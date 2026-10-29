@@ -234,6 +234,19 @@ function petJukeboxCall(member, arg) {
   }
 }
 
+// ---- 截图域：头像捕获（avatarPortrait 是页面实例，方法必须过闭包）----
+// 返回值语义：
+//   Promise  → 页面有这个能力，已发起捕获（调用方 await）
+//   null     → 页面没有这个能力（调用方回 'Avatar capture not available'）
+// 不能统一成 null：Chat 侧要区分「能力缺失」和「捕获返回空」这两种结果。
+function petAvatarPortraitCapture(options) {
+  const A = process.contextIsolated ? null : window.avatarPortrait;
+  if (A) return typeof A.capture === 'function' ? A.capture(options) : null;
+  const fn = pageApi('avatarPortrait.capture');
+  return typeof fn === 'function' ? fn(options) : null;
+}
+
+
 // Wayland 检测（preload 级别）：必须与主进程 isLinuxWaylandRuntime() 逻辑一致
 // —— 真实 session type 由 XDG_SESSION_TYPE / WAYLAND_DISPLAY 判定，
 // 不能用 "argv 里没 ozone-platform=x11" 作为 Wayland 的充分条件。
@@ -4200,16 +4213,17 @@ function startMousePoller() {
   ipcRenderer.on(CHAT_ACTION_CHANNELS.AVATAR_PREVIEW, () => {
     (async function () {
       try {
-        if (!window.avatarPortrait || typeof window.avatarPortrait.capture !== 'function') {
-          ipcRenderer.send(CHAT_ACTION_CHANNELS.AVATAR_PREVIEW_RESULT, { error: 'Avatar capture not available' });
-          return;
-        }
-        var result = await window.avatarPortrait.capture({
+        var pending = petAvatarPortraitCapture({
           width: 320, height: 320, padding: 0.035,
           shape: 'rounded', radius: 40,
           background: 'rgba(255, 255, 255, 0.96)',
           includeDataUrl: true
         });
+        if (!pending) {
+          ipcRenderer.send(CHAT_ACTION_CHANNELS.AVATAR_PREVIEW_RESULT, { error: 'Avatar capture not available' });
+          return;
+        }
+        var result = await pending;
         var modelType = (result && result.modelType) || (pageApi('lanlan_config') && pageApi('lanlan_config').model_type) || 'live2d';
         ipcRenderer.send(CHAT_ACTION_CHANNELS.AVATAR_PREVIEW_RESULT, {
           dataUrl: result && result.dataUrl ? result.dataUrl : null,
@@ -4221,7 +4235,6 @@ function startMousePoller() {
       }
     })();
   });
-
   let chatConfigResultPending = false;
   function sendChatConfigResult() {
     chatConfigResultPending = false;
