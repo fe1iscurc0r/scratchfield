@@ -37,7 +37,8 @@ const CH = require(IPC_CHANNELS).JUKEBOX_CHANNELS;
  * 造一个「隔离态的 pet 窗」并载入两端。
  * @param {object|null} jukebox 假 Jukebox；传 null 表示页面还没建出实例
  */
-function bootPetIsolated(jukebox) {
+function bootPetIsolated(jukebox, opts = {}) {
+  const isolated = opts.isolated !== false;
   const handlers = new Map();   // channel -> handler
   const exposed = Object.create(null);
   const sent = [];
@@ -82,7 +83,7 @@ function bootPetIsolated(jukebox) {
   const ctx = {
     console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
     process: {
-      contextIsolated: true,
+      contextIsolated: isolated,
       platform: 'win32', argv: [], env: {},
       versions: { electron: '41.0.0', node: '20.0.0' },
       on() {}, once() {},
@@ -130,12 +131,22 @@ function bootPetIsolated(jukebox) {
   vm.runInContext(fs.readFileSync(PRELOAD, 'utf8'), ctx, { filename: PRELOAD });
 
   // 页面侧：真 bridge（它自己调 window.nekoPetHost.register）
-  assert.ok(exposed.nekoPetHost, 'preload 必须把 nekoPetHost 暴露给页面');
-  vm.runInContext(fs.readFileSync(PAGE_BRIDGE, 'utf8'), ctx, { filename: PAGE_BRIDGE });
+  // exposeToPage 两条路径：隔离态走 contextBridge，非隔离态直接挂 window —— 两边都要验
+  if (isolated) {
+    assert.ok(exposed.nekoPetHost, '隔离态必须经 contextBridge 暴露 nekoPetHost');
+  } else {
+    assert.ok(win.nekoPetHost, '非隔离态应直接挂到 window.nekoPetHost');
+  }
+  if (isolated) {
+    // 非隔离模式下故意**不**载桥：如果 pageApi 的隔离短路失效（错走了桥），
+    // 这里会立刻拿不到 Jukebox，而不是被桥悄悄兜住。
+    vm.runInContext(fs.readFileSync(PAGE_BRIDGE, 'utf8'), ctx, { filename: PAGE_BRIDGE });
+  }
 
   return {
     ctx, win, handlers, exposed,
-    diag: () => exposed.nekoPetDiagnostics.snapshot(),
+    // 隔离态在 exposed（contextBridge），非隔离态在 window 上 —— 两种都要能取
+    diag: () => (exposed.nekoPetDiagnostics || win.nekoPetDiagnostics).snapshot(),
     fire: (channel, payload) => handlers.get(channel)(null, payload),
     called: (jukeboxObj) => jukeboxObj.calls,
   };
@@ -239,4 +250,45 @@ test('State 是每次都取快照：页面改了状态，下一次触发就按�
   jb.State.isVMDPlaying = true;   // 页面侧状态变了
   fire(CH.VMD_PAUSE, undefined);
   assert.deepStrictEqual(jb.calls.map((c) => c[0]), ['togglePause'], '必须读到最新状态，不能是注册时快照');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 非隔离模式：petWindow **现在**就是这个模式（`contextIsolation: false`）。
+// 上面 8 条证明"迁移后隔离模式能通"，下面这批证明"迁移没改变今天的实际行为"。
+// 这一组刻意不载页面桥，若 pageApi 的隔离短路写错（走了桥），这里必然拿不到 Jukebox。
+// ───────────────────────────────────────────────────────────────────────────
+
+test('非隔离模式：VMD_PLAY 直接调真对象（不经桥），vrm 走 playVRMA', () => {
+  const jb = makeJukebox('vrm');
+  const { fire } = bootPetIsolated(jb, { isolated: false });
+  fire(CH.VMD_PLAY, { vmdPath: '/models/c.vmd' });
+  assert.deepStrictEqual(jb.calls.map((c) => c[0]), ['getModelType', 'playVRMA']);
+  assert.strictEqual(jb.calls[1][1], '/models/c.vmd');
+  assert.strictEqual(jb.calls[1][2], true, '非隔离也必须保持 this 指向 Jukebox');
+});
+
+test('非隔离模式：VMD_STOP / PAUSE / RESUME 与隔离模式判定一致', () => {
+  const jb = makeJukebox('live2d', { isVMDPlaying: true, isPaused: false });
+  const { fire } = bootPetIsolated(jb, { isolated: false });
+
+  fire(CH.VMD_STOP, { skipIdleRestore: false });
+  assert.deepStrictEqual(jb.calls, [['stopVMD', false, true]]);
+  jb.calls.length = 0;
+
+  fire(CH.VMD_PAUSE, undefined);
+  assert.deepStrictEqual(jb.calls.map((c) => c[0]), ['togglePause']);
+
+  jb.calls.length = 0;
+  jb.State.isPaused = true;
+  fire(CH.VMD_RESUME, undefined);
+  assert.deepStrictEqual(jb.calls.map((c) => c[0]), ['togglePause'], '暂停中才恢复');
+});
+
+test('非隔离模式：没有 Jukebox 时不抛错、不记 miss（miss 只属隔离态）', () => {
+  const { fire, diag } = bootPetIsolated(null, { isolated: false });
+  assert.doesNotThrow(() => fire(CH.VMD_PLAY, { vmdPath: '/x.vmd' }));
+  assert.doesNotThrow(() => fire(CH.VMD_PAUSE, undefined));
+  const snap = diag();
+  assert.strictEqual(snap.isolated, false, '快照要如实反映运行模式');
+  assert.strictEqual(Object.keys(snap.misses || {}).length, 0, '非隔离不该产生 miss');
 });
