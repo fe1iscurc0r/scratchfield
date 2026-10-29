@@ -88,6 +88,21 @@ jobs:
           npm ci
           npm run lint --if-present
 
+      - name: Test · neko-electron-shell 契约闸（WO-278 上下文隔离）
+        # 纯 node 内置模块（node:test / vm / fs / path），**不需要 npm ci**，实测 ~1s。
+        # 守四件事，全部是「隔离态下静默失效」类问题：
+        #   ① 页面全局裸读只能减不能增（棘轮）；
+        #   ② 已迁移域（域 A 模型态 / 域 E 点歌台）只允许 `process.contextIsolated`
+        #      回落分支上残留，且数量精确；
+        #   ③ 页面注册面必须真的注册了对应键 —— 只改 preload 不改页面，等于把调用
+        #      改成永远拿 undefined，比不改更糟；
+        #   ④ 隔离分支双端联跑：同 vm 里载入真 preload + 真页面桥 + 假 Jukebox，
+        #      真触发 IPC handler 看方法有没有被调到、`this` 有没有丢。
+        # ⚠️ 与 frontend lint 无关，放在本 job 是因为同属「静态/契约」闸门。
+        #    本地等价命令：cd neko-electron-shell && node --test tests/*.test.js
+        working-directory: neko-electron-shell
+        run: node --test tests/*.test.js
+
   # 冒烟测试（卷173 分层体系：pytest -m smoke，≤60s 目标）
   #
   # ⚠️ 闸门铁律（2026-09-29 卷173）：本 job 挂 ENABLE_CI_TEST 闸门变量——
