@@ -79,6 +79,47 @@ const REQUIRED_PAGE_KEYS = {
   avatarPortrait: ['avatarPortrait.capture'],
 };
 
+/**
+ * 待迁域（B 测量 / C 渲染控制 / D 视线）**按成员**的访问清单。
+ *
+ * 为什么不只靠上面的处数棘轮：43 这个数字没法分批、也看不出新增访问落点。
+ * 实测成员面很小且规整（7 / 7 / 6 个），锁成集合之后：
+ *   - 有人新写 `window.mmdManager.foo` ⇒ 直接失败，必须在下面登记；
+ *   - 某个成员迁完 ⇒ 从表里删掉，表不会腐烂（双向断言）。
+ * 这样 B/C/D 可以**按成员分批**迁移，而不是对着 121 行模糊计数。
+ *
+ * 括号里是 2026-10-29 实测的使用处数，仅供排期参考，不参与断言
+ * （处数由上一条棘轮管）。
+ */
+const PENDING_MEMBERS = {
+  mmdManager: [
+    'interaction',            // 12 —— 拖拽热路径，同时是 getModelRect 的兜底
+    'getModelScreenBounds',   // 4  —— 域 B 测量
+    'currentModel',           // 3  —— 守卫用（判存在）
+    'cursorFollow',           // 3  —— 域 D 视线
+    'pauseRendering',         // 2  —— 域 C 渲染控制
+    'resumeRendering',        // 2  —— 域 C
+    'resetModelPosition',     // 2  —— 域 C 复位
+  ],
+  vrmManager: [
+    'interaction',            // 12
+    'getModelScreenBounds',   // 4
+    'currentModel',           // 3
+    '_cursorFollow',          // 3  —— 注意是下划线私有字段，与 mmd 的 cursorFollow 不同名
+    'pauseRendering',         // 2
+    'resumeRendering',        // 2
+    'resetModelPosition',     // 2
+  ],
+  live2dManager: [
+    'getCurrentModel',        // 8  —— 拿模型对象再调 getBounds()，比前两者多一层
+    'getModelScreenBounds',   // 4
+    '_isDraggingModel',       // 2  —— 域 D 拖拽态（P2-A 的 modelDragging:live2d 已另走注册面）
+    'pauseRendering',         // 2
+    'resumeRendering',        // 2
+    'resetModelPosition',     // 2
+  ],
+};
+
 /** contextIsolation 不分离 DOM，这些照常可用，不计入。 */
 const DOM_STANDARD = new Set([
   'addEventListener', 'removeEventListener', 'dispatchEvent',
@@ -136,6 +177,28 @@ function collectAccess(lines) {
   });
 
   return { reads, writes };
+}
+
+/**
+ * 抽 `window.<manager>.<member>` 的成员名集合。
+ * 注意与 `collectAccess` 的区别：那条统计的是「读了哪个页面全局」，
+ * 这条统计的是「读了这个全局的哪个成员」—— 迁移是按成员做的。
+ */
+function collectMembers(lines) {
+  const out = new Map();
+  for (const name of Object.keys(PENDING_MEMBERS)) {
+    const re = new RegExp('\\bwindow\\.' + name + '\\b\\s*\\.\\s*([A-Za-z_$][\\w$]*)', 'g');
+    const found = new Set();
+    lines.forEach((line) => {
+      let m;
+      while ((m = re.exec(line)) !== null) {
+        if (insideString(line, m.index)) continue;
+        found.add(m[1]);
+      }
+    });
+    out.set(name, found);
+  }
+  return out;
 }
 
 test('页面全局裸读处数只能减少，不能新增', () => {
@@ -216,6 +279,26 @@ test('已迁移的域：页面注册面必须真的注册了对应成员', () =>
     'preload 已改成走 pageApi，但页面侧没有注册这些键 —— 隔离态下会永远拿到 undefined，'
     + '比不改更糟：\n' + missing.join('\n') +
     '\n修法：在 pet-host-bridge.js 的 GETTERS 里补上（实例方法要返回闭包，别裸传函数引用）。');
+});
+
+test('待迁域的成员面必须与 PENDING_MEMBERS 完全一致（新增成员要登记）', () => {
+  const actual = collectMembers(stripComments(readSource()));
+  const problems = [];
+
+  for (const [name, registered] of Object.entries(PENDING_MEMBERS)) {
+    const seen = actual.get(name) || new Set();
+    const extra = [...seen].filter((m) => !registered.includes(m));
+    const gone = registered.filter((m) => !seen.has(m));
+    if (extra.length) {
+      problems.push(`${name}: 新增未登记成员 ${extra.join(', ')}（隔离态下会读到 undefined；`
+        + '若刚迁完某个成员，请从 PENDING_MEMBERS 删掉它）');
+    }
+    if (gone.length) {
+      problems.push(`${name}: 登记的成员 ${gone.join(', ')} 已不再被访问 —— 迁完了就删登记，别让表腐烂`);
+    }
+  }
+
+  assert.deepStrictEqual(problems, [], problems.join('\n'));
 });
 
 test('pageApi 是唯一出口：取值必须经它，不许直接 return window.X', () => {
