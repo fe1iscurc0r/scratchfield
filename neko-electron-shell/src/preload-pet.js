@@ -79,6 +79,15 @@ exposeToPage('nekoPetDiagnostics', {
       const cfg = pageApi('lanlan_config');
       calls.configModelType = cfg && cfg.model_type;
     } catch (e) { calls.configModelType = 'err'; }
+    // 点歌台（域 E）：翻 contextIsolation 开关时靠这行判断桥通不通，
+    // 不用去猜"点了播放没反应"是桥断还是模型没加载。
+    try {
+      calls.jukebox = {
+        present: petJukeboxPresent(),
+        modelType: petJukeboxModelType(),
+        state: petJukeboxState(),
+      };
+    } catch (e) { calls.jukebox = 'err'; }
     return {
       isolated: Boolean(process.contextIsolated),
       hostRegistered: petDiag.hostRegistered,
@@ -167,6 +176,62 @@ function petRestoreButtonPointerEvents() {
     return true;
   }
   return false;
+}
+
+// ---- 域 E：点歌台（Jukebox）----
+// Jukebox 是页面实例，方法过桥会丢 this，所以页面侧（pet-host-bridge.js）
+// 提供的是**已绑定**的包装函数，这里拿到就能直接调，不需要再 bind。
+// 非隔离分支与迁移前逐字等价：迁移前这 4 个 handler 直接摸 window.Jukebox。
+function petJukeboxPresent() {
+  if (!process.contextIsolated) return Boolean(window.Jukebox);
+  return pageApi('Jukebox.present') === true;
+}
+
+function petJukeboxModelType() {
+  const J = process.contextIsolated ? null : window.Jukebox;
+  if (J) return typeof J.getModelType === 'function' ? J.getModelType() : 'live2d';
+  const fn = pageApi('Jukebox.getModelType');
+  if (typeof fn !== 'function') return 'live2d';
+  try {
+    const v = fn();
+    return typeof v === 'string' ? v : 'live2d';
+  } catch (err) {
+    console.warn('[pet] Jukebox.getModelType 失败:', err);
+    return 'live2d';
+  }
+}
+
+function petJukeboxState() {
+  const S = process.contextIsolated ? null : (window.Jukebox && window.Jukebox.State);
+  if (process.contextIsolated) {
+    const v = pageApi('Jukebox.state');
+    return v && typeof v === 'object' ? v : null;
+  }
+  return S ? { isVMDPlaying: Boolean(S.isVMDPlaying), isPaused: Boolean(S.isPaused) } : null;
+}
+
+function petJukeboxHas(member) {
+  const J = process.contextIsolated ? null : window.Jukebox;
+  if (J) return typeof J[member] === 'function';
+  return typeof pageApi('Jukebox.' + member) === 'function';
+}
+
+function petJukeboxCall(member, arg) {
+  const J = process.contextIsolated ? null : window.Jukebox;
+  if (J) {
+    if (typeof J[member] !== 'function') return false;
+    J[member](arg);
+    return true;
+  }
+  const fn = pageApi('Jukebox.' + member);
+  if (typeof fn !== 'function') return false;
+  try {
+    fn(arg);
+    return true;
+  } catch (err) {
+    console.warn('[pet] Jukebox.' + member + ' 失败:', err);
+    return false;
+  }
 }
 
 // Wayland 检测（preload 级别）：必须与主进程 isLinuxWaylandRuntime() 逻辑一致
@@ -4197,36 +4262,28 @@ function startMousePoller() {
 
   // Jukebox 独立窗口 → Pet: VMD/VRMA 动画控制（根据模型类型分发）
   ipcRenderer.on(JUKEBOX_CHANNELS.VMD_PLAY, (_event, data) => {
-    if (!window.Jukebox || !data || !data.vmdPath) return;
-    var modelType = typeof window.Jukebox.getModelType === 'function'
-      ? window.Jukebox.getModelType() : 'live2d';
-    if (modelType === 'vrm' && typeof window.Jukebox.playVRMA === 'function') {
-      window.Jukebox.playVRMA(data.vmdPath);
-    } else if (typeof window.Jukebox.playVMD === 'function') {
-      window.Jukebox.playVMD(data.vmdPath);
-    }
-  });
-  ipcRenderer.on(JUKEBOX_CHANNELS.VMD_STOP, (_event, data) => {
-    if (window.Jukebox && typeof window.Jukebox.stopVMD === 'function') {
-      window.Jukebox.stopVMD(data && data.skipIdleRestore);
-    }
-  });
-  ipcRenderer.on(JUKEBOX_CHANNELS.VMD_PAUSE, () => {
-    if (window.Jukebox && typeof window.Jukebox.togglePause === 'function') {
-      // 仅在播放中时暂停
-      if (window.Jukebox.State && window.Jukebox.State.isVMDPlaying && !window.Jukebox.State.isPaused) {
-        window.Jukebox.togglePause();
-      }
-    }
-  });
-  ipcRenderer.on(JUKEBOX_CHANNELS.VMD_RESUME, () => {
-    if (window.Jukebox && typeof window.Jukebox.togglePause === 'function') {
-      // 仅在暂停时恢复
-      if (window.Jukebox.State && window.Jukebox.State.isPaused) {
-        window.Jukebox.togglePause();
-      }
-    }
-  });
+  if (!data || !data.vmdPath) return;
+  if (!petJukeboxPresent()) return;
+  // 与迁移前同构：vrm 且 playVRMA 可用才走 VRMA，其余一律回落 playVMD
+  if (petJukeboxModelType() === 'vrm' && petJukeboxHas('playVRMA')) {
+    petJukeboxCall('playVRMA', data.vmdPath);
+  } else {
+    petJukeboxCall('playVMD', data.vmdPath);
+  }
+});
+ipcRenderer.on(JUKEBOX_CHANNELS.VMD_STOP, (_event, data) => {
+  petJukeboxCall('stopVMD', data && data.skipIdleRestore);
+});
+ipcRenderer.on(JUKEBOX_CHANNELS.VMD_PAUSE, () => {
+  // 仅在播放中时暂停
+  const state = petJukeboxState();
+  if (state && state.isVMDPlaying && !state.isPaused) petJukeboxCall('togglePause');
+});
+ipcRenderer.on(JUKEBOX_CHANNELS.VMD_RESUME, () => {
+  // 仅在暂停时恢复
+  const state = petJukeboxState();
+  if (state && state.isPaused) petJukeboxCall('togglePause');
+});
 
   // AgentHUD → Pet: Agent 开关
   ipcRenderer.on(AGENT_CHANNELS.TOGGLE, (event, data) => {

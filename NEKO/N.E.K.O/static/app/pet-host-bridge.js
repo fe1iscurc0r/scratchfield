@@ -9,8 +9,9 @@
  * 约定：
  *   - preload 侧 `pageApi(name)` 在隔离时会调 `host(name)`；
  *   - 返回 `undefined` 表示"页面没有这个能力"（preload 会记一次 miss）；
- *   - **实例**（mmdManager / vrmManager / live2dManager / Jukebox / avatarPortrait）**不在这里注册**：
- *     对象过桥会丢原型方法，必须按成员拆成函数（P2）。
+ *   - **实例不整体注册**：mmdManager / vrmManager / live2dManager / Jukebox / avatarPortrait
+ *     过桥会丢原型方法，必须按成员拆成函数。P2-A 拆了模型态（域 A），
+ *     P2-E 拆了点歌台（域 E，见文件末尾 `Jukebox.*`）。
  *
  * 加载顺序：本文件必须在 `index.html` 里尽早加载（getter 内是惰性取值，
  * 注册时被取用的对象还不存在也没关系）。
@@ -94,6 +95,43 @@
       var D = window.DragHelpers;
       if (!D || typeof D.restoreButtonPointerEvents !== 'function') return undefined;
       return D.restoreButtonPointerEvents;   // 返回函数本身，过桥成为可调用代理
+    },
+    // ---- 域 E：点歌台（Jukebox）----
+    // 方法一律返回**闭包**而不是 `J.playVMD` 本身：裸传函数引用过桥后 this 会丢，
+    // 闭包在页面世界内执行，this 仍指向 Jukebox。
+    'Jukebox.present': function () {
+      return window.Jukebox ? true : undefined;
+    },
+    'Jukebox.getModelType': function () {
+      var J = window.Jukebox;
+      if (!J || typeof J.getModelType !== 'function') return undefined;
+      return function () { return J.getModelType(); };
+    },
+    'Jukebox.state': function () {
+      var S = window.Jukebox && window.Jukebox.State;
+      if (!S) return undefined;
+      // 只回布尔快照：对象过桥会被克隆，直接回 State 反而容易读到陈旧值
+      return { isVMDPlaying: Boolean(S.isVMDPlaying), isPaused: Boolean(S.isPaused) };
+    },
+    'Jukebox.playVRMA': function () {
+      var J = window.Jukebox;
+      if (!J || typeof J.playVRMA !== 'function') return undefined;
+      return function (path) { return J.playVRMA(path); };
+    },
+    'Jukebox.playVMD': function () {
+      var J = window.Jukebox;
+      if (!J || typeof J.playVMD !== 'function') return undefined;
+      return function (path) { return J.playVMD(path); };
+    },
+    'Jukebox.stopVMD': function () {
+      var J = window.Jukebox;
+      if (!J || typeof J.stopVMD !== 'function') return undefined;
+      return function (skipIdleRestore) { return J.stopVMD(skipIdleRestore); };
+    },
+    'Jukebox.togglePause': function () {
+      var J = window.Jukebox;
+      if (!J || typeof J.togglePause !== 'function') return undefined;
+      return function () { return J.togglePause(); };
     },
   };
 
