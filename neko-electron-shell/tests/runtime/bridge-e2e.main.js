@@ -27,7 +27,7 @@ const http = require('http');
 const {
   WS_PROXY_CHANNELS, SETTINGS_CHANNELS, TUTORIAL_OVERLAY_CHANNELS,
   WINDOW_CONTROL_CHANNELS, CHAT_CHANNELS, JUKEBOX_CHANNELS, CHAT_ACTION_CHANNELS,
-  COMPACT_CHAT_BALL_CHANNELS, SUBTITLE_CHANNELS,
+  COMPACT_CHAT_BALL_CHANNELS, SUBTITLE_CHANNELS, PET_CHANNELS,
 } = require('../../src/ipc-channels');
 
 const argv = process.argv.slice(2);
@@ -111,11 +111,13 @@ function startStaticServer() {
  * chat-proxy：装配后两臂都走桥（隔离与否都由 preload 暴露 nekoWebSocket），恰好一次。
  * react-chat：preload-chat-react.js 在 P1 后同样只暴露桥、不替换构造器，恰好一次。
  * react-chat-api（P2）：只验 A 组 API 暴露，页面不建连，零次。
+ * react-chat-state（P3）：只验 B 组状态门面，页面不建连，零次。
  */
 function expectedRawSendCount() {
   if (MODE === 'bridge') return 1;
   if (MODE === 'fallback') return 0;
   if (MODE === 'react-chat-api') return 0;
+  if (MODE === 'react-chat-state') return 0;
   return 1;
 }
 
@@ -266,10 +268,12 @@ async function main() {
   const server = await startStaticServer();
   const port = server.address().port;
 
-  if (MODE === 'react-chat-api') setupReactChatApiStubs();
+  if (MODE === 'react-chat-api' || MODE === 'react-chat-state') setupReactChatApiStubs();
 
   const win = new BrowserWindow({
-    show: false,
+    // state 模式要验「状态变化后页面读到新值」，而 preload 的 compact 布局在
+    // document.hidden 时直接放弃 —— 必须真的把窗口显示出来。
+    show: MODE === 'react-chat-state',
     width: 800,
     height: 600,
     webPreferences: {
@@ -375,11 +379,29 @@ async function main() {
         if (MODE === 'react-chat-api') {
           observations.apiCheck = evaluateApiCheck();
         }
+        if (MODE === 'react-chat-state') {
+          // 主进程侧证据：配置和两份 avatar payload 确实发了，preload 也确实进了
+          // compact 布局路径（GET_BOUNDS 只有 activateDesktopCompactWindow 会打）。
+          const getBoundsCalls = observations.apiLog.filter(
+            (e) => e.kind === 'invoke' && e.channel === WINDOW_CONTROL_CHANNELS.GET_BOUNDS,
+          ).length;
+          observations.stateCheck = {
+            configResultSent: observations.configResultSent === true,
+            avatarPayloadsSent: !!observations.avatarPayloadA && !!observations.avatarPayloadB,
+            layoutRunObserved: getBoundsCalls >= 1,
+            getBoundsCalls,
+            pass: observations.configResultSent === true
+              && !!observations.avatarPayloadA
+              && !!observations.avatarPayloadB
+              && getBoundsCalls >= 1,
+          };
+        }
         const pass =
           !!(observations.pageReport && observations.pageReport.pass) &&
           transportPass &&
           (!observations.pageBridgeCheck || observations.pageBridgeCheck.pass) &&
           (!observations.apiCheck || observations.apiCheck.pass) &&
+          (!observations.stateCheck || observations.stateCheck.pass) &&
           !observations.error;
         finish(pass ? 0 : 1);
       }, 300);
@@ -487,6 +509,31 @@ async function main() {
       // P2 只验 A 组 API 暴露，页面不建连：保持零 RAW_SEND 才是「没动运输层」的证据。
       return;
     }
+    if (MODE === 'react-chat-state') {
+      // P3：先给配置，再给两份不同的 avatar payload（模型横移 400px）。
+      // 布局跟着 payload 变 → 页面 getter 必须读到新 surface 位置。
+      const avatarPayload = (x) => ({
+        type: 'live2d',
+        bounds: {
+          left: x, top: 300, right: x + 200, bottom: 500,
+          width: 200, height: 200, centerX: x + 100, centerY: 400,
+        },
+        timestamp: Date.now(),
+      });
+      setTimeout(() => {
+        observations.configResultSent = true;
+        broadcast(CHAT_ACTION_CHANNELS.CONFIG_RESULT, { lanlan_name: 'wo278-p3', lanlan_basic_config: {} });
+      }, 200);
+      setTimeout(() => {
+        observations.avatarPayloadA = avatarPayload(600);
+        broadcast(PET_CHANNELS.AVATAR_BOUNDS_SYNC, observations.avatarPayloadA);
+      }, 700);
+      setTimeout(() => {
+        observations.avatarPayloadB = avatarPayload(1000);
+        broadcast(PET_CHANNELS.AVATAR_BOUNDS_SYNC, observations.avatarPayloadB);
+      }, 1900);
+      return;
+    }
     setTimeout(() => {
       observations.staleClosedBroadcast = true;
       broadcast(WS_PROXY_CHANNELS.CLOSED, { code: 1006, reason: 'stale' });
@@ -502,7 +549,8 @@ async function main() {
     'http://127.0.0.1:' + port +
     (PAGE_OVERRIDE || '/neko-electron-shell/tests/runtime/bridge-e2e.page.html') +
     '?mode=' + encodeURIComponent(MODE) +
-    '&ws=' + encodeURIComponent(WS_URL);
+    '&ws=' + encodeURIComponent(WS_URL) +
+    '&isolation=' + (ISOLATED ? 'true' : 'false');
   observations.pageUrl = pageUrl;
 
   win.loadURL(pageUrl).catch((err) => {

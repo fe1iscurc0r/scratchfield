@@ -18,6 +18,28 @@
   var voiceToastBridge = global.nekoPageVoiceToastBridge;
   var settingsSync = global.nekoPageSettingsSync;
 
+  // ==================== B 组页面状态（P3）====================
+  // 隔离臂：preload 写的是自己的世界，页面只能经 getter 每次现取 —— 状态变了立刻读到新值。
+  // 共享臂：preload 直接写页面 window，这里再装 getter 会顶掉后续赋值，所以只在 isolated 装。
+  var chatState = global.nekoChatState;
+  if (chatState && chatState.isolated === true && typeof chatState.get === 'function') {
+    [
+      '__nekoDesktopCompactLayout',
+      '__nekoDesktopAvatarBounds',
+      '__nekoDesktopCompactBallScreenRect',
+      '__nekoDesktopCompactExternalBall',
+      '__nekoInjectedConfig',
+    ].forEach(function (name) {
+      try {
+        Object.defineProperty(global, name, {
+          configurable: true,
+          enumerable: true,
+          get: function () { return chatState.get(name); },
+        });
+      } catch (_) { /* 页面先把该属性改成不可配置时放弃 */ }
+    });
+  }
+
   if (!toastBridge && !voiceToastBridge && !settingsSync) return;
 
   // ==================== Toast ====================

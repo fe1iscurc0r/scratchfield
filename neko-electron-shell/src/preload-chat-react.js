@@ -43,6 +43,43 @@ function exposeLiveFacade(name, methodNames, getImpl) {
   return facade;
 }
 
+// B 组页面状态（P3）。preload 是唯一真源：
+//   - 隔离臂：页面用 Object.defineProperty 装 getter，每次读都过 nekoChatState.get 现取，
+//     所以状态变了页面立刻读到新值（直接 exposeInMainWorld 值会在暴露那刻被克隆冻结）。
+//   - 共享臂：仍旧直接写 window，页面读的还是同一个引用（行为与迁移前一致）。
+var PAGE_STATE_NAMES = {
+  layout: '__nekoDesktopCompactLayout',
+  avatarBounds: '__nekoDesktopAvatarBounds',
+  compactBallScreenRect: '__nekoDesktopCompactBallScreenRect',
+  compactExternalBall: '__nekoDesktopCompactExternalBall',
+  injectedConfig: '__nekoInjectedConfig',
+};
+var PAGE_STATE_SLOTS = {};
+Object.keys(PAGE_STATE_NAMES).forEach(function (slot) {
+  PAGE_STATE_SLOTS[PAGE_STATE_NAMES[slot]] = slot;
+});
+var pageState = {
+  layout: undefined,
+  avatarBounds: undefined,
+  compactBallScreenRect: null,
+  compactExternalBall: false,
+  injectedConfig: undefined,
+};
+var pageStateWritesWindow = !process.contextIsolated;
+
+function publishPageState(slot, value) {
+  pageState[slot] = value;
+  if (pageStateWritesWindow) window[PAGE_STATE_NAMES[slot]] = value;
+}
+
+exposeToPage('nekoChatState', {
+  isolated: !pageStateWritesWindow,
+  get: function (name) {
+    var slot = PAGE_STATE_SLOTS[name];
+    return slot ? pageState[slot] : undefined;
+  },
+});
+
 // ===== 1. WebSocket → IPC 代理 =====
 // chat.html 加载了 ws-adapter.js + app-websocket.js，建连点是 `__nekoCreateWebSocket()`。
 // 本 preload 暴露 `nekoWebSocket.create(url)`，页面适配器补回原生语义后所有连接都走
@@ -656,7 +693,7 @@ function getAvatarToolClientScreenPoint(clientX, clientY) {
       }
     } catch (_) {}
   }
-  var layoutBounds = window.__nekoDesktopCompactLayout && window.__nekoDesktopCompactLayout.windowBounds;
+  var layoutBounds = pageState.layout && pageState.layout.windowBounds;
   var layoutX = normalizeAvatarToolFiniteNumber(layoutBounds && layoutBounds.x);
   var layoutY = normalizeAvatarToolFiniteNumber(layoutBounds && layoutBounds.y);
   if (layoutX !== null && layoutY !== null) {
@@ -890,7 +927,7 @@ function getAvatarToolScreenClientPoint(screenX, screenY) {
       }
     } catch (_) {}
   }
-  var layoutBounds = window.__nekoDesktopCompactLayout && window.__nekoDesktopCompactLayout.windowBounds;
+  var layoutBounds = pageState.layout && pageState.layout.windowBounds;
   var layoutX = normalizeAvatarToolFiniteNumber(layoutBounds && layoutBounds.x);
   var layoutY = normalizeAvatarToolFiniteNumber(layoutBounds && layoutBounds.y);
   if (layoutX !== null && layoutY !== null) {
@@ -1046,7 +1083,7 @@ document.addEventListener('visibilitychange', function() {
 // 多窗口模式下页面不自己请求 API（/chat 路径会被误解析为角色名），
 // 而是等 preload 通过 IPC 从 Pet 窗口注入配置。
 ipcRenderer.on(CHAT_ACTION_CHANNELS.CONFIG_RESULT, (_event, data) => {
-  window.__nekoInjectedConfig = data || {};
+  publishPageState('injectedConfig', data || {});
   window.dispatchEvent(new CustomEvent('neko:config-injected', { detail: data }));
 });
 function requestConfigInjection() {
@@ -1083,12 +1120,13 @@ var _isNativeWayland = process.platform === 'linux' &&
   process.env.NEKO_FORCE_X11 !== '1' &&
   (!!process.env.WAYLAND_DISPLAY || process.env.XDG_SESSION_TYPE === 'wayland') &&
   !process.argv.some(function(a) { return a.indexOf('ozone-platform=x11') >= 0; });
-window.__NEKO_DESKTOP_RUNTIME__ = Object.freeze({
+// 一次性静态值：直接 expose 就能在页面所有脚本（含 app-state.js 首帧读取）之前就位。
+exposeToPage('__NEKO_DESKTOP_RUNTIME__', Object.freeze({
   platform: process.platform,
   isLinux: process.platform === 'linux',
   isLinuxX11: process.platform === 'linux' && !_isNativeWayland,
   isWayland: _isNativeWayland
-});
+}));
 // Linux cannot use the Win32 opacity carrier path: Electron setOpacity() is a
 // no-op there. Keep the chat BrowserWindow itself as the minimized yarn ball so
 // dragging/click restore use the real current window bounds on both X11 and
@@ -1746,7 +1784,7 @@ function setupReactChatDomInterceptors() {
     var carrier = getDesktopCompactWaylandSelfBallCarrierBounds(carrierBounds);
     desktopCompactWaylandSelfBallAnchorBounds = anchor;
     desktopCompactWaylandSelfBallCarrierBounds = carrier;
-    window.__nekoDesktopCompactBallScreenRect = buildDesktopCompactWaylandSelfBallScreenRect(anchor);
+    publishPageState('compactBallScreenRect', buildDesktopCompactWaylandSelfBallScreenRect(anchor));
     applyDesktopCompactWaylandSelfBallCssVars(anchor, carrier);
     sendDesktopCompactWaylandSelfBallShape(reason || 'self-ball-anchor', anchor, carrier);
     setDesktopCompactHistoryPointerPassthrough(false);
@@ -1758,7 +1796,7 @@ function setupReactChatDomInterceptors() {
     desktopCompactWaylandSelfBallAnchorBounds = null;
     desktopCompactWaylandSelfBallCarrierBounds = null;
     applyDesktopCompactWaylandSelfBallCssVars(null);
-    window.__nekoDesktopCompactBallScreenRect = null;
+    publishPageState('compactBallScreenRect', null);
   }
 
   function sameWindowBounds(a, b) {
@@ -1914,7 +1952,7 @@ function setupReactChatDomInterceptors() {
   }
 
   function getDesktopCompactRevealWindowBounds() {
-    var layout = desktopCompactLayout || window.__nekoDesktopCompactLayout || null;
+    var layout = desktopCompactLayout || pageState.layout || null;
     return layout && layout.windowBounds ? normalizeWindowBounds(layout.windowBounds) : null;
   }
 
@@ -2031,7 +2069,7 @@ function setupReactChatDomInterceptors() {
     var snapshot = JSON.stringify(localAvatar || null);
     if (snapshot === desktopCompactAvatarBoundsOnlySnapshot) return;
     desktopCompactAvatarBoundsOnlySnapshot = snapshot;
-    window.__nekoDesktopAvatarBounds = localAvatar;
+    publishPageState('avatarBounds', localAvatar);
     window.dispatchEvent(new CustomEvent('neko:desktop-avatar-bounds-change', { detail: localAvatar }));
   }
 
@@ -2067,7 +2105,7 @@ function setupReactChatDomInterceptors() {
   }
 
   function getElectronChatMinimizedScreenRect() {
-    return normalizeElectronChatMinimizedScreenRect(window.__nekoDesktopCompactBallScreenRect)
+    return normalizeElectronChatMinimizedScreenRect(pageState.compactBallScreenRect)
       || normalizeElectronChatMinimizedScreenRect(desktopCompactLayout && desktopCompactLayout.ballScreenRect);
   }
 
@@ -2232,7 +2270,7 @@ function setupReactChatDomInterceptors() {
     var candidates = [
       desktopCompactPendingWindowBounds,
       desktopCompactLayout && desktopCompactLayout.windowBounds,
-      window.__nekoDesktopCompactLayout && window.__nekoDesktopCompactLayout.windowBounds,
+      pageState.layout && pageState.layout.windowBounds,
       fallback
     ];
     for (var i = 0; i < candidates.length; i += 1) {
@@ -2253,7 +2291,7 @@ function setupReactChatDomInterceptors() {
     var x = Number(clientX);
     var y = Number(clientY);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    var layout = desktopCompactLayout || window.__nekoDesktopCompactLayout || null;
+    var layout = desktopCompactLayout || pageState.layout || null;
     var bounds = getDesktopCompactClientCoordinateWindowBounds(layout && layout.windowBounds);
     if (!bounds || !Number.isFinite(Number(bounds.x)) || !Number.isFinite(Number(bounds.y))) return null;
     return {
@@ -2266,7 +2304,7 @@ function setupReactChatDomInterceptors() {
     var x = Number(screenX);
     var y = Number(screenY);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    var layout = desktopCompactLayout || window.__nekoDesktopCompactLayout || null;
+    var layout = desktopCompactLayout || pageState.layout || null;
     var bounds = getDesktopCompactClientCoordinateWindowBounds(layout && layout.windowBounds);
     if (!bounds || !Number.isFinite(Number(bounds.x)) || !Number.isFinite(Number(bounds.y))) return null;
     return {
@@ -2508,7 +2546,7 @@ function setupReactChatDomInterceptors() {
 
   function getDesktopCompactHistoryDragOverAvatar(state) {
     if (!state || !state.pointerClient) return null;
-    return isPointInsideDesktopCompactAvatarRange(window.__nekoDesktopAvatarBounds, state.pointerClient);
+    return isPointInsideDesktopCompactAvatarRange(pageState.avatarBounds, state.pointerClient);
   }
 
   function dispatchDesktopCompactHistoryDragDropTargetState(state) {
@@ -3851,11 +3889,11 @@ function setupReactChatDomInterceptors() {
     desktopCompactTransientGeometrySummary = '';
     desktopCompactPendingWindowBounds = null;
     applyDesktopCompactSurfaceCssVars(null);
-    window.__nekoDesktopCompactLayout = null;
-    window.__nekoDesktopAvatarBounds = null;
+    publishPageState('layout', null);
+    publishPageState('avatarBounds', null);
     desktopCompactAvatarBoundsOnlySnapshot = '';
-    window.__nekoDesktopCompactExternalBall = false;
-    window.__nekoDesktopCompactBallScreenRect = null;
+    publishPageState('compactExternalBall', false);
+    publishPageState('compactBallScreenRect', null);
     setDesktopCompactHistoryPointerPassthrough(false);
     stopDesktopCompactHistoryHoverPoll();
     setDesktopCompactHistoryHoverActive(false);
@@ -3891,13 +3929,13 @@ function setupReactChatDomInterceptors() {
       return;
     }
     desktopCompactPageLayoutSnapshot = snapshot;
-    window.__nekoDesktopAvatarBounds = nextAvatarBounds;
-    window.__nekoDesktopCompactLayout = nextCompactLayout;
+    publishPageState('avatarBounds', nextAvatarBounds);
+    publishPageState('layout', nextCompactLayout);
     applyDesktopCompactSurfaceCssVars(nextCompactLayout);
-    window.__nekoDesktopCompactExternalBall = true;
-    window.__nekoDesktopCompactBallScreenRect = layout.ballScreenRect || null;
-    window.dispatchEvent(new CustomEvent('neko:desktop-avatar-bounds-change', { detail: window.__nekoDesktopAvatarBounds }));
-    window.dispatchEvent(new CustomEvent('neko:desktop-compact-layout-change', { detail: window.__nekoDesktopCompactLayout }));
+    publishPageState('compactExternalBall', true);
+    publishPageState('compactBallScreenRect', layout.ballScreenRect || null);
+    window.dispatchEvent(new CustomEvent('neko:desktop-avatar-bounds-change', { detail: pageState.avatarBounds }));
+    window.dispatchEvent(new CustomEvent('neko:desktop-compact-layout-change', { detail: pageState.layout }));
     syncDesktopCompactHistoryHoverWithCursor(layout);
     if (desktopCompactSurfaceDragSettledTarget && !desktopCompactSurfaceDragActive) {
       desktopCompactSurfaceDragSettledTarget = null;
@@ -5502,7 +5540,7 @@ function setupReactChatDomInterceptors() {
   // layout 已 freeze/重置，从 __nekoDesktopCompactLayout 读不到了。
   function captureDesktopCompactSurfaceScreenRectBeforeCollapse() {
     try {
-      var layoutForBall = window.__nekoDesktopCompactLayout;
+      var layoutForBall = pageState.layout;
       if (layoutForBall && layoutForBall.surfaceScreenRect) {
         var ssr = layoutForBall.surfaceScreenRect;
         var sLeft = Number(ssr.left);
@@ -6246,9 +6284,9 @@ function setupReactChatDomInterceptors() {
     // 反推需要 surface 高度）。**每次折叠都刷新**：compact surface 高度并非恒定（开启
     // galgame / 附件等会变成 385/495px），只在首次缓存会让后续展开用过期高度算 ballSurfaceTop，
     // 导致还原后对话条底边与球对不齐。所以这里始终取最新值。
-    if (window.__nekoDesktopCompactLayout && window.__nekoDesktopCompactLayout.surface) {
-      var freezeLayoutSurface = window.__nekoDesktopCompactLayout.surface;
-      var freezeLayoutWB = window.__nekoDesktopCompactLayout.windowBounds || {};
+    if (pageState.layout && pageState.layout.surface) {
+      var freezeLayoutSurface = pageState.layout.surface;
+      var freezeLayoutWB = pageState.layout.windowBounds || {};
       _lastLayoutForRestore = {
         surface: {
           left: Number(freezeLayoutSurface.left),
@@ -7011,7 +7049,7 @@ function setupReactChatDomInterceptors() {
   function startDesktopCompactSurfaceDragAtScreen(screenX, screenY) {
     if (desktopCompactSurfaceDragActive) return;
 
-    var layout = desktopCompactLayout || window.__nekoDesktopCompactLayout || null;
+    var layout = desktopCompactLayout || pageState.layout || null;
     var layoutBounds = layout && layout.windowBounds;
     var layoutSurface = normalizeRect(layout && layout.surface);
     if (!layoutBounds || !layoutSurface) return;
@@ -7166,7 +7204,7 @@ function setupReactChatDomInterceptors() {
   }
 
   function ensureDesktopCompactMeasuredFallbackLayout(layout) {
-    var existingLayout = layout || desktopCompactLayout || window.__nekoDesktopCompactLayout || null;
+    var existingLayout = layout || desktopCompactLayout || pageState.layout || null;
     var existingBounds = normalizeWindowBounds(existingLayout && existingLayout.windowBounds);
     var fallbackBounds = existingBounds || getDesktopCompactRendererWindowBounds(existingBounds);
     var fallbackSurfaceScreenRect = getDesktopCompactMeasuredSurfaceScreenRect(fallbackBounds || {});
@@ -7179,21 +7217,21 @@ function setupReactChatDomInterceptors() {
       workArea: existingLayout && existingLayout.workArea ? existingLayout.workArea : null
     });
     desktopCompactLayout = nextLayout;
-    window.__nekoDesktopCompactLayout = Object.assign({}, window.__nekoDesktopCompactLayout || {}, {
+    publishPageState('layout', Object.assign({}, pageState.layout || {}, {
       windowBounds: nextLayout.windowBounds,
       surface: nextLayout.surface,
       surfaceScreenRect: nextLayout.surfaceScreenRect || null,
       workArea: nextLayout.workArea || null,
       compactChoicePlacement: nextLayout.compactChoicePlacement || null,
       dragging: !!desktopCompactSurfaceDragActive
-    });
+    }));
     return nextLayout;
   }
 
   function startDesktopCompactSurfaceRendererDrag(detail) {
     if (desktopCompactSurfaceDragActive) return;
 
-    var layout = desktopCompactLayout || window.__nekoDesktopCompactLayout || null;
+    var layout = desktopCompactLayout || pageState.layout || null;
     var layoutBounds = normalizeWindowBounds(layout && layout.windowBounds);
     var layoutSurface = normalizeRect(layout && layout.surface);
     if (!layoutBounds || !layoutSurface) {
@@ -7317,7 +7355,7 @@ function setupReactChatDomInterceptors() {
     if (isSurfaceActionLocked()) return;
     if (getCurrentReactChatSurfaceMode() !== 'compact' || eMinimized || isReactChatWindowHidden()) return;
     if (desktopCompactSurfaceDragActive) return;
-    var layout = desktopCompactLayout || window.__nekoDesktopCompactLayout || null;
+    var layout = desktopCompactLayout || pageState.layout || null;
     if (!layout || !layout.windowBounds || !layout.surface) {
       layout = ensureDesktopCompactMeasuredFallbackLayout(layout);
     }
@@ -7336,7 +7374,7 @@ function setupReactChatDomInterceptors() {
       }
       clearDesktopCompactSurfaceDragPrime();
       if (!desktopCompactSurfaceDragActive) {
-        applyDesktopCompactNativeRegion(desktopCompactLayout || window.__nekoDesktopCompactLayout || null);
+        applyDesktopCompactNativeRegion(desktopCompactLayout || pageState.layout || null);
       }
     };
     document.addEventListener('pointerup', finishPrime, true);
@@ -7396,7 +7434,7 @@ function setupReactChatDomInterceptors() {
     }
     clearDesktopCompactSurfaceDragPrime();
     if (!desktopCompactSurfaceDragActive) {
-      applyDesktopCompactNativeRegion(desktopCompactLayout || window.__nekoDesktopCompactLayout || null);
+      applyDesktopCompactNativeRegion(desktopCompactLayout || pageState.layout || null);
     }
   });
 

@@ -628,13 +628,117 @@
     });
   }
 
+  async function testReactChatState() {
+    // P3：B 组状态门面。preload 是唯一真源，隔离臂页面经 getter 现取。
+    // 判据是「状态变了页面能读到新值」而不是「读到了某个值」—— 静态快照会在这里露馅。
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    var params = new URLSearchParams(location.search);
+    var expectedIsolated = params.get('isolation') === 'true';
+
+    var chatState = window.nekoChatState;
+    check('nekoChatState 已暴露（get 是函数）',
+      !!(chatState && typeof chatState.get === 'function'), typeof chatState);
+    check('isolated 标志与窗口一致性（preload 上报）',
+      !!chatState && chatState.isolated === expectedIsolated,
+      JSON.stringify({ expected: expectedIsolated, actual: chatState && chatState.isolated }));
+
+    // 一次性静态值直接 expose：本文件执行时（解析期）就该可读，
+    // 这同时覆盖「app-state.js 更早加载也能读到」这一约束。
+    var runtime = window.__NEKO_DESKTOP_RUNTIME__;
+    check('__NEKO_DESKTOP_RUNTIME__ 在页面脚本解析期可读',
+      !!(runtime && typeof runtime.platform === 'string' && typeof runtime.isLinuxX11 === 'boolean'),
+      JSON.stringify(runtime));
+
+    if (!chatState || typeof chatState.get !== 'function') {
+      report({ fatal: 'nekoChatState missing' });
+      return;
+    }
+    check('nekoChatState.get(未知键) 返回 undefined 且不抛',
+      chatState.get('__nope__') === undefined, String(chatState.get('__nope__')));
+
+    // —— 1) IPC → preload 状态 → 页面 ——
+    var config = await waitFor('injected config', function () {
+      return window.__nekoInjectedConfig && window.__nekoInjectedConfig.lanlan_name === 'wo278-p3';
+    }, 12000);
+    check('CONFIG_RESULT 注入的配置页面能读到', config.ok, config.ok ? 'ok' : config.error);
+    check('  nekoChatState.get 与页面全局同值',
+      config.ok
+      && JSON.stringify(chatState.get('__nekoInjectedConfig')) === JSON.stringify(window.__nekoInjectedConfig),
+      JSON.stringify(chatState.get('__nekoInjectedConfig')));
+
+    // —— 2) compact 布局 live 取值 ——
+    var firstSnap = null;
+    var first = await waitFor('first compact layout', function () {
+      var layout = window.__nekoDesktopCompactLayout;
+      var avatar = window.__nekoDesktopAvatarBounds;
+      if (!layout || !layout.surface || !layout.windowBounds || !avatar) return false;
+      firstSnap = {
+        surfaceLeft: Number(layout.surface.left),
+        windowX: Number(layout.windowBounds.x),
+        avatar: JSON.stringify(avatar),
+        externalBall: window.__nekoDesktopCompactExternalBall,
+        ballRect: JSON.stringify(window.__nekoDesktopCompactBallScreenRect),
+      };
+      return true;
+    }, 15000);
+    check('第一份 compact 布局到达页面（layout/surface/windowBounds/avatar）',
+      first.ok, first.ok ? JSON.stringify(firstSnap) : first.error);
+    check('__nekoDesktopCompactExternalBall 也是活值（true）',
+      !!firstSnap && firstSnap.externalBall === true, firstSnap && String(firstSnap.externalBall));
+
+    var desc = Object.getOwnPropertyDescriptor(window, '__nekoDesktopCompactLayout');
+    check('状态属性形态与臂一致（隔离=getter，共享=preload 直写的数据属性）',
+      expectedIsolated
+        ? !!(desc && typeof desc.get === 'function' && !('value' in desc))
+        : !!(desc && !('get' in desc)),
+      JSON.stringify(desc ? Object.keys(desc) : null));
+
+    // 第二份 avatar payload 把模型横移 400px ⇒ surface 必须跟着挪。
+    // 若 getter 被换成安装时的静态快照，这里会一直读到第一份值（破坏对照）。
+    var moved = await waitFor('layout follows second payload', function () {
+      var layout = window.__nekoDesktopCompactLayout;
+      if (!layout || !layout.surface || !layout.windowBounds) return false;
+      return Math.abs(Number(layout.surface.left) - firstSnap.surfaceLeft) >= 100;
+    }, 15000);
+    var secondSnap = null;
+    if (moved.ok) {
+      var layout2 = window.__nekoDesktopCompactLayout;
+      secondSnap = {
+        surfaceLeft: Number(layout2.surface.left),
+        windowX: Number(layout2.windowBounds.x),
+        avatar: JSON.stringify(window.__nekoDesktopAvatarBounds),
+      };
+    }
+    check('第二份 avatar payload 后页面读到新的 surface 位置（live）', moved.ok,
+      moved.ok
+        ? JSON.stringify({ first: firstSnap.surfaceLeft, second: secondSnap.surfaceLeft })
+        : moved.error);
+    check('布局与头像两份状态同源（nekoChatState.get 与页面全局一致）',
+      moved.ok
+      && JSON.stringify(chatState.get('__nekoDesktopCompactLayout')) === JSON.stringify(window.__nekoDesktopCompactLayout)
+      && JSON.stringify(chatState.get('__nekoDesktopAvatarBounds')) === JSON.stringify(window.__nekoDesktopAvatarBounds),
+      moved.ok ? JSON.stringify(secondSnap) : 'not moved');
+
+    await sleep(200);
+    report({
+      observed: {
+        isolated: chatState.isolated,
+        runtime: runtime || null,
+        firstSnapshot: firstSnap,
+        secondSnapshot: secondSnap,
+      },
+    });
+  }
+
   var runner = MODE === 'bridge'
     ? testBridge
     : (MODE === 'fallback'
       ? testFallback
       : (MODE === 'react-chat'
         ? testReactChat
-        : (MODE === 'react-chat-api' ? testReactChatApi : testChatProxy)));
+        : (MODE === 'react-chat-api'
+          ? testReactChatApi
+          : (MODE === 'react-chat-state' ? testReactChatState : testChatProxy))));
   runner().catch(function (err) {
     check('探针自身未抛异常', false, String(err && err.stack ? err.stack : err).slice(0, 300));
     report({ fatal: String(err && err.message) });

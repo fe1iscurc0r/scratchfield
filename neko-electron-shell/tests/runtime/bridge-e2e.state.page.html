@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>WO-278 state harness</title>
+  <script src="/NEKO/N.E.K.O/static/app/ws-adapter.js"></script>
+  <script src="/NEKO/N.E.K.O/static/app/electron-page-bridge.js"></script>
+</head>
+<body class="electron-chat-window">
+  <!-- preload 的 compact 布局需要一个处在 compact 形态的宿主壳；形态从这里的
+       data-chat-surface-mode 读（页面没有 reactChatWindowHost 时的兜底）。 -->
+  <div id="react-chat-window-shell" data-chat-surface-mode="compact">
+    <div class="compact-chat-surface"></div>
+  </div>
+  <script src="/neko-electron-shell/tests/runtime/bridge-e2e.page.js"></script>
+</body>
+</html>

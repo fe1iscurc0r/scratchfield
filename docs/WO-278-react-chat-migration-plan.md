@@ -98,7 +98,7 @@ side（`electron-page-bridge.js` 或 `app-websocket.js`），通过 `nekoPageHoo
 |---|---|---|
 | P1 ✅ | WS 运输：`window.WebSocket = WSProxy` 换成 `exposeToPage('nekoWebSocket', bridge)` | 页面 `__nekoCreateWebSocket()` 返回桥实例，真回显往返（施工记录 §6） |
 | P2 ✅ | A 组对象暴露（先 `nekoChatWindow` / `electronDesktopCapturer` / `nekoSubtitleWindow` / jukebox，再其余） | 各 API 在隔离态下可调，返回类型不变（施工记录 §7） |
-| P3 | B 组状态门面（`getState()` + 页面 getter） | 页面读到的 `*Layout`/`*Bounds` 与 preload 内部值同源 |
+| P3 ✅ | B 组状态门面（`nekoChatState.get()` + 页面 getter） | 页面读到的 `*Layout`/`*Bounds` 与 preload 内部值同源（施工记录 §8） |
 | P4 | C 组反向钩子 + D 组队列搬迁 | 外部头像、热键打开对话框、气泡排空三条链路 |
 | P5 | E 组事件重建 | 10 条事件的页面监听方都能收到等价 detail |
 | P6 | 翻 `contextIsolation:true` + 真应用 CDP 冒烟 | `/chat` 上 `nekoWebSocket` 存在、`window.WebSocket` 为原生、整窗可用 |
@@ -365,3 +365,137 @@ env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS ./node_modules/electron/dist/electro
 单文件改动：把 `preload-chat-react.js` 的 A 组暴露段还原成 `window.X = …`（`nekoChatWindow`
 还原成实现对象本身），并删掉 `exposeLiveFacade` 与 `*Impl` 转发。harness 的
 `react-chat-api` 模式与新增契约测试是纯增量，可一并保留或删除，不影响生产。
+
+## 8. P3 施工记录：B 组状态门面（2026-10-27）
+
+### 8.1 结论
+
+B 组 5 个**持续变化**的页面状态（`__nekoDesktopCompactLayout` / `__nekoDesktopAvatarBounds` /
+`__nekoDesktopCompactBallScreenRect` / `__nekoDesktopCompactExternalBall` / `__nekoInjectedConfig`）
+改成「preload 真源 + 页面 getter 现取」：
+
+- preload 侧唯一真源是 `pageState`，所有写入改走 `publishPageState(slot, value)`；
+  共享臂顺带回写 `window`（行为与迁移前逐字一致），隔离臂只更新真源。
+- 页面侧 `electron-page-bridge.js` 在 **isolated 臂**用 `Object.defineProperty` 装 getter，
+  getter 每次调用 `nekoChatState.get(name)` 现取，所以状态变了页面立刻读到新值。
+- `__NEKO_DESKTOP_RUNTIME__` 是一次性静态值，直接 `exposeToPage`——必须在 `app-state.js`
+  （chat.html:655，解析期就读 `isLinuxX11`）之前就位，getter 来不及。
+- 页面侧零改动：没有一处页面代码读的是新 API，读的还是原全局名。
+
+真 Electron 两臂各 11/11：隔离臂证明 getter 是活值（布局随第二份 avatar payload 从
+`surface.left=32` 变到 `432`），共享臂证明行为没变（同一取值路径 + 数据属性形态）。
+A 组的 P1/P2 与 chat-proxy/bridge 四种场景回归全绿（见 8.4）。
+
+### 8.2 改动
+
+`neko-electron-shell/src/preload-chat-react.js`：
+
+| 位置 | 改动 |
+|---|---|
+| `:50`–`:79` | 新增 `PAGE_STATE_NAMES`（slot → 页面全局名）、`pageState`（真源）、`pageStateWritesWindow = !process.contextIsolated`、`publishPageState(slot, value)`；`exposeToPage('nekoChatState', { isolated, get })` |
+| `:1086` | `window.__nekoInjectedConfig = …` → `publishPageState('injectedConfig', …)` |
+| `:1124` | `window.__NEKO_DESKTOP_RUNTIME__ = Object.freeze({…})` → `exposeToPage('__NEKO_DESKTOP_RUNTIME__', Object.freeze({…}))` |
+| `:1787`/`:1799` | Wayland 自球 `*BallScreenRect` 写入 → `publishPageState` |
+| `:2072` | 仅头像变更路径的 `*AvatarBounds` 写入 → `publishPageState` |
+| `:3892`–`:3936` | `clearDesktopCompactLayout` / `applyDesktopCompactLayoutToPage` 的四个状态写入 → `publishPageState`；事件 detail 改读 `pageState.*` |
+| `:7220` | `ensureDesktopCompactMeasuredFallbackLayout` 的 layout 合并写入 → `publishPageState('layout', …)` |
+| 16 处读点（`:696`/`:930`/`:1955`/`:2108`/`:2273`/`:2294`/`:2307`/`:2549`/`:5543`/`:6287`/`:7052`/`:7207`/`:7234`/`:7358`/`:7377`/`:7437`） | `window.__nekoDesktop…` → `pageState.layout` / `pageState.avatarBounds` / `pageState.compactBallScreenRect`（隔离臂里 `window` 那份已不可信） |
+
+未动：`__nekoDesktopCompactHistoryDragState`、`__nekoDesktopCompactHistoryPointerPassthrough`、
+`__nekoDesktopCompactToolWheelDragActive`、`__nekoDesktopCompactToolFanOpenSolid` —— 页面侧
+零引用，preload 自洽即可（契约测试钉死它们不进 `PAGE_STATE_NAMES`）。
+
+`NEKO/N.E.K.O/static/app/electron-page-bridge.js`（`:21`–`:41`）：新增 5 个 getter，**只在
+`chatState.isolated === true` 时安装**。共享臂若也装 getter，会吞掉 preload 后续的
+`window.X = …` 赋值（getter 没有 setter），直接把布局打断。
+
+### 8.3 工装
+
+`tests/runtime/bridge-e2e.main.js` 新增 `--mode react-chat-state`（配
+`--page /neko-electron-shell/tests/runtime/bridge-e2e.state.page.html`）：
+
+- 复用 A 组的 IPC 桩（`setupReactChatApiStubs`），因为布局路径同样要 `GET_BOUNDS` /
+  `GET_WORKAREA` / `set-bounds` / `set-resizable`；
+- **窗口必须 `show: true`**：preload 的 `activateDesktopCompactWindow` 在 `document.hidden`
+  时直接返回，隐藏窗口跑不出布局（生产窗口可见，不受影响）；
+- 时序：200ms 广播 `CONFIG_RESULT`；700ms 广播 avatar payload A（left=600）；
+  1900ms 广播 payload B（left=1000，模型横移 400px）；
+- 主进程侧 `stateCheck`：配置/两份 payload 都发了、且 `GET_BOUNDS` 至少被调一次
+  （只有 `activateDesktopCompactWindow` 会打这条，证明真进了布局路径）。
+
+`tests/runtime/bridge-e2e.state.page.html`：带 `#react-chat-window-shell[data-chat-surface-mode=compact]`
+与 `body.electron-chat-window` 的最小宿主（页面没有 `reactChatWindowHost` 时 preload 从
+`data-chat-surface-mode` 读形态）。
+
+`tests/runtime/bridge-e2e.page.js`：新增 `testReactChatState()` 11 项断言——`nekoChatState` 暴露、
+`isolated` 标志两臂一致、`__NEKO_DESKTOP_RUNTIME__` 解析期可读、未知键返回 `undefined`、
+CONFIG_RESULT 落到页面、两份状态同源、属性形态两臂不同（隔离=getter / 共享=data）、
+第二份 payload 后 `surface.left` 必须变化（这条是破坏对照的靶子）。
+
+`tests/react-chat-p3-state.contract.test.js`（新增 5 项）：静态钉死「preload 不许再读写这些
+`window.*`」「发布只走 `publishPageState`」「静态值用 `exposeToPage`」「shim 只在 isolated 装
+getter 且不缓存」「4 个零引用全局保持 preload 内部」。
+
+### 8.4 真跑结果（Electron 42.11.18）
+
+```
+cd neko-electron-shell
+MSYS_NO_PATHCONV=1 env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS ./node_modules/electron/dist/electron.exe \
+  tests/runtime/bridge-e2e.main.js --mode react-chat-state --isolation <true|false> \
+  --preload src/preload-chat-react.js \
+  --page /neko-electron-shell/tests/runtime/bridge-e2e.state.page.html \
+  --out <json> --no-sandbox --disable-gpu --disable-gpu-compositing
+```
+
+（`MSYS_NO_PATHCONV=1` 必须加：Git Bash 会把 `--page /nek…` 改写成 `C:/Program Files/Git/nek…`，
+harness 直接 `ERR_INVALID_URL`。）
+
+| 场景 | EXIT | 页面断言 | transportCheck | stateCheck | 关键观测 |
+|---|---|---|---|---|---|
+| `react-chat-state --isolation true` | 0 | 11/11 | 0/0 pass | pass（getBoundsCalls=17） | 属性形态 `['get','set','enumerable','configurable']`；`surface.left` 32 → 432 |
+| `react-chat-state --isolation false` | 0 | 11/11 | 0/0 pass | pass（getBoundsCalls=17） | 属性形态 `['value','writable','enumerable','configurable']`；`surface.left` 32 → 432 |
+
+回归（preload 与页面 shim 的改动没伤既有场景，均两臂）：
+
+| 场景 | EXIT | 页面断言 | 其它 |
+|---|---|---|---|
+| `react-chat`（P1） | 0 / 0 | 18/18、18/18 | transport 1/1、1/1 |
+| `react-chat-api`（P2） | 0 / 0 | 30/30、30/30 | transport 0/0、apiCheck pass |
+| `bridge` | 0 / 0 | 32/32、32/32 | transport 1/1 |
+| `chat-proxy --preload src/preload-chat.js` | 0 / 0 | 15/15、15/15 | `pageBridgeCheck` pass |
+
+单测：`node --test` 共 **35/35**（websocket-bridge 13 + window-hardening 12 + P2 契约 5 + P3 契约 5）。
+
+### 8.5 破坏对照
+
+把页面 shim 的 getter 改成「首次读到非空值就缓存」（即安装后第一次读的快照），重跑隔离臂：
+
+- `EXIT=1`，`page.pass=false`；
+- 只有两条 FAIL，且正好是活值相关：
+  - `第二份 avatar payload 后页面读到新的 surface 位置（live）` → `timeout: layout follows second payload`
+  - `布局与头像两份状态同源（nekoChatState.get 与页面全局一致）` → `not moved`
+- 其余 9 项（含「第一份布局到达」「属性形态」「CONFIG_RESULT」）仍 PASS —— 失败点精确落在
+  「快照 vs 活值」，没有连带噪声。
+
+还原后 `cmp` 与备份逐字节一致，重跑隔离臂 `EXIT=0`、11/11、`stateCheck.pass=true`。
+
+### 8.6 P3 明确未覆盖
+
+- 页面侧的 `neko:desktop-compact-layout-change` / `neko:desktop-avatar-bounds-change` 监听
+  在隔离臂收不到（preload 的 `dispatchEvent` 不跨世界）→ P5。本期只保证「主动读」拿到活值；
+  依赖事件做**增量刷新**（如 `refreshIdleCat1CompactMirrorPosition`）的路径要等 P5。
+- C 组反向钩子（`appChatAvatar.setExternalAvatar`、`reactChatWindowHost`）与 D 组
+  `_flushRealisticQueue` 搬迁 → P4。
+- getter 每次读都过一次 contextBridge（结构化克隆）。量级判断：布局对象 7 个矩形，指针
+  路径上每秒最多百余次，估计 <1% CPU；**未经真机 profiler 实测**，P6 上真应用时补。
+- harness 页是 chat.html 的最小替身（只有 shell + surface 占位），不是真聊天页；真应用
+  CDP 冒烟仍是 P6 的门。
+- 未翻 `contextIsolation`（`window-manager.js` 仍 `false`），`webSecurity:false` 原样保留。
+
+### 8.7 回滚
+
+- `preload-chat-react.js`：把 `publishPageState(...)` 还原成 `window.X = …`，`pageState.*` 读点
+  还原成 `window.__nekoDesktop…`，删掉 `PAGE_STATE_NAMES` / `pageState` / `publishPageState` /
+  `nekoChatState` 暴露，`__NEKO_DESKTOP_RUNTIME__` 还原成 `window… = Object.freeze`。
+- `electron-page-bridge.js`：删掉「B 组页面状态（P3）」整段（纯增量，删了共享臂不受影响）。
+- harness 的 `react-chat-state` 模式、state 页与新契约测试都是纯增量，可一并保留或删除。
