@@ -362,3 +362,73 @@ node --check preload-pet.js / pet-host-bridge.js / 契约测试 → 全 OK
   **不含 Chromium 的序列化规则**。翻开关前必须先跑一遍 `pet-live-verify`。
 - 域 D 的**真实调用链**在活体上没能触发（当前模型是 live2d，`vrmManager._cursorFollow`
   与 `mmdManager.cursorFollow` 都不存在），只有 vm 用例覆盖两路回调。
+
+---
+
+## 10. 翻 `contextIsolation` 的实测结论（2026-10-30，**结论：现在翻不了**）
+
+§9 把 preload 侧的「读」全清了。但翻开关还卡在**反方向**：preload 还在往页面**写**。
+这一节不是推断，是把 `contextIsolation` 真的改成 `true` 跑起来测的。
+
+### 10.1 实验做法
+
+| 步骤 | 动作 |
+|---|---|
+| 1 | `window-manager.js:383`（petWindow）+ `main/pet-window-lifecycle.js:921`（mainWindow）改成 `contextIsolation: true` |
+| 2 | 重启 electron，CDP 探页面可见全局 + 跑 `pet-live-verify verify` |
+| 3 | 还原（`window-manager.js` 是 LF、`pet-window-lifecycle.js` 是 **CRLF**，回滚必须字节级，不能用文本编辑器批量替换） |
+
+### 10.2 结果一：页面上 11 个注入全局直接消失
+
+`preload-pet.js` 里有 **14 处** `window.X = …` 直写（不是 `exposeToPage`）。隔离后页面读不到：
+
+| 注入名 | 隔离后 | 谁在用（页面侧） |
+|---|---|---|
+| `nekoPetDrag` | **MISSING** | 返回球拖拽、spatial audio 取窗口 bounds、model-display reveal |
+| `electronScreen` | **MISSING** | 多显示器缓存预热、spatial audio 主屏信息 |
+| `electronDesktopCapturer` | **MISSING** | 头像捕获 / 截图 |
+| `nekoAgentHud` | **MISSING** | Agent HUD 显隐 |
+| `nekoSpatialAudio` | **MISSING** | 空间音频源包围盒 |
+| `nekoSubtitleWindow` | **MISSING** | 副字幕窗 |
+| `__NEKO_MULTI_WINDOW__` | **MISSING** | 聊天/成就/截图代理的多窗口分支 |
+| `__NEKO_DESKTOP_RUNTIME__` | **MISSING** | `isLinuxX11`、返回球、idle 资产 |
+| `__nekoPetInteracting__` | **MISSING** | forge 拖放 overlay 降级 |
+| `__forwardSubtitleRenderStateToWindow` | **MISSING** | 字幕状态转发 |
+| `__NEKO_DISABLE_NATIVE_RETURN_BALL_DRAG__` | **MISSING** | 返回球原生拖拽禁用判定 |
+| `window.WebSocket` 替换 | **无效**（页面拿到原生构造器） | pet 窗 WS 走的是替换后的桥 |
+
+`nekoPetHost` / `nekoPetDiagnostics` 仍在 —— 它们走的是 `exposeToPage()`（隔离时自动改走
+`contextBridge.exposeInMainWorld`）。所以**差别不在"能不能过桥"，在"有没有改走桥"**。
+
+> 一处没查清：`__nekoJukeboxToggle` 也是同样的直写，但隔离后页面仍能 `typeof === 'function'`。
+> 静态上看没有任何第二处定义。**如实登记为未解释项**，没有据此下结论。
+
+### 10.3 结果二：`verify` 在隔离态 FAIL，且是**位置相关**的
+
+| 起点 `model.x` | 非隔离 | 隔离 |
+|---|---|---|
+| 1200（画面中段） | `dx=+120.00` ✅ | `dx=+120.00` ✅ |
+| 1707（贴右边缘，视口宽 1706） | 抓不住（harness 报"候选点都没抓住"） | `dx=−165 ~ −173`（方向反了） |
+
+`verify` 连跑 3 次都是 FAIL（`dx` 分别是 −143.8 / −165.3 / −146.6，`dy` 恒为 +60.00）。
+关键细节：**拖拽过程中 `during.x` 是对的（+120），错在松手之后**。
+
+⇒ 责任不在域 B/F 的测量与命中（那部分在隔离态数值与非隔离态逐位一致），
+而在**鼠标事件这一层**：preload 的 mouse poller 会往页面合成 `pointermove`，
+这些合成事件的坐标来自真实光标位置（CDP 拖动时光标并不动）。
+隔离与否改变了这些合成事件被页面接收的方式，于是横向位移被污染。
+**机制没有查到根因**，登记为已知缺陷。
+
+### 10.4 要翻开关，真正的工作量
+
+1. 把 14 处直写改成 `exposeToPage`（值类可直接过桥；**对象类**要注意 `contextBridge`
+   是**快照**，preload 之后再改字段页面看不到 —— `__nekoPetInteracting__` 这种"后来还会变"
+   的必须改成 getter）。
+2. `window.WebSocket = function…` **在隔离下无法实现**（必须在主世界替换构造器）。
+   参照其它窗口的做法：改走 `window.nekoWebSocket` + ws-adapter（`window-manager.js:488`
+   和 `:1915` 的注释就是那条路），页面侧 `app-chat-adapter` 等要跟着改。
+3. 修鼠标合成事件那条链路（10.3）。
+4. 然后才有资格谈"翻开关"，且必须 `pet-live-verify` + 人眼冒烟（返回球/工具光标/
+   紧凑球/头像捕获/点歌台这五条支线 `verify` 覆盖不到）。
+
+**当前状态**：开关保持 `contextIsolation: false`，两处配置已字节还原、与 main 一致。
