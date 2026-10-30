@@ -14,3 +14,15 @@ frontend/package-lock.json text eol=lf
 NEKO/N.E.K.O/requirements.txt text eol=lf
 NEKO/N.E.K.O/pyproject.toml text eol=lf
 NEKO/N.E.K.O/uv.lock text eol=lf
+
+# ── 「检出必须是 LF」的路径（2026-10-30）────────────────────────────
+# 上面 `* text=auto eol=crlf` 让**所有检出**都是 CRLF（含 Linux runner），
+# 而下列路径有测试逐字节断言 `b"\r\n" not in content` —— 两者互相矛盾：
+# CI 上工作树是 CRLF，于是 mcpserver/rf_workflow 与 toolknit_mcp 的
+# 「交付物必须 LF」用例必挂。这不是文件被编辑器污染，是属性与测试打架。
+# 处理：把这些路径显式钉成 eol=lf（与上文 dependabot 清单同一思路）。
+mcpserver/rf_workflow/** text eol=lf
+mcpserver/toolknit_mcp/** text eol=lf
+docs/integration-graph/** text eol=lf
+reports/workorder244*.md text eol=lf
+tools/toolknit_license_audit.py text eol=lf
