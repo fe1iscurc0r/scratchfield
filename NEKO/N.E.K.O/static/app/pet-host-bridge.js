@@ -96,6 +96,57 @@
       if (!D || typeof D.restoreButtonPointerEvents !== 'function') return undefined;
       return D.restoreButtonPointerEvents;   // 返回函数本身，过桥成为可调用代理
     },
+    // ---- 域 C：渲染控制 / 复位（三个管理器同名成员）----
+    // ⚠️ 键名顺序 = `model:<kind>:<op>`，必须与 preload 的拼法逐字一致；
+    //    写反成 `model:<op>:<kind>` 时两边「各自都有那个键」，静态检查抓不到，
+    //    只有双端联跑测试能发现（本轮就是这么抓到的）。
+    // 方法一律回闭包：裸传 `M.pauseRendering` 过桥会丢 this。
+    // 能力不存在时返回 undefined（preload 侧据此当"没有"，与原 typeof 检查等价）。
+    'model:mmd:pauseRendering': function () {
+      var M = window.mmdManager;
+      if (!M || typeof M.pauseRendering !== 'function') return undefined;
+      return function () { return M.pauseRendering(); };
+    },
+    'model:vrm:pauseRendering': function () {
+      var M = window.vrmManager;
+      if (!M || typeof M.pauseRendering !== 'function') return undefined;
+      return function () { return M.pauseRendering(); };
+    },
+    'model:live2d:pauseRendering': function () {
+      var M = window.live2dManager;
+      if (!M || typeof M.pauseRendering !== 'function') return undefined;
+      return function () { return M.pauseRendering(); };
+    },
+    'model:mmd:resumeRendering': function () {
+      var M = window.mmdManager;
+      if (!M || typeof M.resumeRendering !== 'function') return undefined;
+      return function () { return M.resumeRendering(); };
+    },
+    'model:vrm:resumeRendering': function () {
+      var M = window.vrmManager;
+      if (!M || typeof M.resumeRendering !== 'function') return undefined;
+      return function () { return M.resumeRendering(); };
+    },
+    'model:live2d:resumeRendering': function () {
+      var M = window.live2dManager;
+      if (!M || typeof M.resumeRendering !== 'function') return undefined;
+      return function () { return M.resumeRendering(); };
+    },
+    'model:mmd:resetModelPosition': function () {
+      var M = window.mmdManager;
+      if (!M || typeof M.resetModelPosition !== 'function') return undefined;
+      return function () { return M.resetModelPosition(); };
+    },
+    'model:vrm:resetModelPosition': function () {
+      var M = window.vrmManager;
+      if (!M || typeof M.resetModelPosition !== 'function') return undefined;
+      return function () { return M.resetModelPosition(); };
+    },
+    'model:live2d:resetModelPosition': function () {
+      var M = window.live2dManager;
+      if (!M || typeof M.resetModelPosition !== 'function') return undefined;
+      return function () { return M.resetModelPosition(); };
+    },
     // ---- 截图域：头像捕获 ----
     // avatarPortrait 是实例，裸传方法过桥会丢 this；闭包在页面世界内执行。
     'avatarPortrait.capture': function () {

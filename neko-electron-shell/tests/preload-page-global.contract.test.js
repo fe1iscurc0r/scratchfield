@@ -46,9 +46,9 @@ const COEXIST_FALLBACK = 'process.contextIsolated';
  */
 const RAW_READ_RATCHET = {
   // ── P2-B/C/D 未迁移（域 A「模型态」、域 E「点歌台」已迁）──
-  mmdManager: 43,
-  vrmManager: 43,
-  live2dManager: 35,
+  mmdManager: 35,
+  vrmManager: 35,
+  live2dManager: 27,
   // ── P1 已迁，这 5 处是**非隔离回落**（petDragHelpersBusy / petDragHelpersRestore）──
   DragHelpers: 5,
 };
@@ -77,10 +77,19 @@ const REQUIRED_PAGE_KEYS = {
     'Jukebox.playVRMA', 'Jukebox.playVMD', 'Jukebox.stopVMD', 'Jukebox.togglePause',
   ],
   avatarPortrait: ['avatarPortrait.capture'],
+  // 域 C：三个管理器 × pause/resume/reset（纯命令，2026-10-30 迁移）
+  // 顺序 model:<kind>:<op>，与 preload 的拼法一致 —— 反了就是永久 undefined
+  modelOps: [
+    'model:mmd:pauseRendering', 'model:vrm:pauseRendering', 'model:live2d:pauseRendering',
+    'model:mmd:resumeRendering', 'model:vrm:resumeRendering', 'model:live2d:resumeRendering',
+    'model:mmd:resetModelPosition', 'model:vrm:resetModelPosition', 'model:live2d:resetModelPosition',
+  ],
 };
 
 /**
- * 待迁域（B 测量 / C 渲染控制 / D 视线）**按成员**的访问清单。
+ * 待迁域（B 测量 / D 视线）**按成员**的访问清单。
+ * 域 C（pauseRendering / resumeRendering / resetModelPosition）已于 2026-10-30 迁完，
+ * 走 `petModelHas` / `petModelCall`，不再出现在本表。
  *
  * 为什么不只靠上面的处数棘轮：43 这个数字没法分批、也看不出新增访问落点。
  * 实测成员面很小且规整（7 / 7 / 6 个），锁成集合之后：
@@ -97,26 +106,17 @@ const PENDING_MEMBERS = {
     'getModelScreenBounds',   // 4  —— 域 B 测量
     'currentModel',           // 3  —— 守卫用（判存在）
     'cursorFollow',           // 3  —— 域 D 视线
-    'pauseRendering',         // 2  —— 域 C 渲染控制
-    'resumeRendering',        // 2  —— 域 C
-    'resetModelPosition',     // 2  —— 域 C 复位
   ],
   vrmManager: [
     'interaction',            // 12
     'getModelScreenBounds',   // 4
     'currentModel',           // 3
     '_cursorFollow',          // 3  —— 注意是下划线私有字段，与 mmd 的 cursorFollow 不同名
-    'pauseRendering',         // 2
-    'resumeRendering',        // 2
-    'resetModelPosition',     // 2
   ],
   live2dManager: [
     'getCurrentModel',        // 8  —— 拿模型对象再调 getBounds()，比前两者多一层
     'getModelScreenBounds',   // 4
     '_isDraggingModel',       // 2  —— 域 D 拖拽态（P2-A 的 modelDragging:live2d 已另走注册面）
-    'pauseRendering',         // 2
-    'resumeRendering',        // 2
-    'resetModelPosition',     // 2
   ],
 };
 

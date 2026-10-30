@@ -74,6 +74,11 @@ function bootPetIsolated(jukebox, opts = {}) {
   });
   if (jukebox) win.Jukebox = jukebox;
   if (opts.avatarPortrait) win.avatarPortrait = opts.avatarPortrait;
+  if (opts.models) {
+    for (const k of ['mmd', 'vrm', 'live2d']) {
+      if (opts.models[k]) win[k + 'Manager'] = opts.models[k];
+    }
+  }
 
   const stub = (name) => new Proxy(function () {}, {
     get: (t, p) => (p === 'then' ? undefined
@@ -363,4 +368,47 @@ test('头像捕获（非隔离态）：没有实例 → 能力缺失文案', asy
   await flush();
   const out = sent.filter(([ch]) => ch === CHAT.AVATAR_PREVIEW_RESULT);
   assert.strictEqual(out[0][1][0].error, 'Avatar capture not available');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 域 C（渲染控制 / 复位）：三个管理器同名成员，纯命令、不读状态。
+// 这批复用同一对 helper（petModelHas / petModelCall），所以只需验一组即可覆盖语义。
+// ───────────────────────────────────────────────────────────────────────────
+
+function makeManager(opNames) {
+  const m = { calls: [] };
+  for (const op of opNames) {
+    m[op] = function () { m.calls.push([op, this === m]); };
+  }
+  return m;
+}
+
+test('域 C（隔离态）：经桥调用页面的 pause/resume/reset，且 this 正确', () => {
+  const l2d = makeManager(['pauseRendering', 'resumeRendering', 'resetModelPosition']);
+  const { ctx } = bootPetIsolated(null, { models: { live2d: l2d } });
+
+  assert.strictEqual(ctx.petModelHas('live2d', 'pauseRendering'), true);
+  assert.strictEqual(ctx.petModelCall('live2d', 'pauseRendering'), true);
+  assert.strictEqual(ctx.petModelCall('live2d', 'resumeRendering'), true);
+  assert.strictEqual(ctx.petModelCall('live2d', 'resetModelPosition'), true);
+  assert.deepStrictEqual(l2d.calls.map((c) => c[0]),
+    ['pauseRendering', 'resumeRendering', 'resetModelPosition']);
+  assert.ok(l2d.calls.every((c) => c[1] === true), '闭包必须保住 this');
+});
+
+test('域 C（隔离态）：管理器不存在时 has=false、call=false，且不抛错', () => {
+  const { ctx } = bootPetIsolated(null, { models: {} });
+  assert.strictEqual(ctx.petModelHas('mmd', 'pauseRendering'), false);
+  assert.strictEqual(ctx.petModelCall('mmd', 'pauseRendering'), false);
+  assert.doesNotThrow(() => ctx.petModelCall('vrm', 'resetModelPosition'));
+});
+
+test('域 C（非隔离态）：直调真对象，不经桥', () => {
+  const mmd = makeManager(['pauseRendering']);
+  const { ctx } = bootPetIsolated(null, { isolated: false, models: { mmd } });
+  assert.strictEqual(ctx.petModelHas('mmd', 'pauseRendering'), true);
+  assert.strictEqual(ctx.petModelCall('mmd', 'pauseRendering'), true);
+  assert.deepStrictEqual(mmd.calls, [['pauseRendering', true]]);
+  // 没有的 manager 仍然安全
+  assert.strictEqual(ctx.petModelCall('live2d', 'pauseRendering'), false);
 });

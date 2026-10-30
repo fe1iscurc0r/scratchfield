@@ -247,6 +247,41 @@ function petAvatarPortraitCapture(options) {
 }
 
 
+// ---- 域 C：渲染控制 / 复位（三个管理器**同名**成员，纯命令）----
+// 这批先迁，是因为它们不传对象、不读"当前值"：调一次就完事。
+// 拖拽相关那批（interaction / currentModel / cursorFollow）要读实时状态、且决定
+// 点击穿透区域，风险等级不同，留在 PENDING_MEMBERS 里。
+function petModelRaw(type) {
+  if (type === 'mmd') return window.mmdManager || null;
+  if (type === 'vrm') return window.vrmManager || null;
+  return window.live2dManager || null;
+}
+
+function petModelHas(type, op) {
+  const M = process.contextIsolated ? null : petModelRaw(type);
+  if (M) return typeof M[op] === 'function';
+  return typeof pageApi('model:' + type + ':' + op) === 'function';
+}
+
+// 返回 true = 能力存在且调用未抛错，与迁移前「typeof 检查 + 调用」等价。
+function petModelCall(type, op) {
+  const M = process.contextIsolated ? null : petModelRaw(type);
+  if (M) {
+    if (typeof M[op] !== 'function') return false;
+    M[op]();
+    return true;
+  }
+  const fn = pageApi('model:' + type + ':' + op);
+  if (typeof fn !== 'function') return false;
+  try {
+    fn();
+    return true;
+  } catch (err) {
+    console.warn('[pet] model:' + type + ':' + op + ' 失败:', err);
+    return false;
+  }
+}
+
 // Wayland 检测（preload 级别）：必须与主进程 isLinuxWaylandRuntime() 逻辑一致
 // —— 真实 session type 由 XDG_SESSION_TYPE / WAYLAND_DISPLAY 判定，
 // 不能用 "argv 里没 ozone-platform=x11" 作为 Wayland 的充分条件。
@@ -4614,27 +4649,15 @@ function _applyInteractionState(interacting) {
   // 各自 pause/resume 都检查了内部状态，多次调用安全。
   try {
     if (interacting) {
-      if (window.live2dManager && typeof window.live2dManager.pauseRendering === 'function') {
-        window.live2dManager.pauseRendering();
-      }
-      if (window.vrmManager && typeof window.vrmManager.pauseRendering === 'function') {
-        window.vrmManager.pauseRendering();
-      }
-      if (window.mmdManager && typeof window.mmdManager.pauseRendering === 'function') {
-        window.mmdManager.pauseRendering();
-      }
+      if (petModelHas('live2d', 'pauseRendering')) petModelCall('live2d', 'pauseRendering');
+      if (petModelHas('vrm', 'pauseRendering')) petModelCall('vrm', 'pauseRendering');
+      if (petModelHas('mmd', 'pauseRendering')) petModelCall('mmd', 'pauseRendering');
       // Fix 3：drag/resize 期间冻结穿透状态切换，避免 DWM overlay 重建
       freezeMouseThrough(60 * 1000); // 超时兜底：万一 stop 信号丢失，60s 后自动解冻
     } else {
-      if (window.live2dManager && typeof window.live2dManager.resumeRendering === 'function') {
-        window.live2dManager.resumeRendering();
-      }
-      if (window.vrmManager && typeof window.vrmManager.resumeRendering === 'function') {
-        window.vrmManager.resumeRendering();
-      }
-      if (window.mmdManager && typeof window.mmdManager.resumeRendering === 'function') {
-        window.mmdManager.resumeRendering();
-      }
+      if (petModelHas('live2d', 'resumeRendering')) petModelCall('live2d', 'resumeRendering');
+      if (petModelHas('vrm', 'resumeRendering')) petModelCall('vrm', 'resumeRendering');
+      if (petModelHas('mmd', 'resumeRendering')) petModelCall('mmd', 'resumeRendering');
       unfreezeMouseThrough();
     }
   } catch (e) {
@@ -4703,14 +4726,14 @@ ipcRenderer.on('reset-model-position', () => {
     const modelType = (pageApi('lanlan_config') && pageApi('lanlan_config').model_type || 'live2d').toLowerCase();
     const subType = (pageApi('lanlan_config') && pageApi('lanlan_config').live3d_sub_type || '').toLowerCase();
 
-    if ((modelType === 'vrm' || (modelType === 'live3d' && subType === 'vrm')) && window.vrmManager && typeof window.vrmManager.resetModelPosition === 'function') {
-      window.vrmManager.resetModelPosition();
+    if ((modelType === 'vrm' || (modelType === 'live3d' && subType === 'vrm')) && petModelHas('vrm', 'resetModelPosition')) {
+      petModelCall('vrm', 'resetModelPosition');
       console.log('[Preload-Pet] VRM 模型位置复位成功');
-    } else if ((modelType === 'live3d' && subType !== 'vrm') && window.mmdManager && typeof window.mmdManager.resetModelPosition === 'function') {
-      window.mmdManager.resetModelPosition();
+    } else if ((modelType === 'live3d' && subType !== 'vrm') && petModelHas('mmd', 'resetModelPosition')) {
+      petModelCall('mmd', 'resetModelPosition');
       console.log('[Preload-Pet] MMD 模型位置复位成功');
-    } else if (window.live2dManager && typeof window.live2dManager.resetModelPosition === 'function') {
-      window.live2dManager.resetModelPosition();
+    } else if (petModelHas('live2d', 'resetModelPosition')) {
+      petModelCall('live2d', 'resetModelPosition');
       console.log('[Preload-Pet] Live2D 模型位置复位成功');
     } else {
       console.warn('[Preload-Pet] 没有可用的模型管理器来复位位置');
