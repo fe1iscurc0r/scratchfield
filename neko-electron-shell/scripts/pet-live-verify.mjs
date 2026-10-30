@@ -93,20 +93,49 @@ class Cdp {
  * 认 pet 窗不能靠 url 或标题：pet 窗就是 `http://localhost:48911/`，
  * 标题是 N.E.K.O 的页面标题，和 chat 窗只差路径。唯一可靠判据是「页面里有没有模型管理器」。
  */
-const IS_PET = `!!(window.live2dManager || window.mmdManager || window.vrmManager || window.avatarPortrait || window.DragHelpers)`;
+/**
+ * pet 窗判据。
+ *
+ * ⚠️ **不能只按「有没有模型管理器」认窗**：`/character_card_manager`、`/model_manager`
+ * 这些同源子窗口也会挂 `live2dManager`（角色卡管理要预览模型）。2026-10-30 就因此
+ * 认错过一次：verify 抓到角色卡管理窗口，报「模型未加载 + 没有 nekoPetDiagnostics」，
+ * 看起来像 preload 挂了，其实是认错了窗。
+ *
+ * 现在钉两条：**路径必须是根 `/`** + 有模型相关全局。找不到时把每个候选的路径和全局
+ * 都打出来，别让人再猜。
+ */
+const PET_INFO = `(() => {
+  const p = location.pathname || '/';
+  return {
+    path: p,
+    isRoot: p === '/',
+    hasModelGlobal: !!(window.live2dManager || window.mmdManager || window.vrmManager
+      || window.avatarPortrait || window.DragHelpers),
+    hasDiagnostics: !!window.nekoPetDiagnostics,
+  };
+})()`;
 
 async function pickPet(targets) {
   const pages = targets.filter((t) => t.type === 'page');
+  const seen = [];
   const hits = [];
   for (const t of pages) {
     let cdp;
     try {
       cdp = new Cdp(t.webSocketDebuggerUrl);
       await cdp.ready;
-      if (await cdp.eval(IS_PET)) hits.push(t);
+      const info = await cdp.eval(PET_INFO);
+      if (!info) continue;
+      seen.push({ url: t.url, ...info });
+      if (info.isRoot && info.hasModelGlobal) hits.push(t);
     } catch (_) { /* 连不上就跳过 */ } finally { if (cdp) cdp.close(); }
   }
-  if (!hits.length) return null;
+  if (!hits.length) {
+    const detail = seen.length
+      ? seen.map((s) => `${s.path}  model=${s.hasModelGlobal ? 'Y' : 'N'}  diag=${s.hasDiagnostics ? 'Y' : 'N'}`).join('; ')
+      : '（没有任何可连的 page target）';
+    throw new Error('找不到 pet 窗（根路径 / 且挂了模型管理器）。候选：' + detail);
+  }
   return hits[0];
 }
 
@@ -172,8 +201,7 @@ const ENV = `(() => {
 
 async function withPet(fn) {
   const targets = await listTargets();
-  const pet = await pickPet(targets);
-  if (!pet) throw new Error('找不到 pet 窗（页面里没有任何模型管理器）。当前 targets: ' + targets.map((t) => t.url).join(', '));
+  const pet = await pickPet(targets);   // 找不到会带着候选清单抛错（见 pickPet 注释）
   const cdp = new Cdp(pet.webSocketDebuggerUrl);
   await cdp.ready;
   try {
@@ -266,6 +294,7 @@ pet 窗活体验证（需 electron 带 --remote-debugging-port=9222）
   drag <dx> <dy>    模拟拖拽，打印 before/during/after
   verify            断言式验证（失败退出码 1）
   eval "<js>"       在 pet 窗求值
+  chat              仅读：报告 /chat 对话框窗口是否还“在场”（排查“对话框不见了”）
 
 ⚠️ electron 启动时不要带 --disable-gpu / --disable-software-rasterizer，否则 WebGL 被掐、模型加载不出来。
 `);
@@ -276,6 +305,43 @@ pet 窗活体验证（需 electron 带 --remote-debugging-port=9222）
   if (cmd === 'list') {
     targets.forEach((t) => console.log(`${String(t.type).padEnd(10)} ${(t.title || '').slice(0, 38).padEnd(40)} ${t.url.slice(0, 88)}`));
     return 0;
+  }
+
+  if (cmd === 'chat') {
+    // 只读探针：区分「窗口被 hide」和「窗口在、只是被别的窗口盖住」。
+    // 判据：BrowserWindow 被 hide 后，页面 document.visibilityState 会变成 'hidden'；
+    // 被遮挡不会。配合主进程日志里的 `[Main] 隐藏 React Chat 窗口: <reason>` 一起看。
+    const chat = targets.find((t) => t.type === 'page' && /\/chat(?:_full)?(?:[/?#]|$)/.test(t.url));
+    if (!chat) {
+      console.log(JSON.stringify({ present: false, hint: '没有 /chat 目标：窗口可能已被销毁（不是 hide）' }, null, 2));
+      return 1;
+    }
+    const c = new Cdp(chat.webSocketDebuggerUrl);
+    await c.ready;
+    try {
+      const state = await c.eval(`(() => ({
+        visibility: document.visibilityState,
+        hidden: document.hidden,
+        hasCloseBtn: !!document.getElementById('reactChatWindowCloseButton'),
+        hasMinimizeBtn: !!document.getElementById('reactChatWindowMinimizeButton'),
+        size: [window.innerWidth, window.innerHeight],
+        bodyOverlayHidden: (() => {
+          var o = document.getElementById('react-chat-window-overlay');
+          return o ? !!o.hidden : null;
+        })(),
+      }))()`);
+      console.log(JSON.stringify({
+        present: true,
+        url: chat.url,
+        ...state,
+        verdict: state.visibility === 'hidden'
+          ? '窗口被 hide 了（看主进程日志的 reason）'
+          : '窗口在场且可见（若屏幕上没有，就是被遮挡或移出可视区）',
+      }, null, 2));
+      return 0;
+    } finally {
+      c.close();
+    }
   }
 
   return withPet(async (cdp, pet) => {
@@ -346,6 +412,28 @@ pet 窗活体验证（需 electron 带 --remote-debugging-port=9222）
         if (!draggingSeen) problems.push('拖拽过程中没有任何「正在拖拽」标志被置位（drag 态没传下去）');
         const stillDragging = drag.after.live2dDraggingFlag === true || drag.after.draggingHelpers === true;
         if (stillDragging) problems.push('松手后拖拽标志仍为 true（卡在拖拽态）');
+
+        // 把模型摆回拖拽前的位置 —— 否则每次 verify 都把它净挪 (+120,+60)，
+        // 跑几次就飘到视口外，下一次 verify 会在"边缘态"下起步（会误报失败，
+        // 而且会把用户的宠物留在半屏外）。verify 必须是幂等的。
+        const home = drag.before && drag.before.live2dPos;
+        if (home && Number.isFinite(home.x) && Number.isFinite(home.y)) {
+          try {
+            await cdp.eval(`(() => {
+              const m = window.live2dManager && window.live2dManager.getCurrentModel
+                ? window.live2dManager.getCurrentModel() : null;
+              if (!m) return null;
+              m.x = ${JSON.stringify(home.x)};
+              m.y = ${JSON.stringify(home.y)};
+              return [m.x, m.y];
+            })()`);
+          } catch (_) { /* 还原失败不算验证失败，但下面的 restored 会如实报 false */ }
+        }
+        if (home) {
+          const now = await cdp.eval(STATE);
+          const back = posDelta({ live2dPos: home }, now);
+          if (back) drag.restored = Math.abs(back.dx) < TOL && Math.abs(back.dy) < TOL;
+        }
       }
 
       console.log(JSON.stringify({
@@ -355,7 +443,7 @@ pet 窗活体验证（需 electron 带 --remote-debugging-port=9222）
         diagnostics: diag?.snapshot
           ? { isolated: diag.snapshot.isolated, hostRegistered: diag.snapshot.hostRegistered, misses: diag.snapshot.misses }
           : null,
-        drag: drag ? { delta: drag.delta, grip: drag.grip, gripCandidatesTried: drag.gripCandidatesTried, observedDelta: posDelta(drag.before, drag.after), during: drag.during, after: drag.after } : null,
+        drag: drag ? { delta: drag.delta, grip: drag.grip, gripCandidatesTried: drag.gripCandidatesTried, observedDelta: posDelta(drag.before, drag.after), during: drag.during, after: drag.after, restored: drag.restored } : null,
         problems,
         verdict: problems.length ? 'FAIL' : 'PASS',
       }, null, 2));
