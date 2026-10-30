@@ -65,6 +65,11 @@ ALLOWED_LEGACY_SITES: dict[str, str] = {
     #    改了就是伪造历史。下面的 meta 测试会盯住「仍存在且仍命中」，不会烂成空转。
     "reports/workorder_conversion_stats_initial_2026-10-11.json":
         "历史证据：漏斗 2.0 闭环统计首期基线（692 行 PR/工单记录快照，含 #325 标题原文）",
+    # D. 二级误伤（2026-10-30 补）：上一轮修复自己写下的报告，正文**引用了断言原文**，
+    #    于是又把守卫点红了 —— 这不是漏清扫，是"修 bug 的记录被 bug 规则抓住"。
+    #    同理不改报告内容：改了就是抹掉当时现场。
+    "reports/fix_alias_guard_allowlist_2026-10-16.md":
+        "历史证据：2026-10-16 守卫误伤修复的处置记录，正文引用了断言原文与 #325 标题",
 }
 # 工单正文 = prompt 归档（历史文本），不是 active 代码
 ALLOWED_LEGACY_GLOB = "TRAE_WORKORDER_PROMPT_AGENT_*.md"

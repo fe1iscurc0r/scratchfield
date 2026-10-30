@@ -88,13 +88,23 @@ DOW="$1"
 HOUR="$2"
 MINUTE="$3"
 
-# 命中峰段返回 0，否则返回 1。$((10#$x)) 强制十进制，避免 08/09 被当八进制。
+# 命中峰段返回 0，否则返回 1。
+# ⚠️ 这里**必须**是 POSIX sh：测试是用 `sh tools/peak_switch.sh` 调的（Ubuntu 上 sh=dash）。
+# 所以不能用 bash 的 `$((10#$x))` 强制十进制 —— dash 会报 `arithmetic expression: expecting primary`
+# （CI 上 19 条用例就是这么挂的）。POSIX 做法：先剥掉前导 0 再按十进制算，08/09 才不会被当八进制。
+_dec() {
+	_v=$(printf '%s' "$1" | sed 's/^0*//')
+	printf '%s' "${_v:-0}"
+}
+
 is_peak() {
 	case "$1" in "" | *[!0-9]*) return 1 ;; esac
 	case "$2" in "" | *[!0-9]*) return 1 ;; esac
 	case "$3" in "" | *[!0-9]*) return 1 ;; esac
 	[ "$1" -ge 6 ] && return 1 # 周六(6) / 周日(7)：全天谷段
-	minutes=$((10#$2 * 60 + 10#$3))
+	_ph=$(_dec "$2")
+	_pm=$(_dec "$3")
+	minutes=$((_ph * 60 + _pm))
 	if [ "$minutes" -ge 540 ] && [ "$minutes" -lt 720 ]; then return 0; fi  # 09:00-12:00
 	if [ "$minutes" -ge 840 ] && [ "$minutes" -lt 1080 ]; then return 0; fi # 14:00-18:00
 	return 1

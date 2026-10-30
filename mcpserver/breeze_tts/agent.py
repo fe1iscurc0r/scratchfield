@@ -8,9 +8,15 @@
 """
 from __future__ import annotations
 
+import base64
+import json
+import logging
 import os
 import re
 from dataclasses import dataclass
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 MODEL_DIR_ENV = "BREEZE_TTS_MODEL_DIR"
 
@@ -92,6 +98,48 @@ class BreezeTTSAgent:
             "本单只做封装占位，不含推理实现：权重就绪后由二期接入 "
             "breeze-tts 的推理入口（不在此处下载权重）"
         )
+
+    # ---- MCP 交接入口 ----
+    # ⚠️ 与 tts_api 同形：**必须有**，否则 mcp_registry.verify_entrypoint 判契约不完整，
+    # 注册表会按目录名推导 mcpserver.<name>.<name>（breeze_tts 的实现在 agent.py，
+    # 推导出来的模块名根本不存在）→ 整条内置能力清单都跟着红。
+    def invoke(self, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
+        """同步工具分发。不做推理；合成在本单只会返回可读错误。"""
+        if tool_name == "breeze_health":
+            return {"status": "ok", "data": self.health()}
+        if tool_name == "breeze_list_voices":
+            return {"status": "ok", "data": self.list_voices()}
+        if tool_name == "breeze_synthesize":
+            audio = self.synthesize(
+                str(params.get("text") or ""),
+                params.get("voice_id"),
+                float(params.get("speed") or 1.0),
+            )
+            # 本单到不了这里（synthesize 恒抛）；真接上推理后按 base64 回传，别塞原始字节
+            return {"status": "ok",
+                    "data": {"bytes": len(audio),
+                             "encoding": "base64",
+                             "audio": base64.b64encode(audio).decode("ascii")}}
+        return {"status": "error",
+                "message": f"未知工具 {tool_name}，可用: breeze_synthesize / breeze_list_voices / breeze_health"}
+
+    async def handle_handoff(self, task: dict[str, Any]) -> str:
+        """MCP 交接：只回 JSON 字符串，任何异常都转成可读 error（不抛裸 traceback）。"""
+        try:
+            tool_name = str((task or {}).get("tool_name") or "").strip()
+            if not tool_name:
+                return json.dumps(
+                    {"status": "error", "message": "缺少 tool_name 参数", "data": {}},
+                    ensure_ascii=False)
+            params = {k: v for k, v in (task or {}).items()
+                      if k not in ("service_name", "tool_name", "agentType")}
+            result = self.invoke(tool_name, params)
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:  # noqa: BLE001 —— 交接层必须兜住一切，不能把异常抛回调度器
+            logger.error("[BreezeTTS] handle_handoff 异常: %s", e)
+            return json.dumps(
+                {"status": "error", "message": f"调用失败: {e}", "data": {}},
+                ensure_ascii=False)
 
 
 def get_agent() -> BreezeTTSAgent:

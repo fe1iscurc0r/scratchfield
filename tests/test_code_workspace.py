@@ -95,7 +95,13 @@ def test_test_run_reports_failure_counts(bridge):
 
 
 def test_path_traversal_and_absolute_and_symlink_denied(bridge, tmp_path):
-    for bad in ("../secret.txt", "a/../../secret.txt", "/etc/passwd", "C:\\Windows\\win.ini", "~/x"):
+    # `C:\Windows\win.ini` 只在 **Windows** 上是绝对路径。在 POSIX 上它就是一个普通的
+    # 相对文件名，落成 not_found 才是正确行为（不是逃逸），所以按平台挑样本 ——
+    # 否则这条用例在 CI 的 Ubuntu runner 上必挂（2026-10-30 实测）。
+    bad_paths = ["../secret.txt", "a/../../secret.txt", "/etc/passwd", "~/x"]
+    if os.name == "nt":
+        bad_paths.insert(2, "C:\\Windows\\win.ini")
+    for bad in bad_paths:
         result = bridge.file_read(bad)
         assert result.get("error") in {
             "path_traversal_denied",

@@ -3,6 +3,11 @@
   "display_name": "Breeze TTS 2",
   "version": "0.1.0",
   "license": "Apache-2.0",
+  "agentType": "mcp",
+  "entryPoint": {
+    "module": "mcpserver.breeze_tts.agent",
+    "class": "BreezeTTSAgent"
+  },
   "description": "Breeze TTS 2 引擎的 MCP 封装（本单只做接口与情绪标记解析，不含推理实现）",
   "tools": [
     {

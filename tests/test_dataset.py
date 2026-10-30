@@ -24,9 +24,21 @@ DATA_DIR = pathlib.Path(__file__).resolve().parents[1] / "data" / "acoustics"
 META_PATH = DATA_DIR / "dataset_meta.json"
 
 
+def _skip_if_dataset_absent() -> None:
+    """数据集是**生成产物**（`acoustics.dataset.generate_monodisperse_dataset`），
+    公开镜像仓 scratchfield 不携带 `data/`——那里它必然缺席。
+    缺席时**明确跳过**而不是判失败：这些用例验的是「已生成数据的一致性」，
+    没有数据就无从校验，报失败只会让 CI 常年挂红、把真故障淹掉（2026-10-30 实测）。"""
+    if not META_PATH.exists():
+        pytest.skip(
+            f"数据集未生成：{META_PATH} 不存在 —— 先运行 "
+            "python -m acoustics.dataset 生成（私有仓 scratchpad 已提交该产物，镜像仓不携带 data/）"
+        )
+
+
 @pytest.fixture(scope="module")
 def meta() -> dict:
-    assert META_PATH.exists(), f"缺 {META_PATH}（运行 acoustics.dataset.generate_monodisperse_dataset）"
+    _skip_if_dataset_absent()
     return json.loads(META_PATH.read_text(encoding="utf-8"))
 
 
@@ -89,6 +101,7 @@ def test_exponent_recomputed_from_csv_matches_meta(meta):
 
 def test_regeneration_is_deterministic(tmp_path):
     """生成器无随机项：重跑到临时目录应与已提交数据逐值一致。"""
+    _skip_if_dataset_absent()
     fresh = tmp_path / "regen"
     ds.generate_monodisperse_dataset(fresh)
 

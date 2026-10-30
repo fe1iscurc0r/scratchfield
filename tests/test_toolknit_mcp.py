@@ -29,6 +29,17 @@ from mcpserver.toolknit_mcp import server, tools, workspace
 # 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
 pytestmark = [pytest.mark.core]
 
+#: ToolKnit CLI 是**外部二进制**（PDF 的 qpdf、office 的 libreoffice、调色都经它）。
+#: 本机 / CI 没装时只跳过**真正要调它**的用例 —— 不整文件跳过，因为静态契约类
+#: （行尾 / 文件清单 / 骨架）不依赖 CLI，必须继续跑。
+#: 2026-10-30 实测：CI 上 10 条红的全是同一个原因「'toolknit' 不是内部或外部命令」，
+#: 长期挂着会把真故障淹掉。
+_TOOLKNIT_CLI = shutil.which("toolknit")
+requires_toolknit = pytest.mark.skipif(
+    _TOOLKNIT_CLI is None,
+    reason="本机没有 ToolKnit CLI（外部依赖），该用例需要真实 CLI 才能跑",
+)
+
 #: 模块内相对资源（夹具随模块交付，路径不依赖当前工作目录）
 PKG_ROOT = Path(server.__file__).resolve().parent
 FIXTURES = PKG_ROOT / "tests" / "_fixtures"
@@ -175,6 +186,7 @@ def test_handoff_bad_params_is_type_error(bridge):
     assert "参数错误" in out["message"]
 
 
+@requires_toolknit
 def test_handoff_accepts_flat_task_without_params(bridge):
     """除 ``params`` 外，也接受扁平 task（与 242/243 同款）。"""
     import asyncio
@@ -194,6 +206,7 @@ def ws_path(name: str) -> Path:
 # --------------------------------------------------------------------- 任务二 PoC：色板
 
 
+@requires_toolknit
 def test_palette_two_tone_happy_path(bridge):
     """happy path：双色图返回两色，像素数与占比可复算。"""
     out = _call(bridge, "extract_palette", image_path=str(ws_path("two_tone.png")), count=5)
@@ -213,6 +226,7 @@ def test_palette_two_tone_happy_path(bridge):
         assert {"hex", "rgb", "hsl", "pixels", "percentage"} <= set(entry)
 
 
+@requires_toolknit
 def test_palette_count_is_an_upper_bound_not_a_quota(bridge):
     """**反直觉事实的回归**：纯色图即使 ``count=2`` 也只返回 1 色。
 
@@ -246,6 +260,7 @@ def test_palette_count_non_integer_is_rejected(bridge):
 # ------------------------------------------------------------------ 任务二 PoC：PDF
 
 
+@requires_toolknit
 def test_pdf_inspect_happy_path(bridge):
     """happy path：页数 / 字节 / 名称与夹具一致。"""
     out = _call(bridge, "pdf_inspect", pdf_path=str(ws_path("sample.pdf")))
@@ -272,6 +287,7 @@ def test_pdf_inspect_rejects_non_pdf_suffix(bridge):
     assert out["data"]["error_code"] == "INVALID_SUFFIX"
 
 
+@requires_toolknit
 def test_pdf_compress_happy_path(bridge):
     """happy path：压缩后更小、页数不变、产物落工作区且**不回写源目录**。"""
     src = ws_path("sample.pdf")
@@ -296,6 +312,7 @@ def test_pdf_compress_level_must_be_whitelisted(bridge):
     assert out["data"]["error_code"] == "INVALID_LEVEL"
 
 
+@requires_toolknit
 def test_pdf_compress_refuses_to_overwrite_source(bridge, ws):
     """源文件本身已在 ``toolknit-output/`` 内、且产物同名 ⇒ 拒绝，避免覆盖源 PDF。
 
@@ -317,6 +334,7 @@ def test_pdf_compress_refuses_to_overwrite_source(bridge, ws):
     assert src.stat().st_size == SAMPLE_PDF_BYTES     # 源文件分毫未动
 
 
+@requires_toolknit
 def test_pdf_compress_same_name_outside_output_dir_is_safe(bridge, ws):
     """对照组：源在工作区别处时，产物同名**无害**（落产物目录，源不动）。"""
     src = ws / "shadow.pdf"
@@ -485,6 +503,7 @@ def test_known_boundary_output_dir_length_limit(renderer, length, disable_fallba
 # --------------------------------------------------- 反直觉事实回归：doctor vs LibreOffice
 
 
+@requires_toolknit
 def test_doctor_does_not_report_libreoffice(bridge):
     """**反直觉事实的回归**：``doctor`` 的 result 里**没有** LibreOffice。
 
@@ -499,6 +518,7 @@ def test_doctor_does_not_report_libreoffice(bridge):
     assert set(data["dependencies"]) >= {"version", "node", "qpdf", "ffmpeg"}
 
 
+@requires_toolknit
 def test_renderer_probe_reports_both_directions(renderer):
     """``renderer_probe`` 无论可用与否都必须给出**可判定**的结论（不静默）。"""
     assert isinstance(renderer["available"], bool)
@@ -524,6 +544,7 @@ def test_renderer_probe_needs_no_repo_relative_asset():
     assert not list(PKG_ROOT.glob("*.pptx"))
 
 
+@requires_toolknit
 def test_cli_version_probe_reports_pinned_version(bridge):
     """连通性探针：请求版本与实际报告版本都要给出（诊断必需）。"""
     out = _call(bridge, "cli_version")

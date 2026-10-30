@@ -99,6 +99,9 @@ class CodeWorkspaceBridge:
                 "code": str(code)[:500],
                 "exit_code": result.get("exit_code"),
                 "error": result.get("error", ""),
+                # 审计只记**被挡掉的变量数量**，不记名字、更不记值（名字留给工具返回值，
+                # 值一律不出进程）。缺这个字段时「脱敏有没有生效」在事后审计里看不出来。
+                "env_dropped_n": len(result.get("env_dropped") or []),
             }
         )
         if "error" in result:
