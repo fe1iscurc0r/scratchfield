@@ -149,7 +149,7 @@ jobs:
     # 届时若有不兼容（glibc/Python ABI 等）需显式钉死版本，如 ubuntu-24.04。
     runs-on: ubuntu-latest
     # 手动触发必须带 version 才算「要发版」：不给 version 时 GITHUB_REF 是 refs/heads/main，
-    # 会被 Determine version 当成版本号，紧接着「Verify tag matches package.json」必然误报不一致
+    # 会被 Determine version 当成版本号，后面任何拿它去比 package.json / 当 tag 用的步骤都必然炸
     # （run #23 就是这么红的）。⇒ 不带 version 的手动运行只跑 test + build，产物留在 run 的
     # artifacts 里；release 明确 skip，而不是假失败。
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '')
