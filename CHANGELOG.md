@@ -3,6 +3,52 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式，
 版本号遵守 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [5.2.9]
+
+> 2026-10-30 · 自 5.2.8 起 51 个提交 / 300 个文件
+
+pet 窗 `contextIsolation` 迁移收口（WO-278 P2 六域 + P3 写方向），
+并把「迁移有没有把功能弄坏」固化成就地可跑的契约测试与活体验证脚本。
+
+### Added
+- **pet 窗活体验证脚本** `neko-electron-shell/scripts/pet-live-verify.mjs`：
+  `list / probe / drag / verify / eval / chat`。`verify` 是断言式的（失败退出码 1），
+  跑一次就知道迁移有没有把拖拽弄坏；`chat` 用来区分「窗口被 hide」「折叠成球」
+  「真死状态」三种情形，排查“对话框不见了”不用再靠猜。
+- **契约闸进 CI**：`preload-page-global.contract.test.js`（裸读棘轮 + 按成员双向断言）、
+  `preload-pet-jukebox.runtime.test.js`（vm 双端联跑：真 preload + 真页面桥 + 假管理器）、
+  `window-hardening` 增加「pet preload 直写页面全局」白名单。
+
+### Changed
+- **模型态 / 测量 / 渲染控制 / 视线 / 点歌台 / 穿透判定六个域**全部从
+  「preload 直读页面全局」迁到页面注册面（`window.nekoPetHost`）。
+  三个管理器的成员裸读 **97 → 5 处**，剩下的都是过不了桥的两类：
+  非隔离回落取实例、以及 `mgr.onModelLoaded` 这类**写穿**补丁。
+- **preload 往页面写**从 14 处收到 **2 个名字**（`window.WebSocket` 必须主世界替换、
+  `__nekoPetInteracting__` 是逐帧读的活值），其余 11 个改走 `exposeToPage`
+  （隔离时自动走 `contextBridge`，非隔离行为不变）。
+- 前端 lint 清零（91 problems → 0），CI 补 `workflow_dispatch` 可手动触发。
+
+### Fixed
+- `pet-live-verify` **认错窗口**：`/character_card_manager`、`/model_manager` 等子窗口
+  也挂 `live2dManager`，旧判据会把它们当成 pet 窗，报「模型未加载 + 没有
+  nekoPetDiagnostics」的假故障。现在钉「根路径 `/` + 有模型全局」。
+- `pet-live-verify verify` **不幂等**：每跑一次把模型净挪 (+120,+60) 且不还原，
+  跑几次就飘出视口，后续验证在边缘态误判失败。现在验证完按原位置还原（`restored`）。
+- `chat` 探针**误判**：折叠态下 `document.visibilityState` 仍是 `visible`，
+  旧版报「窗口在场且可见」，把排查带偏。现在单列「折叠成球」一档，并区分
+  「折叠了但球不可见」这种真正的死状态。
+
+### Security
+- dompurify 3.4.16 → 3.4.17、authlib >=1.6.9 → >=1.9.1、fastapi >=0.142.2 → >=0.143.0、
+  scipy >=1.18.0 → >=1.18.1 等依赖升级（均为补丁/次要版本，无 major 跳跃）。
+
+### Notes
+- 5.2.6 / 5.2.7 / 5.2.8 三个 tag 未补 CHANGELOG 条目，本次一并说明，不回填。
+- 本版本**不含** pet 窗 `contextIsolation` 的实际开启：实测仍有两条阻塞
+  （`window.WebSocket` 替换需改 WS 适配层；鼠标合成事件在隔离态会污染横向拖拽位移），
+  细节见 `docs/WO-278-pet-migration-plan-2026-10-27.md` §10。
+
 ## [5.2.5]
 
 > 2026-10-05 · scratchfield（展示仓）首发 · 本条为补记（2026-10-09，原断档于 5.1.6）
