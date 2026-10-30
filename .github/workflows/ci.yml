@@ -155,6 +155,42 @@ jobs:
           path: build/test-results/smoke-junit.xml
           if-no-files-found: ignore
 
+  # ── 前端类型检查（2026-10-30 新增）──────────────────────────────────
+  # 为什么必须有这道闸：`vue-tsc -b` 原先只出现在 build-release 的 `build` job 里，
+  # 而那只在**打 tag** 时触发 ⇒ 类型错误可以一直躺在 main 上，直到发版当天才炸。
+  # 实证（v5.2.9）：tag 与 Release 都发布了，三个平台的 `Build & package` 全红在
+  #   `McpAddDialog.vue(275,5): TS2322 Type 'string | undefined' is not assignable to 'string'`
+  # ⇒ `build`/`release` 被跳过，**发行版没有安装包**。
+  # 根因是 `@vue/tsconfig@0.8` 默认开了 `noUncheckedIndexedAccess`（TS 5.9 推荐项），
+  # `errors[0]` 因此是 `string | undefined` —— 这类错误 eslint 抓不到，只有 tsc 抓得到。
+  # 这里只跑类型检查（不做 vite build、不 electron-builder），成本 ≈ npm ci + 数秒。
+  typecheck:
+    if: ${{ vars.ENABLE_CI_TEST == 'true' }}
+    # TODO(2026-10-19): ubuntu-latest 将迁移到 Ubuntu 26（actions/runner-images#14748），
+    # 届时若有不兼容（glibc/Python ABI 等）需显式钉死版本，如 ubuntu-24.04。
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      # 用 node 直调 vue-tsc 而不是 `npx`：与 `frontend/scripts/run-build.mjs` 保持同一条
+      # 执行路径（那个脚本就是 `node node_modules/vue-tsc/bin/vue-tsc.js -b`），
+      # 少一层 npx 解析，也避免 npx 在无网时去拉包。
+      - name: Type-check (vue-tsc -b)
+        working-directory: frontend
+        run: node node_modules/vue-tsc/bin/vue-tsc.js -b
+
   # ⚠️ 2026-09-29 起旧版「import check + pytest tests/ 全量」步骤退役：
   #   全量已按卷173 分层拆到 ci-nightly.yml（core 每晚 / full 每周），
   #   本文件只保留 smoke 层——旧定义见 git 历史（卷173 之前的 ci.yml smoke job）。
