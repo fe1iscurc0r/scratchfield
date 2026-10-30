@@ -20,8 +20,9 @@
  * 边界（照 WO-278 路线文档）：
  *   - DOM 标准 API 不在统计范围（contextIsolation 只分离 JS 全局，不分离 DOM）；
  *   - `window.X = ...` 赋值视为「preload 主动暴露给页面」，不是读取，豁免；
- *   - P2 剩余三个域（B 测量 / C 渲染控制 / D 视线）尚未迁移，
- *     其裸读处数如实登记在 RAW_READ_RATCHET 里，作为推进起点。
+ *   - 域 A（模型态）、B（测量）、C（渲染控制）、D（视线）、E（点歌台）均已迁移；
+ *     剩下的 `interaction` / `currentModel` / `getCurrentModel` 直接决定点击穿透区域，
+ *     裸读处数如实登记在 RAW_READ_RATCHET 里，作为推进起点。
  *   - 已迁移域登记在 MIGRATED_FALLBACK：残留只允许是 `process.contextIsolated`
  *     回落那一处，且页面注册面必须真的注册了对应键（漏改一边 = 隔离态永久 undefined）。
  */
@@ -45,10 +46,12 @@ const COEXIST_FALLBACK = 'process.contextIsolated';
  * 数字来自 2026-10-29 的实测统计（剥离注释 + 排除字符串字面量）。
  */
 const RAW_READ_RATCHET = {
-  // ── P2-B/C/D 未迁移（域 A「模型态」、域 E「点歌台」已迁）──
-  mmdManager: 35,
-  vrmManager: 35,
-  live2dManager: 27,
+  // ── P2 未迁移（域 A「模型态」、域 B「测量」、域 C「渲染控制」、域 E「点歌台」、
+  //     域 D「视线」已迁）—— 剩下的是 interaction / currentModel / getCurrentModel 这批，
+  //     它们决定点击穿透区域，迁移时每一处都要跟着跑活体验证。
+  mmdManager: 19,
+  vrmManager: 19,
+  live2dManager: 18,
   // ── P1 已迁，这 5 处是**非隔离回落**（petDragHelpersBusy / petDragHelpersRestore）──
   DragHelpers: 5,
 };
@@ -84,39 +87,38 @@ const REQUIRED_PAGE_KEYS = {
     'model:mmd:resumeRendering', 'model:vrm:resumeRendering', 'model:live2d:resumeRendering',
     'model:mmd:resetModelPosition', 'model:vrm:resetModelPosition', 'model:live2d:resetModelPosition',
   ],
+  // 域 B：测量（2026-10-30）—— 回纯数字矩形快照，不是 bounds 实例
+  modelBounds: ['bounds:mmd', 'bounds:vrm', 'bounds:live2d'],
+  // 域 D：视线跟随（2026-10-30）—— 回调名两路不对称，键名必须与 preload 逐字一致
+  modelGaze: ['gaze:mmd', 'gaze:vrm'],
 };
 
 /**
- * 待迁域（B 测量 / D 视线）**按成员**的访问清单。
- * 域 C（pauseRendering / resumeRendering / resetModelPosition）已于 2026-10-30 迁完，
- * 走 `petModelHas` / `petModelCall`，不再出现在本表。
+ * 待迁域**按成员**的访问清单。
+ * 域 B（测量，2026-10-30）、域 C（渲染控制，2026-10-30）、域 D（视线，2026-10-30）
+ * 均已迁完，不再出现在本表；剩下的每一条都直接决定点击穿透区域。
  *
  * 为什么不只靠上面的处数棘轮：43 这个数字没法分批、也看不出新增访问落点。
  * 实测成员面很小且规整（7 / 7 / 6 个），锁成集合之后：
  *   - 有人新写 `window.mmdManager.foo` ⇒ 直接失败，必须在下面登记；
  *   - 某个成员迁完 ⇒ 从表里删掉，表不会腐烂（双向断言）。
- * 这样 B/C/D 可以**按成员分批**迁移，而不是对着 121 行模糊计数。
+ * 这样剩余域可以**按成员分批**迁移，而不是对着 121 行模糊计数。
  *
- * 括号里是 2026-10-29 实测的使用处数，仅供排期参考，不参与断言
+ * 括号里是 2026-10-30 实测的使用处数，仅供排期参考，不参与断言
  * （处数由上一条棘轮管）。
  */
 const PENDING_MEMBERS = {
   mmdManager: [
-    'interaction',            // 12 —— 拖拽热路径，同时是 getModelRect 的兜底
-    'getModelScreenBounds',   // 4  —— 域 B 测量
-    'currentModel',           // 3  —— 守卫用（判存在）
-    'cursorFollow',           // 3  —— 域 D 视线
+    'interaction',            // 7  —— 拖拽热路径 / _hitTestModel / 输入区域兜底
+    'currentModel',           // 2  —— 守卫用（判存在）
   ],
   vrmManager: [
-    'interaction',            // 12
-    'getModelScreenBounds',   // 4
-    'currentModel',           // 3
-    '_cursorFollow',          // 3  —— 注意是下划线私有字段，与 mmd 的 cursorFollow 不同名
+    'interaction',            // 7
+    'currentModel',           // 2
   ],
   live2dManager: [
-    'getCurrentModel',        // 8  —— 拿模型对象再调 getBounds()，比前两者多一层
-    'getModelScreenBounds',   // 4
-    '_isDraggingModel',       // 2  —— 域 D 拖拽态（P2-A 的 modelDragging:live2d 已另走注册面）
+    'getCurrentModel',        // 5  —— 拿模型对象再调 getBounds()/hitTest()，比前两者多一层
+    '_isDraggingModel',       // 2  —— 拖拽态（P2-A 的 modelDragging:live2d 已另走注册面）
   ],
 };
 

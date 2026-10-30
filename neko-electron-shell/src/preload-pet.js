@@ -88,6 +88,24 @@ exposeToPage('nekoPetDiagnostics', {
         state: petJukeboxState(),
       };
     } catch (e) { calls.jukebox = 'err'; }
+    // 测量（域 B）：走生产代码同款的 petModelBounds —— 三个管理器各自的框。
+    // 这条探针在真机上等价于「点开悬浮球前的那次测量」，所以它会顺手刷一次
+    // interaction 缓存（与业务路径完全一致，不是额外副作用）。
+    try {
+      calls.bounds = {
+        mmd: petModelBounds('mmd'),
+        vrm: petModelBounds('vrm'),
+        live2d: petModelBounds('live2d'),
+      };
+    } catch (e) { calls.bounds = 'err'; }
+    // 视线（域 D）：只报「键能不能取到可调用函数」，**不真调**。
+    // 真调会把模型眼珠拽到探针坐标，冒烟工装不该有这种可见副作用；
+    // 真实调用链由 pet-live-verify 的拖动/移动流程覆盖。
+    ['mmd', 'vrm'].forEach(function (k) {
+      let ok = false;
+      try { ok = petModelGazeAvailable(k); } catch (e) { ok = false; }
+      probes['gaze:' + k] = ok;
+    });
     return {
       isolated: Boolean(process.contextIsolated),
       hostRegistered: petDiag.hostRegistered,
@@ -278,6 +296,120 @@ function petModelCall(type, op) {
     return true;
   } catch (err) {
     console.warn('[pet] model:' + type + ':' + op + ' 失败:', err);
+    return false;
+  }
+}
+
+// ---- 域 B：测量（模型包围盒）----
+// 页面侧回的是**纯数字矩形快照**（类实例过桥会丢原型 getter），这里再兜一层：
+// 非隔离直读拿到的可能是类实例，统一摊平成同一种形状再交给调用点，
+// 这样「隔离 / 非隔离」两条路对上层是完全一样的输入。
+// 注意 left/right/top/bottom 与 x/y/width/height 都给全 ——
+// 两个调用点分别用 normalizeDesktopAvatarBounds 和 normalizeShapeLocalBoundsToRect，
+// 一个读边、一个读 x/y/width，只给一套就会有一边退化成「量不到」。
+function petRectSnapshot(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const num = function (v) { const n = Number(v); return Number.isFinite(n) ? n : null; };
+  let left = num(raw.left);
+  if (left === null) left = num(raw.x);
+  if (left === null) left = num(raw.minX);
+  let top = num(raw.top);
+  if (top === null) top = num(raw.y);
+  if (top === null) top = num(raw.minY);
+  let right = num(raw.right);
+  if (right === null) right = num(raw.maxX);
+  let bottom = num(raw.bottom);
+  if (bottom === null) bottom = num(raw.maxY);
+  const width = num(raw.width);
+  const height = num(raw.height);
+
+  if (right === null && left !== null && width !== null) right = left + width;
+  if (bottom === null && top !== null && height !== null) bottom = top + height;
+  if (left === null && right !== null && width !== null) left = right - width;
+  if (top === null && bottom !== null && height !== null) top = bottom - height;
+  if (left === null || top === null || right === null || bottom === null) return null;
+  if (!(right > left) || !(bottom > top)) return null;
+
+  const centerX = num(raw.centerX);
+  const centerY = num(raw.centerY);
+  return {
+    left: left, top: top, right: right, bottom: bottom,
+    width: right - left, height: bottom - top,
+    centerX: centerX === null ? (left + right) / 2 : centerX,
+    centerY: centerY === null ? (top + bottom) / 2 : centerY,
+  };
+}
+
+// 量不到就回 null（调用点本来就只做真值判断）。
+function petModelBounds(kind) {
+  if (process.contextIsolated) return petRectSnapshot(pageApi('bounds:' + kind));
+
+  const M = petModelRaw(kind);
+  if (!M) return null;
+  if (kind !== 'live2d' && !M.currentModel) return null;
+
+  let raw = null;
+  if (typeof M.getModelScreenBounds === 'function') {
+    try { raw = M.getModelScreenBounds(); } catch (err) { raw = null; }
+  }
+  const rect = petRectSnapshot(raw);
+  if (rect) return rect;
+
+  if (kind === 'live2d') {
+    try {
+      const model = typeof M.getCurrentModel === 'function' ? M.getCurrentModel() : null;
+      return model && typeof model.getBounds === 'function' ? petRectSnapshot(model.getBounds()) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+  const I = M.interaction;
+  if (!I) return null;
+  try {
+    if (typeof I.updateModelBoundsCache === 'function') I.updateModelBoundsCache();
+    else if (typeof I.updateScreenBounds === 'function') I.updateScreenBounds();
+  } catch (err) { /* 刷缓存失败就用旧缓存，与迁移前一致 */ }
+  const sb = I._cachedScreenBounds;
+  return sb ? petRectSnapshot({ left: sb.minX, right: sb.maxX, top: sb.minY, bottom: sb.maxY }) : null;
+}
+
+// ---- 域 D：视线跟随 ----
+// 原来直接摸 `vrmManager._cursorFollow._onPointerMove` / `mmdManager.cursorFollow._pointerMoveHandler`
+// （两者名字不对称，一个是下划线私有字段）。差异只在这一处收口。
+function petModelGazeTarget(kind) {
+  const M = petModelRaw(kind);
+  if (!M) return null;
+  const follow = kind === 'vrm' ? M._cursorFollow : M.cursorFollow;
+  if (!follow) return null;
+  const handler = kind === 'vrm' ? follow._onPointerMove : follow._pointerMoveHandler;
+  if (typeof handler !== 'function') return null;
+  return { follow: follow, handler: handler };
+}
+
+function petModelGazeAvailable(kind) {
+  if (process.contextIsolated) return typeof pageApi('gaze:' + kind) === 'function';
+  return petModelGazeTarget(kind) !== null;
+}
+
+// 返回「有没有真把这次移动交出去」，调用方不需要知道跟随器的形状。
+function petModelGaze(kind, x, y) {
+  if (process.contextIsolated) {
+    const fn = pageApi('gaze:' + kind);
+    if (typeof fn !== 'function') return false;
+    try {
+      fn(x, y);
+      return true;
+    } catch (err) {
+      console.warn('[pet] gaze:' + kind + ' 失败:', err);
+      return false;
+    }
+  }
+  const target = petModelGazeTarget(kind);
+  if (!target) return false;
+  try {
+    target.handler.call(target.follow, { type: 'pointermove', clientX: x, clientY: y });
+    return true;
+  } catch (err) {
     return false;
   }
 }
@@ -1048,13 +1180,9 @@ function forwardPolledCursorFollow(point, options) {
   }
 
   try {
-    var gazeEvt = { type: 'pointermove', clientX: point.x, clientY: point.y };
-    if (window.vrmManager && window.vrmManager._cursorFollow && window.vrmManager._cursorFollow._onPointerMove) {
-      window.vrmManager._cursorFollow._onPointerMove(gazeEvt);
-    }
-    if (window.mmdManager && window.mmdManager.cursorFollow && window.mmdManager.cursorFollow._pointerMoveHandler) {
-      window.mmdManager.cursorFollow._pointerMoveHandler(gazeEvt);
-    }
+    // 视线跟随（域 D）：两个跟随器的回调名不对称，差异收在 petModelGaze 里。
+    petModelGaze('vrm', point.x, point.y);
+    petModelGaze('mmd', point.x, point.y);
   } catch (e) {}
 }
 
@@ -2571,25 +2699,10 @@ function normalizeDesktopAvatarBounds(rawBounds) {
   };
 }
 
-function getDesktopAvatarBoundsFromInteraction(interaction) {
-  if (!interaction) return null;
-  try {
-    if (typeof interaction.updateModelBoundsCache === 'function') {
-      interaction.updateModelBoundsCache();
-    } else if (typeof interaction.updateScreenBounds === 'function') {
-      interaction.updateScreenBounds();
-    }
-  } catch (_) {}
-
-  var bounds = interaction._cachedScreenBounds;
-  if (!bounds) return null;
-  return normalizeDesktopAvatarBounds({
-    left: bounds.minX,
-    right: bounds.maxX,
-    top: bounds.minY,
-    bottom: bounds.maxY,
-  });
-}
+// 迁移前这里有个 getDesktopAvatarBoundsFromInteraction(interaction)：
+// 「刷 interaction 缓存 → 读 _cachedScreenBounds → 归一化」。
+// 域 B 迁移后这段逻辑进了页面注册面的 boundsOf()（interactionRect），
+// 本文件不再需要它，已随迁移一并删除（留着就是第二份会腐烂的实现）。
 
 function getDesktopAvatarBoundsEntries(options) {
   var bypassCache = !!(options && options.bypassCache);
@@ -2607,32 +2720,20 @@ function getDesktopAvatarBoundsEntries(options) {
 
   var entries = [];
   try {
-    if (window.mmdManager && window.mmdManager.currentModel && isDesktopElementVisible('mmd-container')) {
-      var mmdBounds = typeof window.mmdManager.getModelScreenBounds === 'function'
-        ? normalizeDesktopAvatarBounds(window.mmdManager.getModelScreenBounds())
-        : getDesktopAvatarBoundsFromInteraction(window.mmdManager.interaction);
+    if (isDesktopElementVisible('mmd-container')) {
+      var mmdBounds = normalizeDesktopAvatarBounds(petModelBounds('mmd'));
       if (mmdBounds) entries.push({ type: 'mmd', bounds: mmdBounds });
     }
   } catch (_) {}
   try {
-    if (window.vrmManager && window.vrmManager.currentModel && isDesktopElementVisible('vrm-container')) {
-      var vrmBounds = typeof window.vrmManager.getModelScreenBounds === 'function'
-        ? normalizeDesktopAvatarBounds(window.vrmManager.getModelScreenBounds())
-        : getDesktopAvatarBoundsFromInteraction(window.vrmManager.interaction);
+    if (isDesktopElementVisible('vrm-container')) {
+      var vrmBounds = normalizeDesktopAvatarBounds(petModelBounds('vrm'));
       if (vrmBounds) entries.push({ type: 'vrm', bounds: vrmBounds });
     }
   } catch (_) {}
   try {
-    if (window.live2dManager && isDesktopElementVisible('live2d-container')) {
-      var live2dBounds = null;
-      if (typeof window.live2dManager.getModelScreenBounds === 'function') {
-        live2dBounds = normalizeDesktopAvatarBounds(window.live2dManager.getModelScreenBounds());
-      } else if (typeof window.live2dManager.getCurrentModel === 'function') {
-        var model = window.live2dManager.getCurrentModel();
-        live2dBounds = model && typeof model.getBounds === 'function'
-          ? normalizeDesktopAvatarBounds(model.getBounds())
-          : null;
-      }
+    if (isDesktopElementVisible('live2d-container')) {
+      var live2dBounds = normalizeDesktopAvatarBounds(petModelBounds('live2d'));
       if (live2dBounds) entries.push({ type: 'live2d', bounds: live2dBounds });
     }
   } catch (_) {}
@@ -5152,39 +5253,16 @@ function setupLinuxShapePassthrough() {
       var modelType = getActiveModelType();
       var avatarBoundsRect = getModelRectFromDesktopAvatarBounds(modelType);
       if (avatarBoundsRect) return avatarBoundsRect;
-      if (modelType === 'live2d' && window.live2dManager) {
-        if (typeof window.live2dManager.getModelScreenBounds === 'function') {
-          var screenBounds = normalizeShapeLocalBoundsToRect(window.live2dManager.getModelScreenBounds());
-          if (screenBounds) return screenBounds;
-        }
-        var model = window.live2dManager.getCurrentModel();
-        if (!model) return null;
-        var bounds = model.getBounds();
-        var live2dRect = normalizeShapeLocalBoundsToRect(bounds);
+      if (modelType === 'live2d') {
+        var live2dRect = normalizeShapeLocalBoundsToRect(petModelBounds('live2d'));
+        // 迁移前只有「getBounds() 回退分支」做 20px 过滤，screenBounds 分支没有；
+        // 现在两路合成一条，统一过滤 —— 退化框会把输入区域压成一条细缝。
         if (!live2dRect || live2dRect.width < 20) return null;
         return live2dRect;
-      } else if (modelType === 'vrm' && window.vrmManager) {
-        if (typeof window.vrmManager.getModelScreenBounds === 'function') {
-          var vrmScreenBounds = normalizeShapeLocalBoundsToRect(window.vrmManager.getModelScreenBounds());
-          if (vrmScreenBounds) return vrmScreenBounds;
-        }
-        if (!window.vrmManager.interaction) return null;
-        if (typeof window.vrmManager.interaction.updateModelBoundsCache === 'function')
-          window.vrmManager.interaction.updateModelBoundsCache();
-        var sb = window.vrmManager.interaction._cachedScreenBounds;
-        if (!sb) return null;
-        return normalizeShapeLocalBoundsToRect({ left: sb.minX, top: sb.minY, right: sb.maxX, bottom: sb.maxY });
-      } else if (modelType === 'mmd' && window.mmdManager) {
-        if (typeof window.mmdManager.getModelScreenBounds === 'function') {
-          var mmdScreenBounds = normalizeShapeLocalBoundsToRect(window.mmdManager.getModelScreenBounds());
-          if (mmdScreenBounds) return mmdScreenBounds;
-        }
-        if (!window.mmdManager.interaction) return null;
-        if (typeof window.mmdManager.interaction.updateModelBoundsCache === 'function')
-          window.mmdManager.interaction.updateModelBoundsCache();
-        var sb2 = window.mmdManager.interaction._cachedScreenBounds;
-        if (!sb2) return null;
-        return normalizeShapeLocalBoundsToRect({ left: sb2.minX, top: sb2.minY, right: sb2.maxX, bottom: sb2.maxY });
+      } else if (modelType === 'vrm') {
+        return normalizeShapeLocalBoundsToRect(petModelBounds('vrm'));
+      } else if (modelType === 'mmd') {
+        return normalizeShapeLocalBoundsToRect(petModelBounds('mmd'));
       }
       return null;
     } catch (e) { return null; }

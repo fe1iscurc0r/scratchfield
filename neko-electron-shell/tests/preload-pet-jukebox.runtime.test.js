@@ -412,3 +412,159 @@ test('域 C（非隔离态）：直调真对象，不经桥', () => {
   // 没有的 manager 仍然安全
   assert.strictEqual(ctx.petModelCall('live2d', 'pauseRendering'), false);
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 域 B：测量（2026-10-30）
+//
+// 这一域最容易被「看起来通了」骗过去的地方是**形状**：
+// 页面侧 getModelScreenBounds 回的原生 bounds 各管理器各不相同
+// （left/right 一套、x/y/width/height 一套、minX/maxX 一套），
+// 过桥克隆后原型 getter 全丢 ⇒ preload 拿到的可能是个空对象，
+// 于是「量不到框」而不是「报错」，表现为模型点不中、拖不动。
+// 所以这里既验数值，也验两套归一化函数（边读法 / xy 读法）都能用同一份快照。
+// ───────────────────────────────────────────────────────────────────────────
+
+function assertRect(actual, expect, label) {
+  assert.ok(actual && typeof actual === 'object', `${label}: 期望矩形，实得 ${actual}`);
+  for (const k of ['left', 'top', 'right', 'bottom', 'width', 'height', 'centerX', 'centerY']) {
+    assert.strictEqual(actual[k], expect[k], `${label}.${k}`);
+  }
+}
+
+const RECT_10_20_110_220 = {
+  left: 10, top: 20, right: 110, bottom: 220,
+  width: 100, height: 200, centerX: 60, centerY: 120,
+};
+
+test('域 B（隔离态）：经桥取 mmd 框，归一化成同一套纯数字', () => {
+  const mmd = {
+    currentModel: {},
+    getModelScreenBounds() { return { left: 10, top: 20, right: 110, bottom: 220 }; },
+  };
+  const { ctx } = bootPetIsolated(null, { models: { mmd } });
+  assertRect(ctx.petModelBounds('mmd'), RECT_10_20_110_220, 'mmd');
+});
+
+test('域 B（隔离态）：只有 x/y/width/height 的来源也要能算出四边', () => {
+  const vrm = {
+    currentModel: {},
+    getModelScreenBounds() { return { x: 10, y: 20, width: 100, height: 200 }; },
+  };
+  const { ctx } = bootPetIsolated(null, { models: { vrm } });
+  assertRect(ctx.petModelBounds('vrm'), RECT_10_20_110_220, 'vrm');
+});
+
+test('域 B（隔离态）：getModelScreenBounds 缺席时退到 interaction 缓存，且先刷缓存', () => {
+  let refreshed = 0;
+  const mmd = {
+    currentModel: {},
+    interaction: {
+      _cachedScreenBounds: { minX: 10, minY: 20, maxX: 110, maxY: 220 },
+      updateModelBoundsCache() { refreshed += 1; },
+    },
+  };
+  const { ctx } = bootPetIsolated(null, { models: { mmd } });
+  assertRect(ctx.petModelBounds('mmd'), RECT_10_20_110_220, 'mmd.interaction');
+  assert.strictEqual(refreshed, 1, '退到 interaction 前必须先刷一次缓存（否则拿到上一帧的框）');
+});
+
+test('域 B（隔离态）：live2d 退到 getCurrentModel().getBounds()', () => {
+  const live2d = {
+    getCurrentModel() { return { getBounds() { return { x: 10, y: 20, width: 100, height: 200 }; } }; },
+  };
+  const { ctx } = bootPetIsolated(null, { models: { live2d } });
+  assertRect(ctx.petModelBounds('live2d'), RECT_10_20_110_220, 'live2d.getBounds');
+});
+
+test('域 B（隔离态）：没有管理器 / 没有模型时回 null，不抛错', () => {
+  const { ctx, diag } = bootPetIsolated(null, { models: { mmd: { currentModel: null } } });
+  assert.strictEqual(ctx.petModelBounds('mmd'), null, '没有 currentModel 就没有框');
+  assert.strictEqual(ctx.petModelBounds('vrm'), null, '管理器不存在');
+  assert.strictEqual(
+    ctx.petModelBounds('live2d'), null,
+    'live2d 管理器的框也应该是 null（getCurrentModel 不存在）');
+  assert.ok((diag().misses['bounds:vrm'] || 0) >= 1, '能力缺失要记 miss —— 观测层要能看到');
+});
+
+test('域 B：退化框（零宽/零高）当「量不到」，不能把输入区域压成细缝', () => {
+  const mmd = {
+    currentModel: {},
+    getModelScreenBounds() { return { left: 10, top: 10, right: 10, bottom: 200 }; },
+  };
+  const { ctx } = bootPetIsolated(null, { models: { mmd } });
+  assert.strictEqual(ctx.petModelBounds('mmd'), null);
+});
+
+test('域 B（非隔离态）：直读真对象，结果与隔离态逐字段一致', () => {
+  const mmd = {
+    currentModel: {},
+    getModelScreenBounds() { return { left: 10, top: 20, right: 110, bottom: 220 }; },
+  };
+  const { ctx } = bootPetIsolated(null, { isolated: false, models: { mmd } });
+  assertRect(ctx.petModelBounds('mmd'), RECT_10_20_110_220, 'mmd(non-isolated)');
+});
+
+test('域 B：诊断探针拿到的就是生产路径的框（不是另一套实现）', () => {
+  const mmd = {
+    currentModel: {},
+    getModelScreenBounds() { return { left: 10, top: 20, right: 110, bottom: 220 }; },
+  };
+  const { diag } = bootPetIsolated(null, { models: { mmd } });
+  assertRect(diag().calls.bounds.mmd, RECT_10_20_110_220, 'diag.calls.bounds.mmd');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 域 D：视线跟随（2026-10-30）
+//
+// 两个跟随器的回调名**不对称**（vrm `_cursorFollow._onPointerMove`、
+// mmd `cursorFollow._pointerMoveHandler`），把两路写成一样是这域唯一的坑，
+// 而且写错了不会报错，只会「模型不看你」。
+// ───────────────────────────────────────────────────────────────────────────
+
+test('域 D（隔离态）：vrm 视线走 _cursorFollow._onPointerMove，this 与事件形状都对', () => {
+  const seen = [];
+  const follow = {
+    _onPointerMove(evt) { seen.push([evt, this === follow]); },
+  };
+  const { ctx } = bootPetIsolated(null, { models: { vrm: { _cursorFollow: follow } } });
+  assert.strictEqual(ctx.petModelGaze('vrm', 33, 44), true);
+  assert.strictEqual(seen.length, 1);
+  assert.strictEqual(seen[0][1], true, '闭包必须保住 this');
+  assert.strictEqual(seen[0][0].type, 'pointermove');
+  assert.strictEqual(seen[0][0].clientX, 33);
+  assert.strictEqual(seen[0][0].clientY, 44);
+});
+
+test('域 D（隔离态）：mmd 视线走 cursorFollow._pointerMoveHandler（与 vrm 不同名）', () => {
+  const seen = [];
+  const follow = {
+    _pointerMoveHandler(evt) { seen.push([evt, this === follow]); },
+  };
+  const { ctx } = bootPetIsolated(null, { models: { mmd: { cursorFollow: follow } } });
+  assert.strictEqual(ctx.petModelGaze('mmd', 5, 6), true);
+  assert.strictEqual(seen.length, 1);
+  assert.strictEqual(seen[0][1], true);
+  assert.strictEqual(seen[0][0].clientX, 5);
+});
+
+test('域 D（隔离态）：交叉写错名字必须拿不到能力（这正是本域要防的错）', () => {
+  // 只有 vrm 形状的跟随器塞给 mmd ⇒ mmd 侧必须回 false，而不是静默调错东西
+  const { ctx } = bootPetIsolated(null, { models: { mmd: { _cursorFollow: { _onPointerMove() {} } } } });
+  assert.strictEqual(ctx.petModelGaze('mmd', 1, 2), false);
+  assert.strictEqual(ctx.petModelGazeAvailable('mmd'), false);
+});
+
+test('域 D（非隔离态）：直调真对象，不经桥', () => {
+  const seen = [];
+  const follow = { _onPointerMove(evt) { seen.push(evt.clientX); } };
+  const { ctx } = bootPetIsolated(null, { isolated: false, models: { vrm: { _cursorFollow: follow } } });
+  assert.strictEqual(ctx.petModelGaze('vrm', 7, 8), true);
+  assert.deepStrictEqual(seen, [7]);
+});
+
+test('域 D：诊断探针只报能力有无，不真调（不能在冒烟时拽走眼珠）', () => {
+  const follow = { _onPointerMove() { throw new Error('探针不该真调'); } };
+  const { diag } = bootPetIsolated(null, { models: { vrm: { _cursorFollow: follow } } });
+  assert.strictEqual(diag().probes['gaze:vrm'], true);
+  assert.strictEqual(diag().probes['gaze:mmd'], false);
+});

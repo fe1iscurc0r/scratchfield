@@ -25,6 +25,93 @@
     return;
   }
 
+  // ---- 域 B 用到的纯数字矩形快照 ----
+  // 为什么必须自己归一化：原始的 bounds 常是类实例（PIXI Bounds / THREE 的包围盒），
+  // 过桥会被结构化克隆，原型上的 getter 全丢 ⇒ preload 拿到的是个空对象。
+  // 所以这里就地摊平成纯数字，并把 left/right/top/bottom 与 x/y/width/height **都给全**
+  // —— preload 侧两个调用点用的归一化函数不同（一个读 left/right，一个读 x/y/width），
+  // 给全了才能共用同一份快照而结果不变。
+  function numOrNull(v) {
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+
+  function rectOf(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    var left = numOrNull(raw.left);
+    if (left === null) left = numOrNull(raw.x);
+    if (left === null) left = numOrNull(raw.minX);
+    var top = numOrNull(raw.top);
+    if (top === null) top = numOrNull(raw.y);
+    if (top === null) top = numOrNull(raw.minY);
+    var right = numOrNull(raw.right);
+    if (right === null) right = numOrNull(raw.maxX);
+    var bottom = numOrNull(raw.bottom);
+    if (bottom === null) bottom = numOrNull(raw.maxY);
+    var width = numOrNull(raw.width);
+    var height = numOrNull(raw.height);
+
+    if (right === null && left !== null && width !== null) right = left + width;
+    if (bottom === null && top !== null && height !== null) bottom = top + height;
+    if (left === null && right !== null && width !== null) left = right - width;
+    if (top === null && bottom !== null && height !== null) top = bottom - height;
+    if (left === null || top === null || right === null || bottom === null) return null;
+    if (!(right > left) || !(bottom > top)) return null;
+
+    var centerX = numOrNull(raw.centerX);
+    var centerY = numOrNull(raw.centerY);
+    return {
+      left: left, top: top, right: right, bottom: bottom,
+      width: right - left, height: bottom - top,
+      centerX: centerX === null ? (left + right) / 2 : centerX,
+      centerY: centerY === null ? (top + bottom) / 2 : centerY,
+    };
+  }
+
+  /** 读 interaction 缓存里的屏幕框（先刷缓存，与 preload 原来的顺序一致）。 */
+  function interactionRect(I) {
+    if (!I) return null;
+    try {
+      if (typeof I.updateModelBoundsCache === 'function') I.updateModelBoundsCache();
+      else if (typeof I.updateScreenBounds === 'function') I.updateScreenBounds();
+    } catch (_) { /* 刷不动就用旧缓存 */ }
+    var sb = I._cachedScreenBounds;
+    if (!sb) return null;
+    return rectOf({ left: sb.minX, right: sb.maxX, top: sb.minY, bottom: sb.maxY });
+  }
+
+  /**
+   * 管理器包围盒：先问 getModelScreenBounds，拿不到再退到 interaction 缓存。
+   * mmd / vrm 要求 currentModel 在场（没有模型就没有框）；
+   * live2d 没有 getModelScreenBounds 时退到 getCurrentModel().getBounds()。
+   */
+  function boundsOf(kind) {
+    var M = kind === 'mmd' ? window.mmdManager
+      : kind === 'vrm' ? window.vrmManager
+      : window.live2dManager;
+    if (!M) return undefined;
+    if (kind !== 'live2d' && !M.currentModel) return undefined;
+
+    var rect = null;
+    if (typeof M.getModelScreenBounds === 'function') {
+      try { rect = rectOf(M.getModelScreenBounds()); } catch (_) { rect = null; }
+    }
+    if (rect) return rect;
+
+    if (kind === 'live2d') {
+      // ⚠️ 与迁移前的一处细微差异：原来 getDesktopAvatarBoundsEntries 在
+      // `getModelScreenBounds` 存在但返回空时**不**回退（else-if），
+      // 而 getModelRect 会回退。这里统一成「回退」，两处共用一份实现。
+      try {
+        var model = typeof M.getCurrentModel === 'function' ? M.getCurrentModel() : null;
+        return model && typeof model.getBounds === 'function' ? rectOf(model.getBounds()) : null;
+      } catch (_) {
+        return null;
+      }
+    }
+    return interactionRect(M.interaction);
+  }
+
   // 每个名字一个惰性取值函数：preload 调用时**才**去读，保证拿到最新值
   var GETTERS = {
     // ---- 数据 / 配置 ----
@@ -146,6 +233,33 @@
       var M = window.live2dManager;
       if (!M || typeof M.resetModelPosition !== 'function') return undefined;
       return function () { return M.resetModelPosition(); };
+    },
+    // ---- 域 B：测量（模型包围盒，2026-10-30 迁移）----
+    // 返回纯数字矩形快照；undefined = 页面没有这个能力，null = 有管理器但当前量不到框。
+    // preload 侧 `petModelBounds()` 只做真值判断，两者都当「没有」。
+    'bounds:mmd': function () { return boundsOf('mmd'); },
+    'bounds:vrm': function () { return boundsOf('vrm'); },
+    'bounds:live2d': function () { return boundsOf('live2d'); },
+
+    // ---- 域 D：视线跟随（2026-10-30 迁移）----
+    // 两个跟随器的回调名**不对称**（vrm 是下划线私有 `_cursorFollow._onPointerMove`，
+    // mmd 是 `cursorFollow._pointerMoveHandler`），照抄不得。
+    // 回闭包而不是回回调本身：过桥后 this 会丢，闭包在页面世界内执行。
+    'gaze:vrm': function () {
+      var F = window.vrmManager && window.vrmManager._cursorFollow;
+      if (!F || typeof F._onPointerMove !== 'function') return undefined;
+      return function (x, y) {
+        F._onPointerMove({ type: 'pointermove', clientX: x, clientY: y });
+        return true;
+      };
+    },
+    'gaze:mmd': function () {
+      var F = window.mmdManager && window.mmdManager.cursorFollow;
+      if (!F || typeof F._pointerMoveHandler !== 'function') return undefined;
+      return function (x, y) {
+        F._pointerMoveHandler({ type: 'pointermove', clientX: x, clientY: y });
+        return true;
+      };
     },
     // ---- 截图域：头像捕获 ----
     // avatarPortrait 是实例，裸传方法过桥会丢 this；闭包在页面世界内执行。
