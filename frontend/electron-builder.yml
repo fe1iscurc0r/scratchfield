@@ -96,8 +96,25 @@ linux:
   icon: build/icon.png
   category: Utility
 
-# publish 段落已禁用：fork 不应检查上游仓库的更新
+# ── publish 必需显式写 null，不能只是注释掉（2026-10-30）──────────────
+# 这里本来是把 publish 整段注释掉（= undefined），意思是「不发布」。但 electron-builder
+# 只把**显式的 null** 当成「不发布」，undefined 会走到另一条路：
+#   getPublishConfigs() → publishers = config.publish（undefined，不是 null，不 return）
+#   → resolvePublishConfigurations(undefined) → 数组里塞进 null
+#   → createUpdateInfoTasks() 里 `publishConfiguration.provider` ⇒ TypeError
+# 实证：v5.2.9 的 build job 三个平台全红在
+#   `⨯ Cannot read properties of null (reading 'provider')  failedTask=build`
+#   堆栈 createUpdateInfoTasks (app-builder-lib/out/publish/updateInfoBuilder)
+# 显式 null 走的是 PublishManager.getPublishConfigs 的第一条分支：
+#   `if (publishers === null) return null` ⇒ 不解析发布者、也不生成 latest*.yml 更新元数据。
+# 我们不做自动更新，这正是想要的语义。
+#
+# 日后若要接自动更新：把这行改成下面注释里的对象，并把 owner/repo 改成**自己的**仓库
+# （原来那段指向 RTGS2017/NagaAgent 上游，fork 不应检查上游更新，已废弃）。
+publish: null
+
+# 参考：接自己仓库的自动更新时形如
 # publish:
 #   provider: github
-#   owner: RTGS2017
-#   repo: NagaAgent
+#   owner: fe1iscurc0r
+#   repo: scratchfield
