@@ -32,12 +32,33 @@ function debugLinuxInput(message) {
 const petDiag = { hostRegistered: false, misses: Object.create(null) };
 let petHost = null;
 
+/**
+ * 给页面暴露一个全局（WO-278 P3）。
+ *
+ * 两个模式：
+ *   - 非隔离：`window[name] = value`，与改造前逐字等价；
+ *   - 隔离：`contextBridge.exposeInMainWorld`。
+ *
+ * 三条必须记住的约束：
+ *   1. **不要在 preload 里回读 `window[name]`** —— 隔离后那是 undefined（读不到自己 expose 的
+ *      东西）。preload 内部要用就取 `_pageApis[name]`。
+ *   2. **同一 key 不能暴露两次**：contextBridge 会报错，而这些初始化块（IPC / DOMContentLoaded）
+ *      有可能被重复触发，所以这里做幂等保护。
+ *   3. **expose 是快照**：对象/值在暴露那一刻定型，之后 preload 再改字段页面看不到。
+ *      凡是"后来还会变"的状态（如 `__nekoPetInteracting__`）**不能**走这里，必须留直写或改契约。
+ */
+const _pageApis = Object.create(null);
+const _exposedOnce = new Set();
+
 function exposeToPage(name, value) {
+  _pageApis[name] = value;
   if (process.contextIsolated && contextBridge && typeof contextBridge.exposeInMainWorld === 'function') {
+    if (_exposedOnce.has(name)) return;   // 重复暴露会抛错，而值本身也不会更新
+    _exposedOnce.add(name);
     contextBridge.exposeInMainWorld(name, value);
-  } else {
-    window[name] = value;
+    return;
   }
+  window[name] = value;
 }
 
 exposeToPage('nekoPetHost', {
@@ -552,14 +573,14 @@ const _isCompatibilityModePreload = process.env.NEKO_COMPATIBILITY_MODE === '1' 
   });
 const _disableNativeReturnBallDrag = _isWaylandPreload ||
   (process.platform === 'win32' && _isCompatibilityModePreload);
-window.__NEKO_DESKTOP_RUNTIME__ = Object.freeze({
+exposeToPage('__NEKO_DESKTOP_RUNTIME__', Object.freeze({
   platform: process.platform,
   compatibilityMode: _isCompatibilityModePreload,
   disableNativeReturnBallDrag: _disableNativeReturnBallDrag,
   isLinux: process.platform === 'linux',
   isLinuxX11: _isLinuxX11Preload,
   isWayland: _isWaylandPreload
-});
+}));
 
 if (process.platform === 'linux') {
   window.addEventListener('neko:main-ui-hidden-by-model-manager-changed', function(event) {
@@ -4525,15 +4546,15 @@ ipcRenderer.on(JUKEBOX_CHANNELS.VMD_RESUME, () => {
 // ===== 多窗口模式标志 =====
 // Pet 窗口在 Electron 中运行时，隐藏已拆到独立窗口的 UI 元素
 // 手机端（纯浏览器）不加载 preload，因此不会注入此标志，元素正常显示
-window.__NEKO_MULTI_WINDOW__ = true;
+exposeToPage('__NEKO_MULTI_WINDOW__', true);
 // Linux 透明全屏 pet 窗口在 shrink/setBounds 往返时会触发合成器黑屏/错帧；
 // Windows 兼容模式也沿用禁用策略，回落到页面内 return-ball 拖拽。
-window.__NEKO_DISABLE_NATIVE_RETURN_BALL_DRAG__ = _disableNativeReturnBallDrag;
+exposeToPage('__NEKO_DISABLE_NATIVE_RETURN_BALL_DRAG__', _disableNativeReturnBallDrag);
 
 // Jukebox 独立窗口开关（供 Jukebox.js 在 Electron 模式下调用）
-window.__nekoJukeboxToggle = function() {
+exposeToPage('__nekoJukeboxToggle', function() {
   ipcRenderer.send(JUKEBOX_CHANNELS.TOGGLE);
-};
+});
 
 // DOMContentLoaded 后隐藏已拆出的元素
 document.addEventListener('DOMContentLoaded', () => {
@@ -4592,11 +4613,13 @@ document.addEventListener('DOMContentLoaded', () => {
     var fontSize = state.subtitleFontSize || 26;
     var colorScheme = state.subtitleColorScheme || 'default';
 
-    if (window.nekoSubtitleWindow) {
+    // 走 _pageApis 而不是 window.nekoSubtitleWindow：隔离后 preload 读不到自己 expose 的东西
+    var subtitleWindowApi = _pageApis.nekoSubtitleWindow;
+    if (subtitleWindowApi) {
       if (visible) {
-        window.nekoSubtitleWindow.show();
+        subtitleWindowApi.show();
       } else {
-        window.nekoSubtitleWindow.hide();
+        subtitleWindowApi.hide();
       }
     }
 
@@ -4647,7 +4670,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  window.__forwardSubtitleRenderStateToWindow = forwardSubtitleRenderState;
+  exposeToPage('__forwardSubtitleRenderStateToWindow', forwardSubtitleRenderState);
   window.addEventListener('neko-subtitle-render-state', function(event) {
     forwardSubtitleRenderState(event.detail);
   });
@@ -4660,10 +4683,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ===== Subtitle 按需控制 API =====
-window.nekoSubtitleWindow = {
+exposeToPage('nekoSubtitleWindow', {
   show: () => ipcRenderer.send('neko:show-subtitle'),
   hide: () => ipcRenderer.send('neko:hide-subtitle'),
-};
+});
 
 // ===== Subtitle 窗口设置变更（从 Subtitle 窗口转发过来）=====
 function readSubtitleEnabledForWindowSync(subtitleShared) {
@@ -4747,11 +4770,13 @@ ipcRenderer.on(SUBTITLE_CHANNELS.SETTINGS_CHANGE, (event, data) => {
     });
   }
 
-  if (window.__forwardSubtitleRenderStateToWindow) {
+  // 同上：不走 window（隔离后 preload 读不到自己 expose 的全局）
+  var forwardRenderState = _pageApis.__forwardSubtitleRenderStateToWindow;
+  if (forwardRenderState) {
     if (subtitleShared && typeof subtitleShared.getRenderState === 'function') {
-      window.__forwardSubtitleRenderStateToWindow(subtitleShared.getRenderState());
+      forwardRenderState(subtitleShared.getRenderState());
     } else {
-      window.__forwardSubtitleRenderStateToWindow({
+      forwardRenderState({
         subtitleEnabled: readSubtitleEnabledForWindowSync(subtitleShared),
         visible: false,
         text: '',
@@ -4769,13 +4794,13 @@ ipcRenderer.on(SUBTITLE_CHANNELS.SETTINGS_CHANGE, (event, data) => {
 });
 
 // ===== AgentHUD 按需控制 API =====
-window.nekoAgentHud = {
+exposeToPage('nekoAgentHud', {
   show: () => ipcRenderer.send('neko:show-agent-hud'),
   hide: () => ipcRenderer.send('neko:hide-agent-hud'),
-};
+});
 
 // ===== ReturnBall 返回球拖拽桥接（拖拽返回球 = 移动 Pet 窗口）=====
-window.nekoPetDrag = {
+exposeToPage('nekoPetDrag', {
   start: (sx, sy) => {
     if (_disableNativeReturnBallDrag) return false;
     if (Date.now() > returnBallPrimaryDragArmedUntil) return false;
@@ -4785,11 +4810,11 @@ window.nekoPetDrag = {
   stop: (sx, sy) => ipcRenderer.invoke(WINDOW_CONTROL_CHANNELS.DRAG_STOP_AND_GET_BOUNDS, { sx, sy }),
   reveal: () => ipcRenderer.invoke(WINDOW_CONTROL_CHANNELS.DRAG_REVEAL_AFTER_RENDERER_READY),
   getBounds: () => ipcRenderer.invoke(WINDOW_CONTROL_CHANNELS.GET_BOUNDS),
-};
+});
 
-window.nekoSpatialAudio = {
+exposeToPage('nekoSpatialAudio', {
   getSourceBounds: getSpatialAudioSourceBounds,
-};
+});
 
 // ===== Host Capability 桥接 =====
 // 只提供通用宿主能力；业务校验、保存和迁移决策仍由 NEKO 后端完成。
@@ -4865,7 +4890,7 @@ window.addEventListener('neko:idle-cat1-layer-request', function(event) {
   });
 });
 
-window.electronScreen = {
+exposeToPage('electronScreen', {
   getCursorPoint: () => ipcRenderer.invoke('get-cursor-point'),
   getAllDisplays: () => ipcRenderer.invoke('get-all-displays'),
   getCurrentDisplay: () => ipcRenderer.invoke('get-current-display'),
@@ -4874,10 +4899,10 @@ window.electronScreen = {
   isPointOnScreen: (x, y) => ipcRenderer.invoke('is-point-on-screen', x, y),
   clampToScreen: (x, y, w = 0, h = 0) => ipcRenderer.invoke('clamp-to-screen', x, y, w, h),
   moveWindowToDisplay: (screenX, screenY) => ipcRenderer.invoke('move-window-to-display', screenX, screenY),
-};
+});
 
 // 屏幕捕获 API
-window.electronDesktopCapturer = {
+exposeToPage('electronDesktopCapturer', {
   getSources: (options = {}) => ipcRenderer.invoke('get-desktop-sources', options),
   // 将渲染器端选中的源 ID 同步到主进程，供 setDisplayMediaRequestHandler 使用
   setSelectedSource: (sourceId) => ipcRenderer.invoke('set-selected-screen-source', sourceId || null),
@@ -4889,7 +4914,7 @@ window.electronDesktopCapturer = {
   // 独立 hide/restore —— 用于 atomic 路径失败、渲染器要自己抓 MediaStream 帧时
   hideNekoWindows: () => ipcRenderer.invoke('hide-neko-windows'),
   restoreNekoWindows: (hiddenIds) => ipcRenderer.invoke('restore-neko-windows', hiddenIds),
-};
+});
 
 // （electronShell 和 nekoDarkMode 已由 preload-common 统一提供）
 

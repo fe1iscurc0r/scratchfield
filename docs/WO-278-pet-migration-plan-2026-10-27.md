@@ -437,3 +437,61 @@ node --check preload-pet.js / pet-host-bridge.js / 契约测试 → 全 OK
    紧凑球/头像捕获/点歌台这五条支线 `verify` 覆盖不到）。
 
 **当前状态**：开关保持 `contextIsolation: false`，两处配置已字节还原、与 main 一致。
+
+---
+
+## 11. P3：把 preload 往页面的「写」也收干净（2026-10-30）
+
+§10 说翻不了，卡在 preload 还在往页面写。这一节是把那 14 处直写压到 2 个名字。
+
+### 11.1 结果
+
+| 项 | 前 | 后 |
+|---|---:|---:|
+| `window.X =` 直写处数 | 14 | **3**（2 个名字） |
+| 走 `exposeToPage` 的页面 API | 2（host / diagnostics） | **13** |
+
+转过去的 11 个：`__NEKO_DESKTOP_RUNTIME__`、`__NEKO_MULTI_WINDOW__`、
+`__NEKO_DISABLE_NATIVE_RETURN_BALL_DRAG__`、`__nekoJukeboxToggle`、
+`__forwardSubtitleRenderStateToWindow`、`nekoSubtitleWindow`、`nekoAgentHud`、
+`nekoPetDrag`、`nekoSpatialAudio`、`electronScreen`、`electronDesktopCapturer`。
+
+### 11.2 三个必须知道的设计点
+
+1. **preload 不许回读自己 expose 的全局**。隔离后 `window.X` 在 preload 里是 `undefined`。
+   所以 `exposeToPage` 同时把值记进 `_pageApis[name]`，preload 内部（字幕显隐、字幕状态转发）
+   改成读 `_pageApis`。这条不改，隔离后字幕会静默不工作。
+2. **`exposeToPage` 必须幂等**。`contextBridge.exposeInMainWorld` 同一 key 暴露两次会抛错，
+   而这些初始化块（IPC / `DOMContentLoaded`）可能被重复触发 —— 加了 `_exposedOnce` 保护。
+   > 测试 harness 也照着改成「重复 expose 就抛」，否则这个保护写了也测不出来。
+3. **expose 是快照**。定义之后还会变的字段，页面看到的是暴露那一刻的值。
+
+### 11.3 剩下 2 个名字为什么摘不掉
+
+| 名字 | 原因 |
+|---|---|
+| `window.WebSocket` | 必须在**主世界**替换构造器，`contextBridge` 表达不了。要摘只能改走 `nekoWebSocket` + ws-adapter（其它窗口已这么做，见 `window-manager.js:488 / :1915`），页面侧 adapter 要跟着改。 |
+| `window.__nekoPetInteracting__` | 页面按「当前值」每帧读布尔（`forge-avatar-reaction.js` / `forge-drop-overlay.js`），expose 的快照语义表达不了。消费方是**上游文件**，摘它要上游改契约，不是我们单方面能改的。 |
+
+> 这两条写进了 `window-hardening.contract.test.js` 的 `PET_DIRECT_GLOBAL_WRITES` 白名单：
+> **新增一处直写就失败，白名单里少一处也失败**（双向断言，表不会腐烂）。
+
+### 11.4 验收
+
+| 项 | 结果 |
+|---|---|
+| `node --test "tests/*.test.js"` | **96 pass / 0 fail**（90 → 96，新增 6 条） |
+| 改坏验证 ① | 结尾加一句 `window.__stray_write_probe = 1` ⇒ 静态闸失败并点名 |
+| 改坏验证 ② | `exposeToPage('electronScreen'` 打错成 `electronSceen` ⇒ 隔离态 + 非隔离态两条用例同时失败 |
+| 活体（非隔离） | 12 个全局**逐个点名**都在（object/boolean/function 形态正确），`verify` PASS、`misses {}` |
+
+### 11.5 现在的净状态
+
+翻开关的**剩余阻塞**从三条降到两条：
+
+1. `window.WebSocket` 替换（要 WS-adapter 工程）；
+2. 鼠标合成事件在隔离态污染横向拖拽位移（机制未定，§10.3）；
+3. ~~14 处直写~~ —— 已收口，只剩上面两个名字。
+
+`__nekoPetInteracting__` 单独算半个：它不影响"能不能翻"，只影响隔离后 forge overlay 的
+降级判定（读不到就按"未交互"处理，视觉上少一层降级）。

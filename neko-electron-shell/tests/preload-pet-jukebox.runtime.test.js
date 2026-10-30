@@ -43,9 +43,13 @@ function bootPetIsolated(jukebox, opts = {}) {
   const handlers = new Map();   // channel -> handler
   const exposed = Object.create(null);
   const sent = [];
+  // DOMContentLoaded 里有一整块初始化（多窗口标志、字幕转发入口），原来 harness 是
+  // 空实现的 addEventListener，等于这块从来没跑过。这里记下 handler 供用例手动触发。
+  const docListeners = Object.create(null);
 
   const doc = {
-    addEventListener() {}, removeEventListener() {},
+    addEventListener(type, fn) { (docListeners[type] = docListeners[type] || []).push(fn); },
+    removeEventListener() {},
     createElement: () => ({ style: {}, appendChild() {}, addEventListener() {}, remove() {} }),
     body: { appendChild() {}, style: {}, classList: { add() {}, remove() {} } },
     documentElement: { style: {}, classList: { add() {}, remove() {}, toggle() {} } },
@@ -108,8 +112,16 @@ function bootPetIsolated(jukebox, opts = {}) {
             removeListener() {}, removeAllListeners() {},
           },
           contextBridge: {
-            // 真实世界里页面看到的是代理；这里直接同引用（vm 无隔离边界）
-            exposeInMainWorld(key, api) { exposed[key] = api; win[key] = api; },
+            // 真实世界里页面看到的是代理；这里直接同引用（vm 无隔离边界）。
+            // 重复 expose 在 Electron 里会抛错，harness 照样抛 —— 否则 exposeToPage
+            // 的幂等保护写了也测不出来。
+            exposeInMainWorld(key, api) {
+              if (Object.prototype.hasOwnProperty.call(exposed, key)) {
+                throw new Error('Cannot bind an API on top of an existing property: ' + key);
+              }
+              exposed[key] = api;
+              win[key] = api;
+            },
             exposeInIsolatedWorld() {},
           },
           webFrame: { executeJavaScript() {}, insertCSS() {} },
@@ -155,6 +167,7 @@ function bootPetIsolated(jukebox, opts = {}) {
     // 隔离态在 exposed（contextBridge），非隔离态在 window 上 —— 两种都要能取
     diag: () => (exposed.nekoPetDiagnostics || win.nekoPetDiagnostics).snapshot(),
     fire: (channel, payload) => handlers.get(channel)(null, payload),
+    fireDoc: (type) => (docListeners[type] || []).forEach((fn) => fn({ type })),
     called: (jukeboxObj) => jukeboxObj.calls,
   };
 }
@@ -756,4 +769,70 @@ test('域 F（非隔离态 live2d）：直读模型对象，判定与隔离态�
   win.lanlan_config = { model_type: 'live2d' };
   assert.strictEqual(ctx.checkHitTest(200, 150, 0), true);
   assert.strictEqual(ctx.checkHitTest(1000, 1000, 0), false);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// P3：页面侧 API 的「写」方向（2026-10-30）
+//
+// P2 清的是 preload 对页面的**读**；P3 清的是 preload 往页面**写**。
+// 写不干净就翻不了 contextIsolation：直写的全局隔离后页面根本看不见。
+// 这批从 14 处压到 2 个名字（window.WebSocket / __nekoPetInteracting__），
+// 它们的残留原因写在 window-hardening.contract.test.js 的白名单里。
+// ───────────────────────────────────────────────────────────────────────────
+
+const PAGE_APIS = [
+  '__NEKO_DESKTOP_RUNTIME__', '__NEKO_MULTI_WINDOW__', '__NEKO_DISABLE_NATIVE_RETURN_BALL_DRAG__',
+  '__nekoJukeboxToggle', '__forwardSubtitleRenderStateToWindow',
+  'nekoSubtitleWindow', 'nekoAgentHud', 'nekoPetDrag', 'nekoSpatialAudio',
+  'electronScreen', 'electronDesktopCapturer',
+];
+
+test('P3（隔离态）：11 个页面 API 全部能过桥，且形态对', () => {
+  const { win, fireDoc } = bootPetIsolated(null);
+  // 有一个（字幕转发入口）是在 DOMContentLoaded 里建的：必须真的触发那一块才算数，
+  // 否则「用例通过」只是因为它压根没跑。
+  fireDoc('DOMContentLoaded');
+  for (const name of PAGE_APIS) {
+    assert.notStrictEqual(typeof win[name], 'undefined', `${name} 没有暴露给页面（隔离后页面拿不到）`);
+  }
+  assert.strictEqual(win.__NEKO_MULTI_WINDOW__, true);
+  assert.strictEqual(typeof win.__NEKO_DESKTOP_RUNTIME__, 'object');
+  assert.strictEqual(typeof win.__NEKO_DESKTOP_RUNTIME__.isLinuxX11, 'boolean', '冻结对象也要能读字段');
+  for (const name of ['nekoSubtitleWindow', 'nekoAgentHud', 'nekoPetDrag', 'nekoSpatialAudio',
+    'electronScreen', 'electronDesktopCapturer']) {
+    assert.strictEqual(typeof win[name], 'object', `${name} 应是对象`);
+  }
+  assert.strictEqual(typeof win.nekoPetDrag.getBounds, 'function');
+  assert.strictEqual(typeof win.electronDesktopCapturer.captureSourceAsDataUrl, 'function');
+  assert.strictEqual(typeof win.__forwardSubtitleRenderStateToWindow, 'function',
+    '字幕转发入口没暴露 —— 隔离后字幕状态再也推不回主进程');
+});
+
+test('P3（隔离态）：过桥后的函数真能调到 IPC，不是空壳', () => {
+  const { win, sent } = bootPetIsolated(null);
+  win.nekoAgentHud.show();
+  win.nekoSubtitleWindow.hide();
+  win.__nekoJukeboxToggle();
+  const channels = sent.map((s) => s[0]);
+  assert.ok(channels.includes('neko:show-agent-hud'), 'nekoAgentHud.show 没打到 IPC');
+  assert.ok(channels.includes('neko:hide-subtitle'), 'nekoSubtitleWindow.hide 没打到 IPC');
+  assert.ok(channels.includes(CH.TOGGLE), '__nekoJukeboxToggle 没打到 IPC');
+});
+
+test('P3（非隔离态）：同样是 window 上的同名对象，页面读法与迁 Isolation 前一致', () => {
+  const { win, fireDoc } = bootPetIsolated(null, { isolated: false });
+  fireDoc('DOMContentLoaded');
+  for (const name of PAGE_APIS) {
+    assert.notStrictEqual(typeof win[name], 'undefined', `${name} 在非隔离态也必须在 window 上`);
+  }
+  assert.strictEqual(typeof win.nekoPetDrag.start, 'function');
+  assert.strictEqual(win.__NEKO_MULTI_WINDOW__, true);
+});
+
+test('P3：exposeToPage 幂等 —— 重复暴露不抛错，也不会把值改回去', () => {
+  const { ctx, win } = bootPetIsolated(null);
+  const before = win.nekoAgentHud;
+  assert.doesNotThrow(() => ctx.exposeToPage('nekoAgentHud', { show() {}, hide() {} }),
+    '重复暴露同一 key 必须被吃掉（Electron 的 contextBridge 会抛）');
+  assert.strictEqual(win.nekoAgentHud, before, '重复暴露不该替换页面已拿到的 API');
 });

@@ -251,6 +251,55 @@ test('已隔离窗口的 preload 不得再直接写 window.*', () => {
     'preload-jukebox.js 必须保留双模暴露（隔离走 contextBridge，非隔离走 window）');
 });
 
+/**
+ * pet 窗口 preload 里**仍然直接写页面全局**的位置（WO-278 P3）。
+ *
+ * 用途：pet 窗要翻 contextIsolation，前提是 preload 不再往页面写东西 —— 写的东西
+ * 隔离后页面读不到。2026-10-30 把 14 处直写压到 2 个名字，剩下这两个都有硬原因，
+ * 所以做成白名单：**新增一处就失败**，删掉一处也要来改这张表（否则表会腐烂）。
+ *
+ * 判断标准：`window.X = …`（整块赋值）。`window.X.y = …` 这类成员写不算 ——
+ * 那是在改一个已经过桥的对象，不是新建全局。
+ */
+const PET_DIRECT_GLOBAL_WRITES = {
+  'window.WebSocket':
+    '必须在主世界替换构造器，contextBridge 表达不了；要摘只能改走 nekoWebSocket + ws-adapter',
+  'window.__nekoPetInteracting__':
+    '页面按「当前值」每帧读布尔，expose 是快照表达不了；消费方是上游文件 forge-*.js，摘它要上游改契约',
+};
+
+test('pet preload 的直写页面全局只剩白名单里的名字（WO-278 P3）', () => {
+  const source = readSource('preload-pet.js');
+  assert.ok(source, 'src/preload-pet.js 不存在');
+
+  const found = new Set();
+  source.split(/\r?\n/).forEach((line) => {
+    const m = /^\s*window\.([A-Za-z0-9_$]+)\s*=(?![=>])/.exec(line);
+    if (m) found.add('window.' + m[1]);
+  });
+
+  const unexpected = [...found].filter((n) => !PET_DIRECT_GLOBAL_WRITES[n]);
+  const stale = Object.keys(PET_DIRECT_GLOBAL_WRITES).filter((n) => !found.has(n));
+
+  assert.deepStrictEqual(unexpected, [],
+    '这些全局又被直接写到 window 上了 —— 隔离后页面读不到它们：\n' + unexpected.join('\n') +
+    '\n修法：改成 exposeToPage(name, value)（preload 内部要读就取 _pageApis[name]）；' +
+    '确实过不了桥的，在 PET_DIRECT_GLOBAL_WRITES 登记并写明原因。');
+  assert.deepStrictEqual(stale, [],
+    '白名单里这些名字已经不再直写了，请从 PET_DIRECT_GLOBAL_WRITES 删掉：\n' + stale.join('\n'));
+});
+
+test('pet preload 的 exposeToPage 必须是双模且幂等（WO-278 P3）', () => {
+  const source = readSource('preload-pet.js');
+  assert.ok(source, 'src/preload-pet.js 不存在');
+  assert.ok(/process\.contextIsolated/.test(source) && /contextBridge\.exposeInMainWorld/.test(source),
+    'exposeToPage 必须保留双模暴露（隔离走 contextBridge，非隔离走 window）');
+  // 幂等：contextBridge 同一 key 暴露两次会抛错，而初始化块可能被重复触发
+  assert.ok(/_exposedOnce/.test(source), 'exposeToPage 必须保留重复暴露保护');
+  // preload 内部不许回读自己 expose 的全局（隔离后是 undefined）
+  assert.ok(/_pageApis/.test(source), 'exposeToPage 必须把值记进 _pageApis 供 preload 内部复用');
+});
+
 test('compact chat ball 窗必须开 contextIsolation（WO-278 批 1）', () => {
   // 它过去是唯一一扇「因为 preload 要读页面写的内联全局」而开不了隔离的窗。
   // 现在开关改走 additionalArguments，页面与 preload 不再共享全局，隔离必须打开，
