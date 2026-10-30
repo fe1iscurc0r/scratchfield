@@ -966,6 +966,7 @@ def test_pdf_text_engines_status_shape():
     assert status["chain"] == list(pdf_text.TEXT_ENGINE_CHAIN)
 
 
+@requires_toolknit
 def test_pdf_text_extracts_pages_with_page_numbers(bridge, ws):
     """happy path：逐页提取 + **页码** + 完整文本落盘。"""
     out = _call(bridge, "pdf_text", pdf_path=str(ws_path("sample.pdf")), max_chars_per_page=200)
@@ -987,6 +988,7 @@ def test_pdf_text_extracts_pages_with_page_numbers(bridge, ws):
     assert len(body) > data["total_chars"], "落盘文件含页分隔头，必然长于纯文本总长"
 
 
+@requires_toolknit
 def test_pdf_text_truncation_affects_response_only(bridge, ws):
     """截断只作用于**返回体**；落盘文件永远完整（这条最容易写反）。"""
     tiny = _call(bridge, "pdf_text", pdf_path=str(ws_path("sample.pdf")), max_chars_per_page=32)
@@ -1027,6 +1029,7 @@ def test_pdf_text_unknown_engine_is_rejected(bridge, ws):
     assert out["data"]["error_code"] == "ENGINE_UNAVAILABLE"
 
 
+@requires_toolknit
 def test_pdf_text_auto_uses_head_of_chain(bridge, ws):
     """``auto`` 走降级链：首选可得引擎，且 attempts 如实记录第一次就成功。"""
     out = _call(bridge, "pdf_text", pdf_path=str(ws_path("sample.pdf")), max_chars_per_page=16)

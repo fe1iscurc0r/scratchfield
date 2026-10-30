@@ -26,3 +26,4 @@ mcpserver/toolknit_mcp/** text eol=lf
 docs/integration-graph/** text eol=lf
 reports/workorder244*.md text eol=lf
 tools/toolknit_license_audit.py text eol=lf
+tests/test_toolknit_mcp.py text eol=lf
