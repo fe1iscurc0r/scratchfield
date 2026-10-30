@@ -319,24 +319,63 @@ pet 窗活体验证（需 electron 带 --remote-debugging-port=9222）
     const c = new Cdp(chat.webSocketDebuggerUrl);
     await c.ready;
     try {
-      const state = await c.eval(`(() => ({
-        visibility: document.visibilityState,
-        hidden: document.hidden,
-        hasCloseBtn: !!document.getElementById('reactChatWindowCloseButton'),
-        hasMinimizeBtn: !!document.getElementById('reactChatWindowMinimizeButton'),
-        size: [window.innerWidth, window.innerHeight],
-        bodyOverlayHidden: (() => {
-          var o = document.getElementById('react-chat-window-overlay');
-          return o ? !!o.hidden : null;
-        })(),
-      }))()`);
+      const state = await c.eval(`(() => {
+        var shell = document.getElementById('react-chat-window-shell');
+        var root = document.getElementById('react-chat-window-root');
+        var overlay = document.getElementById('react-chat-window-overlay');
+        var cs = shell ? getComputedStyle(shell) : null;
+        var bodyCs = getComputedStyle(document.body);
+        return {
+          visibility: document.visibilityState,
+          hidden: document.hidden,
+          hasCloseBtn: !!document.getElementById('reactChatWindowCloseButton'),
+          hasMinimizeBtn: !!document.getElementById('reactChatWindowMinimizeButton'),
+          size: [window.innerWidth, window.innerHeight],
+          bodyOverlayHidden: overlay ? !!overlay.hidden : null,
+          // 「窗口还在、屏幕上却没有」的三个常见原因：整体透明、被折叠、被挪走
+          bodyOpacity: bodyCs.opacity,
+          shellOpacity: cs ? cs.opacity : null,
+          shellDisplay: cs ? cs.display : null,
+          shellClasses: shell ? String(shell.className) : null,
+          rootRect: root ? (() => { var r = root.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; })() : null,
+          hasBall: !!document.querySelector('[class*="ball"], #neko-compact-ball, .neko-minimized-ball'),
+          // 折叠态的「球」到底是哪一个、看不看得见 —— 折叠后如果球不可见，
+          // 就是「对话框不见了且没有入口」的死状态
+          ballIcon: (() => {
+            var b = document.querySelector('.neko-e-ball-icon');
+            if (!b) return null;
+            var r = b.getBoundingClientRect();
+            var s = getComputedStyle(b);
+            return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+              opacity: s.opacity, display: s.display, visibility: s.visibility };
+          })(),
+          dragHandle: (() => {
+            var h = document.getElementById('react-chat-window-drag-handle');
+            if (!h) return null;
+            var r = h.getBoundingClientRect();
+            var s = getComputedStyle(h);
+            return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+              opacity: s.opacity, display: s.display, visibility: s.visibility };
+          })(),
+        };
+      })()`);
+      const collapsed = (state.shellClasses || '').includes('neko-e-collapsed')
+        || state.shellOpacity === '0';
       console.log(JSON.stringify({
         present: true,
         url: chat.url,
         ...state,
+        ballVisible: !!(state.ballIcon && state.ballIcon.opacity !== '0'
+          && state.ballIcon.display !== 'none' && state.ballIcon.rect[2] > 0),
         verdict: state.visibility === 'hidden'
           ? '窗口被 hide 了（看主进程日志的 reason）'
-          : '窗口在场且可见（若屏幕上没有，就是被遮挡或移出可视区）',
+          : collapsed
+            // 这一条是血泪：折叠态下 document.visibilityState 仍是 visible、窗口也还在，
+            // 只说"在场且可见"会把人带偏（issue：报"对话框不见了"其实是折叠成球）。
+            ? (state.ballIcon && state.ballIcon.opacity !== '0' && state.ballIcon.rect[2] > 0
+              ? '折叠成球（不是消失）：shell opacity=0 + neko-e-collapsed，球可见可点'
+              : '折叠成球但球不可见 —— 死状态，对话框既没了也没入口')
+            : '窗口在场且未折叠（若屏幕上没有，就是被遮挡或移出可视区）',
       }, null, 2));
       return 0;
     } finally {
