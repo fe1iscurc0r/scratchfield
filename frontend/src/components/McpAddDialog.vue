@@ -270,10 +270,14 @@ function applyPastedConfig() {
     if (!name.value.trim() && parsed.name)
       name.value = parsed.name
     errorMsg.value = ''
+    return
   }
-  else if (parsed.errors.length) {
-    errorMsg.value = parsed.errors[0]
-  }
+  // `@vue/tsconfig@0.8` 默认开 noUncheckedIndexedAccess ⇒ errors[0] 是
+  // `string | undefined`，不能直接塞给 ref<string>。先取出再判，语义不变：
+  // 原来 `errors.length` 为真必然能取到第 0 项，现在由 `if (firstError)` 表达同一条件。
+  const firstError = parsed.errors[0]
+  if (firstError)
+    errorMsg.value = firstError
 }
 
 function handleConfirm() {
