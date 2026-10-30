@@ -568,3 +568,192 @@ test('域 D：诊断探针只报能力有无，不真调（不能在冒烟时拽
   assert.strictEqual(diag().probes['gaze:vrm'], true);
   assert.strictEqual(diag().probes['gaze:mmd'], false);
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 域 F：穿透判定（interaction / currentModel / getCurrentModel，2026-10-30）
+//
+// 这是 P2 最后一块，也是最危险的一块：它决定「鼠标落在窗口上算不算点中模型」。
+// 写错的后果不是报错，而是**整个窗口点不中 / 点哪儿都中**。
+//
+// 这里直接打 checkHitTest()（顶层函数），链路是完整的：
+//   getActiveModelType → checkMMDHitTest/checkLive2DHitTest
+//   → petModelPresent/petModelScreenBounds/petModelPreciseHit/petModelLocalBounds/petModelHitAreas
+//   → pageApi → 真 pet-host-bridge.js → 假管理器
+// 所以它同时验证「键名对得上」和「判定结果对」。
+// ───────────────────────────────────────────────────────────────────────────
+
+/** 造一个 mmd/vrm 形状的假管理器：currentModel + interaction(_cachedScreenBounds/_hitTestModel)。 */
+function makeInteractionManager(rect, opts = {}) {
+  const state = { refreshed: 0, hits: [] };
+  const I = {
+    _cachedScreenBounds: rect
+      ? { minX: rect.left, minY: rect.top, maxX: rect.right, maxY: rect.bottom }
+      : null,
+    updateModelBoundsCache() { state.refreshed += 1; },
+    _hitTestModel(x, y) {
+      state.hits.push([x, y]);
+      return opts.alwaysHit !== false;
+    },
+  };
+  const manager = { currentModel: opts.noModel ? null : {}, interaction: I };
+  return { manager, state, I };
+}
+
+test('域 F（隔离态 mmd）：椭圆外但矩形内 → 走精确命中；远点直接 false', () => {
+  const { manager, state } = makeInteractionManager({ left: 100, top: 100, right: 300, bottom: 400 });
+  const { ctx, win } = bootPetIsolated(null, { models: { mmd: manager } });
+  win.lanlan_config = { model_type: 'mmd' };
+
+  // 椭圆中心：必然命中（椭圆判据），不该调用 _hitTestModel
+  assert.strictEqual(ctx.checkHitTest(200, 250, 0), true, '椭圆内应命中');
+  assert.deepStrictEqual(state.hits, [], '椭圆内不该走精确命中（那是热路径上的额外开销）');
+
+  // 矩形内、椭圆外（dx=95 > rx=60）→ 交给 _hitTestModel
+  assert.strictEqual(ctx.checkHitTest(295, 250, 0), true, '矩形内应走精确命中');
+  assert.deepStrictEqual(state.hits, [[295, 250]]);
+
+  // 远在框外（矩形 +12 都不覆盖）→ false，且不再调精确命中
+  assert.strictEqual(ctx.checkHitTest(900, 900, 0), false);
+  assert.strictEqual(state.hits.length, 1);
+});
+
+test('域 F（隔离态 mmd）：精确命中回 false 时整条链也是 false（不能把矩形内一律当命中）', () => {
+  const { manager } = makeInteractionManager({ left: 100, top: 100, right: 300, bottom: 400 }, { alwaysHit: false });
+  const { ctx, win } = bootPetIsolated(null, { models: { mmd: manager } });
+  win.lanlan_config = { model_type: 'mmd' };
+  assert.strictEqual(ctx.checkHitTest(295, 250, 0), false);
+});
+
+test('域 F（隔离态 mmd）：没有 currentModel 时一律不命中 —— 哪怕缓存框还在', () => {
+  // 这是最容易被迁移弄丢的一条：旧代码的前置守卫是 `!currentModel → false`。
+  // 模型卸掉后 interaction 的缓存框可能还留着，若只按框判就会「点空白也命中」。
+  const { manager, state } = makeInteractionManager({ left: 100, top: 100, right: 300, bottom: 400 }, { noModel: true });
+  const { ctx, win } = bootPetIsolated(null, { models: { mmd: manager } });
+  win.lanlan_config = { model_type: 'mmd' };
+  // 直接钉住「存在性」这一层：端到端断言会被后面两道守卫兜住，
+  // 单独删掉 present 判断时端到端仍然 false —— 那样这条用例就失去了意义。
+  assert.strictEqual(ctx.petModelPresent('mmd'), false, '没有模型时 present 必须为 false');
+  assert.strictEqual(ctx.petModelPresent('live2d'), false, 'live2d 管理器不存在也是 false');
+  assert.strictEqual(ctx.petModelScreenBounds('mmd', true), null, '没有模型就不该交出框');
+  assert.strictEqual(ctx.checkHitTest(200, 250, 0), false, '没有模型就必须 false');
+  assert.deepStrictEqual(state.hits, []);
+});
+
+test('域 F（隔离态）：present / screenBounds / 精确命中 三个能力各自可单独判', () => {
+  const { manager, state } = makeInteractionManager({ left: 100, top: 100, right: 300, bottom: 400 });
+  const { ctx } = bootPetIsolated(null, { models: { mmd: manager } });
+
+  assert.strictEqual(ctx.petModelPresent('mmd'), true);
+  assert.strictEqual(ctx.petModelPresent('vrm'), false, '没装 vrm 管理器');
+
+  const sb = ctx.petModelScreenBounds('mmd', true);
+  assert.strictEqual(sb.minX, 100);
+  assert.strictEqual(sb.maxY, 400);
+
+  assert.strictEqual(ctx.petModelPreciseHit('mmd', 5, 6), true);
+  assert.deepStrictEqual(state.hits, [[5, 6]]);
+  assert.strictEqual(ctx.petModelPreciseHit('vrm', 5, 6), false, '没有 vrm 能力时精确命中必须是 false');
+});
+
+test('域 F（隔离态 live2d）：localBounds 与 hitAreas 分开取，互不牵连', () => {
+  const live2d = {
+    getCurrentModel() {
+      return {
+        getBounds() { return { x: 100, y: 100, width: 200, height: 300 }; },
+        hitTest() { return ['head', 'body']; },
+      };
+    },
+  };
+  const { ctx } = bootPetIsolated(null, { models: { live2d } });
+  const b = ctx.petModelLocalBounds('live2d');
+  assert.strictEqual(b.x, 100);
+  assert.strictEqual(b.width, 200);
+  assert.strictEqual(b.right, 300, 'right 必须由 x+width 算出来（命中判定要用）');
+  assert.deepStrictEqual(Array.from(ctx.petModelHitAreas('live2d', 1, 2)), ['head', 'body']);
+});
+
+test('域 F（隔离态 mmd）：告别态短路，连框都不量', () => {
+  const { manager, state } = makeInteractionManager({ left: 100, top: 100, right: 300, bottom: 400 });
+  manager._goodbyeClicked = true;
+  const { ctx, win } = bootPetIsolated(null, { models: { mmd: manager } });
+  win.lanlan_config = { model_type: 'mmd' };
+  assert.strictEqual(ctx.checkHitTest(200, 250, 0), false);
+  assert.strictEqual(state.refreshed, 0, '告别态不该再刷包围盒');
+});
+
+test('域 F（隔离态 live2d）：hitTest 有结果即命中，空结果退回椭圆近似', () => {
+  const hitTestCalls = [];
+  const live2d = {
+    getCurrentModel() {
+      return {
+        getBounds() { return { x: 100, y: 100, width: 200, height: 300 }; },
+        hitTest(x, y) { hitTestCalls.push([x, y]); return y < 200 ? ['head'] : []; },
+      };
+    },
+  };
+  const { ctx, win } = bootPetIsolated(null, { models: { live2d } });
+  win.lanlan_config = { model_type: 'live2d' };
+
+  assert.strictEqual(ctx.checkHitTest(200, 150, 0), true, 'hitTest 返回区域名 → 命中');
+  // 同一 x，y 落到下半部：hitTest 回空 → 椭圆判据（cx=200,cy=250,rx=60,ry=135）
+  assert.strictEqual(ctx.checkHitTest(200, 390, 0), false, '空结果 + 椭圆外 → 不命中');
+  assert.deepStrictEqual(hitTestCalls, [[200, 150], [200, 390]]);
+
+  // 框外直接 false，不该调 hitTest
+  assert.strictEqual(ctx.checkHitTest(1000, 1000, 0), false);
+  assert.strictEqual(hitTestCalls.length, 2);
+});
+
+test('域 F（隔离态 live2d）：模型没有 hitTest 时仍能靠椭圆判据命中', () => {
+  const live2d = {
+    getCurrentModel() {
+      return { getBounds() { return { x: 100, y: 100, width: 200, height: 300 }; } };
+    },
+  };
+  const { ctx, win } = bootPetIsolated(null, { models: { live2d } });
+  win.lanlan_config = { model_type: 'live2d' };
+  assert.strictEqual(ctx.checkHitTest(200, 250, 0), true, '命中区域缺失应退回椭圆近似，不能一律 false');
+});
+
+test('域 F：forceBoundsRefresh 语义 —— false 用缓存、true 才重算', () => {
+  const { manager, state } = makeInteractionManager({ left: 100, top: 100, right: 300, bottom: 400 });
+  const { ctx, win } = bootPetIsolated(null, { models: { vrm: manager } });
+  win.lanlan_config = { model_type: 'vrm' };
+
+  const cold = ctx.getModelInputBounds(false);
+  assert.strictEqual(state.refreshed, 0, '有缓存且不强制 → 不该重算');
+  assert.strictEqual(cold.left, 100);
+  assert.strictEqual(cold.right, 300);
+
+  ctx.getModelInputBounds(true);
+  assert.strictEqual(state.refreshed, 1, '强制刷新必须真的重算');
+});
+
+test('域 F（非隔离态）：同一组用例结果与隔离态逐条一致', () => {
+  const { manager, state } = makeInteractionManager({ left: 100, top: 100, right: 300, bottom: 400 });
+  const { ctx, win } = bootPetIsolated(null, { isolated: false, models: { mmd: manager } });
+  win.lanlan_config = { model_type: 'mmd' };
+
+  assert.strictEqual(ctx.checkHitTest(200, 250, 0), true);
+  assert.deepStrictEqual(state.hits, [], '非隔离下椭圆内也不该走精确命中');
+  assert.strictEqual(ctx.checkHitTest(295, 250, 0), true);
+  assert.strictEqual(ctx.checkHitTest(900, 900, 0), false);
+
+  manager.currentModel = null;
+  assert.strictEqual(ctx.checkHitTest(200, 250, 0), false, '没有模型同样必须 false');
+});
+
+test('域 F（非隔离态 live2d）：直读模型对象，判定与隔离态一致', () => {
+  const live2d = {
+    getCurrentModel() {
+      return {
+        getBounds() { return { x: 100, y: 100, width: 200, height: 300 }; },
+        hitTest() { return ['head']; },
+      };
+    },
+  };
+  const { ctx, win } = bootPetIsolated(null, { isolated: false, models: { live2d } });
+  win.lanlan_config = { model_type: 'live2d' };
+  assert.strictEqual(ctx.checkHitTest(200, 150, 0), true);
+  assert.strictEqual(ctx.checkHitTest(1000, 1000, 0), false);
+});

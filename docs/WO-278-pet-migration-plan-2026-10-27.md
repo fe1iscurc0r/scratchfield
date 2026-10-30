@@ -306,3 +306,59 @@ node --check preload-pet.js / pet-host-bridge.js / 契约测试 → 全 OK
 翻配置的前提是"业务代码不再直接碰页面全局"，而这一点已经达成了。
 **一个小坑**：单测里假 `getCurrentModel` 必须返回**同一个对象**，
 否则每次调用都是新对象，「model.dragging 被清掉」会永远**假通过**。
+
+---
+
+## 9. P2 完成态（2026-10-30）
+
+§8.6 那张「下一步」表已经过期（当时的处数预估偏大）。以下是**收口后**的实际结果，
+以 `neko-electron-shell/tests/preload-page-global.contract.test.js` 的登记表为准。
+
+### 9.1 六个域全部迁完
+
+| 域 | 内容 | 页面注册面键 | 状态 |
+|---|---|---|---|
+| A | 模型态（judge / clear） | `modelType`、`modelDragging:*`、`clearModelDragging` | 10-29 完成 |
+| B | 测量（包围盒） | `bounds:mmd` / `bounds:vrm` / `bounds:live2d` | 10-30 |
+| C | 渲染控制（pause/resume/reset） | `model:<kind>:<op>` × 9 | 10-30 |
+| D | 视线跟随 | `gaze:mmd` / `gaze:vrm` | 10-30 |
+| E | 点歌台 | `Jukebox.*` × 7 | 10-29 |
+| F | 穿透判定 | `modelLocked`、`modelGoodbye`、`present:*`、`screenBounds:*`、`hit:*`、`localBounds:live2d`、`hitAreas:live2d` | 10-30 |
+
+### 9.2 三个管理器的成员访问已经归零
+
+`RAW_READ_RATCHET` 从 **35 / 35 / 27** 降到 **1 / 1 / 3**，
+`PENDING_MEMBERS` 三张表**全空**（空表 = 最严一档：谁再写一个成员访问立刻失败）。
+
+剩下的 5 处不是「还没做」，而是**过不了桥**的两类：
+
+| 位置 | 原因 |
+|---|---|
+| `petModelRaw()` × 3 | 非隔离回落取一次实例，之后一律用动态成员名访问（成员名不进静态扫描） |
+| `hookLive2DInputRegionLoaded` / `hookLive2DModelLoaded` | 给 manager **打补丁**（`mgr.onModelLoaded = …`），是写穿不是读；Linux X11 / Wayland 专用，隔离后自动退化为「靠 DOM 事件刷新」 |
+
+### 9.3 域 B/F 的两个设计要点（踩过才知道）
+
+1. **快照必须给两套键**：`normalizeDesktopAvatarBounds` 读 `left/right/top/bottom`，
+   `normalizeShapeLocalBoundsToRect` 优先读 `x/y/width`。只给一套 ⇒ 有一个调用点会
+   静默退化成「量不到框」（模型点不中、拖不动），**不报错**。
+2. **页面侧就地摊平，别把原生 bounds 过桥**：`getModelScreenBounds()` / `getBounds()`
+   回的是类实例（PIXI Bounds / THREE 包围盒），过桥克隆会丢原型 getter ⇒ 拿到空对象。
+
+### 9.4 验收口径（本轮实际执行）
+
+| 项 | 结果 |
+|---|---|
+| `node --test "tests/*.test.js"` | **90 pass / 0 fail**（66 → 90，新增 24 条：B 8、D 5、F 11） |
+| 改坏验证（变异测试） | 关掉 `present` 守卫 ⇒ F 的「没有 currentModel 就 false」失败；把 `force` 写死 `true` ⇒ force 语义用例失败。**两处都真变红过** |
+| 活体 `pet-live-verify verify` | **PASS**，位移 `119.99999 / 59.99999` 与迁移前逐位一致 |
+| 框镜像 | 诊断探针的 `live2d` 框与页面 `getModelScreenBounds()` **逐字段相同** |
+| 视线能力判定 | 与旧表达式 `!!(mgr && mgr.cursorFollow && …)` **等值**（当前只加载 live2d，mmd/vrm 均为 false） |
+
+### 9.5 仍然没验的（如实登记）
+
+- **隔离态没有真机证据**：petWindow 现在仍是 `contextIsolation: false`。
+  隔离路径只有 vm 双端联跑（真 preload + 真页面桥 + 假管理器）+ 静态契约，
+  **不含 Chromium 的序列化规则**。翻开关前必须先跑一遍 `pet-live-verify`。
+- 域 D 的**真实调用链**在活体上没能触发（当前模型是 live2d，`vrmManager._cursorFollow`
+  与 `mmdManager.cursorFollow` 都不存在），只有 vm 用例覆盖两路回调。

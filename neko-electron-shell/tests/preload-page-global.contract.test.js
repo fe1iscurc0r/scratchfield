@@ -46,12 +46,14 @@ const COEXIST_FALLBACK = 'process.contextIsolated';
  * 数字来自 2026-10-29 的实测统计（剥离注释 + 排除字符串字面量）。
  */
 const RAW_READ_RATCHET = {
-  // ── P2 未迁移（域 A「模型态」、域 B「测量」、域 C「渲染控制」、域 E「点歌台」、
-  //     域 D「视线」已迁）—— 剩下的是 interaction / currentModel / getCurrentModel 这批，
-  //     它们决定点击穿透区域，迁移时每一处都要跟着跑活体验证。
-  mmdManager: 19,
-  vrmManager: 19,
-  live2dManager: 18,
+  // 三个管理器的成员访问已**全部**迁完（域 A/B/C/D/E/F，2026-10-30）。
+  // 剩下这点是仅有的两处例外，都是**写穿**而不是读，过不了桥，只能登记：
+  //   - petModelRaw()            非隔离回落取一次实例，之后一律用动态成员名访问；
+  //   - hookLive2DModelLoaded / hookLive2DInputRegionLoaded
+  //     给 manager 打补丁（mgr.onModelLoaded = …），Linux X11 / Wayland 专用。
+  mmdManager: 1,
+  vrmManager: 1,
+  live2dManager: 3,
   // ── P1 已迁，这 5 处是**非隔离回落**（petDragHelpersBusy / petDragHelpersRestore）──
   DragHelpers: 5,
 };
@@ -91,35 +93,27 @@ const REQUIRED_PAGE_KEYS = {
   modelBounds: ['bounds:mmd', 'bounds:vrm', 'bounds:live2d'],
   // 域 D：视线跟随（2026-10-30）—— 回调名两路不对称，键名必须与 preload 逐字一致
   modelGaze: ['gaze:mmd', 'gaze:vrm'],
+  // 域 F：穿透判定（2026-10-30）—— 直接决定「鼠标算不算点在模型上」
+  modelProbe: [
+    'modelLocked', 'modelGoodbye',
+    'present:mmd', 'present:vrm',
+    'screenBounds:mmd', 'screenBounds:vrm',
+    'hit:mmd', 'hit:vrm',
+    'localBounds:live2d', 'hitAreas:live2d',
+  ],
 };
 
 /**
- * 待迁域**按成员**的访问清单。
- * 域 B（测量，2026-10-30）、域 C（渲染控制，2026-10-30）、域 D（视线，2026-10-30）
- * 均已迁完，不再出现在本表；剩下的每一条都直接决定点击穿透区域。
+ * 待迁域**按成员**的访问清单 —— 2026-10-30 起**三张表都空了**。
  *
- * 为什么不只靠上面的处数棘轮：43 这个数字没法分批、也看不出新增访问落点。
- * 实测成员面很小且规整（7 / 7 / 6 个），锁成集合之后：
- *   - 有人新写 `window.mmdManager.foo` ⇒ 直接失败，必须在下面登记；
- *   - 某个成员迁完 ⇒ 从表里删掉，表不会腐烂（双向断言）。
- * 这样剩余域可以**按成员分批**迁移，而不是对着 121 行模糊计数。
- *
- * 括号里是 2026-10-30 实测的使用处数，仅供排期参考，不参与断言
- * （处数由上一条棘轮管）。
+ * 空表不是"没用了"，而是最严格的一档：谁再写一句 `window.mmdManager.foo`，
+ * 立刻报「新增未登记成员」。域 B（测量）/ C（渲染控制）/ D（视线）/ F（穿透判定）
+ * 已全部迁到页面注册面，因此这里只剩注释，不再有登记项。
  */
 const PENDING_MEMBERS = {
-  mmdManager: [
-    'interaction',            // 7  —— 拖拽热路径 / _hitTestModel / 输入区域兜底
-    'currentModel',           // 2  —— 守卫用（判存在）
-  ],
-  vrmManager: [
-    'interaction',            // 7
-    'currentModel',           // 2
-  ],
-  live2dManager: [
-    'getCurrentModel',        // 5  —— 拿模型对象再调 getBounds()/hitTest()，比前两者多一层
-    '_isDraggingModel',       // 2  —— 拖拽态（P2-A 的 modelDragging:live2d 已另走注册面）
-  ],
+  mmdManager: [],
+  vrmManager: [],
+  live2dManager: [],
 };
 
 /** contextIsolation 不分离 DOM，这些照常可用，不计入。 */

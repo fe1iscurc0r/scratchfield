@@ -144,8 +144,10 @@ function petModelType() {
     const v = pageApi('modelType');
     return v === undefined ? null : v;
   }
-  if (window.mmdManager && window.mmdManager.currentModel) return 'mmd';
-  if (window.vrmManager && window.vrmManager.currentModel) return 'vrm';
+  const mmd = petModelRaw('mmd');
+  if (mmd && mmd.currentModel) return 'mmd';
+  const vrm = petModelRaw('vrm');
+  if (vrm && vrm.currentModel) return 'vrm';
   return null;
 }
 
@@ -153,12 +155,12 @@ function petModelDragging(modelType) {
   if (process.contextIsolated) {
     return pageApi('modelDragging:' + modelType) === true;
   }
-  if (modelType === 'live2d' && window.live2dManager && window.live2dManager._isDraggingModel) return true;
-  if (modelType === 'vrm' && window.vrmManager && window.vrmManager.interaction
-    && window.vrmManager.interaction.isDragging) return true;
-  if (modelType === 'mmd' && window.mmdManager && window.mmdManager.interaction
-    && window.mmdManager.interaction.isDragging) return true;
-  return false;
+  if (modelType === 'live2d') {
+    const l2d = petModelRaw('live2d');
+    return Boolean(l2d && l2d._isDraggingModel);
+  }
+  const M = petModelRaw(modelType);
+  return Boolean(M && M.interaction && M.interaction.isDragging);
 }
 
 function petClearModelDragging() {
@@ -167,16 +169,19 @@ function petClearModelDragging() {
     pageApi('clearModelDragging');
     return;
   }
-  if (window.live2dManager) {
-    window.live2dManager._isDraggingModel = false;
-    const live2dModel = window.live2dManager.getCurrentModel && window.live2dManager.getCurrentModel();
+  const l2d = petModelRaw('live2d');
+  if (l2d) {
+    l2d._isDraggingModel = false;
+    const live2dModel = typeof l2d.getCurrentModel === 'function' ? l2d.getCurrentModel() : null;
     if (live2dModel) live2dModel.dragging = false;
   }
-  if (window.vrmManager && window.vrmManager.interaction) {
-    window.vrmManager.interaction.isDragging = false;
+  const vrm = petModelRaw('vrm');
+  if (vrm && vrm.interaction) {
+    vrm.interaction.isDragging = false;
   }
-  if (window.mmdManager && window.mmdManager.interaction) {
-    window.mmdManager.interaction.isDragging = false;
+  const mmd = petModelRaw('mmd');
+  if (mmd && mmd.interaction) {
+    mmd.interaction.isDragging = false;
   }
 }
 
@@ -334,6 +339,9 @@ function petRectSnapshot(raw) {
   const centerY = num(raw.centerY);
   return {
     left: left, top: top, right: right, bottom: bottom,
+    // 角点读法也给一份：live2d 的 getBounds() 只有 x/y/width/height，
+    // 命中判定那段算的是 bounds.x + bounds.width，两套都得能直接用。
+    x: left, y: top,
     width: right - left, height: bottom - top,
     centerX: centerX === null ? (left + right) / 2 : centerX,
     centerY: centerY === null ? (top + bottom) / 2 : centerY,
@@ -411,6 +419,122 @@ function petModelGaze(kind, x, y) {
     return true;
   } catch (err) {
     return false;
+  }
+}
+
+// ---- 域 F：穿透判定（interaction / currentModel / getCurrentModel）----
+// 这批是 P2 最后一块，也是**风险最高**的一块：直接决定「鼠标算不算点在模型上」。
+// 规矩是「页面只交数据，几何判断留在 preload」—— 判定逻辑在本文件里可单测，
+// 过桥的只有布尔 / 数字 / 数组。
+//
+// 锁定态 / 告别态：一次回三个管理器的快照，调用方再按 getActiveModelType() 挑。
+// 返回 null 表示「那个管理器不在」（与 false 区分：原来的逻辑对「不在」会走另一条分支）。
+function petManagerFlags(which) {
+  if (process.contextIsolated) {
+    const v = pageApi(which);
+    if (!v || typeof v !== 'object') return { mmd: null, vrm: null, live2d: null };
+    return v;
+  }
+  const read = function (kind) {
+    const M = petModelRaw(kind);
+    if (!M) return null;
+    if (which === 'modelGoodbye') return Boolean(M._goodbyeClicked);
+    if (typeof M.isLocked !== 'undefined') return Boolean(M.isLocked);
+    if (M.interaction && typeof M.interaction.isLocked !== 'undefined') return Boolean(M.interaction.isLocked);
+    return false;
+  };
+  return { mmd: read('mmd'), vrm: read('vrm'), live2d: read('live2d') };
+}
+
+// 管理器在不在、有没有当前模型（live2d 只判管理器）。
+function petModelPresent(kind) {
+  if (process.contextIsolated) return pageApi('present:' + kind) === true;
+  const M = petModelRaw(kind);
+  if (!M) return false;
+  return kind === 'live2d' ? true : Boolean(M.currentModel);
+}
+
+// interaction 的屏幕框（minX/minY/maxX/maxY）。force=true 无条件刷缓存。
+function petModelScreenBounds(kind, force) {
+  if (process.contextIsolated) {
+    const fn = pageApi('screenBounds:' + kind);
+    if (typeof fn !== 'function') return null;
+    try {
+      const v = fn(!!force);
+      return v && typeof v === 'object' ? v : null;
+    } catch (err) {
+      return null;
+    }
+  }
+  const M = petModelRaw(kind);
+  if (!M || !M.currentModel) return null;
+  const I = M.interaction;
+  if (!I) return null;
+  try {
+    if (force || !I._cachedScreenBounds) {
+      if (typeof I.updateModelBoundsCache === 'function') I.updateModelBoundsCache();
+      else if (typeof I.updateScreenBounds === 'function') I.updateScreenBounds();
+    }
+  } catch (err) { /* 刷不动就用旧缓存 */ }
+  const sb = I._cachedScreenBounds;
+  if (!sb) return null;
+  return { minX: sb.minX, minY: sb.minY, maxX: sb.maxX, maxY: sb.maxY };
+}
+
+// interaction 的精确命中。能力缺失 / 抛错一律 false（与迁移前 try/catch 一致）。
+function petModelPreciseHit(kind, x, y) {
+  if (process.contextIsolated) {
+    const fn = pageApi('hit:' + kind);
+    if (typeof fn !== 'function') return false;
+    try {
+      return fn(x, y) === true;
+    } catch (err) {
+      return false;
+    }
+  }
+  const M = petModelRaw(kind);
+  const I = M && M.interaction;
+  if (!I || typeof I._hitTestModel !== 'function') return false;
+  try {
+    return Boolean(I._hitTestModel(x, y));
+  } catch (err) {
+    return false;
+  }
+}
+
+// live2d 模型本地包围盒（canvas 原点 = 视口原点，可直接当窗口坐标）。
+function petModelLocalBounds(kind) {
+  if (process.contextIsolated) return petRectSnapshot(pageApi('localBounds:' + kind));
+  const M = petModelRaw(kind);
+  if (!M || typeof M.getCurrentModel !== 'function') return null;
+  const model = M.getCurrentModel();
+  if (!model || typeof model.getBounds !== 'function') return null;
+  try {
+    return petRectSnapshot(model.getBounds());
+  } catch (err) {
+    return null;
+  }
+}
+
+// live2d 命中区域名数组；null = 没有这个能力或抛错（调用方退回椭圆近似）。
+function petModelHitAreas(kind, x, y) {
+  if (process.contextIsolated) {
+    const fn = pageApi('hitAreas:' + kind);
+    if (typeof fn !== 'function') return null;
+    try {
+      return fn(x, y);
+    } catch (err) {
+      return null;
+    }
+  }
+  const M = petModelRaw(kind);
+  if (!M || typeof M.getCurrentModel !== 'function') return null;
+  const model = M.getCurrentModel();
+  if (!model || typeof model.hitTest !== 'function') return null;
+  try {
+    return model.hitTest(x, y);
+  } catch (err) {
+    return null;
   }
 }
 
@@ -844,40 +968,36 @@ function getActiveModelType() {
   return 'live2d';
 }
 
-function getManagerLockState(manager) {
-  if (!manager) return false;
-  if (typeof manager.isLocked !== 'undefined') return !!manager.isLocked;
-  if (manager.interaction && typeof manager.interaction.isLocked !== 'undefined') {
-    return !!manager.interaction.isLocked;
-  }
-  return false;
-}
+// 迁移前这里是 getManagerLockState(manager) / isManagerInGoodbyeMode(manager)：
+// 直接拿着页面管理器实例判 isLocked / interaction.isLocked / _goodbyeClicked。
+// 域 F 迁移后判定移进页面注册面（managerLocked / managerGoodbye），
+// 本文件只拿三个布尔的快照，两个 helper 已无用并删除。
 
 function isCurrentModelLocked() {
   try {
+    const state = petManagerFlags('modelLocked');
     var modelType = getActiveModelType();
-    if (modelType === 'mmd') return getManagerLockState(window.mmdManager);
-    if (modelType === 'vrm') return getManagerLockState(window.vrmManager);
-    if (modelType === 'live2d') return getManagerLockState(window.live2dManager);
+    if (modelType === 'mmd') return state.mmd === true;
+    if (modelType === 'vrm') return state.vrm === true;
+    if (modelType === 'live2d') return state.live2d === true;
   } catch (e) {}
   return false;
 }
 
-function isManagerInGoodbyeMode(manager) {
-  return !!(manager && manager._goodbyeClicked);
-}
-
 function isCurrentModelInGoodbyeMode() {
   try {
+    const state = petManagerFlags('modelGoodbye');
     var modelType = getActiveModelType();
-    if (modelType === 'mmd' && window.mmdManager) return isManagerInGoodbyeMode(window.mmdManager);
-    if (modelType === 'vrm' && window.vrmManager) return isManagerInGoodbyeMode(window.vrmManager);
-    if (modelType === 'live2d' && window.live2dManager) return isManagerInGoodbyeMode(window.live2dManager);
+    // 「那个管理器在不在」原来由 `modelType === 'x' && window.xManager` 判断：
+    // 不在的话落到下面那条「任一管理器在告别态」的兜底分支。
+    if (modelType === 'mmd' && state.mmd !== null) return state.mmd === true;
+    if (modelType === 'vrm' && state.vrm !== null) return state.vrm === true;
+    if (modelType === 'live2d' && state.live2d !== null) return state.live2d === true;
+    // 兜底：类型对不上（如 live3d）或对应管理器不在时，任一管理器处于告别态即算。
+    return state.live2d === true || state.vrm === true || state.mmd === true;
   } catch (_) {}
 
-  return isManagerInGoodbyeMode(window.live2dManager) ||
-    isManagerInGoodbyeMode(window.vrmManager) ||
-    isManagerInGoodbyeMode(window.mmdManager);
+  return false;
 }
 
 function isGoodbyeReturnBallElement(element) {
@@ -1275,9 +1395,7 @@ function isPointInScreenBoundsEllipse(bounds, x, y, margin) {
   return (nx * nx + ny * ny) <= 1;
 }
 
-function maybePreciseModelHitTest(kind, interaction, x, y) {
-  if (!interaction || typeof interaction._hitTestModel !== 'function') return false;
-
+function maybePreciseModelHitTest(kind, x, y) {
   var cache = _modelPreciseHitCache[kind];
   if (!cache) return false;
 
@@ -1289,12 +1407,8 @@ function maybePreciseModelHitTest(kind, interaction, x, y) {
     return cache.hit;
   }
 
-  var hit = false;
-  try {
-    hit = !!interaction._hitTestModel(x, y);
-  } catch (e) {
-    hit = false;
-  }
+  // 能力缺失 / 抛错都算没命中（原来那层 typeof + try/catch 收在 petModelPreciseHit 里）
+  var hit = petModelPreciseHit(kind, x, y);
   cache.at = now;
   cache.x = x;
   cache.y = y;
@@ -1305,21 +1419,17 @@ function maybePreciseModelHitTest(kind, interaction, x, y) {
 function checkVRMHitTest(x, y, margin) {
   try {
     if (isCurrentModelInGoodbyeMode()) return false;
-    if (window.vrmManager && window.vrmManager.currentModel) {
-      var interaction = window.vrmManager.interaction;
-      if (!interaction) return false;
-      if (typeof interaction.updateModelBoundsCache === 'function') interaction.updateModelBoundsCache();
-      if (interaction._cachedScreenBounds) {
-        var sb = interaction._cachedScreenBounds;
-        if (isPointInScreenBoundsEllipse(sb, x, y, margin)) return true;
-        if (isPointInScreenBoundsRect(sb, x, y, (margin || 0) + 12)) {
-          return maybePreciseModelHitTest('vrm', interaction, x, y);
-        }
-        return false;
+    if (!petModelPresent('vrm')) return false;
+    // 原来 interaction 不在就直接 false；判据收回 petModelScreenBounds 里（拿不到框 = null）。
+    var sb = petModelScreenBounds('vrm', true);
+    if (sb) {
+      if (isPointInScreenBoundsEllipse(sb, x, y, margin)) return true;
+      if (isPointInScreenBoundsRect(sb, x, y, (margin || 0) + 12)) {
+        return maybePreciseModelHitTest('vrm', x, y);
       }
-      return maybePreciseModelHitTest('vrm', interaction, x, y);
+      return false;
     }
-    return false;
+    return maybePreciseModelHitTest('vrm', x, y);
   } catch (e) {
     return false;
   }
@@ -1328,27 +1438,18 @@ function checkVRMHitTest(x, y, margin) {
 function checkMMDHitTest(x, y, margin) {
   try {
     if (isCurrentModelInGoodbyeMode()) return false;
-    if (!window.mmdManager || !window.mmdManager.currentModel) return false;
+    if (!petModelPresent('mmd')) return false;
 
-    var interaction = window.mmdManager.interaction;
-    if (!interaction) return false;
-
-    if (typeof interaction.updateModelBoundsCache === 'function') {
-      interaction.updateModelBoundsCache();
-    } else if (typeof interaction.updateScreenBounds === 'function') {
-      interaction.updateScreenBounds();
-    }
-
-    if (interaction._cachedScreenBounds) {
-      var sb = interaction._cachedScreenBounds;
+    var sb = petModelScreenBounds('mmd', true);
+    if (sb) {
       if (isPointInScreenBoundsEllipse(sb, x, y, margin)) return true;
       if (isPointInScreenBoundsRect(sb, x, y, (margin || 0) + 12)) {
-        return maybePreciseModelHitTest('mmd', interaction, x, y);
+        return maybePreciseModelHitTest('mmd', x, y);
       }
       return false;
     }
 
-    return maybePreciseModelHitTest('mmd', interaction, x, y);
+    return maybePreciseModelHitTest('mmd', x, y);
   } catch (e) {
     return false;
   }
@@ -1357,25 +1458,20 @@ function checkMMDHitTest(x, y, margin) {
 function checkLive2DHitTest(x, y, margin) {
   try {
     if (isCurrentModelInGoodbyeMode()) return false;
-    if (!window.live2dManager) return false;
-
-    var model = window.live2dManager.getCurrentModel();
-    if (!model) return false;
 
     // 窗口坐标方案：canvas (0,0) = viewport (0,0)，无偏移，x/y 直接可用
-    var bounds = model.getBounds();
+    // 拿不到框 = 没有管理器 / 没有模型 / getBounds 抛错，与迁移前三层 return false 等价。
+    var bounds = petModelLocalBounds('live2d');
+    if (!bounds) return false;
+
     var m = margin || 0;
-    if (x < bounds.x - m || x > bounds.x + bounds.width + m ||
-        y < bounds.y - m || y > bounds.y + bounds.height + m) {
+    if (x < bounds.x - m || x > bounds.right + m ||
+        y < bounds.y - m || y > bounds.bottom + m) {
       return false;
     }
 
-    try {
-      if (typeof model.hitTest === 'function') {
-        var hitAreas = model.hitTest(x, y);
-        if (hitAreas && hitAreas.length > 0) return true;
-      }
-    } catch (e) {}
+    var hitAreas = petModelHitAreas('live2d', x, y);
+    if (hitAreas && hitAreas.length > 0) return true;
 
     var cx = bounds.x + bounds.width / 2;
     var cy = bounds.y + bounds.height / 2;
@@ -1635,47 +1731,25 @@ function getVisibleElementInputRect(el, pad) {
 function getModelInputBounds(forceBoundsRefresh) {
   try {
     var modelType = getActiveModelType();
-    if (modelType === 'live2d' && window.live2dManager) {
-      var model = window.live2dManager.getCurrentModel && window.live2dManager.getCurrentModel();
-      if (!model || !model.getBounds) return null;
-      var b = model.getBounds();
-      if (!b || b.width <= 0 || b.height <= 0) return null;
+    if (modelType === 'live2d') {
+      var local = petModelLocalBounds('live2d');
+      if (!local) return null;
       return {
-        left: b.x,
-        top: b.y,
-        right: b.x + b.width,
-        bottom: b.y + b.height,
+        left: local.left,
+        top: local.top,
+        right: local.right,
+        bottom: local.bottom,
         modelType: modelType
       };
     }
-    if (modelType === 'vrm' && window.vrmManager && window.vrmManager.interaction) {
-      var vrm = window.vrmManager.interaction;
-      if ((forceBoundsRefresh || !vrm._cachedScreenBounds) && typeof vrm.updateModelBoundsCache === 'function') {
-        vrm.updateModelBoundsCache();
-      }
-      var sb = vrm._cachedScreenBounds;
+    if (modelType === 'vrm' || modelType === 'mmd') {
+      var sb = petModelScreenBounds(modelType, !!forceBoundsRefresh);
       if (!sb) return null;
       return {
         left: sb.minX,
         top: sb.minY,
         right: sb.maxX,
         bottom: sb.maxY,
-        modelType: modelType
-      };
-    }
-    if (modelType === 'mmd' && window.mmdManager && window.mmdManager.interaction) {
-      var mmd = window.mmdManager.interaction;
-      if (forceBoundsRefresh || !mmd._cachedScreenBounds) {
-        if (typeof mmd.updateModelBoundsCache === 'function') mmd.updateModelBoundsCache();
-        else if (typeof mmd.updateScreenBounds === 'function') mmd.updateScreenBounds();
-      }
-      var sb2 = mmd._cachedScreenBounds;
-      if (!sb2) return null;
-      return {
-        left: sb2.minX,
-        top: sb2.minY,
-        right: sb2.maxX,
-        bottom: sb2.maxY,
         modelType: modelType
       };
     }

@@ -61,7 +61,10 @@
     var centerX = numOrNull(raw.centerX);
     var centerY = numOrNull(raw.centerY);
     return {
+      // 边读法（normalizeDesktopAvatarBounds / interaction 缓存）
       left: left, top: top, right: right, bottom: bottom,
+      // 角点读法（normalizeShapeLocalBoundsToRect 优先读 x/y；live2d 的 getBounds 也只给这套）
+      x: left, y: top,
       width: right - left, height: bottom - top,
       centerX: centerX === null ? (left + right) / 2 : centerX,
       centerY: centerY === null ? (top + bottom) / 2 : centerY,
@@ -110,6 +113,89 @@
       }
     }
     return interactionRect(M.interaction);
+  }
+
+  function managerOf(kind) {
+    return kind === 'mmd' ? window.mmdManager
+      : kind === 'vrm' ? window.vrmManager
+      : window.live2dManager;
+  }
+
+  /**
+   * 管理器在不在、有没有当前模型。
+   * 返回 null 表示「管理器不在」—— 调用方要能区分它和「在但没模型」之外的情况，
+   * 所以不折叠成 false。
+   */
+  function managerPresent(kind) {
+    var M = managerOf(kind);
+    if (!M) return null;
+    if (kind === 'live2d') return true;
+    return Boolean(M.currentModel);
+  }
+
+  /** 锁定态：先看 manager.isLocked，再看 interaction.isLocked（与迁移前同序）。 */
+  function managerLocked(kind) {
+    var M = managerOf(kind);
+    if (!M) return null;
+    if (typeof M.isLocked !== 'undefined') return Boolean(M.isLocked);
+    if (M.interaction && typeof M.interaction.isLocked !== 'undefined') return Boolean(M.interaction.isLocked);
+    return false;
+  }
+
+  function managerGoodbye(kind) {
+    var M = managerOf(kind);
+    return M ? Boolean(M._goodbyeClicked) : null;
+  }
+
+  /** interaction 的屏幕框点击区域（hit test 用），先按需刷缓存。 */
+  function screenBoundsOf(kind) {
+    var M = managerOf(kind);
+    if (!M || (kind !== 'live2d' && !M.currentModel)) return undefined;
+    var I = M.interaction;
+    if (!I) return undefined;
+    return function (force) {
+      try {
+        if (force || !I._cachedScreenBounds) {
+          if (typeof I.updateModelBoundsCache === 'function') I.updateModelBoundsCache();
+          else if (typeof I.updateScreenBounds === 'function') I.updateScreenBounds();
+        }
+      } catch (_) { /* 刷不动就用旧缓存 */ }
+      var sb = I._cachedScreenBounds;
+      if (!sb) return null;
+      return { minX: Number(sb.minX), minY: Number(sb.minY), maxX: Number(sb.maxX), maxY: Number(sb.maxY) };
+    };
+  }
+
+  /** interaction 的精确命中（穿透明细区域用）。 */
+  function preciseHitOf(kind) {
+    var M = managerOf(kind);
+    if (!M || !M.currentModel) return undefined;
+    var I = M.interaction;
+    if (!I || typeof I._hitTestModel !== 'function') return undefined;
+    return function (x, y) {
+      try { return Boolean(I._hitTestModel(x, y)); } catch (_) { return false; }
+    };
+  }
+
+  /** live2d 模型的本地包围盒（canvas 原点 = 视口原点，可直接当窗口坐标用）。 */
+  function live2dModelBounds() {
+    var M = window.live2dManager;
+    if (!M || typeof M.getCurrentModel !== 'function') return null;
+    var model = M.getCurrentModel();
+    if (!model || typeof model.getBounds !== 'function') return null;
+    try { return rectOf(model.getBounds()); } catch (_) { return null; }
+  }
+
+  /** live2d 的 hitTest（命中区域名数组）。命中逻辑留在 preload，这里只交数据。 */
+  function live2dHitAreas(x, y) {
+    var M = window.live2dManager;
+    if (!M || typeof M.getCurrentModel !== 'function') return null;
+    var model = M.getCurrentModel();
+    if (!model || typeof model.hitTest !== 'function') return null;
+    try {
+      var areas = model.hitTest(x, y);
+      return areas && typeof areas.length === 'number' ? Array.prototype.slice.call(areas) : null;
+    } catch (_) { return null; }
   }
 
   // 每个名字一个惰性取值函数：preload 调用时**才**去读，保证拿到最新值
@@ -260,6 +346,30 @@
         F._pointerMoveHandler({ type: 'pointermove', clientX: x, clientY: y });
         return true;
       };
+    },
+    // ---- 域 F：穿透判定（interaction / currentModel / getCurrentModel，2026-10-30 迁移）----
+    // 这批直接决定「鼠标落在窗口上算不算点中模型」，也是迁移风险最高的一批，
+    // 所以每一项都只交**数据**（布尔/数字/数组），几何判断留在 preload 里可单测。
+    'modelLocked': function () {
+      return { mmd: managerLocked('mmd'), vrm: managerLocked('vrm'), live2d: managerLocked('live2d') };
+    },
+    'modelGoodbye': function () {
+      return { mmd: managerGoodbye('mmd'), vrm: managerGoodbye('vrm'), live2d: managerGoodbye('live2d') };
+    },
+    'present:mmd': function () { return managerPresent('mmd'); },
+    'present:vrm': function () { return managerPresent('vrm'); },
+    'screenBounds:mmd': function () { return screenBoundsOf('mmd'); },
+    'screenBounds:vrm': function () { return screenBoundsOf('vrm'); },
+    'hit:mmd': function () { return preciseHitOf('mmd'); },
+    'hit:vrm': function () { return preciseHitOf('vrm'); },
+    'localBounds:live2d': function () { return live2dModelBounds(); },
+    'hitAreas:live2d': function () {
+      // 只在模型真的有 hitTest 时才回闭包；否则 undefined = 能力缺失，
+      // preload 会退回椭圆近似（与迁移前 `typeof model.hitTest === 'function'` 等价）。
+      var M = window.live2dManager;
+      var model = M && typeof M.getCurrentModel === 'function' ? M.getCurrentModel() : null;
+      if (!model || typeof model.hitTest !== 'function') return undefined;
+      return function (x, y) { return live2dHitAreas(x, y); };
     },
     // ---- 截图域：头像捕获 ----
     // avatarPortrait 是实例，裸传方法过桥会丢 this；闭包在页面世界内执行。
