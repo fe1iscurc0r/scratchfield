@@ -1,5 +1,11 @@
 appId: com.lumo.scratchpad
 productName: 陆墨
+# 产物文件名必须 ASCII：中文 productName 在 GitHub release asset 上传时会被**剥掉**
+# （v5.2.0 草稿实测 → "-5.2.0-arm64.dmg"；v5.2.10 又踩一次 → "-5.2.10-arm64.dmg"
+#   / "Setup.5.2.10.exe" / "-5.2.10.AppImage"）。
+# 这笔设置由 c8f89bd9（v5.2.4 首发三修）加过，后来被 3711a9f8（10-07 大同步）覆盖掉，
+# 本轮恢复并补上第二次踩坑的记录。
+artifactName: Lumo-${version}-${arch}.${ext}
 copyright: Copyright © 2026 陆墨
 
 directories:
