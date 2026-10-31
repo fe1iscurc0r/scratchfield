@@ -3,6 +3,48 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 格式，
 版本号遵守 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [5.2.10]
+
+> 2026-10-31 · 自 5.2.9 起 11 个提交 / 20 个文件
+
+这一版**只动 CI 与打包链路，不改运行时行为**。目的很具体：让「发版能产出安装包」
+第一次真正成立 —— 5.2.9 只发了 tag 和 Release 正文，三个平台的打包全红，Release 里
+一个产物都没有。
+
+### Added
+- **`typecheck` job**（`ci.yml`）：每次 push 跑 `vue-tsc -b`。此前类型检查只存在于
+  `build-release.yml` 的 build job 里，而那只在**打 tag** 时触发 ⇒ 类型错误可以一直躺在
+  main 上，直到发版当天才炸。变异验证过：把修复回退，`vue-tsc` 退出码 2，该 job 会红。
+
+### Fixed
+- **前端类型错误** `McpAddDialog.vue(275,5) TS2322`（`string | undefined` 不能赋给
+  `string`）。根因不是笔误：`@vue/tsconfig@0.8.1` 默认开启 `noUncheckedIndexedAccess`
+  （TS 5.9 推荐项）。这类错误 eslint 抓不到，只有 tsc 抓得到。
+- **electron-builder 打包失败** `Cannot read properties of null (reading 'provider')`。
+  `publish` 整段注释掉（= undefined）**不等于**「不发布」：只有显式 `publish: null` 才走
+  `PublishManager.getPublishConfigs` 的短路分支 `if (publishers === null) return null`。
+  打包本身是成功的（已产出 AppImage），死在生成更新元数据那一步。
+- **CI 全量测试 38 failed → 0 failed**（1625 passed / 44 skipped）：
+  - `tools/peak_switch.sh` 是 `#!/bin/sh` 却用了 bash 专有的 `$((10#$x))` ⇒ 改 POSIX（19 条）；
+  - `mcpserver/breeze_tts` 有 manifest 却缺 `entryPoint` 与 `handle_handoff` ⇒ 照同构的
+    `tts_api` 补齐（3 条）；
+  - `code_exec` 的审计条目没记录被沙箱挡掉的环境变量数 ⇒ 补 `env_dropped_n`（只记数量）；
+  - **`.gitattributes` 的 `* text=auto eol=crlf` 让所有检出都是 CRLF**，与「交付物必须 LF」的
+    逐字节断言直接冲突 ⇒ 给相关路径钉 `eol=lf`。这是那批 CRLF 失败的**真根因**，
+    不是文件被编辑器污染；
+  - toolknit / acoustics 数据集等**环境缺件**改为精确 skip 并写明原因，不再假红。
+- **`ci-nightly.yml` 从来没成功过**：`pytest` 不在 pyproject 的任何依赖组里（`build`=pyinstaller、
+  `test`=google-genai），所以 `uv run pytest` 报 `Failed to spawn: pytest`。改用
+  `uv run --with "pytest==9.1.1" python -m pytest`（不用 `uv pip install` 后再 `uv run`：
+  uv run 会按 lockfile 精确同步，把手工装的包剪掉）。
+- **`release` job 手动触发时的假失败**：不带 version 时 `Determine version` 会把
+  `refs/heads/main` 当版本号 ⇒ release 收紧为「有 tag，或手动且给了 version」。
+
+### Known limits
+- 44 个 skip 是**环境缺件**（qpdf / PDF 引擎 / libreoffice / ToolKnit CLI / acoustics 数据集），
+  不是「没做」；要真跑得在 runner 里装依赖。
+- scratchfield 与 scratchpad 的镜像仍差约 9000 个路径，本版未处理。
+
 ## [5.2.9]
 
 > 2026-10-30 · 自 5.2.8 起 51 个提交 / 300 个文件

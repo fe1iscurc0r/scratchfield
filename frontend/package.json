@@ -1,7 +1,7 @@
 {
   "name": "lumo",
   "type": "module",
-  "version": "5.2.8",
+  "version": "5.2.10",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
