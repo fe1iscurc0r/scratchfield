@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -425,12 +426,23 @@ def test_ppt_to_pdf_rejects_non_pptx(bridge):
     assert out["data"]["error_code"] == "INVALID_SUFFIX"
 
 
+#: 该边界是 **Windows 侧** soffice 的现象（本机 2026-10-14 实测：LibreOffice 26.8.1.1
+#: + @toolknit/cli 2.3.1，84 字符必崩）。Linux runner 上实测 **不复现**（84 照常成功），
+#: 2026-10-31 CI 首次真跑暴露：这两行在 Linux 上必然红，而它们断言的是「上游有 bug」，
+#: 不是「我们的代码有问题」⇒ 按平台限定，别把平台差异当回归。
+_WIN_ONLY_BOUNDARY = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="该输出目录长度边界是 Windows 侧 soffice 的 file:/// URL 现象，Linux 上上游不复现",
+)
+
 @pytest.mark.parametrize(
     ("length", "disable_fallback", "should_work"),
     [
         (tools.LIBREOFFICE_OUTPUT_PATH_LIMIT, True, True),        # 83 + 关降级 ⇒ 界内，成功
-        (tools.LIBREOFFICE_OUTPUT_PATH_LIMIT + 1, True, False),   # 84 + 关降级 ⇒ **上游 fail-fast（留证）**
-        (tools.LIBREOFFICE_OUTPUT_PATH_LIMIT + 1, False, True),   # 84 + 默认   ⇒ 本模块降级救回
+        pytest.param(tools.LIBREOFFICE_OUTPUT_PATH_LIMIT + 1, True, False,
+                     marks=_WIN_ONLY_BOUNDARY),                   # 84 + 关降级 ⇒ **上游 fail-fast（留证）**
+        pytest.param(tools.LIBREOFFICE_OUTPUT_PATH_LIMIT + 1, False, True,
+                     marks=_WIN_ONLY_BOUNDARY),                   # 84 + 默认   ⇒ 本模块降级救回
     ],
 )
 def test_known_boundary_output_dir_length_limit(renderer, length, disable_fallback, should_work,
