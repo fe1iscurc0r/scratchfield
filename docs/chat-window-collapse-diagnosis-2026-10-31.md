@@ -15,7 +15,10 @@ rootRect:        [0, 0, 0, 0]         ← 内容区零尺寸
 ballIcon:        rect=[339,114,58,58] opacity=1  display=block  ← 球是可见的
 ```
 
-也就是说：**点那个球就能展开**，对话框并没有丢。
+也就是说：**点那个球就能展开**，对话框并没有丢。球不是页面里的 DOM 元素，而是**独立的
+Electron 窗口**（`window-manager.js` 的 `compactChatBallWindow`，视觉 58px / 锚点 88px），
+点击时它发 `neko:compact-chat-ball-click`，由 `main.js:1876` 的 handler 还原对话窗 ——
+这条链是「球能用」的依据，不是推测。
 
 ## 触发链（逐文件点名）
 
