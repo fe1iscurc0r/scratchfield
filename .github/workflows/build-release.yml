@@ -47,13 +47,16 @@ jobs:
       # 之前 CI 有 44 个 skip，其中一部分不是「本机没这东西就该跳」，而是**这个 job 从没装过**：
       #   · ripgrep  —— tests/test_deps_audit 拿它当独立对照实现（缺了只剩回退路径）；
       #   · pypdf    —— toolknit 的 pdf_text 引擎链里最轻的一档（requirements.txt 不含 PDF 引擎）；
+      #   · libreoffice-impress —— ppt_to_pdf 要 `soffice`；**只装 Impress**，不装整个 Office，
+      #     省掉 Writer/Calc/Base 那些用不上的（runner 磁盘紧）；
+      #   · pymupdf —— pdf_text 的布局引擎档（要行级 bbox，pypdf 给不了）；
       #   · acoustics 数据集 —— 它是**生成产物**，公开镜像仓不携带 data/，这里现生成。
       # 生成器确定性已验证：与私有仓已提交的 4 个文件 sha256 逐个相同。
       - name: Install optional test deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends ripgrep qpdf
-          pip install --no-cache-dir "pypdf>=5"
+          sudo apt-get install -y -qq --no-install-recommends ripgrep qpdf libreoffice-impress
+          pip install --no-cache-dir "pypdf>=5" "pymupdf>=1.24"
 
       - name: Generate acoustics dataset
         run: python -c "import pathlib, acoustics.dataset as ds; ds.generate_monodisperse_dataset(pathlib.Path('data/acoustics'))"
