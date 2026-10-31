@@ -43,11 +43,19 @@ jobs:
       - name: Install uv
         run: pip install --no-cache-dir uv
 
+      # pytest 用 `uv run --with` 叠上去，而不是 `uv pip install` 后再 `uv run pytest`：
+      # uv run 会按 lockfile 同步环境，把手工装进去的包剪掉（sync 是精确的）。
+      # 也不用裸 `pytest`：overlay 的控制台脚本不保证在 PATH 上，`python -m pytest` 才稳。
+# 版本与 build-release.yml 的 `pip install "pytest==9.1.1"` 对齐，避免两处漂移。
       - name: Sync deps
-        run: uv sync --group build --group test   # ⚠️ 2026-10-17：pytest 在 test 组，只 sync build 会让 `uv run pytest` 报 "Failed to spawn: pytest"
+        # pytest **不在** pyproject 的任何依赖组里（build=pyinstaller、test=google-genai），
+        # 所以 `uv run pytest` 必然报 `Failed to spawn: pytest` —— 这就是 nightly 从来
+        # 没真正跑起来过的原因。2026-10-17 曾把这里改成 `--group test` 并注释「pytest 在
+        # test 组」，那是误判：test 组里也没有 pytest。真解法在下面的 `--with`。
+        run: uv sync --group build --group test
 
       - name: Run core layer
-        run: uv run pytest -m core -q --junitxml=build/test-results/core-junit.xml
+        run: uv run --with "pytest==9.1.1" python -m pytest -m core -q --junitxml=build/test-results/core-junit.xml
 
       - name: Upload junit artifact
         if: always()
@@ -72,13 +80,21 @@ jobs:
       - name: Install uv
         run: pip install --no-cache-dir uv
 
+      # pytest 用 `uv run --with` 叠上去，而不是 `uv pip install` 后再 `uv run pytest`：
+      # uv run 会按 lockfile 同步环境，把手工装进去的包剪掉（sync 是精确的）。
+      # 也不用裸 `pytest`：overlay 的控制台脚本不保证在 PATH 上，`python -m pytest` 才稳。
+# 版本与 build-release.yml 的 `pip install "pytest==9.1.1"` 对齐，避免两处漂移。
       - name: Sync deps
-        run: uv sync --group build --group test   # ⚠️ 2026-10-17：pytest 在 test 组，只 sync build 会让 `uv run pytest` 报 "Failed to spawn: pytest"
+        # pytest **不在** pyproject 的任何依赖组里（build=pyinstaller、test=google-genai），
+        # 所以 `uv run pytest` 必然报 `Failed to spawn: pytest` —— 这就是 nightly 从来
+        # 没真正跑起来过的原因。2026-10-17 曾把这里改成 `--group test` 并注释「pytest 在
+        # test 组」，那是误判：test 组里也没有 pytest。真解法在下面的 `--with`。
+        run: uv sync --group build --group test
 
       # full 层 = tests/ 全量（未标注文件默认 full；NEKO 等已在 pyproject
       # norecursedirs 收集期排除）
       - name: Run full layer
-        run: uv run pytest tests/ -q --junitxml=build/test-results/full-junit.xml
+        run: uv run --with "pytest==9.1.1" python -m pytest tests/ -q --junitxml=build/test-results/full-junit.xml
 
       - name: Upload junit artifact
         if: always()
