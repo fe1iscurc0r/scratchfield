@@ -52,7 +52,7 @@ jobs:
       - name: Install optional test deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends ripgrep
+          sudo apt-get install -y -qq --no-install-recommends ripgrep qpdf
           pip install --no-cache-dir "pypdf>=5"
 
       - name: Generate acoustics dataset
