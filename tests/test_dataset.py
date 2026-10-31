@@ -31,8 +31,11 @@ def _skip_if_dataset_absent() -> None:
     没有数据就无从校验，报失败只会让 CI 常年挂红、把真故障淹掉（2026-10-30 实测）。"""
     if not META_PATH.exists():
         pytest.skip(
-            f"数据集未生成：{META_PATH} 不存在 —— 先运行 "
-            "python -m acoustics.dataset 生成（私有仓 scratchpad 已提交该产物，镜像仓不携带 data/）"
+            f"数据集未生成：{META_PATH} 不存在 —— 生成命令是 "
+            r"""python -c "import pathlib, acoustics.dataset as ds; ds.generate_monodisperse_dataset(pathlib.Path('data/acoustics'))" """
+            "（⚠️ 不是 `python -m acoustics.dataset`：该模块没有 `__main__` 段，那条命令等于只 import，"
+            "什么都不生成 —— 2026-10-31 实测确认。私有仓已提交该产物，公开镜像仓不携带 data/，"
+            "CI 的 build-release 会在跑测试前现生成，生成器确定性已验：与已提交的 4 个文件 sha256 全等）"
         )
 
 

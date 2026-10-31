@@ -27,3 +27,11 @@ docs/integration-graph/** text eol=lf
 reports/workorder244*.md text eol=lf
 tools/toolknit_license_audit.py text eol=lf
 tests/test_toolknit_mcp.py text eol=lf
+
+# ── 二进制夹具：别让换行转换碰到它们（2026-10-31）─────────────────────
+# 上面 `* text=auto eol=crlf` 会按内容猜文本/二进制。toolknit 的合成 `sample.pdf`
+# 被猜成文本 ⇒ 检出时被塞进 CRLF，114618 → 115963 字节，
+# 于是「夹具字节数」断言（SAMPLE_PDF_BYTES=114618）必然失败；而那条用例当时被
+# 永久 skip（判据写错了，见 tests/test_toolknit_mcp.py 注释），所以一直没人发现。
+# 显式 -text：检出即原始字节，任何平台都不转换。
+mcpserver/toolknit_mcp/tests/_fixtures/** -text

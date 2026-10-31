@@ -43,6 +43,21 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
+      # ── 让「环境缺件」的用例真跑起来（2026-10-31）──────────────────────
+      # 之前 CI 有 44 个 skip，其中一部分不是「本机没这东西就该跳」，而是**这个 job 从没装过**：
+      #   · ripgrep  —— tests/test_deps_audit 拿它当独立对照实现（缺了只剩回退路径）；
+      #   · pypdf    —— toolknit 的 pdf_text 引擎链里最轻的一档（requirements.txt 不含 PDF 引擎）；
+      #   · acoustics 数据集 —— 它是**生成产物**，公开镜像仓不携带 data/，这里现生成。
+      # 生成器确定性已验证：与私有仓已提交的 4 个文件 sha256 逐个相同。
+      - name: Install optional test deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ripgrep
+          pip install --no-cache-dir "pypdf>=5"
+
+      - name: Generate acoustics dataset
+        run: python -c "import pathlib, acoustics.dataset as ds; ds.generate_monodisperse_dataset(pathlib.Path('data/acoustics'))"
+
       - name: Run backend tests
         run: pytest tests/ -v
         env:

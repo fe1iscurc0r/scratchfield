@@ -127,6 +127,21 @@ def _resolve_exe(name: str) -> str:
     return found
 
 
+def cli_available() -> bool:
+    """本机能否跑 CLI（判据与 :func:`run_cli` 的执行方式同源）。
+
+    ⚠️ 判据必须是 **npx 在不在**，不能是「有没有名为 toolknit 的可执行文件」——
+    本模块从不安装那个二进制，全部经 ``npx -y @toolknit/cli`` 转发（见 :func:`cli_argv`）。
+    按不存在的二进制名去判会得到**恒 False**：测试于是永久 skip，连环境齐了也跳过。
+    这个坑 2026-10-31 实测踩过（13 条用例静默不跑）。
+    """
+    try:
+        _resolve_exe("npx")
+    except CliUnavailable:
+        return False
+    return True
+
+
 def _strip_noise(text: str) -> str:
     """剥掉 npm 的 deprecation/notice 行（实测冷启动会往 stderr 打 5 行 ``npm warn``）。"""
     kept = [ln for ln in (text or "").splitlines()
@@ -905,6 +920,7 @@ __all__ = [
     "PATH_FALLBACK_ENV",
     "CliUnavailable",
     "cli_argv",
+    "cli_available",
     "cli_spec",
     "cli_version",
     "cli_version_probe",

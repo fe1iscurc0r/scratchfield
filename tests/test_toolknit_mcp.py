@@ -29,15 +29,18 @@ from mcpserver.toolknit_mcp import server, tools, workspace
 # 卷173 测试分层标注：smoke ⊂ core；未标注文件默认 full（pyproject.toml markers）
 pytestmark = [pytest.mark.core]
 
-#: ToolKnit CLI 是**外部二进制**（PDF 的 qpdf、office 的 libreoffice、调色都经它）。
+#: ToolKnit CLI 是**外部依赖**（PDF 的 qpdf、office 的 libreoffice、调色都经它）。
 #: 本机 / CI 没装时只跳过**真正要调它**的用例 —— 不整文件跳过，因为静态契约类
 #: （行尾 / 文件清单 / 骨架）不依赖 CLI，必须继续跑。
-#: 2026-10-30 实测：CI 上 10 条红的全是同一个原因「'toolknit' 不是内部或外部命令」，
-#: 长期挂着会把真故障淹掉。
-_TOOLKNIT_CLI = shutil.which("toolknit")
+#:
+#: ⚠️ 判据必须是 **npx 在不在**：本模块从不安装 ``toolknit`` 这个二进制，
+#: 全部经 ``npx -y @toolknit/cli`` 转发（``tools.cli_argv``）。2026-10-30 我按
+#: ``shutil.which("toolknit")`` 判，结果是**恒 False** —— 这 13 条用例连环境齐了
+#: 也永远 skip（CI 上 44 个 skip 里有 13 个是这么来的）。2026-10-31 改成与生产代码
+#: 同源的 ``tools.cli_available()``。
 requires_toolknit = pytest.mark.skipif(
-    _TOOLKNIT_CLI is None,
-    reason="本机没有 ToolKnit CLI（外部依赖），该用例需要真实 CLI 才能跑",
+    not tools.cli_available(),
+    reason="本机没有 npx（ToolKnit CLI 经 `npx -y @toolknit/cli` 调用），该用例需要真实 CLI 才能跑",
 )
 
 #: 模块内相对资源（夹具随模块交付，路径不依赖当前工作目录）
