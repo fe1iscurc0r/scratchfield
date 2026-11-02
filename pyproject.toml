@@ -79,7 +79,7 @@ dependencies = [
     # - dashscope：voice/input/voice_realtime/adapters/qwen/client.py 模块级硬 import，
     #   且 voice_realtime/__init__ 导出该适配器 → 缺包时整个 voice_realtime 链崩
     #   （同 matplotlib 前科：venv 能跑只是因为本地装过）。下限=审计时实测版。
-    "dashscope>=1.27.7",
+    "dashscope>=2.0.2",
     # - starlette：naga_auth.py 模块级直接 import（from starlette.requests import Request）。
     #   fastapi 的传递依赖保证存在；按卷161「直接 import 应显式声明」原则显式化，
     #   版本跟随 fastapi 解析，不重复 pin。
