@@ -69,7 +69,7 @@ anthropic>=0.42.0
 # vendor/top5/VulnClaw      == 0.3.7   MIT         (adapters/vulnclaw.py)
 # vendor/top5/caura-memclaw == 2.27.0  Apache-2.0  (adapters/memclaw.py)
 # vendor/top5/headroom      == 0.34.0  Apache-2.0  (adapters/headroom.py)
-rdflib>=7.0.0  # semantic_web MCP adapter (SPARQL/RDF)
+rdflib>=7.6.0  # semantic_web MCP adapter (SPARQL/RDF)
 
 # ---------- memclaw 跨 Agent 记忆总线（mcpserver/adapters/memclaw_adapter）----------
 aiosqlite>=0.22.1  # SqliteBackend standalone 后端必需（缺则外壳工具直接跳过）
