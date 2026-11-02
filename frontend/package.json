@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@antfu/eslint-config": "^9.5.1",
-    "@primeuix/themes": "^3.0.1",
+    "@primeuix/themes": "^3.1.0",
     "@types/d3": "^7.4.3",
     "@types/markdown-it": "^14.2.0",
     "@vueuse/core": "^15.0.0",
