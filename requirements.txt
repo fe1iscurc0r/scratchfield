@@ -76,4 +76,4 @@ aiosqlite>=0.22.1  # SqliteBackend standalone 后端必需（缺则外壳工具�
 
 # ---------- glyco 糖链信息学（mcpserver/glyco，工单203 任务二）----------
 glypy>=1.0.17  # 糖链结构解析/质量/树（Apache-2.0；实测仅 2 包：glypy+hjson）
-glycowork>=1.10.1  # glycan 功能注释底座（MIT；实测 7 包，**不依赖 torch**）
+glycowork>=1.11.0  # glycan 功能注释底座（MIT；实测 7 包，**不依赖 torch**）
