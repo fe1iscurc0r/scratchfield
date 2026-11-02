@@ -89,7 +89,7 @@ dependencies = [
 [project.optional-dependencies]
 # 本地 kokoro-onnx 离线 TTS 引擎（Edge TTS 断网时兜底）
 local-tts = [
-    "onnxruntime>=1.30.0",
+    "onnxruntime>=1.31.1",
     "espeakng-loader>=0.2.4",
     "phonemizer-fork>=3.3.2",
     "misaki-fork[zh]>=0.9.6",
